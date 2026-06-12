@@ -1,0 +1,334 @@
+"""Tier-1 validation suite. Run: pytest engine/tests -q"""
+import base64
+import re
+
+import numpy as np
+import pandas as pd
+import pytest
+from fastapi.testclient import TestClient
+
+from triad_engine import compiler, document, stats
+from triad_engine.main import app
+
+client = TestClient(app)
+
+A = [72.1, 68.4, 75.3, 80.2, 69.9, 77.5, 74.0, 71.2, 66.8, 79.1,
+     73.3, 70.6, 76.2, 68.0, 72.9, 75.8, 71.7, 69.3, 78.4, 74.6]
+B = [61.2, 58.7, 65.1, 55.9, 63.4, 60.8, 57.2, 64.0, 59.5, 62.3,
+     56.8, 66.2, 61.9, 58.1, 63.7, 60.0, 57.9, 65.5, 62.6, 59.3]
+
+
+def make_table():
+    rows = []
+    for i, v in enumerate(A, 1):
+        rows.append({"id": f"r{i}", "subject": f"S{i:02d}", "treatment": "control",
+                     "dose": 1.0, "response": v, "excluded": False})
+    for i, v in enumerate(B, 21):
+        rows.append({"id": f"r{i}", "subject": f"S{i:02d}", "treatment": "drug_a",
+                     "dose": 1.0, "response": v, "excluded": False})
+    return {"schema": document.SAMPLE_SCHEMA, "rows": rows}
+
+
+def make_spec(**stats_extra):
+    return {
+        "spec_version": "1.0", "id": "an_test", "title": "test",
+        "data": {"filter": [], "respect_exclusions": True},
+        "mappings": {"x": {"column": "treatment"}, "y": {"column": "response"},
+                     "color": {"column": "treatment"}, "pair_by": None,
+                     "facet": None},
+        "layers": [{"mark": "dot", "options": {"jitter": 0.18}},
+                   {"mark": "summary", "stat": {"center": "mean", "error": "ci95"}}],
+        "stats": {"family": "group_comparison", "test": "welch_t",
+                  "chosen_by": "recommendation_accepted",
+                  "alternatives_offered": ["mann_whitney"],
+                  "assumption_checks": [{"check": "shapiro_wilk", "per": "group"}],
+                  "alpha": 0.05, "report": ["effect_size", "ci", "n_per_group"],
+                  **stats_extra},
+        "annotations": {"significance_brackets": "auto", "show_n": True},
+        "style": {"preset": "demo_default", "overrides": {}},
+        "engine_snapshot": {},
+    }
+
+
+def test_stats_match_scipy_ground_truth():
+    df = pd.DataFrame(make_table()["rows"])
+    res = stats.group_comparison(df, "treatment", "response",
+                                 ["control", "drug_a"])
+    r = res["result"]
+    assert r["test"] == "welch_t"
+    assert r["t"] == pytest.approx(11.11510, abs=1e-4)
+    assert r["df"] == pytest.approx(36.148, abs=1e-2)
+    assert r["p"] == pytest.approx(3.2436e-13, rel=1e-3)
+    assert r["effect"]["value"] == pytest.approx(3.44507, abs=1e-4)
+    sw = res["checks"][0]
+    assert sw["W"] == pytest.approx(0.97732, abs=1e-4)
+    assert sw["p"] == pytest.approx(0.89509, abs=1e-4)
+
+
+def test_mann_whitney_override():
+    df = pd.DataFrame(make_table()["rows"])
+    res = stats.group_comparison(df, "treatment", "response",
+                                 ["control", "drug_a"], override="mann_whitney")
+    assert res["chosen_by"] == "user_override"
+    assert res["result"]["U"] == pytest.approx(400, abs=0.5)
+    assert res["result"]["p"] == pytest.approx(6.7956e-08, rel=1e-2)
+
+
+def test_small_group_recommends_rank_based():
+    rows = make_table()["rows"][:10] + make_table()["rows"][20:]
+    df = pd.DataFrame(rows)
+    res = stats.group_comparison(df, "treatment", "response",
+                                 ["control", "drug_a"])
+    assert res["recommendation"]["test"] == "mann_whitney"
+    assert "n = 12" in res["recommendation"]["reason"]
+
+
+def test_analyze_endpoint_svg_has_clickable_point_groups():
+    r = client.post("/analyze", json={"table": make_table(),
+                                      "spec": make_spec()})
+    assert r.status_code == 200
+    body = r.json()
+    svg = body["figure"]["svg"]
+    groups = body["figure"]["point_groups"]
+    assert [g["gid"] for g in groups] == ["pts-0", "pts-1"]
+    for g in groups:
+        m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>', svg, re.S)
+        assert m, f"gid {g['gid']} missing from SVG"
+        n_use = len(re.findall(r"<use\b", m.group(1)))
+        assert n_use == len(g["row_ids"]), "one <use> per row required"
+    # significance bracket present (p << 0.05 here)
+    assert "***" in svg
+
+
+def test_exclusion_changes_n_and_methods_text():
+    table = make_table()
+    table["rows"][0]["excluded"] = True
+    table["rows"][1]["excluded"] = True
+    r = client.post("/analyze", json={"table": table, "spec": make_spec()})
+    s = r.json()["stats"]
+    assert s["summaries"][0]["n"] == 18
+    assert "2 observation(s) were excluded" in s["methods_text"]
+
+
+def test_pdf_export_has_exact_mm_size():
+    spec = make_spec()
+    spec["style"]["preset"] = "nature_single_column"  # 89 x 70 mm
+    r = client.post("/export", json={"table": make_table(), "spec": spec,
+                                     "format": "pdf"})
+    pdf = base64.b64decode(r.json()["data_base64"])
+    m = re.search(rb"/MediaBox\s*\[\s*0 0 ([\d.]+) ([\d.]+)\s*\]", pdf)
+    assert m, "no MediaBox in PDF"
+    w_pt, h_pt = float(m.group(1)), float(m.group(2))
+    assert w_pt * 25.4 / 72 == pytest.approx(89, abs=0.5)
+    assert h_pt * 25.4 / 72 == pytest.approx(70, abs=0.5)
+
+
+def test_document_roundtrip():
+    table = make_table()
+    saved = document.save_document(table["schema"], table["rows"],
+                                   [make_spec()], {"exclusions": []},
+                                   {"engine": "test"})
+    doc = document.load_document(saved)
+    assert doc["schema"] == table["schema"]
+    assert len(doc["rows"]) == 40
+    assert doc["rows"][0]["response"] == pytest.approx(72.1)
+    assert doc["analyses"][0]["id"] == "an_test"
+
+
+def test_health_reports_versions():
+    r = client.get("/health")
+    snap = r.json()["engine_snapshot"]
+    assert all(k in snap for k in ("scipy", "pingouin", "matplotlib"))
+
+
+# ---------------- tier-2: plot marks ----------------
+
+def _spec_with_layers(*marks):
+    spec = make_spec()
+    spec["layers"] = [{"mark": m, "options": {}} for m in marks]
+    return spec
+
+
+@pytest.mark.parametrize("marks", [("box", "dot"), ("violin", "dot"), ("bar",)])
+def test_marks_render(marks):
+    r = client.post("/analyze", json={"table": make_table(),
+                                      "spec": _spec_with_layers(*marks)})
+    assert r.status_code == 200
+    body = r.json()
+    assert "<svg" in body["figure"]["svg"]
+    if "dot" in marks:  # the click-to-exclude contract holds under overlays
+        for g in body["figure"]["point_groups"]:
+            m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>',
+                          body["figure"]["svg"], re.S)
+            assert m and len(re.findall(r"<use\b", m.group(1))) == len(g["row_ids"])
+    else:  # aggregate-only marks expose no per-row click targets
+        assert body["figure"]["point_groups"] == []
+
+
+# ---------------- tier-2: correlation family ----------------
+
+def make_scatter_table():
+    rng = np.random.default_rng(7)
+    x = rng.uniform(0, 50, 40)
+    y = 80 - 0.4 * x + rng.normal(0, 5, 40)
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "subject", "type": "identifier", "label": "Subject"},
+        {"name": "dose", "type": "numeric", "label": "Dose (µM)"},
+        {"name": "response", "type": "numeric", "label": "Response (%)"},
+    ]}
+    rows = [{"id": f"r{i+1}", "subject": f"S{i+1:02d}", "dose": round(float(xv), 2),
+             "response": round(float(yv), 2), "excluded": False}
+            for i, (xv, yv) in enumerate(zip(x, y))]
+    return {"schema": schema, "rows": rows}
+
+
+def make_scatter_spec(**stats_extra):
+    spec = make_spec()
+    spec["mappings"] = {"x": {"column": "dose"}, "y": {"column": "response"},
+                        "color": None, "pair_by": None, "facet": None}
+    spec["layers"] = [{"mark": "scatter", "options": {}},
+                      {"mark": "regression", "options": {}}]
+    spec["stats"] = {**spec["stats"], "family": "correlation",
+                     "test": "pearson", **stats_extra}
+    return spec
+
+
+def test_correlation_matches_scipy_ground_truth():
+    from scipy import stats as sps
+    table = make_scatter_table()
+    df = pd.DataFrame(table["rows"])
+    res = stats.correlation(df, "dose", "response")
+    expected = sps.pearsonr(df["dose"], df["response"])
+    assert res["result"]["test"] == "pearson"
+    assert res["result"]["r"] == pytest.approx(expected.statistic, abs=1e-6)
+    assert res["result"]["p"] == pytest.approx(expected.pvalue, rel=1e-6)
+    # spearman override agrees with scipy too, and is recorded as an override
+    res_sp = stats.correlation(df, "dose", "response", override="spearman")
+    exp_sp = sps.spearmanr(df["dose"], df["response"])
+    assert res_sp["chosen_by"] == "user_override"
+    assert res_sp["result"]["r"] == pytest.approx(exp_sp.statistic, abs=1e-6)
+    assert res_sp["result"]["p"] == pytest.approx(exp_sp.pvalue, rel=1e-6)
+
+
+def test_scatter_endpoint_keeps_click_contract():
+    from scipy import stats as sps
+    table = make_scatter_table()
+    r = client.post("/analyze", json={"table": table,
+                                      "spec": make_scatter_spec()})
+    assert r.status_code == 200
+    body = r.json()
+    [g] = body["figure"]["point_groups"]
+    m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>', body["figure"]["svg"], re.S)
+    assert m and len(re.findall(r"<use\b", m.group(1))) == 40
+    df = pd.DataFrame(table["rows"])
+    expected = sps.linregress(df["dose"], df["response"])
+    assert body["stats"]["regression"]["slope"] == pytest.approx(
+        expected.slope, abs=1e-6)
+
+
+# ---------------- tier-2: descriptive family (histogram) ----------------
+
+def test_histogram_and_descriptives():
+    table = make_scatter_table()
+    spec = make_scatter_spec()
+    spec["layers"] = [{"mark": "histogram", "options": {}},
+                      {"mark": "density", "options": {}}]
+    spec["stats"]["family"] = "descriptive"
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    assert r.status_code == 200
+    body = r.json()
+    vals = np.array([row["response"] for row in table["rows"]])
+    res = body["stats"]["result"]
+    assert res["n"] == 40
+    assert res["mean"] == pytest.approx(vals.mean(), abs=1e-6)
+    assert res["median"] == pytest.approx(np.median(vals), abs=1e-6)
+    assert res["sd"] == pytest.approx(vals.std(ddof=1), abs=1e-6)
+    assert body["figure"]["point_groups"] == []
+    assert "<svg" in body["figure"]["svg"]
+
+
+# ---------------- tier-2: import ----------------
+
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
+
+
+SEMICOLON_CSV = (
+    "Subject;Treatment;Dose (µM);Response\n"
+    "S01;control;1,5;82,3\n"
+    "S02;control;2,0;79,1\n"
+    "S03;drug_a;1,5;NA\n"
+    "S04;drug_a;2,5;65,8\n"
+).encode()
+
+
+def test_import_preview_sniffs_european_csv():
+    r = client.post("/import/preview", json={
+        "filename": "data.csv", "data_base64": _b64(SEMICOLON_CSV)})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["options"]["delimiter"] == ";"
+    assert body["options"]["decimal"] == ","
+    cols = {c["name"]: c for c in body["columns"]}
+    assert cols["treatment"]["type"] == "categorical"
+    assert cols["treatment"]["levels"] == ["control", "drug_a"]
+    assert cols["dose_µm"]["type"] == "numeric"  # \W+ is Unicode-aware: µ stays
+    assert cols["response"]["n_missing"] == 1  # the NA token
+    assert body["rows"][0]["dose_µm"] == pytest.approx(1.5)
+    assert body["rows"][0]["response"] == pytest.approx(82.3)
+
+
+def test_import_commit_feeds_analyze():
+    rng = np.random.default_rng(3)
+    lines = ["subject,group,value"]
+    for i in range(40):
+        grp = "treated" if i >= 20 else "control"
+        shift = 8 if grp == "treated" else 0
+        lines.append(f"P{i:02d},{grp},{50 + shift + rng.normal(0, 4):.2f}")
+    csv_data = "\n".join(lines).encode()
+
+    prev = client.post("/import/preview", json={
+        "filename": "study.csv", "data_base64": _b64(csv_data)}).json()
+    cols = {c["name"]: c for c in prev["columns"]}
+    assert cols["subject"]["type"] == "identifier"
+    assert cols["group"]["type"] == "categorical"
+    assert cols["value"]["type"] == "numeric"
+
+    commit = client.post("/import/commit", json={
+        "filename": "study.csv", "data_base64": _b64(csv_data),
+        "options": prev["options"], "columns": prev["columns"]})
+    assert commit.status_code == 200
+    table = commit.json()
+    assert len(table["rows"]) == 40
+
+    spec = make_spec()
+    spec["mappings"]["x"] = {"column": "group"}
+    spec["mappings"]["y"] = {"column": "value"}
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    assert r.status_code == 200
+    assert r.json()["stats"]["result"]["p"] < 0.001
+
+
+def test_import_reserved_and_duplicate_names():
+    csv_data = b"id,excluded,value,value\n1,yes,3.2,4.1\n2,no,3.5,4.4\n3,no,3.1,4.2\n"
+    body = client.post("/import/preview", json={
+        "filename": "t.csv", "data_base64": _b64(csv_data)}).json()
+    names = [c["name"] for c in body["columns"]]
+    assert "id" not in names and "excluded" not in names
+    assert len(set(names)) == len(names)  # deduplicated
+    assert body["rows"][0]["id"] == "r1"  # bookkeeping id untouched
+
+
+def test_import_excel():
+    import io as _io
+    df = pd.DataFrame({"Group": ["a", "a", "b", "b"],
+                       "Score": [1.1, 2.2, 3.3, 4.4]})
+    buf = _io.BytesIO()
+    df.to_excel(buf, index=False, sheet_name="Data")
+    body = client.post("/import/preview", json={
+        "filename": "wb.xlsx", "data_base64": _b64(buf.getvalue())}).json()
+    assert body["options"]["sheet"] == "Data"
+    cols = {c["name"]: c for c in body["columns"]}
+    assert cols["group"]["type"] == "categorical"
+    assert cols["score"]["type"] == "numeric"
+    assert body["rows"][2]["score"] == pytest.approx(3.3)

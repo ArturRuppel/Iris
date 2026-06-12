@@ -1,0 +1,241 @@
+"""Group-comparison statistics: assumption checks, recommendation, tests.
+
+All inferential numbers come from scipy/pingouin — never reimplemented.
+"""
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pingouin as pg
+from scipy import stats as sps
+
+MIN_N_FOR_NORMALITY_RULE = 12  # below this, rank-based test is the safe default
+
+
+def _col(row, *names):
+    """Read a pingouin result field across versions (0.5: 'p-val', 0.6: 'p_val')."""
+    for n in names:
+        if n in row:
+            return row[n]
+    raise KeyError(names)
+
+
+def _fmt_p(p: float) -> str:
+    return "< 0.001" if p < 0.001 else f"= {p:.3f}"
+
+
+def shapiro_check(values: np.ndarray) -> dict:
+    n = len(values)
+    if n < 3:
+        return {"ok": False, "reason": f"n = {n} < 3"}
+    W, p = sps.shapiro(values)
+    return {"ok": True, "W": float(W), "p": float(p), "n": n}
+
+
+def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
+                     alpha: float = 0.05, override: str | None = None) -> dict:
+    """Two-group comparison matching the frozen analysis-spec semantics."""
+    sub = df[[x, y]].dropna()
+    found = [lv for lv in levels if lv in set(sub[x])]
+    extra = sorted(set(sub[x]) - set(levels))
+    found += extra
+    if len(found) != 2:
+        return {"error": f"needs exactly 2 groups (found {len(found)})", "levels": found}
+
+    g = {lv: sub.loc[sub[x] == lv, y].to_numpy(dtype=float) for lv in found}
+    a, b = g[found[0]], g[found[1]]
+    if min(len(a), len(b)) < 3:
+        return {"error": "too few observations per group", "levels": found}
+
+    checks = [
+        {"check": "shapiro_wilk", "group": found[0], **shapiro_check(a)},
+        {"check": "shapiro_wilk", "group": found[1], **shapiro_check(b)},
+    ]
+
+    small = min(len(a), len(b)) < MIN_N_FOR_NORMALITY_RULE
+    normal = all(c.get("ok") and c["p"] > alpha for c in checks)
+    if small:
+        recommended, reason = "mann_whitney", (
+            f"a group fell below n = {MIN_N_FOR_NORMALITY_RULE}; the normality check is "
+            "underpowered, so the rank-based test is the safe default")
+    elif normal:
+        recommended, reason = "welch_t", (
+            "Shapiro\u2013Wilk consistent with normality in both groups "
+            f"(p {_fmt_p(checks[0]['p'])}, p {_fmt_p(checks[1]['p'])})")
+    else:
+        recommended, reason = "mann_whitney", (
+            "Shapiro\u2013Wilk indicates non-normality in at least one group")
+
+    test = override or recommended
+    nA, nB = len(a), len(b)
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+
+    if test == "welch_t":
+        tt = pg.ttest(a, b, correction=True)
+        row = tt.iloc[0]
+        gd = float(pg.compute_effsize(a, b, eftype="hedges"))
+        se_g = float(np.sqrt((nA + nB) / (nA * nB) + gd**2 / (2 * (nA + nB - 2))))
+        ci_lo, ci_hi = (float(v) for v in _col(row, "CI95", "CI95%"))
+        result = {
+            "test": "welch_t", "t": float(_col(row, "T")), "df": float(_col(row, "dof")),
+            "p": float(_col(row, "p_val", "p-val")),
+            "mean_diff": float(np.mean(a) - np.mean(b)),
+            "mean_diff_ci": [ci_lo, ci_hi],
+            "effect": {"name": "hedges_g", "value": gd,
+                       "ci": [gd - 1.96 * se_g, gd + 1.96 * se_g]},
+        }
+        methods = (
+            f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
+            f"using Welch's t-test. t({_col(row,'dof'):.1f}) = {_col(row,'T'):.2f}, "
+            f"p {_fmt_p(_col(row,'p_val','p-val'))}; Hedges' g = {gd:.2f} "
+            f"(95% CI {gd - 1.96 * se_g:.2f} to {gd + 1.96 * se_g:.2f}).{excl_note}")
+    else:
+        mw = pg.mwu(a, b)
+        row = mw.iloc[0]
+        result = {
+            "test": "mann_whitney", "U": float(_col(row, "U_val", "U-val")), "p": float(_col(row, "p_val", "p-val")),
+            "effect": {"name": "rank_biserial", "value": float(_col(row, "RBC")), "ci": None},
+        }
+        methods = (
+            f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
+            f"using the Mann\u2013Whitney U test. U = {_col(row,'U_val','U-val'):.0f}, "
+            f"p {_fmt_p(_col(row,'p_val','p-val'))}; rank-biserial r = {_col(row,'RBC'):.2f}.{excl_note}")
+
+    # per-group summaries for the plot (mean ± 95% CI of the mean)
+    summaries = []
+    for lv in found:
+        v = g[lv]
+        ci_half = float(sps.t.ppf(0.975, len(v) - 1) * sps.sem(v)) if len(v) > 1 else 0.0
+        summaries.append({"group": lv, "n": len(v), "mean": float(np.mean(v)),
+                          "sd": float(np.std(v, ddof=1)), "ci95_half": ci_half})
+
+    return {
+        "levels": found, "checks": checks,
+        "recommendation": {"test": recommended, "reason": reason},
+        "chosen_by": "user_override" if override else "recommendation_accepted",
+        "result": result, "summaries": summaries, "alpha": alpha,
+        "methods_text": methods,
+    }
+
+
+def _summary(label: str, v: np.ndarray) -> dict:
+    ci_half = float(sps.t.ppf(0.975, len(v) - 1) * sps.sem(v)) if len(v) > 1 else 0.0
+    return {"group": label, "n": len(v), "mean": float(np.mean(v)),
+            "sd": float(np.std(v, ddof=1)) if len(v) > 1 else 0.0,
+            "ci95_half": ci_half}
+
+
+def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
+                override: str | None = None) -> dict:
+    """Pearson/Spearman correlation between two numeric columns, plus the
+    OLS line and its 95% CI band for the figure (the band is rendering
+    furniture; the inferential numbers come from pingouin)."""
+    sub = df[[x, y]].dropna()
+    n = len(sub)
+    if n < 3:
+        return {"error": f"needs at least 3 complete pairs (found {n})"}
+    xa = sub[x].to_numpy(dtype=float)
+    ya = sub[y].to_numpy(dtype=float)
+    if np.ptp(xa) == 0 or np.ptp(ya) == 0:
+        return {"error": "a variable is constant — correlation is undefined"}
+
+    checks = [
+        {"check": "shapiro_wilk", "group": x, **shapiro_check(xa)},
+        {"check": "shapiro_wilk", "group": y, **shapiro_check(ya)},
+    ]
+    small = n < MIN_N_FOR_NORMALITY_RULE
+    normal = all(c.get("ok") and c["p"] > alpha for c in checks)
+    if small:
+        recommended, reason = "spearman", (
+            f"n = {n} < {MIN_N_FOR_NORMALITY_RULE}; the normality check is "
+            "underpowered, so the rank-based correlation is the safe default")
+    elif normal:
+        recommended, reason = "pearson", (
+            "Shapiro–Wilk consistent with normality for both variables "
+            f"(p {_fmt_p(checks[0]['p'])}, p {_fmt_p(checks[1]['p'])})")
+    else:
+        recommended, reason = "spearman", (
+            "Shapiro–Wilk indicates non-normality in at least one variable")
+
+    test = override or recommended
+    row = pg.corr(xa, ya, method=test).iloc[0]
+    r = float(_col(row, "r"))
+    ci = [float(v) for v in _col(row, "CI95", "CI95%")]
+    p = float(_col(row, "p_val", "p-val"))
+    eff_name = "pearson_r" if test == "pearson" else "spearman_rho"
+    result = {"test": test, "r": r, "p": p, "n": n,
+              "effect": {"name": eff_name, "value": r, "ci": ci}}
+
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    symbol = "r" if test == "pearson" else "ρ"
+    name = "Pearson correlation" if test == "pearson" else "Spearman rank correlation"
+    methods = (
+        f"The association between {x} and {y} was assessed using {name} "
+        f"(n = {n}). {symbol} = {r:.2f} (95% CI {ci[0]:.2f} to {ci[1]:.2f}), "
+        f"p {_fmt_p(p)}.{excl_note}")
+
+    # OLS line + 95% CI band on the conditional mean, for the figure
+    lr = sps.linregress(xa, ya)
+    grid = np.linspace(xa.min(), xa.max(), 100)
+    yhat = lr.intercept + lr.slope * grid
+    resid = ya - (lr.intercept + lr.slope * xa)
+    s_err = np.sqrt(np.sum(resid**2) / (n - 2))
+    sxx = np.sum((xa - xa.mean()) ** 2)
+    half = (sps.t.ppf(0.975, n - 2) * s_err
+            * np.sqrt(1 / n + (grid - xa.mean()) ** 2 / sxx))
+    regression = {"slope": float(lr.slope), "intercept": float(lr.intercept),
+                  "grid": grid.tolist(), "lo": (yhat - half).tolist(),
+                  "hi": (yhat + half).tolist()}
+
+    return {
+        "levels": [], "checks": checks,
+        "recommendation": {"test": recommended, "reason": reason},
+        "chosen_by": "user_override" if override else "recommendation_accepted",
+        "result": result, "regression": regression,
+        "summaries": [_summary(x, xa), _summary(y, ya)],
+        "alpha": alpha, "methods_text": methods,
+    }
+
+
+def descriptive(df: pd.DataFrame, y: str, alpha: float = 0.05) -> dict:
+    """Single numeric variable: distribution summary for the histogram."""
+    v = df[y].dropna().to_numpy(dtype=float)
+    n = len(v)
+    if n < 3:
+        return {"error": f"needs at least 3 observations (found {n})"}
+
+    checks = [{"check": "shapiro_wilk", "group": y, **shapiro_check(v)}]
+    normal = checks[0].get("ok") and checks[0]["p"] > alpha
+    small = n < MIN_N_FOR_NORMALITY_RULE
+    if small:
+        reason = (f"n = {n} < {MIN_N_FOR_NORMALITY_RULE}; the normality check "
+                  "is underpowered — report median (IQR) to be safe")
+    elif normal:
+        reason = ("Shapiro–Wilk consistent with normality "
+                  f"(p {_fmt_p(checks[0]['p'])}) — mean (SD) is appropriate")
+    else:
+        reason = ("Shapiro–Wilk indicates non-normality "
+                  f"(p {_fmt_p(checks[0]['p'])}) — report median (IQR)")
+
+    q1, med, q3 = (float(q) for q in np.percentile(v, [25, 50, 75]))
+    result = {"test": "descriptive", "n": n,
+              "mean": float(np.mean(v)), "sd": float(np.std(v, ddof=1)),
+              "median": med, "q1": q1, "q3": q3,
+              "min": float(v.min()), "max": float(v.max()),
+              "effect": {"name": "none", "value": 0.0, "ci": None}}
+
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    center = (f"mean = {result['mean']:.2f} (SD {result['sd']:.2f})" if normal
+              else f"median = {med:.2f} (IQR {q1:.2f}–{q3:.2f})")
+    methods = f"{y} was summarized for n = {n} observations: {center}.{excl_note}"
+
+    return {
+        "levels": [], "checks": checks,
+        "recommendation": {"test": "descriptive", "reason": reason},
+        "chosen_by": "default",
+        "result": result, "summaries": [_summary(y, v)],
+        "alpha": alpha, "methods_text": methods,
+    }

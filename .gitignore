@@ -1,0 +1,9 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/binaries/
+engine/build/
+engine/dist/
+__pycache__/
+*.pyc
+.claude/
