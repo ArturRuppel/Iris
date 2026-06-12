@@ -326,19 +326,42 @@ def test_style_overrides_reach_the_svg():
     spec["style"]["overrides"] = {
         "palette": ["#ff0066", "#00ff66"],
         "marker_size": 60, "marker_alpha": 0.9,
-        "axis_linewidth": 1.8, "grid": False, "frame": "closed",
+        "axis_linewidth": 1.8, "grid_x": False, "grid_y": False,
+        "frame": "closed",
         "title": "My title", "x_label": "Custom X", "y_label": "Custom Y",
         "offsets": {"lbl-y": [4, -6]},
+        "tick_direction": "in", "minor_ticks": True, "y_tick_spacing": 5,
+        "x_tick_rotation": 30, "error_type": "sem", "capsize": 5,
+        "show_n": False,
     }
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 200
     svg = r.json()["figure"]["svg"]
     assert "#ff0066" in svg and "#00ff66" in svg  # custom group colors
+    assert "n = 20" not in svg  # show_n off
     # draggable labels are gid-tagged groups carrying the custom text
     for gid, text in [("lbl-title", "My title"), ("lbl-x", "Custom X"),
                       ("lbl-y", "Custom Y")]:
         m = re.search(rf'<g id="{gid}">\s*<!-- (.*?) -->', svg)
         assert m and m.group(1) == text
+
+
+def test_box_anatomy_and_scales():
+    # notched boxes without dot overlay, custom outliers, log y, no bracket
+    spec = _spec_with_layers("box")
+    spec["style"]["overrides"] = {
+        "notch": True, "outlier_marker": "x", "outlier_size": 5,
+        "mark_width": 0.6, "y_scale": "log", "show_significance": False,
+        "y_min": 40, "y_max": 120,
+    }
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
+    svg = r.json()["figure"]["svg"]
+    assert "***" not in svg  # bracket suppressed
+    # outlier_marker "none" also kills the fliers entirely
+    spec["style"]["overrides"] = {"outlier_marker": "none"}
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
 
 
 def test_style_default_spec_unchanged():

@@ -27,7 +27,7 @@ STYLE_PRESETS = {
 }
 
 # every visual knob the style panel exposes; presets fill the size keys,
-# overrides may replace any of these
+# overrides may replace any of these (None = "use the plot's own default")
 STYLE_DEFAULTS = {
     "marker_size": 22.0,     # scatter/dot area in pt²
     "marker_alpha": 0.55,
@@ -35,18 +35,45 @@ STYLE_DEFAULTS = {
     "axis_linewidth": 0.8,   # spines + ticks
     "line_width": 1.4,       # stat lines: regression, summary CI, density
     "frame": "open",         # "open" hides top/right spines, "closed" keeps all
-    "grid": True,
+    "grid_x": None,          # vertical grid lines; None = plot default
+    "grid_y": None,          # horizontal grid lines; None = plot default
     "palette": PALETTE,      # group colors in level order; [0] for single-series
     "title": "",             # empty = no title / auto axis label
     "x_label": "",
     "y_label": "",
     "offsets": {},           # {"lbl-x": [dx, dy], ...} from dragging, SVG px (y down)
+    # axes & ticks
+    "tick_direction": "out",     # out | in | inout
+    "tick_length": 3.5,          # pt
+    "x_tick_side": "bottom",     # bottom | top
+    "y_tick_side": "left",       # left | right
+    "x_tick_spacing": None,      # data units; numeric axes only; None = auto
+    "y_tick_spacing": None,
+    "minor_ticks": False,
+    "x_tick_rotation": 0,        # degrees, for long level names
+    "y_scale": "linear",         # linear | log
+    "x_scale": "linear",         # numeric x only
+    "y_min": None, "y_max": None, "x_min": None, "x_max": None,
+    # marks
+    "notch": False,              # boxplot notches (median 95% CI)
+    "mark_width": None,          # box/violin/bar width; None = per-mark default
+    "outlier_marker": "o",       # o | D | x | + | none (when boxes hide raw dots)
+    "outlier_size": 3.0,
+    "error_type": "ci95",        # ci95 | sem | sd — summary + bar error bars
+    "capsize": 3.0,
+    "hist_bins": None,           # histogram bin count; None = auto
+    # annotations
+    "show_n": True,
+    "show_significance": True,
+    "show_annotation": True,     # r/p text, median label
 }
 
 
 def _rc(style: dict) -> dict:
     font_pt = style["font_pt"]
     closed = style["frame"] == "closed"
+    x_top = style["x_tick_side"] == "top"
+    y_right = style["y_tick_side"] == "right"
     return {
         "svg.fonttype": "none",          # real text in SVG (editable, selectable)
         "pdf.fonttype": 42,              # TrueType in PDF (editable in Illustrator)
@@ -56,11 +83,25 @@ def _rc(style: dict) -> dict:
         "axes.labelsize": font_pt,
         "xtick.labelsize": font_pt - 1,
         "ytick.labelsize": font_pt - 1,
-        "axes.spines.top": closed,
-        "axes.spines.right": closed,
+        "axes.spines.top": closed or x_top,
+        "axes.spines.right": closed or y_right,
+        "axes.spines.bottom": closed or not x_top,
+        "axes.spines.left": closed or not y_right,
         "axes.linewidth": style["axis_linewidth"],
         "xtick.major.width": style["axis_linewidth"],
         "ytick.major.width": style["axis_linewidth"],
+        "xtick.minor.width": style["axis_linewidth"] * 0.75,
+        "ytick.minor.width": style["axis_linewidth"] * 0.75,
+        "xtick.direction": style["tick_direction"],
+        "ytick.direction": style["tick_direction"],
+        "xtick.major.size": style["tick_length"],
+        "ytick.major.size": style["tick_length"],
+        "xtick.minor.size": style["tick_length"] * 0.55,
+        "ytick.minor.size": style["tick_length"] * 0.55,
+        "xtick.bottom": not x_top, "xtick.top": x_top,
+        "xtick.labelbottom": not x_top, "xtick.labeltop": x_top,
+        "ytick.left": not y_right, "ytick.right": y_right,
+        "ytick.labelleft": not y_right, "ytick.labelright": y_right,
         "axes.edgecolor": "#475569",
         "xtick.color": "#475569",
         "ytick.color": "#475569",
@@ -91,6 +132,60 @@ def resolve_style(spec: dict) -> dict:
 def _group_color(style: dict, i: int) -> str:
     palette = style["palette"] or PALETTE
     return palette[i % len(palette)]
+
+
+def _err_half(s: dict, style: dict) -> float:
+    """Half-length of an error bar for one group summary."""
+    if style["error_type"] == "sem":
+        return s["sd"] / np.sqrt(s["n"]) if s["n"] else 0.0
+    if style["error_type"] == "sd":
+        return s["sd"]
+    return s["ci95_half"]
+
+
+def _apply_axes(ax, style: dict, *, x_numeric: bool,
+                grid_x_default: bool, grid_y_default: bool):
+    """Scales, limits, tick locators, label rotation, grids — everything that
+    has to run after the data is drawn. Categorical x ignores the numeric-x
+    knobs (spacing, scale, limits)."""
+    from matplotlib.ticker import AutoMinorLocator, MultipleLocator
+
+    if x_numeric:
+        if style["x_scale"] == "log":
+            ax.set_xscale("log")
+        elif style["x_tick_spacing"]:
+            ax.xaxis.set_major_locator(MultipleLocator(style["x_tick_spacing"]))
+        if style["x_min"] is not None or style["x_max"] is not None:
+            ax.set_xlim(left=style["x_min"], right=style["x_max"])
+    if style["y_scale"] == "log":
+        ax.set_yscale("log")
+    elif style["y_tick_spacing"]:
+        ax.yaxis.set_major_locator(MultipleLocator(style["y_tick_spacing"]))
+    if style["y_min"] is not None or style["y_max"] is not None:
+        ax.set_ylim(bottom=style["y_min"], top=style["y_max"])
+
+    if style["minor_ticks"]:
+        if x_numeric and style["x_scale"] != "log":
+            ax.xaxis.set_minor_locator(AutoMinorLocator())
+        if style["y_scale"] != "log":
+            ax.yaxis.set_minor_locator(AutoMinorLocator())
+
+    if style["x_tick_side"] == "top":
+        ax.xaxis.set_label_position("top")
+    if style["y_tick_side"] == "right":
+        ax.yaxis.set_label_position("right")
+    rot = style["x_tick_rotation"]
+    if rot:
+        plt.setp(ax.get_xticklabels(), rotation=rot,
+                 ha="right" if 0 < rot < 90 else "center")
+
+    gx = style["grid_x"] if style["grid_x"] is not None else grid_x_default
+    gy = style["grid_y"] if style["grid_y"] is not None else grid_y_default
+    if gx:
+        ax.grid(axis="x", color="#e2e8f0", lw=0.6, zorder=0)
+    if gy:
+        ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
+    ax.set_axisbelow(True)
 
 
 def _decorate(fig, ax, style: dict, extra: dict | None = None):
@@ -151,11 +246,13 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
             ys = rows[y].to_numpy(dtype=float)
             color = _group_color(style, gi)
             s = next(s for s in stats["summaries"] if s["group"] == lv)
+            err = _err_half(s, style)
             if len(ys):
-                top = max(top, ys.max(), s["mean"] + s["ci95_half"])
+                top = max(top, ys.max(), s["mean"] + err)
 
             if "violin" in marks and len(ys) > 1:
-                vp = ax.violinplot([ys], positions=[gi], widths=0.7,
+                vp = ax.violinplot([ys], positions=[gi],
+                                   widths=style["mark_width"] or 0.7,
                                    showextrema=False)
                 for body in vp["bodies"]:
                     body.set_facecolor(color)
@@ -165,19 +262,26 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     body.set_zorder(1)
             if "box" in marks and len(ys):
                 line = dict(color="#475569", linewidth=lw * 0.65)
-                ax.boxplot([ys], positions=[gi], widths=0.42,
-                           showfliers="dot" not in marks,
+                show_fliers = ("dot" not in marks
+                               and style["outlier_marker"] != "none")
+                ax.boxplot([ys], positions=[gi],
+                           widths=style["mark_width"] or 0.42,
+                           notch=style["notch"] and len(ys) > 5,
+                           showfliers=show_fliers,
                            boxprops=line, whiskerprops=line, capprops=line,
                            medianprops=dict(color=INK, linewidth=lw * 0.93),
-                           flierprops=dict(marker="o", markersize=3,
+                           flierprops=dict(marker=style["outlier_marker"],
+                                           markersize=style["outlier_size"],
                                            markerfacecolor=color,
-                                           markeredgecolor="none"),
+                                           markeredgecolor=color,
+                                           markeredgewidth=0.8),
                            zorder=2)
             if "bar" in marks:
-                ax.bar(gi, s["mean"], width=0.6, color=color, alpha=0.55,
-                       zorder=1)
-                ax.errorbar(gi, s["mean"], yerr=s["ci95_half"], fmt="none",
-                            ecolor=INK, elinewidth=lw * 0.85, capsize=3, zorder=3)
+                ax.bar(gi, s["mean"], width=style["mark_width"] or 0.6,
+                       color=color, alpha=0.55, zorder=1)
+                ax.errorbar(gi, s["mean"], yerr=err, fmt="none",
+                            ecolor=INK, elinewidth=lw * 0.85,
+                            capsize=style["capsize"], zorder=3)
 
             if "dot" in marks:
                 xs = gi + np.array([_stable_jitter(rid, style["jitter"])
@@ -191,11 +295,12 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
 
             if "summary" in marks:
                 cx = gi + 0.28
-                ax.errorbar(cx, s["mean"], yerr=s["ci95_half"], fmt="none",
-                            ecolor=INK, elinewidth=lw, capsize=3, zorder=4)
+                ax.errorbar(cx, s["mean"], yerr=err, fmt="none",
+                            ecolor=INK, elinewidth=lw,
+                            capsize=style["capsize"], zorder=4)
                 ax.plot(cx, s["mean"], marker="D", ms=5, color=INK, zorder=5)
 
-        if p_sig:
+        if p_sig and style["show_significance"]:
             yr = ax.get_ylim()
             h = top + (yr[1] - yr[0]) * 0.08
             tick = (yr[1] - yr[0]) * 0.02
@@ -212,15 +317,15 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         ax.set_xticklabels([labels.get(lv, lv) for lv in levels])
         ax.set_xlim(-0.55, len(levels) - 0.45)
         ax.set_ylabel(cols.get(y, {}).get("label", y))
-        if style["grid"]:
-            ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
-        ax.set_axisbelow(True)
-        for s, lv in zip(stats["summaries"], levels):
-            ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
-                        xycoords=("data", "axes fraction"),
-                        xytext=(0, -26), textcoords="offset points",
-                        ha="center", fontsize=style["font_pt"] - 2,
-                        color="#94a3b8", annotation_clip=False)
+        _apply_axes(ax, style, x_numeric=False,
+                    grid_x_default=False, grid_y_default=True)
+        if style["show_n"]:
+            for s, lv in zip(stats["summaries"], levels):
+                ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
+                            xycoords=("data", "axes fraction"),
+                            xytext=(0, -26), textcoords="offset points",
+                            ha="center", fontsize=style["font_pt"] - 2,
+                            color="#94a3b8", annotation_clip=False)
         _decorate(fig, ax, style)
     return fig, point_groups
 
@@ -262,19 +367,21 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         sc.set_gid("pts-0")
         point_groups = [{"gid": "pts-0", "row_ids": rows["id"].tolist()}]
 
-        r = stats["result"]
-        symbol = "r" if r["test"] == "pearson" else "ρ"
-        p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
-        annot = ax.text(0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
-                        transform=ax.transAxes, ha="left", va="top",
-                        fontsize=style["font_pt"] - 1, color=INK)
+        extra = {}
+        if style["show_annotation"]:
+            r = stats["result"]
+            symbol = "r" if r["test"] == "pearson" else "ρ"
+            p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
+            extra["lbl-annot"] = ax.text(
+                0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
+                transform=ax.transAxes, ha="left", va="top",
+                fontsize=style["font_pt"] - 1, color=INK)
 
         ax.set_xlabel(_axis_label(cols, x))
         ax.set_ylabel(_axis_label(cols, y))
-        if style["grid"]:
-            ax.grid(color="#e2e8f0", lw=0.6, zorder=0)
-        ax.set_axisbelow(True)
-        _decorate(fig, ax, style, extra={"lbl-annot": annot})
+        _apply_axes(ax, style, x_numeric=True,
+                    grid_x_default=True, grid_y_default=True)
+        _decorate(fig, ax, style, extra=extra)
     return fig, point_groups
 
 
@@ -292,7 +399,8 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
         fig, ax = plt.subplots(
             figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
             layout="constrained")
-        counts, edges, _ = ax.hist(vals, bins="auto", color=_group_color(style, 0),
+        bins = int(style["hist_bins"]) if style["hist_bins"] else "auto"
+        counts, edges, _ = ax.hist(vals, bins=bins, color=_group_color(style, 0),
                                    alpha=0.65, edgecolor="white",
                                    linewidth=0.5, zorder=2)
 
@@ -305,17 +413,19 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                     linewidth=style["line_width"] * 0.93, zorder=3)
 
         med = stats["result"]["median"]
-        ax.axvline(med, color="#475569", linewidth=style["line_width"] * 0.7,
-                   linestyle=(0, (4, 2)), zorder=4)
-        annot = ax.text(med, ax.get_ylim()[1], f" median = {med:.2f}", ha="left",
-                        va="top", fontsize=style["font_pt"] - 1, color="#475569")
+        extra = {}
+        if style["show_annotation"]:
+            ax.axvline(med, color="#475569", linewidth=style["line_width"] * 0.7,
+                       linestyle=(0, (4, 2)), zorder=4)
+            extra["lbl-annot"] = ax.text(
+                med, ax.get_ylim()[1], f" median = {med:.2f}", ha="left",
+                va="top", fontsize=style["font_pt"] - 1, color="#475569")
 
         ax.set_xlabel(_axis_label(cols, y))
         ax.set_ylabel("Count")
-        if style["grid"]:
-            ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
-        ax.set_axisbelow(True)
-        _decorate(fig, ax, style, extra={"lbl-annot": annot})
+        _apply_axes(ax, style, x_numeric=True,
+                    grid_x_default=False, grid_y_default=True)
+        _decorate(fig, ax, style, extra=extra)
     return fig, []
 
 

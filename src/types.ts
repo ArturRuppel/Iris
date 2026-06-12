@@ -35,13 +35,41 @@ export interface StyleOverrides {
   axis_linewidth?: number;
   line_width?: number;
   frame?: "open" | "closed";
-  grid?: boolean;
+  grid_x?: boolean;
+  grid_y?: boolean;
   palette?: string[];
   title?: string;
   x_label?: string;
   y_label?: string;
   /* written by dragging labels on the figure; SVG px, y down */
   offsets?: Record<string, [number, number]>;
+  /* axes & ticks */
+  tick_direction?: "out" | "in" | "inout";
+  tick_length?: number;
+  x_tick_side?: "bottom" | "top";
+  y_tick_side?: "left" | "right";
+  x_tick_spacing?: number;
+  y_tick_spacing?: number;
+  minor_ticks?: boolean;
+  x_tick_rotation?: number;
+  y_scale?: "linear" | "log";
+  x_scale?: "linear" | "log";
+  y_min?: number;
+  y_max?: number;
+  x_min?: number;
+  x_max?: number;
+  /* marks */
+  notch?: boolean;
+  mark_width?: number;
+  outlier_marker?: "o" | "D" | "x" | "+" | "none";
+  outlier_size?: number;
+  error_type?: "ci95" | "sem" | "sd";
+  capsize?: number;
+  hist_bins?: number;
+  /* annotations */
+  show_n?: boolean;
+  show_significance?: boolean;
+  show_annotation?: boolean;
 }
 
 export interface AnalysisSpec {
