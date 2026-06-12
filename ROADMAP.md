@@ -3,9 +3,13 @@
 *Status: Tier 0 and Tier 1 complete on Linux (validated installer, sidecar
 lifecycle, orphan prevention); macOS/Windows packaging deferred to the end by
 decision. Tier 2 underway: import wizard (CSV/TSV/Excel, locale sniffing,
-type confirmation), plot matrix core (box, violin, bar, scatter+regression,
-histogram+density with correlation and descriptive stat families), and the
-AG Grid table upgrade are in. Last updated 12 June 2026.*
+type confirmation, wide→long stacking), plot matrix core (box, violin, bar,
+scatter+regression, histogram+density with correlation and descriptive stat
+families), the AG Grid table upgrade, the style panel (markers, lines, frame,
+colors, text, size; draggable figure labels that export identically), the
+data-entry wizard (one column per condition), and deliberate exclusion
+(select + right-click) are in. Project is under git as of 13 June 2026.
+Last updated 13 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -130,9 +134,11 @@ reasoning always displayed and always overridable. Overrides are recorded as
 **Import wizard.** A preview UI in front of `pandas.read_csv` and
 `openpyxl`: delimiter and encoding detection, decimal-comma locales, type
 inference with per-column confirmation, missing-value rules, and a wide→long
-reshape offer with a visual before/after preview (this single feature
-prevents the most common beginner dead-end). Excel paste routes through the
-same pandas path.
+"stack columns" offer with live preview (this single feature prevents the
+most common beginner dead-end) — all done. The same engine-side reshape
+powers the data-entry wizard: people think in one-column-per-condition, so
+that is what they type or paste, and the engine melts it into the long table
+the analyses run on. Done 13 June 2026.
 
 **Table upgrade.** Bake-off resolved 12 June 2026 for AG Grid Community
 (MIT): Glide Data Grid's last release was February 2024 with aging peer
@@ -152,12 +158,15 @@ grows a second axis: every test family asserts equality with R reference
 outputs and published worked examples, run in CI on every engine change and
 on every dependency bump (the pingouin lesson, institutionalized).
 
-**Styling and export.** A style panel covering fonts, sizes in points, axis
-labels with mathtext (µM, R², Greek), palettes (Okabe–Ito default for
-colorblind safety), and journal presets specified in mm. Significance
-brackets with configurable star thresholds. Methods-text and statistics-table
-export (formatted for supplementary materials) generated from the spec and
-provenance log.
+**Styling and export.** Style panel core done 13 June 2026: grouped controls
+(text, markers, lines & frame, colors, size in mm) writing
+`spec.style.overrides`, so the engine renders screen and export from the
+same styled spec; title/axis/annotation labels drag directly on the figure
+and their offsets live in the spec (WYSIWYG holds). Remaining: mathtext in
+labels (µM, R², Greek), Okabe–Ito as the default palette for colorblind
+safety, configurable significance-star thresholds, and methods-text /
+statistics-table export (formatted for supplementary materials) generated
+from the spec and provenance log.
 
 Spec schema changes in this tier follow the seams designed in v1.0: new enum
 values for marks and tests, a `transform` clause in `data` for derived
@@ -240,11 +249,14 @@ than ever reimplementing.
 Tier 2 opened 12 June 2026 with import (CSV/TSV/Excel wizard), the plot
 matrix core (box/violin/bar marks plus scatter+regression and
 histogram+density, with correlation and descriptive stat families riding the
-same spec rails), and the AG Grid table swap. Remaining for Tier 2: the
+same spec rails), and the AG Grid table swap. 13 June 2026 added the style
+panel + draggable figure labels, the one-column-per-condition data-entry
+wizard with engine-side wide→long stacking (also offered in the import
+wizard), and the deliberate exclusion flow (click selects, right-click
+excludes; the provenance log is unchanged). Remaining for Tier 2: the
 multi-group path — one-way ANOVA with Tukey post-hocs and Kruskal–Wallis,
 plus the bracket annotation work it drives; paired plots and tests
-(`pair_by`); the wide→long reshape offer in the import wizard; undo/redo;
-the styling panel and methods/statistics-table export. (The jamovi/JASP
+(`pair_by`); undo/redo; methods/statistics-table export. (The jamovi/JASP
 teardown was dropped with the purpose restatement: there is no positioning
 to defend, only features to get right. macOS/Windows packaging waits until
 the end, alongside Tier 3 signing.)
