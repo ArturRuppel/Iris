@@ -23,6 +23,27 @@ export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
 
+/* every key the style panel exposes; the engine fills in defaults, so all
+   fields are optional and an empty object means "preset look" */
+export interface StyleOverrides {
+  width_mm?: number;
+  height_mm?: number;
+  font_size_pt?: number;
+  marker_size?: number;
+  marker_alpha?: number;
+  jitter?: number;
+  axis_linewidth?: number;
+  line_width?: number;
+  frame?: "open" | "closed";
+  grid?: boolean;
+  palette?: string[];
+  title?: string;
+  x_label?: string;
+  y_label?: string;
+  /* written by dragging labels on the figure; SVG px, y down */
+  offsets?: Record<string, [number, number]>;
+}
+
 export interface AnalysisSpec {
   spec_version: "1.1"; // 1.1 adds mark and test enum values (additive)
   id: string;
@@ -46,7 +67,7 @@ export interface AnalysisSpec {
     report: string[];
   };
   annotations: { significance_brackets: "auto"; show_n: boolean };
-  style: { preset: string; overrides: Record<string, unknown> };
+  style: { preset: string; overrides: StyleOverrides };
   engine_snapshot: Record<string, string>;
 }
 
@@ -80,12 +101,18 @@ export interface AnalyzeResponse {
 
 /* ---------------- import wizard ---------------- */
 
+export interface ReshapeOptions {
+  value_columns: string[];
+  var_name: string;
+  value_name: string;
+}
 export interface ImportOptions {
   delimiter?: string | null;
   decimal?: string | null;
   header?: boolean;
   sheet?: string | null;
   types?: Record<string, ColumnDef["type"]>;
+  reshape?: ReshapeOptions | null;
 }
 export interface ImportColumn {
   name: string;
@@ -106,6 +133,7 @@ export interface ImportPreview {
     header: boolean;
     sheet: string | null;
     sheets: string[] | null;
+    reshape?: ReshapeOptions | null;
   };
   columns: ImportColumn[];
   rows: Row[];

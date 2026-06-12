@@ -4,6 +4,8 @@ import { loadTableAtom } from "../state";
 import { engine, fileToBase64 } from "../types";
 import type { ColumnDef, ImportOptions, ImportPreview } from "../types";
 
+const RESHAPE_DEFAULTS = { var_name: "Condition", value_name: "Value" };
+
 const TYPE_LABELS: Record<ColumnDef["type"], string> = {
   numeric: "numeric (123)",
   categorical: "categorical (abc)",
@@ -21,9 +23,11 @@ export function ImportWizard() {
   const [opts, setOpts] = useState<ImportOptions>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stackSel, setStackSel] = useState<string[]>([]);
 
   const close = () => {
     setFile(null); setPreview(null); setOpts({}); setError(null);
+    setStackSel([]);
     if (fileRef.current) fileRef.current.value = "";
   };
 
@@ -54,6 +58,24 @@ export function ImportWizard() {
 
   const setColType = (name: string, type: ColumnDef["type"]) =>
     updateOptions({ types: { ...opts.types, [name]: type } });
+
+  /* wide → long: column names change, so per-column type overrides reset */
+  const applyStack = () =>
+    updateOptions({
+      types: undefined,
+      reshape: {
+        ...RESHAPE_DEFAULTS,  /* level order = column order in the file */
+        value_columns: (preview?.columns ?? [])
+          .filter((c) => stackSel.includes(c.name)).map((c) => c.name),
+      },
+    });
+  const undoStack = () => {
+    setStackSel([]);
+    updateOptions({ types: undefined, reshape: null });
+  };
+  const toggleStack = (name: string) =>
+    setStackSel(stackSel.includes(name)
+      ? stackSel.filter((n) => n !== name) : [...stackSel, name]);
 
   const doImport = async () => {
     if (!file || !preview) return;
@@ -149,6 +171,32 @@ export function ImportWizard() {
                     </div>
                   ))}
                 </div>
+
+                {!o?.reshape && preview.columns.length >= 2 && (
+                  <details className="stack-section">
+                    <summary>Stack columns (one column per condition → long format)</summary>
+                    <div className="wizard-options">
+                      {preview.columns.map((c) => (
+                        <label key={c.name}>
+                          <input type="checkbox" checked={stackSel.includes(c.name)}
+                            onChange={() => toggleStack(c.name)} />
+                          {c.label}
+                        </label>
+                      ))}
+                      <button disabled={stackSel.length < 2}
+                        onClick={applyStack}>
+                        Stack {stackSel.length} columns
+                      </button>
+                    </div>
+                  </details>
+                )}
+                {o?.reshape && (
+                  <p className="reason">
+                    {o.reshape.value_columns.length} columns stacked into{" "}
+                    <strong>{o.reshape.var_name}</strong> / <strong>{o.reshape.value_name}</strong>.{" "}
+                    <button className="link" onClick={undoStack}>Undo</button>
+                  </p>
+                )}
 
                 <h3>Preview</h3>
                 <div className="table-scroll wizard-preview">

@@ -1,7 +1,7 @@
 import { atom } from "jotai";
 import type {
-  AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily, Table,
-  TestName,
+  AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily,
+  StyleOverrides, Table, TestName,
 } from "./types";
 
 export const schemaAtom = atom<Schema | null>(null);
@@ -12,6 +12,13 @@ export const presetAtom = atom("demo_default");
 export const analysisAtom = atom<AnalyzeResponse | null>(null);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
+
+/* must match compiler.PALETTE; the style panel edits copies of it */
+export const DEFAULT_PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"];
+export const styleAtom = atom<StyleOverrides>({});
+
+/* figure-side point selection (click); exclusion goes via right-click menu */
+export const selectedRowIdAtom = atom<string | null>(null);
 
 /* plot type drives the spec's layers + stats family; each entry is a
    sensible mark composition, not a free-form layer editor (yet) */
@@ -83,6 +90,11 @@ export const loadTableAtom = atom(null, (get, set, table: Table) => {
   set(analysisAtom, null);
   set(overrideAtom, null);
   set(engineErrorAtom, null);
+  set(selectedRowIdAtom, null);
+  /* visual style carries over; text + drag offsets were written for the old
+     figure's labels and would silently mislabel the new data */
+  const { title, x_label, y_label, offsets, ...keep } = get(styleAtom);
+  set(styleAtom, keep);
   const cats = table.schema.columns.filter((c) => c.type === "categorical");
   const nums = table.schema.columns.filter((c) => c.type === "numeric");
   const plotType = get(plotTypeAtom);
@@ -134,7 +146,7 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
       report: ["effect_size", "ci", "n_per_group"],
     },
     annotations: { significance_brackets: "auto", show_n: true },
-    style: { preset: get(presetAtom), overrides: {} },
+    style: { preset: get(presetAtom), overrides: get(styleAtom) },
     engine_snapshot: get(engineSnapshotAtom) ?? {},
   };
 });

@@ -1,5 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
+import { DataEntry } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
@@ -7,7 +8,7 @@ import { StatsPanel } from "./components/StatsPanel";
 import {
   analysisAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
   mappingsAtom, overrideAtom, plotTypeAtom, presetAtom, rowsAtom, schemaAtom,
-  specAtom, PLOT_TYPES, type PlotType,
+  specAtom, styleAtom, PLOT_TYPES, type PlotType,
 } from "./state";
 import { downloadBase64, engine } from "./types";
 
@@ -23,6 +24,7 @@ export default function App() {
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
+  const style = useAtomValue(styleAtom);
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
@@ -68,7 +70,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [rows, mappings, spec?.stats.test, preset, schema, plotType]);
+  }, [rows, mappings, spec?.stats.test, preset, schema, plotType, style]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec) return;
@@ -100,6 +102,7 @@ export default function App() {
         <h1>Triad <span className="tag">tier 2</span></h1>
         <div className="controls">
           <ImportWizard />
+          <DataEntry />
           <label>Plot
             <select value={plotType}
               onChange={(e) => switchPlotType(e.target.value as PlotType)}>
