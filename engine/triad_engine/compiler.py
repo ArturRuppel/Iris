@@ -12,6 +12,7 @@ import zlib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import matplotlib.transforms as mtransforms
 import numpy as np
 import pandas as pd
 
@@ -25,8 +26,27 @@ STYLE_PRESETS = {
     "nature_double_column": {"width_mm": 183, "height_mm": 100, "font_pt": 7},
 }
 
+# every visual knob the style panel exposes; presets fill the size keys,
+# overrides may replace any of these
+STYLE_DEFAULTS = {
+    "marker_size": 22.0,     # scatter/dot area in pt²
+    "marker_alpha": 0.55,
+    "jitter": 0.18,          # half-width of dot jitter in group units
+    "axis_linewidth": 0.8,   # spines + ticks
+    "line_width": 1.4,       # stat lines: regression, summary CI, density
+    "frame": "open",         # "open" hides top/right spines, "closed" keeps all
+    "grid": True,
+    "palette": PALETTE,      # group colors in level order; [0] for single-series
+    "title": "",             # empty = no title / auto axis label
+    "x_label": "",
+    "y_label": "",
+    "offsets": {},           # {"lbl-x": [dx, dy], ...} from dragging, SVG px (y down)
+}
 
-def _rc(font_pt: float) -> dict:
+
+def _rc(style: dict) -> dict:
+    font_pt = style["font_pt"]
+    closed = style["frame"] == "closed"
     return {
         "svg.fonttype": "none",          # real text in SVG (editable, selectable)
         "pdf.fonttype": 42,              # TrueType in PDF (editable in Illustrator)
@@ -36,9 +56,11 @@ def _rc(font_pt: float) -> dict:
         "axes.labelsize": font_pt,
         "xtick.labelsize": font_pt - 1,
         "ytick.labelsize": font_pt - 1,
-        "axes.spines.top": False,
-        "axes.spines.right": False,
-        "axes.linewidth": 0.8,
+        "axes.spines.top": closed,
+        "axes.spines.right": closed,
+        "axes.linewidth": style["axis_linewidth"],
+        "xtick.major.width": style["axis_linewidth"],
+        "ytick.major.width": style["axis_linewidth"],
         "axes.edgecolor": "#475569",
         "xtick.color": "#475569",
         "ytick.color": "#475569",
@@ -54,13 +76,43 @@ def _stable_jitter(row_id: str, width: float = 0.18) -> float:
 
 def resolve_style(spec: dict) -> dict:
     style = spec.get("style", {})
-    preset = dict(STYLE_PRESETS.get(style.get("preset"), STYLE_PRESETS["demo_default"]))
+    preset = STYLE_PRESETS.get(style.get("preset"), STYLE_PRESETS["demo_default"])
+    resolved = {**STYLE_DEFAULTS, **preset}
     for k, v in (style.get("overrides") or {}).items():
+        if v is None:
+            continue
         if k == "font_size_pt":
-            preset["font_pt"] = v
-        elif k in preset:
-            preset[k] = v
-    return preset
+            resolved["font_pt"] = v
+        elif k in resolved:
+            resolved[k] = v
+    return resolved
+
+
+def _group_color(style: dict, i: int) -> str:
+    palette = style["palette"] or PALETTE
+    return palette[i % len(palette)]
+
+
+def _decorate(fig, ax, style: dict, extra: dict | None = None):
+    """Title/label text overrides, gid tags for draggable labels, and the
+    drag offsets the frontend wrote back into the style (SVG px, y down —
+    matplotlib points run y up, hence the sign flip)."""
+    if style["title"]:
+        ax.set_title(style["title"])
+    if style["x_label"]:
+        ax.set_xlabel(style["x_label"])
+    if style["y_label"]:
+        ax.set_ylabel(style["y_label"])
+    artists = {"lbl-title": ax.title, "lbl-x": ax.xaxis.label,
+               "lbl-y": ax.yaxis.label, **(extra or {})}
+    for key, art in artists.items():
+        if art is None or not art.get_text():
+            continue
+        art.set_gid(key)
+        off = (style["offsets"] or {}).get(key)
+        if off and (off[0] or off[1]):
+            art.set_transform(art.get_transform() + mtransforms.ScaledTranslation(
+                off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
 
 
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
@@ -84,8 +136,9 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     style = resolve_style(spec)
     p_sig = stats["result"]["p"] < stats.get("alpha", 0.05)
     marks = {layer["mark"] for layer in spec.get("layers", [])} or {"dot", "summary"}
+    lw = style["line_width"]
 
-    with plt.rc_context(_rc(style["font_pt"])):
+    with plt.rc_context(_rc(style)):
         fig, ax = plt.subplots(
             figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
             layout="constrained")
@@ -96,7 +149,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         for gi, lv in enumerate(levels):
             rows = df[(df[x] == lv) & df[y].notna()]
             ys = rows[y].to_numpy(dtype=float)
-            color = PALETTE[gi % len(PALETTE)]
+            color = _group_color(style, gi)
             s = next(s for s in stats["summaries"] if s["group"] == lv)
             if len(ys):
                 top = max(top, ys.max(), s["mean"] + s["ci95_half"])
@@ -108,14 +161,14 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     body.set_facecolor(color)
                     body.set_alpha(0.22)
                     body.set_edgecolor(color)
-                    body.set_linewidth(0.8)
+                    body.set_linewidth(lw * 0.6)
                     body.set_zorder(1)
             if "box" in marks and len(ys):
-                line = dict(color="#475569", linewidth=0.9)
+                line = dict(color="#475569", linewidth=lw * 0.65)
                 ax.boxplot([ys], positions=[gi], widths=0.42,
                            showfliers="dot" not in marks,
                            boxprops=line, whiskerprops=line, capprops=line,
-                           medianprops=dict(color=INK, linewidth=1.3),
+                           medianprops=dict(color=INK, linewidth=lw * 0.93),
                            flierprops=dict(marker="o", markersize=3,
                                            markerfacecolor=color,
                                            markeredgecolor="none"),
@@ -124,13 +177,14 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 ax.bar(gi, s["mean"], width=0.6, color=color, alpha=0.55,
                        zorder=1)
                 ax.errorbar(gi, s["mean"], yerr=s["ci95_half"], fmt="none",
-                            ecolor=INK, elinewidth=1.2, capsize=3, zorder=3)
+                            ecolor=INK, elinewidth=lw * 0.85, capsize=3, zorder=3)
 
             if "dot" in marks:
-                xs = gi + np.array([_stable_jitter(rid) for rid in rows["id"]])
-                sc = ax.scatter(xs, ys, s=22, color=color,
-                                alpha=0.55, linewidths=0.6, edgecolors="white",
-                                zorder=3)
+                xs = gi + np.array([_stable_jitter(rid, style["jitter"])
+                                    for rid in rows["id"]])
+                sc = ax.scatter(xs, ys, s=style["marker_size"], color=color,
+                                alpha=style["marker_alpha"], linewidths=0.6,
+                                edgecolors="white", zorder=3)
                 gid = f"pts-{gi}"
                 sc.set_gid(gid)
                 point_groups.append({"gid": gid, "row_ids": rows["id"].tolist()})
@@ -138,7 +192,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
             if "summary" in marks:
                 cx = gi + 0.28
                 ax.errorbar(cx, s["mean"], yerr=s["ci95_half"], fmt="none",
-                            ecolor=INK, elinewidth=1.4, capsize=3, zorder=4)
+                            ecolor=INK, elinewidth=lw, capsize=3, zorder=4)
                 ax.plot(cx, s["mean"], marker="D", ms=5, color=INK, zorder=5)
 
         if p_sig:
@@ -158,7 +212,8 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         ax.set_xticklabels([labels.get(lv, lv) for lv in levels])
         ax.set_xlim(-0.55, len(levels) - 0.45)
         ax.set_ylabel(cols.get(y, {}).get("label", y))
-        ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
+        if style["grid"]:
+            ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
         ax.set_axisbelow(True)
         for s, lv in zip(stats["summaries"], levels):
             ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
@@ -166,6 +221,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         xytext=(0, -26), textcoords="offset points",
                         ha="center", fontsize=style["font_pt"] - 2,
                         color="#94a3b8", annotation_clip=False)
+        _decorate(fig, ax, style)
     return fig, point_groups
 
 
@@ -183,8 +239,9 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
     marks = {layer["mark"] for layer in spec.get("layers", [])} or {"scatter",
                                                                     "regression"}
     rows = df[df[x].notna() & df[y].notna()]
+    color = _group_color(style, 0)
 
-    with plt.rc_context(_rc(style["font_pt"])):
+    with plt.rc_context(_rc(style)):
         fig, ax = plt.subplots(
             figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
             layout="constrained")
@@ -192,14 +249,15 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         reg = stats.get("regression")
         if "regression" in marks and reg:
             grid = np.asarray(reg["grid"])
-            ax.fill_between(grid, reg["lo"], reg["hi"], color=PALETTE[0],
+            ax.fill_between(grid, reg["lo"], reg["hi"], color=color,
                             alpha=0.15, linewidth=0, zorder=1)
             ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
-                    color=PALETTE[0], linewidth=1.4, zorder=2)
+                    color=color, linewidth=style["line_width"], zorder=2)
 
         sc = ax.scatter(rows[x].to_numpy(dtype=float),
                         rows[y].to_numpy(dtype=float),
-                        s=22, color=PALETTE[0], alpha=0.55,
+                        s=style["marker_size"], color=color,
+                        alpha=style["marker_alpha"],
                         linewidths=0.6, edgecolors="white", zorder=3)
         sc.set_gid("pts-0")
         point_groups = [{"gid": "pts-0", "row_ids": rows["id"].tolist()}]
@@ -207,14 +265,16 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         r = stats["result"]
         symbol = "r" if r["test"] == "pearson" else "ρ"
         p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
-        ax.text(0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
-                transform=ax.transAxes, ha="left", va="top",
-                fontsize=style["font_pt"] - 1, color=INK)
+        annot = ax.text(0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
+                        transform=ax.transAxes, ha="left", va="top",
+                        fontsize=style["font_pt"] - 1, color=INK)
 
         ax.set_xlabel(_axis_label(cols, x))
         ax.set_ylabel(_axis_label(cols, y))
-        ax.grid(color="#e2e8f0", lw=0.6, zorder=0)
+        if style["grid"]:
+            ax.grid(color="#e2e8f0", lw=0.6, zorder=0)
         ax.set_axisbelow(True)
+        _decorate(fig, ax, style, extra={"lbl-annot": annot})
     return fig, point_groups
 
 
@@ -228,11 +288,11 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     marks = {layer["mark"] for layer in spec.get("layers", [])} or {"histogram"}
     vals = df[y].dropna().to_numpy(dtype=float)
 
-    with plt.rc_context(_rc(style["font_pt"])):
+    with plt.rc_context(_rc(style)):
         fig, ax = plt.subplots(
             figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
             layout="constrained")
-        counts, edges, _ = ax.hist(vals, bins="auto", color=PALETTE[0],
+        counts, edges, _ = ax.hist(vals, bins="auto", color=_group_color(style, 0),
                                    alpha=0.65, edgecolor="white",
                                    linewidth=0.5, zorder=2)
 
@@ -242,18 +302,20 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
             kde = gaussian_kde(vals)(grid)
             binwidth = edges[1] - edges[0]
             ax.plot(grid, kde * len(vals) * binwidth, color=INK,
-                    linewidth=1.3, zorder=3)
+                    linewidth=style["line_width"] * 0.93, zorder=3)
 
         med = stats["result"]["median"]
-        ax.axvline(med, color="#475569", linewidth=1.0, linestyle=(0, (4, 2)),
-                   zorder=4)
-        ax.text(med, ax.get_ylim()[1], f" median = {med:.2f}", ha="left",
-                va="top", fontsize=style["font_pt"] - 1, color="#475569")
+        ax.axvline(med, color="#475569", linewidth=style["line_width"] * 0.7,
+                   linestyle=(0, (4, 2)), zorder=4)
+        annot = ax.text(med, ax.get_ylim()[1], f" median = {med:.2f}", ha="left",
+                        va="top", fontsize=style["font_pt"] - 1, color="#475569")
 
         ax.set_xlabel(_axis_label(cols, y))
         ax.set_ylabel("Count")
-        ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
+        if style["grid"]:
+            ax.grid(axis="y", color="#e2e8f0", lw=0.6, zorder=0)
         ax.set_axisbelow(True)
+        _decorate(fig, ax, style, extra={"lbl-annot": annot})
     return fig, []
 
 

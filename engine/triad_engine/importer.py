@@ -90,7 +90,32 @@ def _read_raw(data: bytes, filename: str, options: dict) -> tuple[pd.DataFrame, 
     df = df.map(lambda v: v.strip() if isinstance(v, str) else v)
     df = df.mask(df.map(lambda v: not isinstance(v, str)
                         or v.lower() in MISSING_TOKENS))
-    return df, {**resolved, "labels": labels}
+    df, labels = _reshape(df, labels, options.get("reshape"))
+    return df, {**resolved, "labels": labels,
+                "reshape": options.get("reshape")}
+
+
+def _reshape(df: pd.DataFrame, labels: list[str],
+             reshape: dict | None) -> tuple[pd.DataFrame, list[str]]:
+    """Stack wide columns (one column per condition) into a long condition +
+    value pair; rows whose value is missing are dropped, so ragged columns
+    of unequal length work. Level order = column order."""
+    if not reshape:
+        return df, labels
+    value_cols = [c for c in reshape.get("value_columns", []) if c in df.columns]
+    if len(value_cols) < 2:
+        raise ValueError("reshape needs at least two value columns")
+    label_of = dict(zip(df.columns, labels))
+    id_vars = [c for c in df.columns if c not in value_cols]
+    var_label = str(reshape.get("var_name") or "Condition")
+    val_label = str(reshape.get("value_name") or "Value")
+    long = df.melt(id_vars=id_vars, value_vars=value_cols,
+                   var_name="__var", value_name="__val")
+    long["__var"] = long["__var"].map(label_of)  # levels get the pretty labels
+    long = long[long["__val"].notna()].reset_index(drop=True)
+    new_labels = [label_of[c] for c in id_vars] + [var_label, val_label]
+    long.columns = _sanitize_names(new_labels)
+    return long, new_labels
 
 
 def _as_numeric(s: pd.Series, decimal: str) -> pd.Series:

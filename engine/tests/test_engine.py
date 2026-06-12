@@ -319,6 +319,77 @@ def test_import_reserved_and_duplicate_names():
     assert body["rows"][0]["id"] == "r1"  # bookkeeping id untouched
 
 
+# ---------------- tier-2: style overrides + draggable labels ----------------
+
+def test_style_overrides_reach_the_svg():
+    spec = make_spec()
+    spec["style"]["overrides"] = {
+        "palette": ["#ff0066", "#00ff66"],
+        "marker_size": 60, "marker_alpha": 0.9,
+        "axis_linewidth": 1.8, "grid": False, "frame": "closed",
+        "title": "My title", "x_label": "Custom X", "y_label": "Custom Y",
+        "offsets": {"lbl-y": [4, -6]},
+    }
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
+    svg = r.json()["figure"]["svg"]
+    assert "#ff0066" in svg and "#00ff66" in svg  # custom group colors
+    # draggable labels are gid-tagged groups carrying the custom text
+    for gid, text in [("lbl-title", "My title"), ("lbl-x", "Custom X"),
+                      ("lbl-y", "Custom Y")]:
+        m = re.search(rf'<g id="{gid}">\s*<!-- (.*?) -->', svg)
+        assert m and m.group(1) == text
+
+
+def test_style_default_spec_unchanged():
+    # empty overrides keep the tier-1 contract intact (regression guard)
+    r = client.post("/analyze", json={"table": make_table(), "spec": make_spec()})
+    body = r.json()
+    assert [g["gid"] for g in body["figure"]["point_groups"]] == ["pts-0", "pts-1"]
+    assert 'id="lbl-y"' in body["figure"]["svg"]  # y label always draggable
+
+
+# ---------------- tier-2: wide → long reshape ----------------
+
+WIDE_CSV = (
+    "Control;10 µM;50 µM\n"
+    "5,1;7,2;9,9\n"
+    "4,8;6,9;10,4\n"
+    "5,5;7,8;9,1\n"
+    "5,0;;9,6\n"          # ragged: one condition has fewer values
+).encode()
+
+
+def test_import_reshape_wide_to_long():
+    prev = client.post("/import/preview", json={
+        "filename": "wide.csv", "data_base64": _b64(WIDE_CSV)}).json()
+    names = [c["name"] for c in prev["columns"]]
+    assert names == ["control", "10_µm", "50_µm"]
+
+    opts = {**prev["options"],
+            "reshape": {"value_columns": names,
+                        "var_name": "Dose", "value_name": "Response"}}
+    prev2 = client.post("/import/preview", json={
+        "filename": "wide.csv", "data_base64": _b64(WIDE_CSV),
+        "options": opts}).json()
+    cols = {c["name"]: c for c in prev2["columns"]}
+    assert set(cols) == {"dose", "response"}
+    assert cols["dose"]["type"] == "categorical"
+    assert cols["dose"]["levels"] == ["Control", "10 µM", "50 µM"]
+    assert cols["response"]["type"] == "numeric"
+    assert prev2["n_rows"] == 11  # 12 cells minus the one empty
+
+    table = client.post("/import/commit", json={
+        "filename": "wide.csv", "data_base64": _b64(WIDE_CSV),
+        "options": opts, "columns": prev2["columns"]}).json()
+    assert len(table["rows"]) == 11
+    by_level = {}
+    for row in table["rows"]:
+        by_level.setdefault(row["dose"], []).append(row["response"])
+    assert by_level["Control"] == pytest.approx([5.1, 4.8, 5.5, 5.0])
+    assert by_level["10 µM"] == pytest.approx([7.2, 6.9, 7.8])
+
+
 def test_import_excel():
     import io as _io
     df = pd.DataFrame({"Group": ["a", "a", "b", "b"],
