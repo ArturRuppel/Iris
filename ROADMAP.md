@@ -158,11 +158,17 @@ grows a second axis: every test family asserts equality with R reference
 outputs and published worked examples, run in CI on every engine change and
 on every dependency bump (the pingouin lesson, institutionalized).
 
-**Styling and export.** Style panel core done 13 June 2026: grouped controls
-(text, markers, lines & frame, colors, size in mm) writing
+**Styling and export.** Style panel done 13 June 2026 in two rounds:
+grouped, plot-aware controls (text + tick rotation; markers; axes & ticks —
+direction, length, sides, spacing, minor ticks, log scales, manual limits;
+lines & frame with split horizontal/vertical grids; per-plot mark options —
+box notches, outlier marker/size, mark width, CI95/SEM/SD error bars, cap
+size, histogram bins; annotation toggles; colors; size in mm) all writing
 `spec.style.overrides`, so the engine renders screen and export from the
-same styled spec; title/axis/annotation labels drag directly on the figure
-and their offsets live in the spec (WYSIWYG holds). Remaining: mathtext in
+same styled spec. Direct manipulation on the figure: title/axis/annotation
+labels drag (transparent hit-rects over the glyphs — learned the hard way
+that letter strokes alone are unhittable), and a corner handle drag-resizes
+in real mm. Verified headless with Playwright (e2e/). Remaining: mathtext in
 labels (µM, R², Greek), Okabe–Ito as the default palette for colorblind
 safety, configurable significance-star thresholds, and methods-text /
 statistics-table export (formatted for supplementary materials) generated
