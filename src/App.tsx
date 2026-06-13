@@ -6,35 +6,45 @@ import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
 import { StatsPanel } from "./components/StatsPanel";
 import {
-  analysisAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
-  mappingsAtom, overrideAtom, plotTypeAtom, presetAtom, rowsAtom, schemaAtom,
-  specAtom, styleAtom, PLOT_TYPES, type PlotType,
+  activePlottableAtom, analysisAtom, engineErrorAtom, engineSnapshotAtom,
+  exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom,
+  specAtom, PLOT_TYPES, type PlotType,
 } from "./state";
+import type { TestName } from "./types";
 import { downloadBase64, engine } from "./types";
 
 export default function App() {
-  const [schema, setSchema] = useAtom(schemaAtom);
-  const [rows, setRows] = useAtom(rowsAtom);
-  const [mappings, setMappings] = useAtom(mappingsAtom);
-  const [preset, setPreset] = useAtom(presetAtom);
-  const [plotType, setPlotType] = useAtom(plotTypeAtom);
-  const setOverride = useSetAtom(overrideAtom);
+  const [schema] = useAtom(schemaAtom);
+  const [rows] = useAtom(rowsAtom);
+  const [active, setActive] = useAtom(activePlottableAtom);
+  const loadTable = useSetAtom(loadTableAtom);
   const spec = useAtomValue(specAtom);
   const setAnalysis = useSetAtom(analysisAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
-  const style = useAtomValue(styleAtom);
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
   const timer = useRef<number>();
 
+  /* derived from active plottable */
+  const mappings = active?.mappings ?? { x: "", y: "" };
+  const plotType = active?.plotType ?? "dots";
+  const preset = active?.preset ?? "demo_default";
+
+  const setMappings = (m: { x: string; y: string }) =>
+    active && setActive({ ...active, mappings: m });
+  const setPreset = (p: string) => active && setActive({ ...active, preset: p });
+  const setOverride = (override: TestName | null) =>
+    active && setActive({ ...active, override });
+  const setPlotType = (pt: PlotType) => active && setActive({ ...active, plotType: pt });
+
   useEffect(() => {
     engine.waitForHealth()
       .then((h) => { setSnapshot(h.engine_snapshot); setEngineUp(true); })
       .then(() => engine.sample())
-      .then((t) => { setSchema(t.schema); setRows(t.rows); })
+      .then((t) => loadTable(t))
       .catch(() => setEngineUp(false));
   }, []);
 
@@ -44,16 +54,20 @@ export default function App() {
   const xCols = xKind === "numeric" ? numericCols.filter((c) => c.name !== mappings.y) : catCols;
 
   /* switching plot family invalidates the test override and may need a
-     different kind of x column */
+     different kind of x column — do it all in a single setActive call to
+     avoid stale-capture clobbering */
   const switchPlotType = (next: PlotType) => {
-    if (PLOT_TYPES[next].family !== PLOT_TYPES[plotType].family) setOverride(null);
+    if (!active) return;
+    const nextOverride = PLOT_TYPES[next].family !== PLOT_TYPES[plotType].family
+      ? null : active.override;
     const kind = PLOT_TYPES[next].xKind;
     const valid = kind === "numeric"
       ? numericCols.filter((c) => c.name !== mappings.y)
       : catCols;
-    if (kind !== "none" && !valid.some((c) => c.name === mappings.x))
-      setMappings({ ...mappings, x: valid[0]?.name ?? "" });
-    setPlotType(next);
+    const nextMappings = (kind !== "none" && !valid.some((c) => c.name === mappings.x))
+      ? { ...mappings, x: valid[0]?.name ?? "" }
+      : mappings;
+    setActive({ ...active, plotType: next, override: nextOverride, mappings: nextMappings });
   };
 
   /* the reactive loop: any change to rows/spec → debounced engine round trip */
@@ -70,7 +84,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [rows, mappings, spec?.stats.test, preset, schema, plotType, style]);
+  }, [rows, spec, schema]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec) return;
@@ -79,6 +93,7 @@ export default function App() {
   };
   const doSave = async () => {
     if (!schema || !spec) return;
+    // TODO(Task 8): save all plottables
     const f = await engine.saveDocument({ schema, rows }, [spec],
       { exclusions: exclusionLog });
     downloadBase64(f.filename, f.data_base64);

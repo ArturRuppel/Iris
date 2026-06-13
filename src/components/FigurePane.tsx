@@ -1,8 +1,9 @@
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  analysisAtom, rowsAtom, selectedRowIdAtom, styleAtom, toggleExclusionAtom,
+  activePlottableAtom, analysisAtom, rowsAtom, selectedRowIdAtom, toggleExclusionAtom,
 } from "../state";
+import type { StyleOverrides } from "../types";
 import { StylePane } from "./StylePane";
 
 const SVGNS = "http://www.w3.org/2000/svg";
@@ -25,7 +26,17 @@ export function FigurePane() {
   const rows = useAtomValue(rowsAtom);
   const toggle = useSetAtom(toggleExclusionAtom);
   const [selected, setSelected] = useAtom(selectedRowIdAtom);
-  const setStyle = useSetAtom(styleAtom);
+  const [active, setActive] = useAtom(activePlottableAtom);
+  /* style updater: merges a patch into the active plottable's style.
+     We capture active via a ref so the drag closure always sees the latest value. */
+  const activeRef = useRef(active);
+  activeRef.current = active;
+  const setStyle = (updater: StyleOverrides | ((st: StyleOverrides) => StyleOverrides)) => {
+    const cur = activeRef.current;
+    if (!cur) return;
+    const next = typeof updater === "function" ? updater(cur.style) : updater;
+    setActive({ ...cur, style: next });
+  };
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<HTMLDivElement>(null);
   const useByRow = useRef<Map<string, SVGElement>>(new Map());
@@ -127,7 +138,7 @@ export function FigurePane() {
       });
     }
     return () => ro.disconnect();
-  }, [analysis, setSelected, setStyle]);
+  }, [analysis, setSelected]);
 
   /* selection highlight, applied without re-injecting the SVG */
   useEffect(() => {
