@@ -209,7 +209,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   if (!src) return;
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
-    mappings: { ...src.mappings }, style: { ...src.style },
+    mappings: { ...src.mappings }, style: structuredClone(src.style),
     reduce: { filter: src.reduce.filter.map((f) => ({ ...f })),
               collapse: src.reduce.collapse
                 ? { group_by: [...src.reduce.collapse.group_by],

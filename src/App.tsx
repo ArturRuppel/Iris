@@ -38,7 +38,6 @@ export default function App() {
   const setPreset = (p: string) => active && setActive({ ...active, preset: p });
   const setOverride = (override: TestName | null) =>
     active && setActive({ ...active, override });
-  const setPlotType = (pt: PlotType) => active && setActive({ ...active, plotType: pt });
 
   useEffect(() => {
     engine.waitForHealth()
@@ -70,7 +69,12 @@ export default function App() {
     setActive({ ...active, plotType: next, override: nextOverride, mappings: nextMappings });
   };
 
-  /* the reactive loop: any change to rows/spec → debounced engine round trip */
+  /* the reactive loop: any change to rows/spec → debounced engine round trip.
+     `spec` is a freshly built object on every recompute, so depending on it
+     directly would never converge (analyze → result → specAtom recomputes via
+     the recommendation read → new object → analyze again). Depend on a stable
+     string key instead, which settles once the recommendation stabilizes. */
+  const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
     if (!schema || !spec || rows.length === 0) return;
     if (xKind !== "none" && !spec.mappings.x.column) return;
@@ -84,7 +88,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [rows, spec, schema]);
+  }, [rows, schema, specKey]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec) return;
