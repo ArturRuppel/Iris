@@ -6,6 +6,7 @@ Tauri mode: spawned by the shell at startup.
 from __future__ import annotations
 
 import base64
+import json
 import os
 import sys
 
@@ -14,7 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import compiler, document, importer, stats
+from . import compiler, document, importer, reduce as reduce_mod, stats
 
 app = FastAPI(title="triad-engine")
 app.add_middleware(
@@ -76,8 +77,16 @@ def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
     return df, schema
 
 
+def _to_table(df: pd.DataFrame, schema: dict) -> dict:
+    return {"schema": schema, "rows": json.loads(df.to_json(orient="records"))}
+
+
 def _run(table: dict, spec: dict):
     df, schema = _prepare(table, spec)
+    try:
+        df, schema = reduce_mod.apply_reduction(df, schema, spec.get("reduce"))
+    except reduce_mod.ReduceError as e:
+        raise HTTPException(422, f"reduction failed: {e}") from e
     m = spec["mappings"]
     family = spec["stats"]["family"]
     alpha = spec["stats"].get("alpha", 0.05)
@@ -98,7 +107,7 @@ def _run(table: dict, spec: dict):
     if "error" in res:
         raise HTTPException(422, res["error"])
     fig, point_groups = compiler.build_figure(df, schema, spec, res)
-    return fig, point_groups, res
+    return fig, point_groups, res, df, schema
 
 
 @app.get("/health")
@@ -113,18 +122,19 @@ def sample():
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    fig, point_groups, res = _run(req.table, req.spec)
+    fig, point_groups, res, df, schema = _run(req.table, req.spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     return {"figure": {"svg": svg, "point_groups": point_groups},
-            "stats": res, "engine_snapshot": engine_snapshot()}
+            "stats": res, "reduced_table": _to_table(df, schema),
+            "engine_snapshot": engine_snapshot()}
 
 
 @app.post("/export")
 def export(req: ExportRequest):
     if req.format not in ("svg", "pdf", "png"):
         raise HTTPException(400, "format must be svg, pdf, or png")
-    fig, _, _ = _run(req.table, req.spec)
+    fig, _, _, _, _ = _run(req.table, req.spec)
     data = compiler.figure_to_bytes(fig, req.format, dpi=req.dpi)
     compiler.close(fig)
     return {"filename": f"figure.{req.format}",

@@ -426,3 +426,54 @@ def test_import_excel():
     assert cols["group"]["type"] == "categorical"
     assert cols["score"]["type"] == "numeric"
     assert body["rows"][2]["score"] == pytest.approx(3.3)
+
+
+# ---------------- reduce clause ----------------
+
+def _spec_with_reduce(reduce, **mapping):
+    spec = make_spec()
+    spec["reduce"] = reduce
+    spec["spec_version"] = "1.2"
+    spec["mappings"].update(mapping)
+    return spec
+
+
+def test_analyze_filter_changes_n():
+    spec = _spec_with_reduce(
+        {"filter": [{"column": "treatment", "op": "==", "value": "control"}],
+         "collapse": None})
+    spec["stats"]["family"] = "descriptive"
+    spec["layers"] = [{"mark": "histogram", "options": {}}]
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
+    assert r.json()["stats"]["result"]["n"] == 20  # only control rows
+    assert len(r.json()["reduced_table"]["rows"]) == 20
+
+
+def test_analyze_collapse_makes_stats_per_group():
+    table = make_table()
+    spec = _spec_with_reduce(
+        {"filter": [],
+         "collapse": {"group_by": ["treatment", "subject"],
+                      "aggregate": {"response": "mean"}}},
+        x={"column": "treatment"}, y={"column": "response"})
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["reduced_table"]["rows"]) == 40
+    assert body["stats"]["summaries"][0]["n"] == 20
+
+
+def test_analyze_reduce_error_is_422():
+    spec = _spec_with_reduce(
+        {"filter": [{"column": "ghost", "op": "==", "value": 1}], "collapse": None})
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 422
+
+
+def test_analyze_without_reduce_key_still_works():
+    spec = make_spec()
+    assert "reduce" not in spec
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
+    assert len(r.json()["reduced_table"]["rows"]) == 40
