@@ -60,3 +60,46 @@ def test_filter_unknown_column_raises():
     with pytest.raises(rd.ReduceError):
         rd.apply_reduction(frame(), SCHEMA, {
             "filter": [{"column": "nope", "op": "==", "value": 1}], "collapse": None})
+
+
+def test_collapse_mean_per_group():
+    out, schema = rd.apply_reduction(frame(), SCHEMA, {
+        "filter": [],
+        "collapse": {"group_by": ["treatment"], "aggregate": {"response": "mean"}}})
+    out = out.set_index("treatment")
+    assert out.loc["control", "response"] == pytest.approx(75.0)
+    assert out.loc["drug_a", "response"] == pytest.approx(55.0)
+    types = {c["name"]: c["type"] for c in schema["columns"]}
+    assert types["treatment"] == "categorical"
+    assert types["response"] == "numeric"
+
+
+def test_collapse_default_mean_for_unlisted_numeric():
+    out, _ = rd.apply_reduction(frame(), SCHEMA, {
+        "filter": [], "collapse": {"group_by": ["treatment"], "aggregate": {}}})
+    out = out.set_index("treatment")
+    assert out.loc["control", "dose"] == pytest.approx(15.0)
+    assert out.loc["control", "response"] == pytest.approx(75.0)
+
+
+def test_collapse_count_adds_n_column():
+    out, schema = rd.apply_reduction(frame(), SCHEMA, {
+        "filter": [],
+        "collapse": {"group_by": ["treatment"], "aggregate": {"response": "count"}}})
+    assert set(out["n"]) == {2}
+    assert any(c["name"] == "n" for c in schema["columns"])
+
+
+def test_collapse_sem_matches_scipy():
+    from scipy.stats import sem
+    out, _ = rd.apply_reduction(frame(), SCHEMA, {
+        "filter": [],
+        "collapse": {"group_by": ["treatment"], "aggregate": {"response": "sem"}}})
+    out = out.set_index("treatment")
+    assert out.loc["control", "response"] == pytest.approx(sem([80.0, 70.0]))
+
+
+def test_collapse_assigns_fresh_row_ids():
+    out, _ = rd.apply_reduction(frame(), SCHEMA, {
+        "filter": [], "collapse": {"group_by": ["treatment"], "aggregate": {}}})
+    assert "id" in out and out["id"].is_unique

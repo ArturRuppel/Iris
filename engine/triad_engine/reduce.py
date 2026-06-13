@@ -106,15 +106,19 @@ def _apply_collapse(df: pd.DataFrame, schema: dict,
         if fn == "count":
             continue  # represented by the shared n column below
         data[col] = grouped[col].agg(_AGG[fn]).to_numpy()
-    keys = list(grouped.groups.keys())
+
+    # Build group key frame from a grouped size series (avoids .groups.keys()
+    # which changes shape in pandas 4 when group_by is a list).
+    size_series = grouped.size()
+    key_frame = size_series.reset_index(drop=False)
 
     out = pd.DataFrame()
-    for i, gcol in enumerate(group_by):
-        out[gcol] = [k if len(group_by) == 1 else k[i] for k in keys]
+    for gcol in group_by:
+        out[gcol] = key_frame[gcol].to_numpy()
     for col, vals in data.items():
         out[col] = vals
     if wants_count:
-        out["n"] = grouped.size().to_numpy()
+        out["n"] = size_series.to_numpy()
     out.insert(0, "id", [f"g{i+1}" for i in range(len(out))])
     out["excluded"] = False
 
