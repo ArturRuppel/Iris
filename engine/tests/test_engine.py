@@ -480,6 +480,19 @@ def test_analyze_collapse_makes_stats_per_group():
     assert body["stats"]["summaries"][0]["n"] == 20
 
 
+def test_analyze_filter_preserves_exclusion_provenance():
+    # exclusions happen before reduction; the methods text must still report
+    # them even when a reduce clause builds a fresh frame
+    table = make_table()
+    table["rows"][0]["excluded"] = True
+    table["rows"][1]["excluded"] = True
+    spec = _spec_with_reduce(
+        {"filter": [{"column": "response", "op": ">", "value": 0}], "collapse": None})
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    assert r.status_code == 200
+    assert "2 observation(s) were excluded" in r.json()["stats"]["methods_text"]
+
+
 def test_analyze_reduce_error_is_422():
     spec = _spec_with_reduce(
         {"filter": [{"column": "ghost", "op": "==", "value": 1}], "collapse": None})

@@ -64,14 +64,22 @@ def _apply_filter(df: pd.DataFrame, schema: dict, conds: list[dict]) -> pd.DataF
 
 def apply_reduction(df: pd.DataFrame, schema: dict,
                     reduce: dict | None) -> tuple[pd.DataFrame, dict]:
-    """Filter rows, then optionally collapse. Returns (frame, schema)."""
+    """Filter rows, then optionally collapse. Returns (frame, schema).
+
+    Carries the caller's `n_excluded` provenance through the reduction (pandas
+    drops `.attrs` when it builds a new frame), so the methods text still
+    reports how many raw observations were excluded before reducing."""
+    n_excluded = df.attrs.get("n_excluded", 0)
     if not reduce:
         return df, schema
     out = _apply_filter(df, schema, reduce.get("filter") or [])
     collapse = reduce.get("collapse")
     if not collapse:
-        return out.reset_index(drop=True), schema
-    return _apply_collapse(out, schema, collapse)
+        out = out.reset_index(drop=True)
+    else:
+        out, schema = _apply_collapse(out, schema, collapse)
+    out.attrs["n_excluded"] = n_excluded
+    return out, schema
 
 
 _AGG = {

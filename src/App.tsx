@@ -9,8 +9,8 @@ import { ReducePanel } from "./components/ReducePanel";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
-  activePlottableAtom, allSpecsAtom, analysisAtom, engineErrorAtom, engineSnapshotAtom,
-  exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom,
+  activePlottableAtom, allSpecsAtom, engineErrorAtom, engineSnapshotAtom,
+  exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom,
   specAtom, PLOT_TYPES, viewModeAtom, type PlotType,
 } from "./state";
 import { downloadBase64, engine } from "./types";
@@ -36,7 +36,7 @@ export default function App() {
   const loadTable = useSetAtom(loadTableAtom);
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
-  const setAnalysis = useSetAtom(analysisAtom);
+  const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
@@ -94,10 +94,14 @@ export default function App() {
     if (!schema || !spec || rows.length === 0) return;
     if (xKind !== "none" && !spec.mappings.x.column) return;
     window.clearTimeout(timer.current);
+    /* capture the target plottable at dispatch so a late-resolving result
+       lands in the plottable it was computed for, not whichever is active when
+       the round trip returns */
+    const targetId = spec.id;
     timer.current = window.setTimeout(async () => {
       try {
         const res = await engine.analyze({ schema, rows }, spec);
-        setAnalysis(res); setError(null);
+        setAnalysisById({ id: targetId, res }); setError(null);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }

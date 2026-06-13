@@ -1,5 +1,4 @@
 import { atom } from "jotai";
-import { EMPTY_REDUCE } from "./types";
 import type {
   AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily,
   StyleOverrides, Table, TestName, ReduceSpec,
@@ -105,7 +104,10 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
   return {
     id: nextId(), name: "Analysis 1",
     mappings: { x, y }, plotType, override: null,
-    preset: "demo_default", style: {}, reduce: EMPTY_REDUCE,
+    preset: "demo_default", style: {},
+    /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
+       so an in-place mutation could never alias across plottables */
+    reduce: { filter: [], collapse: null },
   };
 }
 
@@ -125,20 +127,22 @@ export const activePlottableAtom = atom(
 
 export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 
-/* analysisAtom: derived read/write convenience for the ACTIVE plottable */
-export const analysisAtom = atom(
-  (get) => {
-    const id = get(activePlottableIdAtom);
-    return id ? (get(analysisByIdAtom)[id] ?? null) : null;
-  },
-  (get, set, res: AnalyzeResponse | null) => {
-    const id = get(activePlottableIdAtom);
-    if (!id) return;
+/* analysisAtom: derived read-only convenience for the ACTIVE plottable */
+export const analysisAtom = atom((get) => {
+  const id = get(activePlottableIdAtom);
+  return id ? (get(analysisByIdAtom)[id] ?? null) : null;
+});
+
+/* Write a result into an EXPLICIT plottable's slot. The caller captures the
+   target id at dispatch time, so a result that resolves after the user has
+   switched plottables still lands in the plottable it was computed for (not
+   whichever happens to be active when the network call returns). */
+export const setAnalysisByIdAtom = atom(
+  null, (get, set, arg: { id: string; res: AnalyzeResponse | null }) => {
     const map = { ...get(analysisByIdAtom) };
-    if (res) map[id] = res; else delete map[id];
+    if (arg.res) map[arg.id] = arg.res; else delete map[arg.id];
     set(analysisByIdAtom, map);
-  },
-);
+  });
 
 /* swap in a freshly imported (or loaded) table and reset everything that
    referred to the old one: plottables, analysis, exclusion log */
