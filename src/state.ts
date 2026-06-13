@@ -1,4 +1,5 @@
 import { atom } from "jotai";
+import { EMPTY_REDUCE } from "./types";
 import type {
   AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily,
   StyleOverrides, Table, TestName,
@@ -124,12 +125,13 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
     ?? rec ?? pt.tests[0];
   const usedOverride = override !== null && test === override && test !== rec;
   return {
-    spec_version: "1.1",
+    spec_version: "1.2",
     id: "an_01",
     title: pt.xKind === "none"
       ? `${ycol?.label ?? m.y}`
       : `${ycol?.label ?? m.y} by ${xcol?.label ?? m.x}`,
     data: { filter: [], respect_exclusions: true },
+    reduce: EMPTY_REDUCE,
     mappings: { x: { column: m.x }, y: { column: m.y },
                 color: pt.xKind === "categorical" ? { column: m.x } : null,
                 pair_by: null, facet: null },
