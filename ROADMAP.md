@@ -8,7 +8,14 @@ scatter+regression, histogram+density with correlation and descriptive stat
 families), the AG Grid table upgrade, the style panel (markers, lines, frame,
 colors, text, size; draggable figure labels that export identically), the
 data-entry wizard (one column per condition), and deliberate exclusion
-(select + right-click) are in. Project is under git as of 13 June 2026.
+(select + right-click) are in. One master table now feeds many live-computed
+*plottables* — each a saved reduction (row filter + group/aggregate collapse)
+carrying its own figure and stats; the workspace splits into a maximized-table
+"Data" mode and an "Analyses" mode (plottable sidebar + collapsible
+reduced-table / figure / stats sections). The spec gained an additive `reduce`
+clause (1.1→1.2; specs without it analyze unchanged), applied engine-side in
+pandas before the existing mappings→figure→stats pipeline, which returns the
+reduced table it ran on. Project is under git as of 13 June 2026.
 Last updated 13 June 2026.*
 
 ## 1. Vision and positioning
