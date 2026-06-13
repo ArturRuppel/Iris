@@ -135,6 +135,22 @@ def test_document_roundtrip():
     assert doc["analyses"][0]["id"] == "an_test"
 
 
+def test_document_roundtrip_keeps_reduce_clause():
+    # the document layer is spec-agnostic; guard that a reduce clause survives
+    # save/load so a saved plottable recomputes identically on reopen
+    table = make_table()
+    spec = make_spec()
+    spec["spec_version"] = "1.2"
+    spec["reduce"] = {"filter": [{"column": "treatment", "op": "==", "value": "control"}],
+                      "collapse": {"group_by": ["subject"], "aggregate": {"response": "mean"}}}
+    saved = document.save_document(table["schema"], table["rows"], [spec, make_spec()],
+                                   {"exclusions": []}, {"engine": "test"})
+    doc = document.load_document(saved)
+    assert len(doc["analyses"]) == 2
+    assert doc["analyses"][0]["reduce"]["collapse"]["group_by"] == ["subject"]
+    assert doc["analyses"][0]["reduce"]["filter"][0]["value"] == "control"
+
+
 def test_health_reports_versions():
     r = client.get("/health")
     snap = r.json()["engine_snapshot"]

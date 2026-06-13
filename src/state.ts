@@ -154,19 +154,16 @@ export const loadTableAtom = atom(null, (get, set, table: Table) => {
   set(activePlottableIdAtom, first.id);
 });
 
-/* the keystone: spec derived live from active plottable state */
-export const specAtom = atom<AnalysisSpec | null>((get) => {
-  const schema = get(schemaAtom);
-  const p = get(activePlottableAtom);
-  if (!schema || !p) return null;
+/* Pure builder: a plottable + its (optional) recommended test + engine snapshot
+   → an analysis spec. Shared by the live `specAtom` (active plottable) and the
+   save path (every plottable), so the two can never drift. */
+export function buildSpec(p: Plottable, rec: TestName | undefined,
+                          snapshot: Record<string, string>): AnalysisSpec {
   const pt = PLOT_TYPES[p.plotType];
-  const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
-  const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
-  const ycol = schema.columns.find((c) => c.name === p.mappings.y);
-  const xcol = schema.columns.find((c) => c.name === p.mappings.x);
+  const recOk = rec && pt.tests.includes(rec) ? rec : undefined;
   const test = (p.override && pt.tests.includes(p.override) ? p.override : null)
-    ?? rec ?? pt.tests[0];
-  const usedOverride = p.override !== null && test === p.override && test !== rec;
+    ?? recOk ?? pt.tests[0];
+  const usedOverride = p.override !== null && test === p.override && test !== recOk;
   return {
     spec_version: "1.2",
     id: p.id,
@@ -180,7 +177,7 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
     stats: {
       family: pt.family, test,
       chosen_by: usedOverride ? "user_override"
-        : rec ? "recommendation_accepted" : "default",
+        : recOk ? "recommendation_accepted" : "default",
       alternatives_offered: pt.tests.filter((t) => t !== test),
       assumption_checks: [{ check: "shapiro_wilk",
                             per: pt.family === "group_comparison" ? "group" : "variable" }],
@@ -189,8 +186,33 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
     },
     annotations: { significance_brackets: "auto", show_n: true },
     style: { preset: p.preset, overrides: p.style },
-    engine_snapshot: get(engineSnapshotAtom) ?? {},
+    engine_snapshot: snapshot,
   };
+}
+
+/* the keystone: spec derived live from the active plottable */
+export const specAtom = atom<AnalysisSpec | null>((get) => {
+  const schema = get(schemaAtom);
+  const p = get(activePlottableAtom);
+  if (!schema || !p) return null;
+  const pt = PLOT_TYPES[p.plotType];
+  const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
+  const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
+  return buildSpec(p, rec, get(engineSnapshotAtom) ?? {});
+});
+
+/* every plottable's spec, each carrying its own recommended test — the save
+   path serializes all of these into the document's analyses[] */
+export const allSpecsAtom = atom((get): AnalysisSpec[] => {
+  if (!get(schemaAtom)) return [];
+  const snap = get(engineSnapshotAtom) ?? {};
+  const byId = get(analysisByIdAtom);
+  return get(plottablesAtom).map((p) => {
+    const pt = PLOT_TYPES[p.plotType];
+    const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
+    const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
+    return buildSpec(p, rec, snap);
+  });
 });
 
 /* ---- CRUD atoms for managing the plottables list ---- */

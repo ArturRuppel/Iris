@@ -9,7 +9,7 @@ import { ReducePanel } from "./components/ReducePanel";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
-  activePlottableAtom, analysisAtom, engineErrorAtom, engineSnapshotAtom,
+  activePlottableAtom, allSpecsAtom, analysisAtom, engineErrorAtom, engineSnapshotAtom,
   exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom,
   specAtom, PLOT_TYPES, viewModeAtom, type PlotType,
 } from "./state";
@@ -35,6 +35,7 @@ export default function App() {
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
   const spec = useAtomValue(specAtom);
+  const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysis = useSetAtom(analysisAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
@@ -110,9 +111,8 @@ export default function App() {
     downloadBase64(f.filename, f.data_base64);
   };
   const doSave = async () => {
-    if (!schema || !spec) return;
-    // TODO(Task 8): save all plottables
-    const f = await engine.saveDocument({ schema, rows }, [spec],
+    if (!schema || allSpecs.length === 0) return;
+    const f = await engine.saveDocument({ schema, rows }, allSpecs,
       { exclusions: exclusionLog });
     downloadBase64(f.filename, f.data_base64);
   };
