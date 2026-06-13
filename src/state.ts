@@ -1,21 +1,16 @@
 import { atom } from "jotai";
 import type {
   AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily,
-  StyleOverrides, Table, TestName,
+  StyleOverrides, Table, TestName, ReduceSpec,
 } from "./types";
 
 export const schemaAtom = atom<Schema | null>(null);
 export const rowsAtom = atom<Row[]>([]);
-export const mappingsAtom = atom({ x: "treatment", y: "response" });
-export const overrideAtom = atom<TestName | null>(null);
-export const presetAtom = atom("demo_default");
-export const analysisAtom = atom<AnalyzeResponse | null>(null);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
 
 /* must match compiler.PALETTE; the style panel edits copies of it */
 export const DEFAULT_PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"];
-export const styleAtom = atom<StyleOverrides>({});
 
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);
@@ -66,7 +61,6 @@ export const PLOT_TYPES: Record<PlotType, {
     tests: ["descriptive"], xKind: "none",
   },
 };
-export const plotTypeAtom = atom<PlotType>("dots");
 
 /* provenance: every exclusion toggle is logged, never silently applied */
 export interface ExclusionEvent { row_id: string; excluded: boolean; at: string }
@@ -81,64 +75,113 @@ export const toggleExclusionAtom = atom(null, (get, set, rowId: string) => {
     { row_id: rowId, excluded: !row.excluded, at: new Date().toISOString() }]);
 });
 
-/* swap in a freshly imported (or loaded) table and reset everything that
-   referred to the old one: mappings, override, analysis, exclusion log */
-export const loadTableAtom = atom(null, (get, set, table: Table) => {
-  set(schemaAtom, table.schema);
-  set(rowsAtom, table.rows);
-  set(exclusionLogAtom, []);
-  set(analysisAtom, null);
-  set(overrideAtom, null);
-  set(engineErrorAtom, null);
-  set(selectedRowIdAtom, null);
-  /* visual style carries over; text + drag offsets were written for the old
-     figure's labels and would silently mislabel the new data */
-  const { title, x_label, y_label, offsets, ...keep } = get(styleAtom);
-  set(styleAtom, keep);
-  const cats = table.schema.columns.filter((c) => c.type === "categorical");
-  const nums = table.schema.columns.filter((c) => c.type === "numeric");
-  const plotType = get(plotTypeAtom);
-  if (PLOT_TYPES[plotType].xKind === "categorical" && cats.length === 0)
-    set(plotTypeAtom, nums.length >= 2 ? "scatter" : "histogram");
-  const kind = PLOT_TYPES[get(plotTypeAtom)].xKind;
+/* ---- Plottable: one analysis bundled with its visual + reduce config ---- */
+
+export interface Plottable {
+  id: string;
+  name: string;
+  mappings: { x: string; y: string };
+  plotType: PlotType;
+  override: TestName | null;
+  preset: string;
+  style: StyleOverrides;
+  reduce: ReduceSpec;
+}
+
+let _pid = 0;
+const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
+
+export function makeDefaultPlottable(schema: Schema): Plottable {
+  const cats = schema.columns.filter((c) => c.type === "categorical");
+  const nums = schema.columns.filter((c) => c.type === "numeric");
+  let plotType: PlotType = "dots";
+  if (cats.length === 0) plotType = nums.length >= 2 ? "scatter" : "histogram";
+  const kind = PLOT_TYPES[plotType].xKind;
   const y = nums[nums.length - 1]?.name ?? "";
   const x = kind === "numeric"
     ? (nums.find((c) => c.name !== y)?.name ?? y)
     : (cats[0]?.name ?? "");
-  set(mappingsAtom, { x, y });
+  return {
+    id: nextId(), name: "Analysis 1",
+    mappings: { x, y }, plotType, override: null,
+    preset: "demo_default", style: {},
+    /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
+       so an in-place mutation could never alias across plottables */
+    reduce: { filter: [], collapse: null },
+  };
+}
+
+export const plottablesAtom = atom<Plottable[]>([]);
+export const activePlottableIdAtom = atom<string | null>(null);
+export const viewModeAtom = atom<"data" | "analyses">("data");
+
+export const activePlottableAtom = atom(
+  (get): Plottable | null => {
+    const id = get(activePlottableIdAtom);
+    return get(plottablesAtom).find((p) => p.id === id) ?? null;
+  },
+  (get, set, next: Plottable) => {
+    set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === next.id ? next : p)));
+  },
+);
+
+export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
+
+/* analysisAtom: derived read-only convenience for the ACTIVE plottable */
+export const analysisAtom = atom((get) => {
+  const id = get(activePlottableIdAtom);
+  return id ? (get(analysisByIdAtom)[id] ?? null) : null;
 });
 
-/* the keystone: spec derived live from UI state (schema v1.1) */
-export const specAtom = atom<AnalysisSpec | null>((get) => {
-  const schema = get(schemaAtom);
-  const m = get(mappingsAtom);
-  const plotType = get(plotTypeAtom);
-  const pt = PLOT_TYPES[plotType];
-  const override = get(overrideAtom);
-  const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
-  const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
-  if (!schema) return null;
-  const ycol = schema.columns.find((c) => c.name === m.y);
-  const xcol = schema.columns.find((c) => c.name === m.x);
-  const test = (override && pt.tests.includes(override) ? override : null)
-    ?? rec ?? pt.tests[0];
-  const usedOverride = override !== null && test === override && test !== rec;
+/* Write a result into an EXPLICIT plottable's slot. The caller captures the
+   target id at dispatch time, so a result that resolves after the user has
+   switched plottables still lands in the plottable it was computed for (not
+   whichever happens to be active when the network call returns). */
+export const setAnalysisByIdAtom = atom(
+  null, (get, set, arg: { id: string; res: AnalyzeResponse | null }) => {
+    const map = { ...get(analysisByIdAtom) };
+    if (arg.res) map[arg.id] = arg.res; else delete map[arg.id];
+    set(analysisByIdAtom, map);
+  });
+
+/* swap in a freshly imported (or loaded) table and reset everything that
+   referred to the old one: plottables, analysis, exclusion log */
+export const loadTableAtom = atom(null, (get, set, table: Table) => {
+  set(schemaAtom, table.schema);
+  set(rowsAtom, table.rows);
+  set(exclusionLogAtom, []);
+  set(engineErrorAtom, null);
+  set(selectedRowIdAtom, null);
+  set(analysisByIdAtom, {});
+  const first = makeDefaultPlottable(table.schema);
+  set(plottablesAtom, [first]);
+  set(activePlottableIdAtom, first.id);
+});
+
+/* Pure builder: a plottable + its (optional) recommended test + engine snapshot
+   → an analysis spec. Shared by the live `specAtom` (active plottable) and the
+   save path (every plottable), so the two can never drift. */
+export function buildSpec(p: Plottable, rec: TestName | undefined,
+                          snapshot: Record<string, string>): AnalysisSpec {
+  const pt = PLOT_TYPES[p.plotType];
+  const recOk = rec && pt.tests.includes(rec) ? rec : undefined;
+  const test = (p.override && pt.tests.includes(p.override) ? p.override : null)
+    ?? recOk ?? pt.tests[0];
+  const usedOverride = p.override !== null && test === p.override && test !== recOk;
   return {
-    spec_version: "1.1",
-    id: "an_01",
-    title: pt.xKind === "none"
-      ? `${ycol?.label ?? m.y}`
-      : `${ycol?.label ?? m.y} by ${xcol?.label ?? m.x}`,
+    spec_version: "1.2",
+    id: p.id,
+    title: p.name,
     data: { filter: [], respect_exclusions: true },
-    mappings: { x: { column: m.x }, y: { column: m.y },
-                color: pt.xKind === "categorical" ? { column: m.x } : null,
+    reduce: p.reduce,
+    mappings: { x: { column: p.mappings.x }, y: { column: p.mappings.y },
+                color: pt.xKind === "categorical" ? { column: p.mappings.x } : null,
                 pair_by: null, facet: null },
     layers: pt.layers,
     stats: {
-      family: pt.family,
-      test,
+      family: pt.family, test,
       chosen_by: usedOverride ? "user_override"
-        : rec ? "recommendation_accepted" : "default",
+        : recOk ? "recommendation_accepted" : "default",
       alternatives_offered: pt.tests.filter((t) => t !== test),
       assumption_checks: [{ check: "shapiro_wilk",
                             per: pt.family === "group_comparison" ? "group" : "variable" }],
@@ -146,7 +189,75 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
       report: ["effect_size", "ci", "n_per_group"],
     },
     annotations: { significance_brackets: "auto", show_n: true },
-    style: { preset: get(presetAtom), overrides: get(styleAtom) },
-    engine_snapshot: get(engineSnapshotAtom) ?? {},
+    style: { preset: p.preset, overrides: p.style },
+    engine_snapshot: snapshot,
   };
+}
+
+/* the keystone: spec derived live from the active plottable */
+export const specAtom = atom<AnalysisSpec | null>((get) => {
+  const schema = get(schemaAtom);
+  const p = get(activePlottableAtom);
+  if (!schema || !p) return null;
+  const pt = PLOT_TYPES[p.plotType];
+  const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
+  const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
+  return buildSpec(p, rec, get(engineSnapshotAtom) ?? {});
+});
+
+/* every plottable's spec, each carrying its own recommended test — the save
+   path serializes all of these into the document's analyses[] */
+export const allSpecsAtom = atom((get): AnalysisSpec[] => {
+  if (!get(schemaAtom)) return [];
+  const snap = get(engineSnapshotAtom) ?? {};
+  const byId = get(analysisByIdAtom);
+  return get(plottablesAtom).map((p) => {
+    const pt = PLOT_TYPES[p.plotType];
+    const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
+    const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
+    return buildSpec(p, rec, snap);
+  });
+});
+
+/* ---- CRUD atoms for managing the plottables list ---- */
+
+export const addPlottableAtom = atom(null, (get, set) => {
+  const schema = get(schemaAtom);
+  if (!schema) return;
+  const p = makeDefaultPlottable(schema);
+  p.name = `Analysis ${get(plottablesAtom).length + 1}`;
+  set(plottablesAtom, [...get(plottablesAtom), p]);
+  set(activePlottableIdAtom, p.id);
+});
+
+export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
+  const src = get(plottablesAtom).find((p) => p.id === id);
+  if (!src) return;
+  const copy: Plottable = {
+    ...src, id: nextId(), name: `${src.name} copy`,
+    mappings: { ...src.mappings }, style: structuredClone(src.style),
+    reduce: { filter: src.reduce.filter.map((f) => ({ ...f })),
+              collapse: src.reduce.collapse
+                ? { group_by: [...src.reduce.collapse.group_by],
+                    aggregate: { ...src.reduce.collapse.aggregate } } : null },
+  };
+  set(plottablesAtom, [...get(plottablesAtom), copy]);
+  set(activePlottableIdAtom, copy.id);
+});
+
+export const renamePlottableAtom = atom(null, (get, set, arg: { id: string; name: string }) => {
+  set(plottablesAtom, get(plottablesAtom).map(
+    (p) => (p.id === arg.id ? { ...p, name: arg.name } : p)));
+});
+
+export const deletePlottableAtom = atom(null, (get, set, id: string) => {
+  const list = get(plottablesAtom);
+  if (list.length <= 1) return;
+  const idx = list.findIndex((p) => p.id === id);
+  const next = list.filter((p) => p.id !== id);
+  set(plottablesAtom, next);
+  if (get(activePlottableIdAtom) === id)
+    set(activePlottableIdAtom, next[Math.max(0, idx - 1)].id);
+  const map = { ...get(analysisByIdAtom) }; delete map[id];
+  set(analysisByIdAtom, map);
 });

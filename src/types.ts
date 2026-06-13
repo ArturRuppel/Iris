@@ -23,6 +23,24 @@ export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
 
+/* ---- reduction: filter rows + optionally collapse to group summaries ---- */
+export type FilterOp = "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in";
+export interface FilterCond {
+  column: string;
+  op: FilterOp;
+  value: string | number | (string | number)[]; // array only for in / not-in
+}
+export type AggFn = "mean" | "median" | "count" | "sum" | "sem";
+export interface CollapseSpec {
+  group_by: string[];                 // columns defining a group
+  aggregate: Record<string, AggFn>;   // numeric column -> fn; unlisted numerics default to mean
+}
+export interface ReduceSpec {
+  filter: FilterCond[];               // AND-ed; [] means no filter
+  collapse: CollapseSpec | null;      // null means no collapse
+}
+export const EMPTY_REDUCE: ReduceSpec = { filter: [], collapse: null };
+
 /* every key the style panel exposes; the engine fills in defaults, so all
    fields are optional and an empty object means "preset look" */
 export interface StyleOverrides {
@@ -73,10 +91,11 @@ export interface StyleOverrides {
 }
 
 export interface AnalysisSpec {
-  spec_version: "1.1"; // 1.1 adds mark and test enum values (additive)
+  spec_version: "1.2"; // 1.2 adds an additive `reduce` clause (filter + collapse)
   id: string;
   title: string;
   data: { filter: unknown[]; respect_exclusions: boolean };
+  reduce: ReduceSpec;
   mappings: {
     x: { column: string };
     y: { column: string };
@@ -124,6 +143,7 @@ export interface StatsResult {
 export interface AnalyzeResponse {
   figure: { svg: string; point_groups: { gid: string; row_ids: string[] }[] };
   stats: StatsResult;
+  reduced_table: Table;
   engine_snapshot: Record<string, string>;
 }
 

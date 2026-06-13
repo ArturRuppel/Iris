@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from "jotai";
-import { analysisAtom, overrideAtom } from "../state";
+import { activePlottableAtom, analysisAtom } from "../state";
 import type { StatsResult, TestName } from "../types";
 
 const fmtP = (p: number) => (p < 0.001 ? "< 0.001" : "= " + p.toFixed(3));
@@ -67,7 +67,9 @@ function ResultRows({ s }: { s: StatsResult }) {
 
 export function StatsPanel() {
   const analysis = useAtomValue(analysisAtom);
-  const [override, setOverride] = useAtom(overrideAtom);
+  const [active, setActive] = useAtom(activePlottableAtom);
+  const override = active?.override ?? null;
+  const setOverride = (t: TestName | null) => active && setActive({ ...active, override: t });
   if (!analysis) return <section className="pane stats-pane"><div className="pane-head"><h2>Statistics</h2></div><p className="hint">Waiting for first analysis…</p></section>;
 
   const s = analysis.stats;

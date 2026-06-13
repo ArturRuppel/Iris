@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from "jotai";
-import { analysisAtom, DEFAULT_PALETTE, plotTypeAtom, PLOT_TYPES, styleAtom } from "../state";
+import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE, PLOT_TYPES } from "../state";
 import type { StyleOverrides } from "../types";
 
 /* engine defaults; shown when no override is set so the controls never jump */
@@ -18,9 +18,10 @@ const OUTLIER_LABELS = {
  *  size. Every control writes one key of spec.style.overrides; the engine
  *  owns the defaults, and mark options only appear for the active plot. */
 export function StylePane() {
-  const [style, setStyle] = useAtom(styleAtom);
+  const [active, setActive] = useAtom(activePlottableAtom);
+  const style = active?.style ?? {};
+  const plotType = active?.plotType ?? "dots";
   const analysis = useAtomValue(analysisAtom);
-  const plotType = useAtomValue(plotTypeAtom);
   const pt = PLOT_TYPES[plotType];
   const grouped = pt.family === "group_comparison";
   const marks = new Set(pt.layers.map((l) => l.mark));
@@ -28,10 +29,11 @@ export function StylePane() {
 
   /* unset (undefined / "") keys are pruned so {} really means "preset look" */
   const set = (patch: StyleOverrides) => {
+    if (!active) return;
     const next: Record<string, unknown> = { ...style, ...patch };
     for (const k of Object.keys(next))
       if (next[k] === undefined || next[k] === "") delete next[k];
-    setStyle(next as StyleOverrides);
+    setActive({ ...active, style: next as StyleOverrides });
   };
   const setText = (key: "title" | "x_label" | "y_label", v: string) =>
     set({ [key]: v });
@@ -347,7 +349,7 @@ export function StylePane() {
           disabled={!style.offsets || Object.keys(style.offsets).length === 0}>
           Reset label positions
         </button>
-        <button onClick={() => setStyle({})} disabled={!dirty}>Reset all</button>
+        <button onClick={() => active && setActive({ ...active, style: {} })} disabled={!dirty}>Reset all</button>
       </div>
     </details>
   );
