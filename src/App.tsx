@@ -4,19 +4,35 @@ import { DataEntry } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
+import { PlottableSidebar } from "./components/PlottableSidebar";
+import { ReducePanel } from "./components/ReducePanel";
+import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
   activePlottableAtom, analysisAtom, engineErrorAtom, engineSnapshotAtom,
   exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom,
-  specAtom, PLOT_TYPES, type PlotType,
+  specAtom, PLOT_TYPES, viewModeAtom, type PlotType,
 } from "./state";
-import type { TestName } from "./types";
 import { downloadBase64, engine } from "./types";
+
+function Section({ title, defaultOpen, children }:
+  { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(!!defaultOpen);
+  return (
+    <section className="triad-section">
+      <button className="section-header" onClick={() => setOpen((o) => !o)}>
+        <span className="chevron">{open ? "▾" : "▸"}</span> {title}
+      </button>
+      {open && <div className="section-body">{children}</div>}
+    </section>
+  );
+}
 
 export default function App() {
   const [schema] = useAtom(schemaAtom);
   const [rows] = useAtom(rowsAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
+  const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
   const spec = useAtomValue(specAtom);
   const setAnalysis = useSetAtom(analysisAtom);
@@ -36,8 +52,6 @@ export default function App() {
   const setMappings = (m: { x: string; y: string }) =>
     active && setActive({ ...active, mappings: m });
   const setPreset = (p: string) => active && setActive({ ...active, preset: p });
-  const setOverride = (override: TestName | null) =>
-    active && setActive({ ...active, override });
 
   useEffect(() => {
     engine.waitForHealth()
@@ -119,38 +133,46 @@ export default function App() {
     <div className="app">
       <header>
         <h1>Triad <span className="tag">tier 2</span></h1>
+        <div className="mode-toggle">
+          <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
+          <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
+        </div>
         <div className="controls">
           <ImportWizard />
           <DataEntry />
-          <label>Plot
-            <select value={plotType}
-              onChange={(e) => switchPlotType(e.target.value as PlotType)}>
-              {(Object.keys(PLOT_TYPES) as PlotType[]).map((t) => (
-                <option key={t} value={t}>{PLOT_TYPES[t].label}</option>
-              ))}
-            </select>
-          </label>
-          {xKind !== "none" && (
-            <label>X
-              <select value={mappings.x}
-                onChange={(e) => setMappings({ ...mappings, x: e.target.value })}>
-                {xCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
-              </select>
-            </label>
+          {viewMode === "analyses" && (
+            <>
+              <label>Plot
+                <select value={plotType}
+                  onChange={(e) => switchPlotType(e.target.value as PlotType)}>
+                  {(Object.keys(PLOT_TYPES) as PlotType[]).map((t) => (
+                    <option key={t} value={t}>{PLOT_TYPES[t].label}</option>
+                  ))}
+                </select>
+              </label>
+              {xKind !== "none" && (
+                <label>X
+                  <select value={mappings.x}
+                    onChange={(e) => setMappings({ ...mappings, x: e.target.value })}>
+                    {xCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
+                  </select>
+                </label>
+              )}
+              <label>{xKind === "none" ? "Variable" : "Y"}
+                <select value={mappings.y}
+                  onChange={(e) => setMappings({ ...mappings, y: e.target.value })}>
+                  {numericCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
+                </select>
+              </label>
+              <label>Size
+                <select value={preset} onChange={(e) => setPreset(e.target.value)}>
+                  <option value="demo_default">Screen (140 mm)</option>
+                  <option value="nature_single_column">Nature single (89 mm)</option>
+                  <option value="nature_double_column">Nature double (183 mm)</option>
+                </select>
+              </label>
+            </>
           )}
-          <label>{xKind === "none" ? "Variable" : "Y"}
-            <select value={mappings.y}
-              onChange={(e) => setMappings({ ...mappings, y: e.target.value })}>
-              {numericCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
-            </select>
-          </label>
-          <label>Size
-            <select value={preset} onChange={(e) => setPreset(e.target.value)}>
-              <option value="demo_default">Screen (140 mm)</option>
-              <option value="nature_single_column">Nature single (89 mm)</option>
-              <option value="nature_double_column">Nature double (183 mm)</option>
-            </select>
-          </label>
           <span className="spacer" />
           <button onClick={() => doExport("svg")}>SVG</button>
           <button onClick={() => doExport("pdf")}>PDF</button>
@@ -160,9 +182,21 @@ export default function App() {
       </header>
       {error && <div className="error-bar">{error}</div>}
       <main>
-        <DataTable />
-        <FigurePane />
-        <StatsPanel />
+        {viewMode === "data" ? (
+          <div className="data-mode"><DataTable /></div>
+        ) : (
+          <div className="analyses-mode">
+            <PlottableSidebar />
+            <div className="triad">
+              <Section title="Reduced table" defaultOpen>
+                <ReducePanel />
+                <ReducedTable />
+              </Section>
+              <Section title="Figure" defaultOpen><FigurePane /></Section>
+              <Section title="Statistics" defaultOpen><StatsPanel /></Section>
+            </div>
+          </div>
+        )}
       </main>
       <footer>
         <button className="link" onClick={() => setShowSpec((s) => !s)}>
