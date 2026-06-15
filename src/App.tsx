@@ -5,14 +5,16 @@ import { DataTable } from "./components/DataTable";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
 import { PipelineRail } from "./components/PipelineRail";
+import { LayerRail } from "./components/LayerRail";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
-  activePlottableAtom, activePlottableIdAtom, allSpecsAtom, engineErrorAtom,
-  engineSnapshotAtom, exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom,
+  activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
+  applyTemplateAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
+  loadTableAtom, registryAtom, reducePreviewAtom, rowsAtom, schemaAtom,
   setAnalysisByIdAtom, setReducePreviewByIdAtom, specAtom, tableTokenAtom,
-  PLOT_TYPES, viewModeAtom, type PlotType,
+  viewModeAtom, TEMPLATES, type TemplateName,
 } from "./state";
 import { downloadBase64, engine } from "./types";
 
@@ -44,6 +46,11 @@ export default function App() {
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
+  const reducePreview = useAtomValue(reducePreviewAtom);
+  const setRegistry = useSetAtom(registryAtom);
+  const applyTemplate = useSetAtom(applyTemplateAtom);
+  const warnIssue = (useAtomValue(analysisAtom)?.issues ?? [])
+    .find((i) => i.level === "warning");
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
@@ -53,8 +60,11 @@ export default function App() {
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
-  const plotType = active?.plotType ?? "dots";
+  const family = active?.family ?? "group_comparison";
   const preset = active?.preset ?? "demo_default";
+  const xKind: "categorical" | "numeric" | "none" =
+    family === "group_comparison" ? "categorical"
+    : family === "correlation" ? "numeric" : "none";
 
   const setMappings = (m: { x: string; y: string }) =>
     active && setActive({ ...active, mappings: m });
@@ -62,33 +72,45 @@ export default function App() {
 
   useEffect(() => {
     engine.waitForHealth()
-      .then((h) => { setSnapshot(h.engine_snapshot); setEngineUp(true); })
+      .then((h) => { setSnapshot(h.engine_snapshot); setRegistry(h.registry); setEngineUp(true); })
       .then(() => engine.sample())
       .then((t) => loadTable(t))
       .catch(() => setEngineUp(false));
   }, []);
 
-  const numericCols = schema?.columns.filter((c) => c.type === "numeric") ?? [];
-  const catCols = schema?.columns.filter((c) => c.type === "categorical") ?? [];
-  const xKind = PLOT_TYPES[plotType].xKind;
+  /* the X/Y pickers must offer the columns that SURVIVE the reduction, not the
+     master columns — otherwise you can map X to a column the pipeline drops and
+     analyze 422s ("x column not found in schema"). The reduce preview carries
+     the post-reduction schema (and runs even with zero steps, where it equals
+     the master schema), so it's the source of truth; fall back to the master
+     schema only for the brief moment before the first preview resolves. */
+  const effectiveSchema = reducePreview?.preview.schema ?? schema;
+  const numericCols = effectiveSchema?.columns.filter((c) => c.type === "numeric") ?? [];
+  const catCols = effectiveSchema?.columns.filter((c) => c.type === "categorical") ?? [];
   const xCols = xKind === "numeric" ? numericCols.filter((c) => c.name !== mappings.y) : catCols;
 
-  /* switching plot family invalidates the test override and may need a
-     different kind of x column — do it all in a single setActive call to
-     avoid stale-capture clobbering */
-  const switchPlotType = (next: PlotType) => {
-    if (!active) return;
-    const nextOverride = PLOT_TYPES[next].family !== PLOT_TYPES[plotType].family
-      ? null : active.override;
-    const kind = PLOT_TYPES[next].xKind;
-    const valid = kind === "numeric"
-      ? numericCols.filter((c) => c.name !== mappings.y)
-      : catCols;
-    const nextMappings = (kind !== "none" && !valid.some((c) => c.name === mappings.x))
-      ? { ...mappings, x: valid[0]?.name ?? "" }
-      : mappings;
-    setActive({ ...active, plotType: next, override: nextOverride, mappings: nextMappings });
-  };
+  /* a stable signature of the surviving columns, so effects that must react to a
+     pipeline edit (which changes the schema but not necessarily the spec string)
+     have something concrete to depend on */
+  const schemaKey = effectiveSchema?.columns.map((c) => `${c.name}:${c.type}`).join(",") ?? "";
+
+  /* If a mapped axis points at a column the pipeline drops, say so precisely and
+     skip the analyze (below) rather than (a) shipping a doomed request that 422s
+     with "x column not found", or (b) silently repointing the axis at some
+     surviving column the user never chose — which can cascade into an unrelated
+     error (e.g. a single-level group). The dropdowns already only list surviving
+     columns; this covers the stale stored value behind them. */
+  const survives = (name: string) =>
+    !effectiveSchema || effectiveSchema.columns.some((c) => c.name === name);
+  const mappingError =
+    !active ? null
+    : xKind !== "none" && mappings.x && !survives(mappings.x)
+      ? `X column “${mappings.x}” is removed by this analysis’s reduction pipeline. `
+        + `Add it to a Collapse “Group by” step, or pick a column the pipeline keeps.`
+    : mappings.y && !survives(mappings.y)
+      ? `Y column “${mappings.y}” is removed by this analysis’s reduction pipeline. `
+        + `Aggregate it in the Collapse step, or pick a column the pipeline keeps.`
+    : null;
 
   /* upload the master table once per data change and remember its content
      token; subsequent pipeline/mapping edits then ride as a small token instead
@@ -118,7 +140,8 @@ export default function App() {
   const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
     if (!schema || !spec || !tableToken) return;
-    if (xKind !== "none" && !spec.mappings.x.column) return;
+    if (xKind !== "none" && !spec.encodings.x?.column) return;
+    if (mappingError) return; // a mapped column the pipeline drops — don't ship a doomed analyze
     window.clearTimeout(timer.current);
     /* capture the target plottable at dispatch so a late-resolving result lands
        in the plottable it was computed for, not whichever is active on return */
@@ -134,7 +157,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [tableToken, specKey]);
+  }, [tableToken, specKey, schemaKey, mappingError]);
 
   /* live reduced-table preview for the active plottable, recomputed as the
      pipeline changes. Independent of the analyze loop and valid before any
@@ -197,10 +220,11 @@ export default function App() {
           {viewMode === "analyses" && (
             <>
               <label>Plot
-                <select value={plotType}
-                  onChange={(e) => switchPlotType(e.target.value as PlotType)}>
-                  {(Object.keys(PLOT_TYPES) as PlotType[]).map((t) => (
-                    <option key={t} value={t}>{PLOT_TYPES[t].label}</option>
+                <select value=""
+                  onChange={(e) => { if (e.target.value) applyTemplate(e.target.value as TemplateName); }}>
+                  <option value="">Start from…</option>
+                  {(Object.keys(TEMPLATES) as TemplateName[]).map((t) => (
+                    <option key={t} value={t}>{TEMPLATES[t].label}</option>
                   ))}
                 </select>
               </label>
@@ -234,7 +258,10 @@ export default function App() {
           <button className="primary" onClick={doSave}>Save .viz</button>
         </div>
       </header>
-      {error && <div className="error-bar">{error}</div>}
+      {error ? <div className="error-bar">{error}</div>
+        : mappingError ? <div className="error-bar warn-bar">{mappingError}</div>
+        : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
+        : null}
       <main>
         {viewMode === "data" ? (
           <div className="data-mode"><DataTable /></div>
@@ -242,6 +269,7 @@ export default function App() {
           <div className="analyses-mode">
             <PlottableSidebar />
             <PipelineRail />
+            <LayerRail />
             <div className="triad">
               <Section title="Reduced table" defaultOpen><ReducedTable /></Section>
               <Section title="Figure" defaultOpen><FigurePane /></Section>
