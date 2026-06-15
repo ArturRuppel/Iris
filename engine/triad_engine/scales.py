@@ -32,9 +32,13 @@ def _levels(df: pd.DataFrame, schema: dict, name: str) -> list[str]:
     return sorted(str(v) for v in df[name].dropna().unique())
 
 
-def _col(enc: dict, key: str) -> str | None:
+def _col(enc: dict, key: str, present: set[str]) -> str | None:
+    """The column a channel maps, but only if it survived into the current
+    schema — a stale encoding referencing a dropped/reduced-away column is
+    treated as unmapped (the guard pass surfaces it separately)."""
     e = enc.get(key)
-    return e["column"] if e and e.get("column") else None
+    col = e["column"] if e and e.get("column") else None
+    return col if col in present else None
 
 
 @dataclass
@@ -99,8 +103,9 @@ def resolve_scales(encodings: dict, df: pd.DataFrame, schema: dict,
                    style: dict) -> Scales:
     palette = style.get("palette") or ["#0e7490"]
     sc = Scales(palette0=palette[0])
+    present = {c["name"] for c in schema["columns"]}
 
-    color = _col(encodings, "color")
+    color = _col(encodings, "color", present)
     if color:
         levels = _levels(df, schema, color)
         sc.color_col = color
@@ -108,14 +113,14 @@ def resolve_scales(encodings: dict, df: pd.DataFrame, schema: dict,
         sc._color_map = {lv: palette[i % len(palette)]
                          for i, lv in enumerate(levels)}
 
-    size = _col(encodings, "size")
+    size = _col(encodings, "size", present)
     if size:
         vals = df[size].dropna().to_numpy(dtype=float)
         sc.size_col = size
         sc.size_lo = float(vals.min()) if len(vals) else 0.0
         sc.size_hi = float(vals.max()) if len(vals) else 1.0
 
-    shape = _col(encodings, "shape")
+    shape = _col(encodings, "shape", present)
     if shape:
         sc.shape_col = shape
         sc.shape_levels = _levels(df, schema, shape)

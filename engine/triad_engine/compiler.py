@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 import numpy as np
 import pandas as pd
+from scipy import stats as sps
 
 from . import scales as scales_mod
 
@@ -236,38 +237,90 @@ def _param(params: dict, key: str, style: dict, style_key: str):
     return v if v is not None else style[style_key]
 
 
+def _is_categorical(schema, name):
+    return any(c["name"] == name and c["type"] == "categorical"
+               for c in schema["columns"])
+
+
+def _summary_of(label, ys):
+    """Per-cell summary in stats._summary's shape, for dodged sub-groups whose
+    (x × color) cells aren't present in the x-only stats summaries."""
+    n = len(ys)
+    ci = float(sps.t.ppf(0.975, n - 1) * sps.sem(ys)) if n > 1 else 0.0
+    return {"group": label, "n": n,
+            "mean": float(np.mean(ys)) if n else 0.0,
+            "sd": float(np.std(ys, ddof=1)) if n > 1 else 0.0,
+            "ci95_half": ci}
+
+
 def _comparison_context(df, schema, spec, stats):
-    x = spec["encodings"]["x"]["column"]
-    y = spec["encodings"]["y"]["column"]
+    enc = spec["encodings"]
+    x = enc["x"]["column"]
+    y = enc["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     levels = stats["levels"]
     has_dots = any(l["geom"] == "dot" for l in spec.get("layers", []))
-    groups, top = [], -np.inf
-    for gi, lv in enumerate(levels):
-        rows = df[(df[x] == lv) & df[y].notna()]
-        ys = rows[y].to_numpy(dtype=float)
-        s = next(s for s in stats["summaries"] if s["group"] == lv)
-        err = _err_half(s, style["error_type"])
-        if len(ys):
-            top = max(top, ys.max(), s["mean"] + err)
-        groups.append({"gi": gi, "lv": lv, "ys": ys,
-                       "row_ids": rows["id"].tolist(),
-                       "color": _group_color(style, gi), "summary": s})
+
+    # a categorical color distinct from x becomes a second factor: marks dodge
+    # within each x slot, one sub-series per color level (colored by the scale).
+    # color == x (today's default) or unmapped → the single-series-per-x path.
+    color = enc.get("color")
+    color_col = color["column"] if color and color.get("column") else None
+    dodged = (color_col is not None and color_col != x
+              and _is_categorical(schema, color_col))
+    sc = scales_mod.resolve_scales(enc, df[df[y].notna()], schema, style)
+
+    groups, top, gi = [], -np.inf, 0
+    if dodged:
+        clevels = sc.color_levels
+        k = max(1, len(clevels))
+        slot = 0.8 / k                      # sub-slot width within an x position
+        wscale = slot                       # geoms shrink their width to the slot
+        for li, lv in enumerate(levels):
+            for cj, clv in enumerate(clevels):
+                rows = df[(df[x] == lv) & (df[color_col].astype(str) == clv)
+                          & df[y].notna()]
+                ys = rows[y].to_numpy(dtype=float)
+                s = _summary_of(f"{lv}/{clv}", ys)
+                err = _err_half(s, style["error_type"])
+                if len(ys):
+                    top = max(top, ys.max(), s["mean"] + err)
+                pos = li + (cj - (k - 1) / 2) * slot
+                groups.append({"gi": gi, "pos": pos, "lv": lv, "ys": ys,
+                               "row_ids": rows["id"].tolist(),
+                               "color": sc.color_for(clv), "summary": s})
+                gi += 1
+    else:
+        wscale = 1.0
+        for li, lv in enumerate(levels):
+            rows = df[(df[x] == lv) & df[y].notna()]
+            ys = rows[y].to_numpy(dtype=float)
+            s = next(s for s in stats["summaries"] if s["group"] == lv)
+            err = _err_half(s, style["error_type"])
+            if len(ys):
+                top = max(top, ys.max(), s["mean"] + err)
+            groups.append({"gi": li, "pos": li, "lv": lv, "ys": ys,
+                           "row_ids": rows["id"].tolist(),
+                           "color": _group_color(style, li), "summary": s})
+
     p = stats["result"].get("p")  # absent in the describe-only path → no bracket
     return {"x": x, "y": y, "cols": cols, "style": style, "levels": levels,
             "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
-            "top": top, "p_sig": p is not None and p < stats.get("alpha", 0.05)}
+            "top": top, "dodged": dodged, "wscale": wscale, "scales": sc,
+            "summary_dx": 0.0 if dodged else 0.28,
+            "p_sig": (not dodged) and p is not None
+                     and p < stats.get("alpha", 0.05)}
 
 
 def _geom_violin(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
-    width = _param(params, "mark_width", style, "mark_width") or 0.7
+    width = (_param(params, "mark_width", style, "mark_width") or 0.7) * ctx["wscale"]
     for grp in ctx["groups"]:
         ys = grp["ys"]
         if len(ys) <= 1:
             continue
-        vp = ax.violinplot([ys], positions=[grp["gi"]], widths=width,
+        vp = ax.violinplot([ys], positions=[grp["pos"]], widths=width,
                            showextrema=False)
         for body in vp["bodies"]:
             body.set_facecolor(grp["color"]); body.set_alpha(0.22)
@@ -278,14 +331,14 @@ def _geom_violin(ax, ctx, params):
 
 def _geom_box(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
-    width = _param(params, "mark_width", style, "mark_width") or 0.42
+    width = (_param(params, "mark_width", style, "mark_width") or 0.42) * ctx["wscale"]
     show_fliers = not ctx["has_dots"] and style["outlier_marker"] != "none"
     line = dict(color="#475569", linewidth=lw * 0.65)
     for grp in ctx["groups"]:
         ys = grp["ys"]
         if not len(ys):
             continue
-        ax.boxplot([ys], positions=[grp["gi"]], widths=width,
+        ax.boxplot([ys], positions=[grp["pos"]], widths=width,
                    notch=style["notch"] and len(ys) > 5, showfliers=show_fliers,
                    boxprops=line, whiskerprops=line, capprops=line,
                    medianprops=dict(color=INK, linewidth=lw * 0.93),
@@ -301,24 +354,24 @@ def _geom_box(ax, ctx, params):
 def _geom_bar(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
     error_type = _param(params, "error_type", style, "error_type")
-    width = style["mark_width"] or 0.6
+    width = (style["mark_width"] or 0.6) * ctx["wscale"]
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
-        ax.bar(grp["gi"], s["mean"], width=width, color=grp["color"],
+        ax.bar(grp["pos"], s["mean"], width=width, color=grp["color"],
                alpha=0.55, zorder=1)
-        ax.errorbar(grp["gi"], s["mean"], yerr=err, fmt="none", ecolor=INK,
+        ax.errorbar(grp["pos"], s["mean"], yerr=err, fmt="none", ecolor=INK,
                     elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
     return None
 
 
 def _geom_dot(ax, ctx, params):
     style = ctx["style"]
-    jitter = _param(params, "jitter", style, "jitter")
+    jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
     point_group = None
     for grp in ctx["groups"]:
-        xs = grp["gi"] + np.array([_stable_jitter(rid, jitter)
-                                   for rid in grp["row_ids"]])
+        xs = grp["pos"] + np.array([_stable_jitter(rid, jitter)
+                                    for rid in grp["row_ids"]])
         sc = ax.scatter(xs, grp["ys"], s=style["marker_size"],
                         color=grp["color"], alpha=style["marker_alpha"],
                         linewidths=0.6, edgecolors="white", zorder=3)
@@ -335,7 +388,7 @@ def _geom_summary(ax, ctx, params):
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
-        cx = grp["gi"] + 0.28
+        cx = grp["pos"] + ctx["summary_dx"]
         ax.errorbar(cx, s["mean"], yerr=err, fmt="none", ecolor=INK,
                     elinewidth=lw, capsize=style["capsize"], zorder=4)
         ax.plot(cx, s["mean"], marker="D", ms=5, color=INK, zorder=5)

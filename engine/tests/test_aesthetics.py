@@ -61,6 +61,86 @@ def test_scatter_shape_splits_into_per_level_series():
     _partition_ok(pg, DF)
 
 
+# ---------------- dodged group geoms (color = a second factor) ----------------
+
+CMP_SCHEMA = {"schema_version": "1.0", "columns": [
+    {"name": "cond", "type": "categorical", "label": "Condition",
+     "levels": ["ctrl", "drug"]},
+    {"name": "geno", "type": "categorical", "label": "Genotype",
+     "levels": ["wt", "ko"]},
+    {"name": "resp", "type": "numeric", "label": "Response"},
+]}
+
+
+def _cmp_df():
+    rows, rid = [], 0
+    for cond in ("ctrl", "drug"):
+        for geno in ("wt", "ko"):
+            for v in (1.0, 2.0, 3.0, 4.0):
+                rows.append({"id": f"r{rid}", "cond": cond, "geno": geno,
+                             "resp": v + (0 if cond == "ctrl" else 2)})
+                rid += 1
+    return pd.DataFrame(rows)
+
+
+def _cmp_spec(geom, **enc):
+    e = {k: None for k in ("x", "y", "color", "size", "shape")}
+    e["x"] = {"column": "cond"}
+    e["y"] = {"column": "resp"}
+    e.update({k: {"column": v} for k, v in enc.items()})
+    return {"encodings": e, "layers": [{"geom": geom, "params": {}}],
+            "stat_model": {"family": "group_comparison"},
+            "style": {"preset": "demo_default", "overrides": {}}}
+
+
+def _cmp_stats():
+    # describe-only shaped result: summaries per x-level, no p (no bracket)
+    return {"levels": ["ctrl", "drug"],
+            "summaries": [{"group": "ctrl", "n": 8, "mean": 2.5, "sd": 1.0,
+                           "ci95_half": 0.5},
+                          {"group": "drug", "n": 8, "mean": 4.5, "sd": 1.0,
+                           "ci95_half": 0.5}],
+            "result": {}, "alpha": 0.05}
+
+
+def test_color_second_factor_builds_dodged_cells():
+    df = _cmp_df()
+    ctx = compiler._comparison_context(
+        df, CMP_SCHEMA, _cmp_spec("box", color="geno"), _cmp_stats())
+    assert ctx["dodged"] is True
+    assert len(ctx["groups"]) == 4               # 2 conditions × 2 genotypes
+    # within an x-level the two genotype cells sit at offset, mirrored positions
+    by_lv = {}
+    for g in ctx["groups"]:
+        by_lv.setdefault(g["lv"], []).append(g["pos"])
+    for lv, positions in by_lv.items():
+        center = ["ctrl", "drug"].index(lv)
+        assert len(positions) == 2
+        assert min(positions) < center < max(positions)   # dodged around tick
+    # cell colors come from the color scale, not the x-group palette
+    colors = {g["color"] for g in ctx["groups"]}
+    assert len(colors) == 2                       # one per genotype, not per cell
+
+
+def test_color_equal_to_x_is_not_dodged():
+    df = _cmp_df()
+    spec = _cmp_spec("dot", color="cond")        # color == x → today's behaviour
+    ctx = compiler._comparison_context(df, CMP_SCHEMA, spec, _cmp_stats())
+    assert ctx["dodged"] is False
+    assert len(ctx["groups"]) == 2               # one cell per x-level
+    _, pg = compiler.build_comparison_figure(df, CMP_SCHEMA, spec, _cmp_stats())
+    assert len(pg) == 2                           # one dot series per x-level
+
+
+def test_dodged_dots_split_points_per_cell():
+    df = _cmp_df()
+    _, pg = compiler.build_comparison_figure(
+        df, CMP_SCHEMA, _cmp_spec("dot", color="geno"), _cmp_stats())
+    assert len(pg) == 4                          # cond × geno cells
+    rows = sorted(r for g in pg for r in g["row_ids"])
+    assert rows == sorted(df["id"].tolist())     # every row drawn once
+
+
 def test_scatter_size_varies_marker_area_within_range():
     fig, pg = compiler.build_scatter_figure(DF, SCHEMA,
                                             _scatter_spec(size="w"), RESULT)
