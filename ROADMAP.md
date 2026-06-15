@@ -1,5 +1,14 @@
 # Triad — Product & Engineering Roadmap
 
+> **Name:** The project is being renamed **Iris** (working title "Triad" still
+> used throughout the code). Iris is the Greek goddess of the rainbow and the
+> messenger of the gods — the spectrum of a figure and the live link between
+> table, figure, and stats — and is also the canonical statistics dataset
+> (Fisher, 1936), an instant signal to the researchers this tool is for. It
+> nods to Prism's light-splitting association sideways, as kin rather than
+> knockoff. The code rename (package id, Tauri bundle, `triad_engine`) is
+> deferred; only this roadmap records the decision for now.
+
 *Status: Tier 0 and Tier 1 complete on Linux (validated installer, sidecar
 lifecycle, orphan prevention); macOS/Windows packaging deferred to the end by
 decision. Tier 2 underway: import wizard (CSV/TSV/Excel, locale sniffing,

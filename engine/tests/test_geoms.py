@@ -26,6 +26,28 @@ def test_geoms_declare_their_family_and_needs():
     assert geoms.GEOMS["histogram"].needs == ["y"]
 
 
+def test_geoms_declare_accepted_aesthetic_channels():
+    # per-point geoms accept the full set; the channel order is the canonical
+    # color, size, shape so the frontend can render pickers consistently
+    assert geoms.GEOMS["scatter"].aes == ["color", "size", "shape"]
+    assert geoms.GEOMS["dot"].aes == ["color", "size", "shape"]
+    # group/aggregate geoms take a categorical color (one series per level) but
+    # size/shape are meaningless on a box/bar/fit → color only
+    assert geoms.GEOMS["box"].aes == ["color"]
+    assert geoms.GEOMS["violin"].aes == ["color"]
+    assert geoms.GEOMS["bar"].aes == ["color"]
+    assert geoms.GEOMS["regression"].aes == ["color"]
+    assert geoms.GEOMS["summary"].aes == ["color"]
+    assert geoms.GEOMS["histogram"].aes == ["color"]
+    assert geoms.GEOMS["density"].aes == ["color"]
+
+
+def test_registry_payload_carries_aes():
+    payload = geoms.registry_payload()
+    assert payload["geoms"]["scatter"]["aes"] == ["color", "size", "shape"]
+    assert payload["geoms"]["box"]["aes"] == ["color"]
+
+
 def test_registry_payload_is_json_safe_and_complete():
     payload = geoms.registry_payload()
     assert payload["point_cap"] == geoms.POINT_CAP

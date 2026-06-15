@@ -25,6 +25,9 @@ class GeomDef:
     params: dict = field(default_factory=dict)        # default param values
     param_specs: list[dict] = field(default_factory=list)  # frontend editors
     point_cap: int | None = None      # blocking cap for per-row geoms
+    aes: list[str] = field(default_factory=list)      # accepted aesthetic
+    #   channels beyond x/y: per-point geoms take color/size/shape; group and
+    #   aggregate geoms take a categorical color only (size/shape are ignored).
 
 
 def _num(key, label, *, lo, hi, step):
@@ -42,38 +45,41 @@ GEOMS: dict[str, GeomDef] = {
         "Dots", "group_comparison", False, ["x", "y"],
         params={"jitter": 0.18},
         param_specs=[_num("jitter", "Jitter", lo=0.0, hi=0.5, step=0.02)],
-        point_cap=POINT_CAP),
+        point_cap=POINT_CAP, aes=["color", "size", "shape"]),
     "summary": GeomDef(
         "Mean ± error", "group_comparison", True, ["x", "y"],
         params={"error_type": "ci95"},
-        param_specs=[_err_select()]),
+        param_specs=[_err_select()], aes=["color"]),
     "box": GeomDef(
         "Box", "group_comparison", True, ["x", "y"],
         params={},
-        param_specs=[_num("mark_width", "Width", lo=0.1, hi=1.0, step=0.05)]),
+        param_specs=[_num("mark_width", "Width", lo=0.1, hi=1.0, step=0.05)],
+        aes=["color"]),
     "violin": GeomDef(
         "Violin", "group_comparison", True, ["x", "y"],
         params={},
-        param_specs=[_num("mark_width", "Width", lo=0.1, hi=1.0, step=0.05)]),
+        param_specs=[_num("mark_width", "Width", lo=0.1, hi=1.0, step=0.05)],
+        aes=["color"]),
     "bar": GeomDef(
         "Bar ± error", "group_comparison", True, ["x", "y"],
         params={"error_type": "ci95"},
-        param_specs=[_err_select()]),
+        param_specs=[_err_select()], aes=["color"]),
     "scatter": GeomDef(
         "Scatter", "correlation", False, ["x", "y"],
         params={},
         param_specs=[],
-        point_cap=POINT_CAP),
+        point_cap=POINT_CAP, aes=["color", "size", "shape"]),
     "regression": GeomDef(
         "Regression", "correlation", True, ["x", "y"],
-        params={}, param_specs=[]),
+        params={}, param_specs=[], aes=["color"]),
     "histogram": GeomDef(
         "Histogram", "descriptive", True, ["y"],
         params={},
-        param_specs=[_num("hist_bins", "Bins", lo=0, hi=200, step=1)]),
+        param_specs=[_num("hist_bins", "Bins", lo=0, hi=200, step=1)],
+        aes=["color"]),
     "density": GeomDef(
         "Density", "descriptive", True, ["y"],
-        params={}, param_specs=[]),
+        params={}, param_specs=[], aes=["color"]),
 }
 
 
@@ -85,7 +91,7 @@ def registry_payload() -> dict:
             name: {"label": g.label, "family": g.family,
                    "aggregates": g.aggregates, "needs": list(g.needs),
                    "params": dict(g.params), "param_specs": list(g.param_specs),
-                   "point_cap": g.point_cap}
+                   "point_cap": g.point_cap, "aes": list(g.aes)}
             for name, g in GEOMS.items()
         },
     }
