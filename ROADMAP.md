@@ -41,10 +41,15 @@ older specs/documents migrate losslessly. **Phase 2 (*Aesthetics*:
 color/size/shape ← a column, with scales, an exportable legend, dodged second
 factors, and the Okabe–Ito palette) shipped 16 June 2026**; a categorical color
 distinct from x is surfaced as a candidate second factor but not yet two-way
-tested (that is Tier 3). Phase 3 (*Facets*) is designed into the schema and
-specced for follow-up
-(`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`).
-Project is under git as of 13 June 2026. Last updated 16 June 2026.*
+tested (that is Tier 3). The next grammar cycle is **Phase 3 (*Data-First
+Encodings*)**: the column *types* mapped to channels — not a hidden plot-family
+chosen with the plot type — drive which primitives are offered, unlocking
+continuous color, horizontal orientation, and a count heatmap; it is specced for
+follow-up (`docs/superpowers/specs/2026-06-16-data-first-encodings-design.md`).
+**Phase 4 (*Facets*)** — small multiples via the `facet` block, already designed
+into the schema
+(`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`) —
+follows it. Project is under git as of 13 June 2026. Last updated 16 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -186,10 +191,42 @@ Statistics gains exactly one move: a categorical `color ≠ x` is *surfaced* as 
 candidate second factor in plain language, but **no two-way test runs** — the
 two-way ANOVA itself remains Tier 3 (below), so Phase 2 describes rather than
 mis-tests. No `spec_version` bump — the 2.0 schema already carried these slots.
-Phase 3 (*Facets* — small multiples via the `facet` block) is the next grammar
-cycle; the full design is in
-`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md` and the
-Phase 2 plan in `docs/superpowers/plans/2026-06-15-composable-grammar-plots-phase2-aesthetics.md`.
+The Phase 2 plan is in
+`docs/superpowers/plans/2026-06-15-composable-grammar-plots-phase2-aesthetics.md`.
+
+**Composable grammar of graphics (Phase 3 — Data-First Encodings, planned).**
+Phases 1–2 inverted *statistics* from plot-type to encodings; Phase 3 finishes
+the job for *the figure itself*, and lands before Facets so faceting rides the
+cleaner encoding model rather than the reverse. Today a hidden `family`, chosen
+with the plot type, still dictates what the x-axis may hold and which primitives
+are offered; Phase 3 deletes that choice and lets the **column types drive
+everything**. The five channels (x, y, color, size, shape) each accept exactly
+the column types that mean something — x: categorical or numeric; y: numeric
+(categorical once a geom consumes it); color: categorical now, numeric (a
+continuous gradient + colorbar) when built; size: numeric only (discrete size is
+dropped by decision); shape: categorical only — and the *combination* of mapped
+types lights up the legal primitives, with `family` reduced to a derived label
+for the stats engine rather than a user choice. One mechanism carries it: each
+geom declares its required `x_type`/`y_type` in the engine registry (joining
+`needs`/`aes`/`params`), a channel offers a column type iff some installed geom
+consumes it there, and incompatible primitives are shown **disabled-with-reason**
+rather than hidden — so adding a geom later flips a capability on with no UI
+rework. The vision spans the new render capability the inversion unlocks: a
+**continuous color scale** (numeric color → gradient + shared colorbar legend),
+**horizontal orientation** (categorical y + numeric x → horizontal
+box/bar/violin/dot), and a **heatmap/tile geom with a count stat** (categorical x
+× categorical y → a contingency tile, the one encoding that makes
+categorical-vs-categorical worth offering and the geom that unlocks
+categorical-y). Delivered as independent chunks — **3a** the type-driven core
+(the inversion, the unified encoding card, type-gated primitives, derived family;
+today's renderers only), then **3b** continuous color, **3c** horizontal
+orientation, **3d** the tile geom + count stat — each shippable, each flipping
+one `⛔`/`—` in the channel×type matrix to `✅`. No `spec_version` bump expected
+(the 2.0 encoding slots already exist; the tile geom is a new enum value plus an
+`orient` param). Full design in
+`docs/superpowers/specs/2026-06-16-data-first-encodings-design.md`. **Phase 4
+(*Facets*)** follows; its design is in
+`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`.
 
 **Test matrix.** One-sample, two-sample (Welch), and paired t-tests;
 Mann–Whitney and Wilcoxon signed-rank; one-way ANOVA with Tukey post-hocs;
@@ -257,10 +294,11 @@ Statistical depth: two-way ANOVA with proper sums-of-squares options (via
 statsmodels), simple linear regression with diagnostic plots (residuals, QQ),
 and assumption-check transparency threaded through every analysis — what was
 checked, what it found, what it implies, in plain language. Faceting enters
-the plot grammar — **Phase 3 (*Facets*)** of the composable grammar of graphics
+the plot grammar — **Phase 4 (*Facets*)** of the composable grammar of graphics
 (the `facet` block, already present in the 2.0 spec, goes live as a subplot
-grid; see the composable-grammar design spec). Phase 2 (*Aesthetics*:
-color/size/shape encodings) precedes it. n and exclusion annotations become
+grid; see the composable-grammar design spec). Phases 2 (*Aesthetics*:
+color/size/shape encodings) and 3 (*Data-First Encodings*) precede it. n and
+exclusion annotations become
 standard figure furniture.
 
 Product hardening: autosave and crash recovery (continuous local snapshots
