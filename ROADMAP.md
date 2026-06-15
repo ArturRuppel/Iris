@@ -37,10 +37,14 @@ engine-authoritative geom registry, with first-class validity guards (a
 per-geom point cap that turns the 82k-row browser freeze into an actionable
 message) and statistics inferred from the encodings into a visible, overridable
 `stat_model` (with a describe-only escape hatch); the spec moved 1.3→2.0 and
-older specs/documents migrate losslessly. Phases 2 (*Aesthetics*:
-color/size/shape) and 3 (*Facets*) are designed into the schema and specced for
-follow-up (`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`).
-Project is under git as of 13 June 2026. Last updated 15 June 2026.*
+older specs/documents migrate losslessly. **Phase 2 (*Aesthetics*:
+color/size/shape ← a column, with scales, an exportable legend, dodged second
+factors, and the Okabe–Ito palette) shipped 16 June 2026**; a categorical color
+distinct from x is surfaced as a candidate second factor but not yet two-way
+tested (that is Tier 3). Phase 3 (*Facets*) is designed into the schema and
+specced for follow-up
+(`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`).
+Project is under git as of 13 June 2026. Last updated 16 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -165,11 +169,27 @@ Statistics inverted from `plot-type → test` to `encodings → an inferred,
 plain-language, overridable stat_model`, defaulting to *describe, don't test*
 when the design is ambiguous. The spec moved 1.3→2.0 (encodings + ordered
 `{geom, params}` layers + a `facet` block), normalized engine-side so older
-specs and `.viz` documents keep working. Phases 2 (*Aesthetics* —
-color/size/shape ← a column, with scales and a legend) and 3 (*Facets* — small
-multiples) extend the same schema seams, each in its own spec → plan →
-implementation cycle; the full design is in
-`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`.
+specs and `.viz` documents keep working.
+
+**Composable grammar of graphics (Phase 2 — Aesthetics, shipped 16 June 2026).**
+`color` / `size` / `shape` are now real encodings, each mapped to a column and
+resolved through a scale the compiler and legend share. Scatter draws per-point
+color/size/shape as sub-series (the click-to-exclude point groups partition
+across them); a categorical `color` distinct from `x` dodges the group geoms
+(box/violin/bar/dot) into one sub-series per level with an exportable, draggable
+legend (gid `legend`, nudgeable like the other figure labels). Okabe–Ito is now
+the default palette for colourblind safety. The geom registry declares which
+channels each geom accepts, so the encoding pickers only offer channels a layer
+can draw, and a guard pass warns when a channel is ignored or a categorical
+scale is exhausted (>8 colours / >6 markers — the natural lead-in to faceting).
+Statistics gains exactly one move: a categorical `color ≠ x` is *surfaced* as a
+candidate second factor in plain language, but **no two-way test runs** — the
+two-way ANOVA itself remains Tier 3 (below), so Phase 2 describes rather than
+mis-tests. No `spec_version` bump — the 2.0 schema already carried these slots.
+Phase 3 (*Facets* — small multiples via the `facet` block) is the next grammar
+cycle; the full design is in
+`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md` and the
+Phase 2 plan in `docs/superpowers/plans/2026-06-15-composable-grammar-plots-phase2-aesthetics.md`.
 
 **Test matrix.** One-sample, two-sample (Welch), and paired t-tests;
 Mann–Whitney and Wilcoxon signed-rank; one-way ANOVA with Tukey post-hocs;

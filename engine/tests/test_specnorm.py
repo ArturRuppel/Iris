@@ -26,6 +26,16 @@ def test_mappings_become_encodings():
     assert "mappings" not in out
 
 
+def test_legacy_color_distinct_from_x_survives_as_a_channel():
+    # a legacy doc that colored by a SECOND column keeps that mapping, so it
+    # opens in Phase 2 as an independent color channel (now a dodged factor)
+    spec = legacy_spec()
+    spec["mappings"]["color"] = {"column": "genotype"}
+    out = specnorm.normalize(spec)
+    assert out["encodings"]["color"] == {"column": "genotype"}
+    assert out["encodings"]["x"] == {"column": "treatment"}
+
+
 def test_marks_become_geoms_preserving_order_and_options():
     out = specnorm.normalize(legacy_spec())
     assert [l["geom"] for l in out["layers"]] == ["dot", "summary"]
