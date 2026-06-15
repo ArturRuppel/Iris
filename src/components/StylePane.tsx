@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from "jotai";
-import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE, PLOT_TYPES } from "../state";
+import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE } from "../state";
 import type { StyleOverrides } from "../types";
 
 /* engine defaults; shown when no override is set so the controls never jump */
@@ -20,12 +20,12 @@ const OUTLIER_LABELS = {
 export function StylePane() {
   const [active, setActive] = useAtom(activePlottableAtom);
   const style = active?.style ?? {};
-  const plotType = active?.plotType ?? "dots";
   const analysis = useAtomValue(analysisAtom);
-  const pt = PLOT_TYPES[plotType];
-  const grouped = pt.family === "group_comparison";
-  const marks = new Set(pt.layers.map((l) => l.mark));
-  const xNumeric = pt.xKind === "numeric" || plotType === "histogram";
+  const family = active?.family ?? "group_comparison";
+  const grouped = family === "group_comparison";
+  /* mark options follow the live, editable layer stack now, not a fixed preset */
+  const marks = new Set((active?.layers ?? []).map((l) => l.geom));
+  const xNumeric = family === "correlation" || family === "descriptive";
 
   /* unset (undefined / "") keys are pruned so {} really means "preset look" */
   const set = (patch: StyleOverrides) => {
@@ -220,7 +220,7 @@ export function StylePane() {
           </label>
           <label>
             <input type="checkbox"
-              checked={style.grid_x ?? (plotType === "scatter")}
+              checked={style.grid_x ?? (family === "correlation")}
               onChange={(e) => set({ grid_x: e.target.checked })} />
             vertical grid
           </label>
@@ -229,7 +229,7 @@ export function StylePane() {
         {(marks.has("box") || marks.has("violin") || marks.has("bar")
           || marks.has("summary") || marks.has("histogram")) && (
           <fieldset>
-            <legend>{pt.label.split(" ")[0]} options</legend>
+            <legend>Mark options</legend>
             {marks.has("box") && (
               <>
                 <label>
@@ -311,7 +311,7 @@ export function StylePane() {
             <label>
               <input type="checkbox" checked={style.show_annotation ?? true}
                 onChange={(e) => set({ show_annotation: e.target.checked })} />
-              {plotType === "histogram" ? "median line + label" : "r / p annotation"}
+              {family === "descriptive" ? "median line + label" : "r / p annotation"}
             </label>
           )}
         </fieldset>
