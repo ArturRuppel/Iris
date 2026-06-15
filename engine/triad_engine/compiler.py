@@ -16,6 +16,8 @@ import matplotlib.transforms as mtransforms
 import numpy as np
 import pandas as pd
 
+from . import scales as scales_mod
+
 MM = 1 / 25.4
 # Okabe–Ito: an 8-colour qualitative palette that stays distinguishable under
 # the common forms of colour blindness. Default for every aesthetic series and
@@ -397,6 +399,42 @@ def _axis_label(cols: dict, name: str) -> str:
     return cols.get(name, {}).get("label", name)
 
 
+def _draw_points(ax, rows, x, y, sc, style):
+    """Per-point scatter honoring the color/size/shape scales. Splits rows into
+    one sub-series per (color level × shape level) so each carries its own color
+    and marker, and emits one point_groups entry per sub-series so the
+    click-to-exclude contract (gid → row ids) survives. With no color/shape
+    mapped this is a single 'pts-0' series identical to the pre-aesthetics path;
+    size, when mapped, varies marker area per point within a series."""
+    color_levels = sc.color_levels if sc.color_col else [None]
+    shape_levels = sc.shape_levels if sc.shape_col else [None]
+    split = sc.color_col is not None or sc.shape_col is not None
+    point_groups, idx = [], 0
+    for cl in color_levels:
+        for sl in shape_levels:
+            sub = rows
+            if sc.color_col is not None:
+                sub = sub[sub[sc.color_col].astype(str) == cl]
+            if sc.shape_col is not None:
+                sub = sub[sub[sc.shape_col].astype(str) == sl]
+            if not len(sub):
+                continue
+            color = sc.color_for(cl) if sc.color_col else _group_color(style, 0)
+            marker = sc.marker_for(sl) if sc.shape_col else "o"
+            size = ([sc.size_for(v) for v in sub[sc.size_col]] if sc.size_col
+                    else style["marker_size"])
+            coll = ax.scatter(sub[x].to_numpy(dtype=float),
+                              sub[y].to_numpy(dtype=float),
+                              s=size, color=color, marker=marker,
+                              alpha=style["marker_alpha"],
+                              linewidths=0.6, edgecolors="white", zorder=3)
+            gid = f"pts-{idx}" if split else "pts-0"
+            coll.set_gid(gid)
+            point_groups.append({"gid": gid, "row_ids": sub["id"].tolist()})
+            idx += 1
+    return point_groups
+
+
 def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Scatter of two numeric columns; the `regression` layer adds the OLS
     line and 95% CI band computed by the stats module."""
@@ -407,6 +445,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
     marks = {layer["geom"] for layer in spec.get("layers", [])} or {"scatter",
                                                                     "regression"}
     rows = df[df[x].notna() & df[y].notna()]
+    sc_scales = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
     color = _group_color(style, 0)
 
     with plt.rc_context(_rc(style)):
@@ -422,13 +461,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
             ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
                     color=color, linewidth=style["line_width"], zorder=2)
 
-        sc = ax.scatter(rows[x].to_numpy(dtype=float),
-                        rows[y].to_numpy(dtype=float),
-                        s=style["marker_size"], color=color,
-                        alpha=style["marker_alpha"],
-                        linewidths=0.6, edgecolors="white", zorder=3)
-        sc.set_gid("pts-0")
-        point_groups = [{"gid": "pts-0", "row_ids": rows["id"].tolist()}]
+        point_groups = _draw_points(ax, rows, x, y, sc_scales, style)
 
         extra = {}
         if style["show_annotation"] and stats["result"].get("r") is not None:
