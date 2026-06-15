@@ -44,3 +44,31 @@ def test_describe_only_when_unmapped():
     m = statmodel.infer(enc(None, None), SCHEMA, override=None)
     assert m["family"] == "none"
     assert m["chosen_by"] == "describe_only"
+
+
+SCHEMA2 = {"schema_version": "1.0", "columns": SCHEMA["columns"] + [
+    {"name": "genotype", "type": "categorical", "label": "Genotype",
+     "levels": ["wt", "ko"]},
+]}
+
+
+def enc_color(x, y, color):
+    e = enc(x, y)
+    e["color"] = {"column": color} if color else None
+    return e
+
+
+def test_categorical_color_distinct_from_x_surfaces_second_factor():
+    m = statmodel.infer(enc_color("treatment", "response", "genotype"),
+                        SCHEMA2, override=None)
+    # the family/test for the one-factor design is UNCHANGED (no two-way here)
+    assert m["family"] == "group_comparison"
+    codes = {i["code"] for i in m["issues"]}
+    assert "color_second_factor" in codes
+    assert "genotype" in m["design"]
+
+
+def test_color_equal_to_x_raises_no_second_factor_issue():
+    m = statmodel.infer(enc_color("treatment", "response", "treatment"),
+                        SCHEMA2, override=None)
+    assert [i for i in m["issues"] if i["code"] == "color_second_factor"] == []

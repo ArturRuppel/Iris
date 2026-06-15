@@ -50,3 +50,38 @@ def test_box_below_min_n_warns():
     issues = guards.evaluate(df, SCHEMA, spec("box"), stat_model=None)
     warn = [i for i in issues if i["level"] == "warning"]
     assert warn and warn[0]["geom"] == "box"
+
+
+def _aes_spec(geom, **channels):
+    enc = {"x": {"column": "grp"}, "y": {"column": "val"},
+           "color": None, "size": None, "shape": None}
+    enc.update({k: {"column": v} for k, v in channels.items()})
+    return {"encodings": enc, "layers": [{"geom": geom, "params": {}}]}
+
+
+def test_size_on_a_box_only_plot_warns_channel_ignored():
+    df = frame(5)
+    issues = guards.evaluate(df, SCHEMA, _aes_spec("box", size="val"),
+                             stat_model=None)
+    codes = {i["code"] for i in issues}
+    assert "channel_ignored" in codes      # box has no size channel
+
+
+def test_color_on_a_scatter_is_not_ignored():
+    df = frame(5)
+    issues = guards.evaluate(df, SCHEMA, _aes_spec("dot", color="grp"),
+                             stat_model=None)
+    assert [i for i in issues if i["code"] == "channel_ignored"] == []
+
+
+def test_high_cardinality_color_warns_palette_exhausted():
+    rows = [{"id": f"r{i}", "grp": f"g{i}", "val": float(i), "excluded": False}
+            for i in range(12)]            # 12 distinct color levels > 8 palette
+    df = pd.DataFrame(rows)
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "grp", "type": "categorical", "label": "Group"},
+        {"name": "val", "type": "numeric", "label": "Value"}]}
+    issues = guards.evaluate(df, schema, _aes_spec("dot", color="grp"),
+                             stat_model=None)
+    codes = {i["code"] for i in issues}
+    assert "palette_exhausted" in codes

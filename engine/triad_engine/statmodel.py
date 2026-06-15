@@ -28,6 +28,7 @@ def infer(encodings: dict, schema: dict, override: str | None) -> dict:
     name carried from the spec when chosen_by == user_override, else None."""
     x = _col(encodings, "x")
     y = _col(encodings, "y")
+    color = _col(encodings, "color")
     xk, yk = _kind(schema, x), _kind(schema, y)
 
     if xk == "categorical" and yk == "numeric":
@@ -49,7 +50,22 @@ def infer(encodings: dict, schema: dict, override: str | None) -> dict:
                 "facet_handling": None, "chosen_by": "describe_only",
                 "issues": []}
 
+    # Phase 2: a categorical color distinct from x *could* be a second factor.
+    # We surface it (and show it as dodged groups) but do NOT run a two-way test
+    # — that is Tier-3 work. The one-factor family/test above is unchanged.
+    issues = []
+    if (family == "group_comparison" and color and color != x
+            and _kind(schema, color) == "categorical"):
+        design += (f"; color ({color}) could be a second factor — it is drawn "
+                   f"as separate groups, but only {x} is tested")
+        issues.append({
+            "level": "warning", "code": "color_second_factor", "geom": None,
+            "message": (f"You mapped color = {color}. It may be a second factor "
+                        f"in a two-way design; for now it is shown as separate "
+                        f"groups and only {x} is tested. A two-way test is "
+                        f"planned; use the test override to change the design.")})
+
     chosen_by = "user_override" if override else "inferred"
     return {"design": design, "family": family, "factors": factors,
             "test": override, "facet_handling": None,
-            "chosen_by": chosen_by, "issues": []}
+            "chosen_by": chosen_by, "issues": issues}

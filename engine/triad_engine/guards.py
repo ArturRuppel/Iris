@@ -14,8 +14,10 @@ from __future__ import annotations
 import pandas as pd
 
 from . import geoms
+from .scales import MARKERS
 
-MIN_BOX_N = 3  # below this per group, a box/violin summary is meaningless
+MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
+COLOR_CAP = 8   # the default Okabe–Ito palette length; above it, colors repeat
 
 
 def _issue(level, code, message, geom=None):
@@ -58,4 +60,41 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
                     "warning", "min_observations",
                     f"a group has fewer than {MIN_BOX_N} observations — the "
                     f"{name} summary is unreliable.", geom=name))
+
+    issues.extend(_aesthetic_issues(df, spec))
     return issues
+
+
+def _aesthetic_issues(df: pd.DataFrame, spec: dict) -> list[dict]:
+    """Phase 2: warn when an aesthetic channel has no effect (no layer accepts
+    it) or exhausts its scale (more levels than colors/markers available)."""
+    enc = spec["encodings"]
+    accepted: set[str] = set()
+    for layer in spec.get("layers", []):
+        g = geoms.GEOMS.get(layer["geom"])
+        if g:
+            accepted |= set(g.aes)
+
+    out: list[dict] = []
+    for ch in ("color", "size", "shape"):
+        e = enc.get(ch)
+        col = e["column"] if e and e.get("column") else None
+        if not col:
+            continue
+        if ch not in accepted:
+            out.append(_issue(
+                "warning", "channel_ignored",
+                f"{col} is mapped to {ch}, but no current layer draws {ch} — "
+                f"it has no effect. Add a geom that uses it, or clear the "
+                f"mapping."))
+            continue
+        if ch in ("color", "shape") and col in df:
+            n = int(df[col].dropna().astype(str).nunique())
+            cap = COLOR_CAP if ch == "color" else len(MARKERS)
+            if n > cap:
+                kind = "colors" if ch == "color" else "marker shapes"
+                out.append(_issue(
+                    "warning", "palette_exhausted",
+                    f"{col} has {n} levels but only {cap} {kind} are "
+                    f"available — they repeat. Consider faceting instead."))
+    return out
