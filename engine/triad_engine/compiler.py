@@ -11,6 +11,7 @@ import zlib
 
 import matplotlib
 matplotlib.use("Agg")
+import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 import numpy as np
@@ -74,6 +75,7 @@ STYLE_DEFAULTS = {
     "show_n": True,
     "show_significance": True,
     "show_annotation": True,     # r/p text, median label
+    "show_legend": None,         # None = auto (shown iff a channel needs it)
 }
 
 
@@ -216,6 +218,43 @@ def _decorate(fig, ax, style: dict, extra: dict | None = None):
         if off and (off[0] or off[1]):
             art.set_transform(art.get_transform() + mtransforms.ScaledTranslation(
                 off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
+
+
+def _draw_legend(fig, ax, sc, style, x_col):
+    """Legend for the mapped aesthetic channels. Color is omitted when it just
+    re-encodes x (the axis already names those groups, decision #3). Honors an
+    explicit show_legend override; otherwise auto-shows iff there is something
+    to explain. The legend is a real artist (editable SVG text) tagged gid
+    'legend' and nudgeable via offsets['legend'], like the draggable labels."""
+    entries = [e for e in sc.legend_entries()
+               if not (e["channel"] == "color" and e["label"] == x_col)]
+    pref = style.get("show_legend")
+    if pref is False or not entries:
+        return
+    handles, labels = [], []
+    for e in entries:
+        for sw in e["swatches"]:
+            if e["channel"] == "shape":
+                h = mlines.Line2D([], [], marker=sw["marker"], linestyle="none",
+                                  color=INK, markersize=6)
+            elif e["channel"] == "size":
+                h = mlines.Line2D([], [], marker="o", linestyle="none",
+                                  color=INK, markersize=max(3.0, sw["size"] ** 0.5))
+            else:  # color
+                h = mlines.Line2D([], [], marker="o", linestyle="none",
+                                  color=sw["color"], markersize=6)
+            handles.append(h)
+            labels.append(f"{sw['value']:g}" if isinstance(sw["value"], float)
+                          else str(sw["value"]))
+    title = entries[0]["label"] if len(entries) == 1 else None
+    leg = ax.legend(handles, labels, loc="best", frameon=False, title=title,
+                    fontsize=style["font_pt"] - 1)
+    leg.set_gid("legend")
+    off = (style["offsets"] or {}).get("legend")
+    if off and (off[0] or off[1]):
+        leg.set_transform(leg.get_transform() + mtransforms.ScaledTranslation(
+            off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
+    return leg
 
 
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
@@ -444,6 +483,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                             xytext=(0, -26), textcoords="offset points",
                             ha="center", fontsize=style["font_pt"] - 2,
                             color="#94a3b8", annotation_clip=False)
+        _draw_legend(fig, ax, ctx["scales"], style, ctx["x"])
         _decorate(fig, ax, style)
     return fig, point_groups
 
@@ -530,6 +570,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         ax.set_ylabel(_axis_label(cols, y))
         _apply_axes(ax, style, x_numeric=True,
                     grid_x_default=True, grid_y_default=True)
+        _draw_legend(fig, ax, sc_scales, style, x)
         _decorate(fig, ax, style, extra=extra)
     return fig, point_groups
 

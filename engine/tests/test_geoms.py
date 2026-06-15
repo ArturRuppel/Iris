@@ -38,8 +38,9 @@ def test_geoms_declare_accepted_aesthetic_channels():
     assert geoms.GEOMS["bar"].aes == ["color"]
     assert geoms.GEOMS["regression"].aes == ["color"]
     assert geoms.GEOMS["summary"].aes == ["color"]
-    assert geoms.GEOMS["histogram"].aes == ["color"]
-    assert geoms.GEOMS["density"].aes == ["color"]
+    # descriptive geoms accept no channels in Phase 2 (colored overlay deferred)
+    assert geoms.GEOMS["histogram"].aes == []
+    assert geoms.GEOMS["density"].aes == []
 
 
 def test_registry_payload_carries_aes():

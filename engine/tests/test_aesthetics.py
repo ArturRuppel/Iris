@@ -150,3 +150,38 @@ def test_scatter_size_varies_marker_area_within_range():
     assert len(set(sizes.round(3))) > 1               # areas actually vary
     assert sizes.min() == pytest.approx(scales.SIZE_MIN_AREA)
     assert sizes.max() == pytest.approx(scales.SIZE_MAX_AREA)
+
+
+# ---------------- legend ----------------
+
+def test_color_scatter_draws_legend_with_level_labels():
+    fig, _ = compiler.build_scatter_figure(DF, SCHEMA,
+                                           _scatter_spec(color="grp"), RESULT)
+    leg = fig.axes[0].get_legend()
+    assert leg is not None
+    assert leg.get_gid() == "legend"
+    labels = {t.get_text() for t in leg.get_texts()}
+    assert {"a", "b"} <= labels                       # one entry per color level
+
+
+def test_no_channels_draws_no_legend():
+    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, _scatter_spec(), RESULT)
+    assert fig.axes[0].get_legend() is None
+
+
+def test_show_legend_false_suppresses_it():
+    spec = _scatter_spec(color="grp")
+    spec["style"]["overrides"]["show_legend"] = False
+    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    assert fig.axes[0].get_legend() is None
+
+
+def test_dodged_comparison_draws_legend_but_color_equals_x_does_not():
+    df = _cmp_df()
+    fig, _ = compiler.build_comparison_figure(
+        df, CMP_SCHEMA, _cmp_spec("box", color="geno"), _cmp_stats())
+    assert fig.axes[0].get_legend() is not None       # second factor → legend
+
+    fig2, _ = compiler.build_comparison_figure(
+        df, CMP_SCHEMA, _cmp_spec("dot", color="cond"), _cmp_stats())
+    assert fig2.axes[0].get_legend() is None          # color == x → no legend

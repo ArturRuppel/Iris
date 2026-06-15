@@ -72,14 +72,17 @@ GEOMS: dict[str, GeomDef] = {
     "regression": GeomDef(
         "Regression", "correlation", True, ["x", "y"],
         params={}, param_specs=[], aes=["color"]),
+    # descriptive geoms accept no aesthetic channels in Phase 2: a colored,
+    # per-level histogram/density overlay tangles with the single-series KDE and
+    # median annotations, so it is deferred to a follow-up. Keeping aes empty
+    # means the frontend never offers a channel the descriptive builder ignores.
     "histogram": GeomDef(
         "Histogram", "descriptive", True, ["y"],
         params={},
-        param_specs=[_num("hist_bins", "Bins", lo=0, hi=200, step=1)],
-        aes=["color"]),
+        param_specs=[_num("hist_bins", "Bins", lo=0, hi=200, step=1)]),
     "density": GeomDef(
         "Density", "descriptive", True, ["y"],
-        params={}, param_specs=[], aes=["color"]),
+        params={}, param_specs=[]),
 }
 
 
