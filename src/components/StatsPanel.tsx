@@ -70,9 +70,12 @@ export function StatsPanel() {
   const [active, setActive] = useAtom(activePlottableAtom);
   const override = active?.override ?? null;
   const setOverride = (t: TestName | null) => active && setActive({ ...active, override: t });
+  const setDescribeOnly = (v: boolean) =>
+    active && setActive({ ...active, describeOnly: v });
   if (!analysis) return <section className="pane stats-pane"><div className="pane-head"><h2>Statistics</h2></div><p className="hint">Waiting for first analysis…</p></section>;
 
   const s = analysis.stats;
+  const model = analysis.stat_model;
   const rec = s.recommendation;
   const alternatives = FAMILY_TESTS[s.result.test] ?? [];
 
@@ -80,6 +83,13 @@ export function StatsPanel() {
     <section className="pane stats-pane">
       <div className="pane-head"><h2>Statistics</h2></div>
       <div className="stats-body">
+        <h3>Inferred model</h3>
+        <p className="reason">{model.design}.</p>
+        <label className="describe-toggle">
+          <input type="checkbox" checked={active?.describeOnly ?? false}
+            onChange={(e) => setDescribeOnly(e.target.checked)} />
+          Describe only — run no test
+        </label>
         <h3>Assumption checks</h3>
         {s.checks.map((c) => (
           <div className="row" key={c.group}>
