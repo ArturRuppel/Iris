@@ -7,3 +7,4 @@ engine/dist/
 __pycache__/
 *.pyc
 .claude/
+.superpowers/
