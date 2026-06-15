@@ -19,9 +19,51 @@ from .scales import MARKERS
 MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
 COLOR_CAP = 8   # the default Okabe–Ito palette length; above it, colors repeat
 
+# Phase 3 "model now, build later" safeguard: the (channel, column-type) pairings
+# the compiler cannot render TODAY, each with the reason shown to the user. Mapped
+# channels matching one of these are warned about and dropped before render, so a
+# saved .viz (or a column retyped after mapping) can never make the compiler draw,
+# e.g., a continuous color it has no scale for yet. Kept in sync with the frontend
+# support matrix (src/channels.ts); a later chunk flips an entry to renderable.
+UNRENDERABLE: dict[tuple[str, str], str] = {
+    ("color", "numeric"): "continuous color isn't supported yet — coming soon",
+    ("shape", "numeric"): "shape can't encode a continuous value",
+    ("size", "categorical"): "size encodes a numeric value, not categories",
+}
+
 
 def _issue(level, code, message, geom=None):
     return {"level": level, "code": code, "message": message, "geom": geom}
+
+
+def _coltype(schema: dict, name: str | None) -> str | None:
+    if not name:
+        return None
+    for c in schema["columns"]:
+        if c["name"] == name:
+            return c["type"]
+    return None
+
+
+def drop_unrenderable_channels(schema: dict, spec: dict) -> list[dict]:
+    """Warn about and remove mapped aesthetic channels the compiler can't render
+    yet (UNRENDERABLE). Mutates spec["encodings"] in place so the channel is
+    absent from the draw context; returns the warnings raised."""
+    enc = spec.get("encodings", {})
+    out: list[dict] = []
+    for ch in ("color", "size", "shape"):
+        e = enc.get(ch)
+        col = e["column"] if e and e.get("column") else None
+        if not col:
+            continue
+        reason = UNRENDERABLE.get((ch, _coltype(schema, col)))
+        if reason:
+            out.append(_issue(
+                "warning", "channel_unrenderable",
+                f"{col} is mapped to {ch}, but {reason}. The {ch} channel is "
+                f"ignored for now."))
+            enc[ch] = None
+    return out
 
 
 def _xy(spec: dict):
@@ -35,7 +77,9 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     # stat_model is unused in Phase 1 — it's the deliberate seam for model-level
     # guards (facet multiplicity, etc.) that land in Phases 2-3.
     x, y = _xy(spec)
-    issues: list[dict] = []
+    # drop unrenderable aesthetic channels first, so the compiler never sees them
+    # and they don't also trip the "channel ignored" / "palette exhausted" checks
+    issues: list[dict] = drop_unrenderable_channels(schema, spec)
     for layer in spec.get("layers", []):
         name = layer["geom"]
         g = geoms.GEOMS.get(name)

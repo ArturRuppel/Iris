@@ -43,6 +43,35 @@ def test_geoms_declare_accepted_aesthetic_channels():
     assert geoms.GEOMS["density"].aes == []
 
 
+def test_geoms_declare_axis_column_types():
+    # Phase 3: the data (column types), not a stored family, decides which geoms
+    # are offerable. Each geom declares the type each axis requires.
+    # group-comparison geoms: categorical x, numeric y
+    for g in ("dot", "summary", "box", "violin", "bar"):
+        assert geoms.GEOMS[g].x_type == "categorical", g
+        assert geoms.GEOMS[g].y_type == "numeric", g
+    # correlation geoms: numeric x, numeric y
+    for g in ("scatter", "regression"):
+        assert geoms.GEOMS[g].x_type == "numeric", g
+        assert geoms.GEOMS[g].y_type == "numeric", g
+    # descriptive geoms: no x ("none" = the axis must be absent), numeric y
+    for g in ("histogram", "density"):
+        assert geoms.GEOMS[g].x_type == "none", g
+        assert geoms.GEOMS[g].y_type == "numeric", g
+
+
+def test_registry_payload_carries_axis_types():
+    payload = geoms.registry_payload()
+    assert payload["geoms"]["dot"]["x_type"] == "categorical"
+    assert payload["geoms"]["dot"]["y_type"] == "numeric"
+    assert payload["geoms"]["scatter"]["x_type"] == "numeric"
+    assert payload["geoms"]["histogram"]["x_type"] == "none"
+    # every geom exposes both fields with a legal value
+    for name, g in payload["geoms"].items():
+        assert g["x_type"] in ("categorical", "numeric", "none"), name
+        assert g["y_type"] in ("categorical", "numeric", "none"), name
+
+
 def test_registry_payload_carries_aes():
     payload = geoms.registry_payload()
     assert payload["geoms"]["scatter"]["aes"] == ["color", "size", "shape"]

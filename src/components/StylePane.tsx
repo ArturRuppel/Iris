@@ -1,5 +1,6 @@
 import { useAtom, useAtomValue } from "jotai";
-import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE } from "../state";
+import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom } from "../state";
+import { familyForMappings } from "../channels";
 import type { StyleOverrides } from "../types";
 
 /* engine defaults; shown when no override is set so the controls never jump */
@@ -21,7 +22,9 @@ export function StylePane() {
   const [active, setActive] = useAtom(activePlottableAtom);
   const style = active?.style ?? {};
   const analysis = useAtomValue(analysisAtom);
-  const family = active?.family ?? "group_comparison";
+  const schema = useAtomValue(effectiveSchemaAtom);
+  /* family is derived from the encoding column types, not stored on the plottable */
+  const family = active ? familyForMappings(active.mappings, schema) : "group_comparison";
   const grouped = family === "group_comparison";
   /* mark options follow the live, editable layer stack now, not a fixed preset */
   const marks = new Set((active?.layers ?? []).map((l) => l.geom));

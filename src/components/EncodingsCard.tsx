@@ -1,6 +1,7 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { activePlottableAtom, effectiveSchemaAtom, registryAtom } from "../state";
-import type { Channel } from "../state";
+import type { Channel } from "../channels";
+import { colType, offeredColumns, renderStatus } from "../channels";
 import type { ColumnDef } from "../types";
 import { groupByPrefix } from "./ColumnPicker";
 
@@ -24,15 +25,18 @@ function GroupedOptions({ cols }: { cols: ColumnDef[] }) {
   );
 }
 
-/* X/Y mapping, living inside the composable column next to Layers — one place
-   for "what does the plot show", instead of a separate header row. The choices
-   are drawn from the post-reduction schema so you can never map an axis to a
-   column the pipeline drops. */
-/* the aesthetic channels, with the column type each accepts */
-const CHANNELS: { key: Channel; label: string; kind: "categorical" | "numeric" }[] = [
-  { key: "color", label: "Color", kind: "categorical" },
-  { key: "size", label: "Size", kind: "numeric" },
-  { key: "shape", label: "Shape", kind: "categorical" },
+/* Phase 3 — five uniform channel rows (X, Y, Color, Size, Shape). The user maps
+   columns first and the column *types* drive everything: which columns each row
+   offers (the §4 offer rule), the derived stats family, and which mappings the
+   engine can render today. A column whose type is offerable but not renderable
+   yet (e.g. a numeric color) appears disabled-with-reason instead of silently
+   misrendering — the picker teaches the rule rather than hiding the option. */
+const ROWS: { key: Channel; label: string }[] = [
+  { key: "x", label: "X" },
+  { key: "y", label: "Y" },
+  { key: "color", label: "Color" },
+  { key: "size", label: "Size" },
+  { key: "shape", label: "Shape" },
 ];
 
 export function EncodingsCard() {
@@ -42,63 +46,55 @@ export function EncodingsCard() {
   const registry = useAtomValue(registryAtom);
   if (!active) return null;
 
-  const { family } = active;
   const mappings = active.mappings;
-  const xKind: "categorical" | "numeric" | "none" =
-    family === "group_comparison" ? "categorical"
-    : family === "correlation" ? "numeric" : "none";
+  const columns = schema?.columns ?? [];
 
-  const numericCols = schema?.columns.filter((c) => c.type === "numeric") ?? [];
-  const catCols = schema?.columns.filter((c) => c.type === "categorical") ?? [];
-  const xCols = xKind === "numeric"
-    ? numericCols.filter((c) => c.name !== mappings.y) : catCols;
+  const valueOf = (ch: Channel): string =>
+    ch === "x" || ch === "y" ? mappings[ch] : active[ch];
 
   /* color follows x while it tracks x (the default), so changing the group
      column doesn't strand color on the old one; an explicit color is left be. */
-  const setMappings = (m: { x: string; y: string }) => {
-    const colorTracksX = active.color === mappings.x;
-    setActive({ ...active, mappings: m,
-                color: colorTracksX ? m.x : active.color });
+  const setValue = (ch: Channel, col: string) => {
+    if (ch === "x") {
+      const colorTracksX = active.color === mappings.x;
+      setActive({ ...active, mappings: { ...mappings, x: col },
+                  color: colorTracksX ? col : active.color });
+    } else if (ch === "y") {
+      setActive({ ...active, mappings: { ...mappings, y: col } });
+    } else {
+      setActive({ ...active, [ch]: col });
+    }
   };
-  const setChannel = (ch: Channel, col: string) =>
-    setActive({ ...active, [ch]: col });
-
-  /* a channel is offered if ANY layer's geom draws it (union); the guard warns
-     only when none do. A still-set-but-unsupported channel stays visible so it
-     can be cleared. */
-  const accepted = new Set(
-    active.layers.flatMap((l) => registry?.geoms[l.geom]?.aes ?? []));
 
   return (
     <div className="encodings-card">
-      <div className="enc-row">
-        <span className="enc-label">{xKind === "none" ? "Variable" : "Y"}</span>
-        <select value={mappings.y}
-          onChange={(e) => setMappings({ ...mappings, y: e.target.value })}>
-          <GroupedOptions cols={numericCols} />
-        </select>
-      </div>
-      {xKind !== "none" && (
-        <div className="enc-row">
-          <span className="enc-label">X</span>
-          <select value={mappings.x}
-            onChange={(e) => setMappings({ ...mappings, x: e.target.value })}>
-            <GroupedOptions cols={xCols} />
-          </select>
-        </div>
-      )}
-      {CHANNELS.map(({ key, label, kind }) => {
-        const value = active[key];
-        if (!accepted.has(key) && !value) return null;
-        const cols = kind === "numeric" ? numericCols : catCols;
+      {ROWS.map(({ key, label }) => {
+        /* the column the *other* axis holds is excluded so X and Y can't collide */
+        const otherAxis = key === "x" ? mappings.y : key === "y" ? mappings.x : "";
+        const offered = offeredColumns(
+          registry, key, columns.filter((c) => c.name !== otherAxis));
+        /* nothing this channel can carry (and nothing stale mapped) → hide row */
+        if (offered.selectable.length === 0 && offered.disabled.length === 0
+            && !valueOf(key)) return null;
+        const value = valueOf(key);
+        /* a still-mapped column whose type the engine can't render yet: surface
+           the reason inline (it also rides the amber warn-bar after render). */
+        const t = colType(schema, value);
+        const status = t ? renderStatus(registry, key, t) : null;
+        const reason = status && status !== "ok" ? status.reason : null;
         return (
           <div className="enc-row" key={key}>
             <span className="enc-label">{label}</span>
-            <select value={value}
-              onChange={(e) => setChannel(key, e.target.value)}>
+            <select value={value} onChange={(e) => setValue(key, e.target.value)}>
               <option value="">— none —</option>
-              <GroupedOptions cols={cols} />
+              <GroupedOptions cols={offered.selectable} />
+              {offered.disabled.map(({ col, reason }) => (
+                <option key={col.name} value={col.name} disabled>
+                  {col.label} — {reason}
+                </option>
+              ))}
             </select>
+            {reason && <span className="enc-warn" title={reason}>⚠ {reason}</span>}
           </div>
         );
       })}

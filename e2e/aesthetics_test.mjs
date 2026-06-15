@@ -35,7 +35,9 @@ console.log("color picker present");
 // Pick the first categorical option that differs from the current X group.
 const xVal = await page.locator(".enc-row", { hasText: "X" }).locator("select")
   .inputValue().catch(() => "");
-const options = await colorSelect.locator("option").evaluateAll(
+// only enabled options are selectable: Phase 3 lists numeric columns under
+// Color too, but disabled-with-reason (continuous color isn't drawn yet).
+const options = await colorSelect.locator("option:not([disabled])").evaluateAll(
   (els) => els.map((e) => e.value));
 const second = options.find((v) => v && v !== xVal);
 if (!second) {

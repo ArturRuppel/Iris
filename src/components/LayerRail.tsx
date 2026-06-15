@@ -1,18 +1,21 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import {
-  activePlottableAtom, addLayerAtom, moveLayerAtom, PRIMITIVES,
-  registryAtom, removeLayerAtom, seedPrimitiveAtom, updateLayerAtom,
+  activePlottableAtom, addLayerAtom, effectiveSchemaAtom, moveLayerAtom,
+  PRIMITIVES, registryAtom, removeLayerAtom, seedPrimitiveAtom, updateLayerAtom,
 } from "../state";
+import { axisTypes, geomGateReason } from "../channels";
 import type { Geom, Layer, Registry } from "../types";
 import { LayerCard } from "./LayerCards";
 import { EncodingsCard } from "./EncodingsCard";
 
 /* one geom layer, independently collapsible so a tall stack stays scannable.
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
-   violin) without removing and re-adding it. */
-function LayerItem({ layer, registry, i, last, geomOptions, onMove, onRemove, onChange }: {
-  layer: Layer; registry: Registry; i: number; last: boolean; geomOptions: Geom[];
+   violin) without removing and re-adding it. Geoms incompatible with the current
+   encoding types appear disabled-with-reason rather than hidden. */
+function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, onMove, onRemove, onChange }: {
+  layer: Layer; registry: Registry; i: number; last: boolean; retypeGeoms: Geom[];
+  gateReason: (g: Geom) => string | null;
   onMove: (dir: -1 | 1) => void; onRemove: () => void;
   onChange: (l: Layer) => void;
 }) {
@@ -30,9 +33,14 @@ function LayerItem({ layer, registry, i, last, geomOptions, onMove, onRemove, on
         </button>
         <select className="layer-geom" value={layer.geom} title="Change plot type"
           onChange={(e) => retype(e.target.value as Geom)}>
-          {geomOptions.map((g) => (
-            <option key={g} value={g}>{registry.geoms[g]?.label ?? g}</option>
-          ))}
+          {retypeGeoms.map((g) => {
+            const reason = g === layer.geom ? null : gateReason(g);
+            return (
+              <option key={g} value={g} disabled={!!reason}>
+                {registry.geoms[g]?.label ?? g}{reason ? ` — ${reason}` : ""}
+              </option>
+            );
+          })}
         </select>
         <span className="layer-actions">
           <button className="icon" title="Move up" disabled={i === 0}
@@ -50,6 +58,7 @@ function LayerItem({ layer, registry, i, last, geomOptions, onMove, onRemove, on
 export function LayerRail() {
   const active = useAtomValue(activePlottableAtom);
   const registry = useAtomValue(registryAtom);
+  const schema = useAtomValue(effectiveSchemaAtom);
   const addLayer = useSetAtom(addLayerAtom);
   const updateLayer = useSetAtom(updateLayerAtom);
   const removeLayer = useSetAtom(removeLayerAtom);
@@ -60,16 +69,24 @@ export function LayerRail() {
   if (!active || !registry) return null;
   const layers = active.layers;
 
-  /* only geoms whose family matches this plottable are addable (Phase 1 keeps
-     geoms tied to the family the encodings imply) */
-  const inFamily = (Object.keys(registry.geoms) as Geom[])
-    .filter((g) => registry.geoms[g].family === active.family);
+  /* type-driven gating (Phase 3): a geom is offerable iff the current axis types
+     satisfy its (x_type, y_type). Incompatible geoms stay visible but disabled
+     with a teaching reason, instead of being hidden by a stored family. */
+  const { xType, yType } = axisTypes(active.mappings, schema);
+  const gateReason = (g: Geom): string | null => {
+    const meta = registry.geoms[g];
+    return meta ? geomGateReason(meta, xType, yType) : null;
+  };
+
+  const allGeoms = Object.keys(registry.geoms) as Geom[];
   const used = new Set(layers.map((l) => l.geom));
-  const addable = inFamily.filter((g) => !used.has(g));
-  /* options offered when re-typing a layer: same family, minus geoms already
-     used by *other* layers, but always keeping this layer's own current geom. */
+  /* every geom not already in the stack is shown in the add menu; incompatible
+     ones are disabled-with-reason rather than dropped. */
+  const addable = allGeoms.filter((g) => !used.has(g));
+  /* retype options: all geoms minus those used by *other* layers, but always
+     keeping this layer's own current geom. */
   const retypeOptions = (geom: Geom) =>
-    inFamily.filter((g) => g === geom || !used.has(g));
+    allGeoms.filter((g) => g === geom || !used.has(g));
 
   return (
     <div className="layer-rail">
@@ -78,9 +95,14 @@ export function LayerRail() {
         <select className="template-pick" value=""
           onChange={(e) => { if (e.target.value) seedPrimitive(e.target.value as Geom); }}>
           <option value="">Start from…</option>
-          {PRIMITIVES.map((p) => (
-            <option key={p.geom} value={p.geom}>{p.label}</option>
-          ))}
+          {PRIMITIVES.map((p) => {
+            const reason = gateReason(p.geom);
+            return (
+              <option key={p.geom} value={p.geom} disabled={!!reason}>
+                {p.label}{reason ? ` — ${reason}` : ""}
+              </option>
+            );
+          })}
         </select>
       </div>
 
@@ -93,7 +115,8 @@ export function LayerRail() {
       <ol className="layer-list">
         {layers.map((layer, i) => (
           <LayerItem key={i} layer={layer} registry={registry} i={i}
-            last={i === layers.length - 1} geomOptions={retypeOptions(layer.geom)}
+            last={i === layers.length - 1} retypeGeoms={retypeOptions(layer.geom)}
+            gateReason={gateReason}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}
             onChange={(l) => updateLayer({ index: i, layer: l })} />
@@ -104,11 +127,15 @@ export function LayerRail() {
         {adding ? (
           <div className="add-layer-menu">
             {addable.length === 0 && <em className="rail-empty">all geoms added</em>}
-            {addable.map((g) => (
-              <button key={g} onClick={() => { addLayer(g); setAdding(false); }}>
-                {registry.geoms[g].label}
-              </button>
-            ))}
+            {addable.map((g) => {
+              const reason = gateReason(g);
+              return (
+                <button key={g} disabled={!!reason} title={reason ?? undefined}
+                  onClick={() => { addLayer(g); setAdding(false); }}>
+                  {registry.geoms[g].label}{reason ? ` — ${reason}` : ""}
+                </button>
+              );
+            })}
             <button className="cancel" onClick={() => setAdding(false)}>cancel</button>
           </div>
         ) : (

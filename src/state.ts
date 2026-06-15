@@ -4,6 +4,7 @@ import type {
   StyleOverrides, Table, TestName, ReduceSpec, ReduceStep, ReduceStepKind,
   ReducePreview,
 } from "./types";
+import { familyForMappings } from "./channels";
 
 export const schemaAtom = atom<Schema | null>(null);
 export const rowsAtom = atom<Row[]>([]);
@@ -37,38 +38,40 @@ export const selectedRowIdAtom = atom<string | null>(null);
 /* Template seeds: one-click starting points that populate a layer stack +
    encoding kind. They are NO LONGER a closed set the user is locked into — the
    layer rail can add/remove/reorder geoms freely afterwards. */
+/* Templates seed a layer stack + the axis types the seed expects; `xKind` is the
+   column type the default x should have (or "none" for the descriptive seed). The
+   stats family is no longer stored — it's derived from the seeded mappings. */
 export type TemplateName = "dots" | "box" | "violin" | "bar" | "scatter" | "histogram";
 export const TEMPLATES: Record<TemplateName, {
   label: string;
-  family: StatsFamily;
   layers: Layer[];
   xKind: "categorical" | "numeric" | "none";
 }> = {
-  dots: { label: "Dots + mean ± CI", family: "group_comparison", xKind: "categorical",
+  dots: { label: "Dots + mean ± CI", xKind: "categorical",
     layers: [{ geom: "dot", params: { jitter: 0.18 } },
              { geom: "summary", params: { error_type: "ci95" } }] },
-  box: { label: "Box + dots", family: "group_comparison", xKind: "categorical",
+  box: { label: "Box + dots", xKind: "categorical",
     layers: [{ geom: "box", params: {} }, { geom: "dot", params: { jitter: 0.18 } }] },
-  violin: { label: "Violin + dots", family: "group_comparison", xKind: "categorical",
+  violin: { label: "Violin + dots", xKind: "categorical",
     layers: [{ geom: "violin", params: {} }, { geom: "dot", params: { jitter: 0.18 } }] },
-  bar: { label: "Bar ± CI", family: "group_comparison", xKind: "categorical",
+  bar: { label: "Bar ± CI", xKind: "categorical",
     layers: [{ geom: "bar", params: { error_type: "ci95" } }] },
-  scatter: { label: "Scatter + regression", family: "correlation", xKind: "numeric",
+  scatter: { label: "Scatter + regression", xKind: "numeric",
     layers: [{ geom: "scatter", params: {} }, { geom: "regression", params: {} }] },
-  histogram: { label: "Histogram + density", family: "descriptive", xKind: "none",
+  histogram: { label: "Histogram + density", xKind: "none",
     layers: [{ geom: "histogram", params: {} }, { geom: "density", params: {} }] },
 };
 
 /* "Start from…" seeds: the base/primitive plot types only. Overlays (mean ± CI,
    regression, density) are built up afterwards via "+ Add layer" or by mutating
    a layer's plot type in place — so the seed menu stays composite-free. */
-export const PRIMITIVES: { geom: Geom; label: string; family: StatsFamily }[] = [
-  { geom: "dot", label: "Dots", family: "group_comparison" },
-  { geom: "box", label: "Box", family: "group_comparison" },
-  { geom: "violin", label: "Violin", family: "group_comparison" },
-  { geom: "bar", label: "Bar", family: "group_comparison" },
-  { geom: "scatter", label: "Scatter", family: "correlation" },
-  { geom: "histogram", label: "Histogram", family: "descriptive" },
+export const PRIMITIVES: { geom: Geom; label: string }[] = [
+  { geom: "dot", label: "Dots" },
+  { geom: "box", label: "Box" },
+  { geom: "violin", label: "Violin" },
+  { geom: "bar", label: "Bar" },
+  { geom: "scatter", label: "Scatter" },
+  { geom: "histogram", label: "Histogram" },
 ];
 
 /* the tests each family offers, mirrored for cheap lookups when building the
@@ -103,7 +106,9 @@ export interface Plottable {
   color: string;
   size: string;
   shape: string;
-  family: StatsFamily;      // which stats family + geom palette this plottable uses
+  /* `family` is no longer stored — it is derived from the encoding column types
+     (see channels.familyForMappings). The stats engine still re-derives its own
+     model server-side from the encodings. */
   layers: Layer[];          // the editable, ordered geom stack
   override: TestName | null;
   describeOnly: boolean;    // user asked to render without a test
@@ -111,8 +116,6 @@ export interface Plottable {
   style: StyleOverrides;
   reduce: ReduceSpec;
 }
-
-export type Channel = "color" | "size" | "shape";
 
 let _pid = 0;
 const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
@@ -130,10 +133,9 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
   return {
     id: nextId(), name: "Analysis 1",
     mappings: { x, y },
-    /* color = x reproduces today's per-group palette + no legend; size/shape
-       start unmapped. */
-    color: t.family === "group_comparison" ? x : "", size: "", shape: "",
-    family: t.family,
+    /* color = x reproduces today's per-group palette + no legend (only when x is
+       a categorical group); size/shape start unmapped. */
+    color: t.xKind === "categorical" ? x : "", size: "", shape: "",
     layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
     override: null, describeOnly: false,
     preset: "demo_default", style: {},
@@ -193,12 +195,15 @@ export const loadTableAtom = atom(null, (get, set, table: Table) => {
   set(activePlottableIdAtom, first.id);
 });
 
-/* Pure builder: a plottable + its (optional) recommended test + engine snapshot
-   → an analysis spec. Shared by the live `specAtom` (active plottable) and the
-   save path (every plottable), so the two can never drift. */
-export function buildSpec(p: Plottable, rec: TestName | undefined,
+/* Pure builder: a plottable + its derived stats family + (optional) recommended
+   test + engine snapshot → an analysis spec. `family` is derived by the caller
+   from the encoding column types (channels.familyForMappings) — it is no longer
+   stored on the plottable. Shared by the live `specAtom` (active plottable) and
+   the save path (every plottable), so the two can never drift. */
+export function buildSpec(p: Plottable, family: StatsFamily,
+                          rec: TestName | undefined,
                           snapshot: Record<string, string>): AnalysisSpec {
-  const tests = TEST_BY_FAMILY[p.family];
+  const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
     ?? recOk ?? tests[0];
@@ -213,8 +218,10 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
     data: { filter: [], respect_exclusions: true },
     reduce: p.reduce,
     encodings: {
-      x: p.family === "descriptive" ? null : { column: p.mappings.x },
-      y: { column: p.mappings.y },
+      /* x is simply "mapped or not" now — an empty x is the descriptive case
+         (histogram), no longer a special family branch. */
+      x: p.mappings.x ? { column: p.mappings.x } : null,
+      y: p.mappings.y ? { column: p.mappings.y } : null,
       color: p.color ? { column: p.color } : null,
       size: p.size ? { column: p.size } : null,
       shape: p.shape ? { column: p.shape } : null,
@@ -222,10 +229,10 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
     facet: { row: null, col: null, share_x: true, share_y: true },
     layers: p.layers,
     stats: {
-      family: p.family, test, chosen_by,
+      family, test, chosen_by,
       alternatives_offered: tests.filter((t) => t !== test),
       assumption_checks: [{ check: "shapiro_wilk",
-                            per: p.family === "group_comparison" ? "group" : "variable" }],
+                            per: family === "group_comparison" ? "group" : "variable" }],
       alpha: 0.05,
       report: ["effect_size", "ci", "n_per_group"],
     },
@@ -235,28 +242,33 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
   };
 }
 
-/* the keystone: spec derived live from the active plottable */
+/* the keystone: spec derived live from the active plottable. The stats family is
+   derived from the post-reduction column types so the test offered matches the
+   data actually mapped. */
 export const specAtom = atom<AnalysisSpec | null>((get) => {
   const schema = get(schemaAtom);
   const p = get(activePlottableAtom);
   if (!schema || !p) return null;
-  const tests = TEST_BY_FAMILY[p.family];
+  const family = familyForMappings(p.mappings, get(effectiveSchemaAtom));
+  const tests = TEST_BY_FAMILY[family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-  return buildSpec(p, rec, get(engineSnapshotAtom) ?? {});
+  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {});
 });
 
 /* every plottable's spec, each carrying its own recommended test — the save
    path serializes all of these into the document's analyses[] */
 export const allSpecsAtom = atom((get): AnalysisSpec[] => {
-  if (!get(schemaAtom)) return [];
+  const schema = get(schemaAtom);
+  if (!schema) return [];
   const snap = get(engineSnapshotAtom) ?? {};
   const byId = get(analysisByIdAtom);
   return get(plottablesAtom).map((p) => {
-    const tests = TEST_BY_FAMILY[p.family];
+    const family = familyForMappings(p.mappings, schema);
+    const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-    return buildSpec(p, rec, snap);
+    return buildSpec(p, family, rec, snap);
   });
 });
 
@@ -403,16 +415,15 @@ export const moveLayerAtom = atom(null,
     set(activePlottableAtom, { ...p, layers });
   });
 
-/* seed from a single primitive: swap to that geom's family and a one-layer
-   stack, dropping any prior layers. Composites are built up from here. */
+/* seed from a single primitive: swap to a one-layer stack of that geom, dropping
+   any prior layers. The encodings (and therefore the derived family) are not
+   touched — primitive gating already ensures only geoms compatible with the
+   current encodings are offerable, so the family can't change here. Composites
+   are built up from this seed. */
 export const seedPrimitiveAtom = atom(null, (get, set, geom: Geom) => {
   const p = get(activePlottableAtom); if (!p) return;
-  const prim = PRIMITIVES.find((x) => x.geom === geom); if (!prim) return;
+  if (!PRIMITIVES.some((x) => x.geom === geom)) return;
   const reg = get(registryAtom);
   const params = { ...(reg?.geoms[geom]?.params ?? {}) };
-  const nextOverride = prim.family !== p.family ? null : p.override;
-  set(activePlottableAtom, {
-    ...p, family: prim.family, override: nextOverride, describeOnly: false,
-    layers: [{ geom, params }],
-  });
+  set(activePlottableAtom, { ...p, describeOnly: false, layers: [{ geom, params }] });
 });

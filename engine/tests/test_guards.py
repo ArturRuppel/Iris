@@ -74,6 +74,43 @@ def test_color_on_a_scatter_is_not_ignored():
     assert [i for i in issues if i["code"] == "channel_ignored"] == []
 
 
+def test_numeric_color_is_unrenderable_warned_and_dropped():
+    # Phase 3 safeguard: a numeric column on color can't be drawn yet (continuous
+    # color is a later chunk), so it warns and the channel is dropped before render.
+    df = frame(5)
+    s = _aes_spec("dot", color="val")          # val is numeric
+    issues = guards.evaluate(df, SCHEMA, s, stat_model=None)
+    warn = [i for i in issues if i["code"] == "channel_unrenderable"]
+    assert warn and "color" in warn[0]["message"]
+    # the channel is removed from the spec so the compiler never sees it
+    assert s["encodings"]["color"] is None
+    # and it does not also trip channel_ignored / palette_exhausted
+    assert [i for i in issues if i["code"] in ("channel_ignored",
+                                               "palette_exhausted")] == []
+
+
+def test_numeric_shape_and_categorical_size_are_unrenderable():
+    df = frame(5)
+    s = _aes_spec("dot", shape="val")          # numeric shape: can't be continuous
+    issues = guards.evaluate(df, SCHEMA, s, stat_model=None)
+    assert any(i["code"] == "channel_unrenderable" for i in issues)
+    assert s["encodings"]["shape"] is None
+
+    s2 = _aes_spec("dot", size="grp")          # categorical size: not a thing
+    issues2 = guards.evaluate(df, SCHEMA, s2, stat_model=None)
+    assert any(i["code"] == "channel_unrenderable" for i in issues2)
+    assert s2["encodings"]["size"] is None
+
+
+def test_renderable_aesthetic_channels_are_kept():
+    # categorical color + numeric size are renderable today → not dropped
+    df = frame(5)
+    s = _aes_spec("dot", color="grp", size="val")
+    guards.evaluate(df, SCHEMA, s, stat_model=None)
+    assert s["encodings"]["color"] == {"column": "grp"}
+    assert s["encodings"]["size"] == {"column": "val"}
+
+
 def test_high_cardinality_color_warns_palette_exhausted():
     rows = [{"id": f"r{i}", "grp": f"g{i}", "val": float(i), "excluded": False}
             for i in range(12)]            # 12 distinct color levels > 8 palette

@@ -79,11 +79,7 @@ export default function App() {
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
-  const family = active?.family ?? "group_comparison";
   const preset = active?.preset ?? "demo_default";
-  const xKind: "categorical" | "numeric" | "none" =
-    family === "group_comparison" ? "categorical"
-    : family === "correlation" ? "numeric" : "none";
 
   const setPreset = (p: string) => active && setActive({ ...active, preset: p });
 
@@ -121,7 +117,7 @@ export default function App() {
     !effectiveSchema || effectiveSchema.columns.some((c) => c.name === name);
   const mappingError =
     !active ? null
-    : xKind !== "none" && mappings.x && !survives(mappings.x)
+    : mappings.x && !survives(mappings.x)
       ? `X column “${mappings.x}” is removed by this analysis’s reduction pipeline. `
         + `Add it to a Collapse “Group by” step, or pick a column the pipeline keeps.`
     : mappings.y && !survives(mappings.y)
@@ -160,9 +156,10 @@ export default function App() {
   const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
     if (!schema || !spec || !tableToken) return;
-    /* nothing to render yet, or a mapped column the pipeline drops — show no
-       render error (the mapping/empty state speaks for itself) and go idle */
-    if ((xKind !== "none" && !spec.encodings.x?.column) || mappingError) {
+    /* nothing to render yet (no Y mapped), or a mapped column the pipeline drops
+       — show no render error (the mapping/empty state speaks for itself) and go
+       idle. An empty X is fine: it's simply the descriptive (histogram) case. */
+    if (!spec.encodings.y?.column || mappingError) {
       setStatus("idle"); setRenderError(null); return;
     }
     window.clearTimeout(timer.current);

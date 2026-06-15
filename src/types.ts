@@ -34,7 +34,11 @@ export interface ParamSpec {
 }
 export interface GeomMeta {
   label: string; family: StatsFamily; aggregates: boolean;
-  needs: string[]; params: Record<string, unknown>;
+  needs: string[];
+  /* Phase 3: the column type each axis requires, driving type-match gating.
+     "categorical" | "numeric" | "none" ("none" = the axis must be absent). */
+  x_type: string; y_type: string;
+  params: Record<string, unknown>;
   param_specs: ParamSpec[]; point_cap: number | null;
   aes: string[];   // accepted aesthetic channels: "color" | "size" | "shape"
 }
