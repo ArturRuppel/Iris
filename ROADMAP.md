@@ -1,13 +1,12 @@
-# Triad — Product & Engineering Roadmap
+# Iris — Product & Engineering Roadmap
 
-> **Name:** The project is being renamed **Iris** (working title "Triad" still
-> used throughout the code). Iris is the Greek goddess of the rainbow and the
-> messenger of the gods — the spectrum of a figure and the live link between
-> table, figure, and stats — and is also the canonical statistics dataset
-> (Fisher, 1936), an instant signal to the researchers this tool is for. It
-> nods to Prism's light-splitting association sideways, as kin rather than
-> knockoff. The code rename (package id, Tauri bundle, `triad_engine`) is
-> deferred; only this roadmap records the decision for now.
+> **Name:** The project is named **Iris** (formerly the working title
+> "Triad"). Iris is the Greek goddess of the rainbow and the messenger of the
+> gods — the spectrum of a figure and the live link between table, figure, and
+> stats — and is also the canonical statistics dataset (Fisher, 1936), an
+> instant signal to the researchers this tool is for. It nods to Prism's
+> light-splitting association sideways, as kin rather than knockoff. The code
+> rename (package id, Tauri bundle, `iris_engine`) is complete.
 
 *Status: Tier 0 and Tier 1 complete on Linux (validated installer, sidecar
 lifecycle, orphan prevention); macOS/Windows packaging deferred to the end by
@@ -53,7 +52,7 @@ follows it. Project is under git as of 13 June 2026. Last updated 16 June 2026.*
 
 ## 1. Vision and positioning
 
-Triad brings Python-level plotting and statistical analysis to researchers who
+Iris brings Python-level plotting and statistical analysis to researchers who
 don't code. The measuring stick is not a market: the tool exists to be
 genuinely useful to its author and the people they work with — colleagues who
 know what an ANOVA is but not how to write one, who need publication-grade
@@ -73,9 +72,9 @@ one-click installer for users, and an architecture a small team can maintain
 
 The closest prior art, JASP and jamovi, validates the
 frontend-plus-embedded-engine architecture and the audience — and their
-weakness is the reason Triad is worth building rather than adopting: their
+weakness is the reason Iris is worth building rather than adopting: their
 plot output is serviceable, not publication-grade, and their users re-make
-figures in Prism or ggplot. Triad's promise is never having to. No formal
+figures in Prism or ggplot. Iris's promise is never having to. No formal
 competitive teardown is needed for a tool built to its author's own needs;
 when designing a specific feature (presets, brackets, export), a quick look
 at how they handle it is reference material, not strategy.
@@ -287,7 +286,7 @@ day one of any change.
 
 ## 6. Tier 3 — the rigor release (≈ weeks 9–14)
 
-Goal: a colleague submits a manuscript figure made in Triad without you
+Goal: a colleague submits a manuscript figure made in Iris without you
 sitting next to them.
 
 Statistical depth: two-way ANOVA with proper sums-of-squares options (via

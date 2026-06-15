@@ -1,6 +1,6 @@
-# PyInstaller spec for the Triad engine sidecar (single-file binary).
-# Build from engine/:  pyinstaller triad-engine.spec
-# Output: dist/triad-engine  — copy to src-tauri/binaries/triad-engine-<target-triple>
+# PyInstaller spec for the Iris engine sidecar (single-file binary).
+# Build from engine/:  pyinstaller iris-engine.spec
+# Output: dist/iris-engine  — copy to src-tauri/binaries/iris-engine-<target-triple>
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 
 hiddenimports = (
@@ -39,7 +39,7 @@ exe = EXE(
     a.scripts,
     a.binaries,
     a.datas,
-    name="triad-engine",
+    name="iris-engine",
     console=True,           # sidecar: no window; stdout goes to the shell's log
     upx=False,              # UPX breaks signing later and saves little here
     strip=False,

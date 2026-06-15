@@ -50,7 +50,7 @@ console.log("removed a layer:", removed);
 // The app responds gracefully: either a rendered figure, or an informative
 // bar (e.g. the point-cap guard on the large sample) — never a blank crash.
 await page.waitForTimeout(1500);
-const figure = await page.locator(".triad svg").count();
+const figure = await page.locator(".iris svg").count();
 const bar = await page.locator(".error-bar").count();
 if (figure === 0 && bar === 0)
   fail("no figure and no status bar — the app rendered nothing");

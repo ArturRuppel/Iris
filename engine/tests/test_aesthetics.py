@@ -6,7 +6,7 @@ matplotlib.use("Agg")
 import pandas as pd
 import pytest
 
-from triad_engine import compiler, scales
+from iris_engine import compiler, scales
 
 SCHEMA = {"schema_version": "1.0", "columns": [
     {"name": "x", "type": "numeric", "label": "X"},

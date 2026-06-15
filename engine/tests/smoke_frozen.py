@@ -1,9 +1,9 @@
-"""Smoke test for the FROZEN sidecar binary (dist/triad-engine).
+"""Smoke test for the FROZEN sidecar binary (dist/iris-engine).
 
 Not collected by pytest (no test_ prefix) because it needs the PyInstaller
 build to exist. Run after every freeze:
 
-    cd engine && pyinstaller triad-engine.spec && python tests/smoke_frozen.py
+    cd engine && pyinstaller iris-engine.spec && python tests/smoke_frozen.py
 
 Validates the packaging contract the in-process suite cannot: the binary
 boots, serves the full protocol, honors ENGINE_PORT, refuses a taken port,
@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from tests.test_engine import make_spec, make_table  # noqa: E402
 
-BINARY = Path(__file__).resolve().parents[1] / "dist" / "triad-engine"
+BINARY = Path(__file__).resolve().parents[1] / "dist" / "iris-engine"
 PORT = 8901  # away from dev's 8765
 
 
@@ -106,11 +106,11 @@ def main() -> None:
         assert clash.returncode != 0, "second instance on a taken port must fail"
         ok("refuses an already-taken port")
 
-        # parent-death watchdog: with TRIAD_WATCH_STDIN=1 (how the shell
+        # parent-death watchdog: with IRIS_WATCH_STDIN=1 (how the shell
         # spawns us), closing the stdin pipe must end the process
         watched = subprocess.Popen(
             [str(BINARY)], env={**env, "ENGINE_PORT": str(PORT + 1),
-                                "TRIAD_WATCH_STDIN": "1"},
+                                "IRIS_WATCH_STDIN": "1"},
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         time.sleep(3)  # let it boot far enough to have started the watcher

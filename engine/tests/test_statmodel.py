@@ -1,5 +1,5 @@
 """Stat-model inference: encodings + schema -> an explicit, legible model."""
-from triad_engine import statmodel
+from iris_engine import statmodel
 
 SCHEMA = {"schema_version": "1.0", "columns": [
     {"name": "treatment", "type": "categorical", "label": "Treatment",

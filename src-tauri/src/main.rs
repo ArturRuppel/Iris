@@ -1,9 +1,9 @@
-// Triad shell: spawns the Python engine sidecar and tears it down on exit.
+// Iris shell: spawns the Python engine sidecar and tears it down on exit.
 //
 // Packaged builds run the PyInstaller binary bundled via `bundle.externalBin`
 // (installed next to this executable). If no bundled sidecar is present —
 // the walking-skeleton dev mode — falls back to system Python with the
-// engine package on disk (TRIAD_PYTHON / TRIAD_ENGINE_DIR override).
+// engine package on disk (IRIS_PYTHON / IRIS_ENGINE_DIR override).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::net::TcpListener;
@@ -31,7 +31,7 @@ fn pick_port() -> u16 {
 
 fn sidecar_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
-    let name = if cfg!(windows) { "triad-engine.exe" } else { "triad-engine" };
+    let name = if cfg!(windows) { "iris-engine.exe" } else { "iris-engine" };
     let path = exe.parent()?.join(name);
     path.is_file().then_some(path)
 }
@@ -41,19 +41,19 @@ fn spawn_engine(port: u16) -> Option<Child> {
         Some(bin) => Command::new(bin),
         None => {
             let python =
-                std::env::var("TRIAD_PYTHON").unwrap_or_else(|_| "python3".into());
+                std::env::var("IRIS_PYTHON").unwrap_or_else(|_| "python3".into());
             let engine_dir =
-                std::env::var("TRIAD_ENGINE_DIR").unwrap_or_else(|_| "engine".into());
+                std::env::var("IRIS_ENGINE_DIR").unwrap_or_else(|_| "engine".into());
             let mut c = Command::new(python);
-            c.args(["-m", "triad_engine.main"]).current_dir(engine_dir);
+            c.args(["-m", "iris_engine.main"]).current_dir(engine_dir);
             c
         }
     };
-    // piped stdin + TRIAD_WATCH_STDIN: the engine exits when the pipe
+    // piped stdin + IRIS_WATCH_STDIN: the engine exits when the pipe
     // closes, so it never outlives the shell even on SIGKILL (Tauri's
     // exit handlers only cover a normal window close)
     cmd.env("ENGINE_PORT", port.to_string())
-        .env("TRIAD_WATCH_STDIN", "1")
+        .env("IRIS_WATCH_STDIN", "1")
         .stdin(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| eprintln!("engine spawn failed: {e}"))

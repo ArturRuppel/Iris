@@ -22,7 +22,7 @@ function Section({ title, defaultOpen, children }:
   { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
-    <section className="triad-section">
+    <section className="iris-section">
       <button className="section-header" onClick={() => setOpen((o) => !o)}>
         <span className="chevron">{open ? "▾" : "▸"}</span> {title}
       </button>
@@ -225,7 +225,7 @@ export default function App() {
   if (engineUp === false) return (
     <div className="engine-down">
       <h1>Engine not reachable</h1>
-      <p>Start it with <code>python -m triad_engine.main</code> in <code>engine/</code>, then reload.</p>
+      <p>Start it with <code>python -m iris_engine.main</code> in <code>engine/</code>, then reload.</p>
     </div>
   );
   if (engineUp === null) return (
@@ -237,7 +237,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Triad <span className="tag">tier 2</span></h1>
+        <h1>Iris <span className="tag">tier 2</span></h1>
         <div className="mode-toggle">
           <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
           <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
@@ -280,7 +280,7 @@ export default function App() {
             <PlottableSidebar />
             <PipelineRail />
             <LayerRail />
-            <div className="triad">
+            <div className="iris">
               <Section title="Reduced table" defaultOpen><ReducedTable /></Section>
               <Section title="Figure" defaultOpen><FigurePane /></Section>
               <Section title="Statistics" defaultOpen><StatsPanel /></Section>

@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from triad_engine import scales
+from iris_engine import scales
 
 PAL = ["#111111", "#222222", "#333333"]
 STYLE = {"palette": PAL}

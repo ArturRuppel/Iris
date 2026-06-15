@@ -1,6 +1,6 @@
 """HTTP protocol surface. Runs as a localhost sidecar.
 
-Dev mode:   python -m triad_engine.main   (port 8765, or ENGINE_PORT env)
+Dev mode:   python -m iris_engine.main   (port 8765, or ENGINE_PORT env)
 Tauri mode: spawned by the shell at startup.
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from . import (compiler, document, geoms, guards, importer,
                reduce as reduce_mod, specnorm, stats, statmodel)
 
-app = FastAPI(title="triad-engine")
+app = FastAPI(title="iris-engine")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173",
@@ -296,7 +296,7 @@ def doc_load(req: LoadRequest):
 
 def _exit_when_stdin_closes():
     """Parent-death watchdog. The shell spawns us with a piped stdin and
-    TRIAD_WATCH_STDIN=1; if the shell dies for any reason — including
+    IRIS_WATCH_STDIN=1; if the shell dies for any reason — including
     SIGKILL, which never runs its exit handlers — the OS closes the pipe
     and we exit instead of lingering as an orphan on the port."""
     try:
@@ -311,7 +311,7 @@ def main():
     import threading
 
     import uvicorn
-    if os.environ.get("TRIAD_WATCH_STDIN") == "1":
+    if os.environ.get("IRIS_WATCH_STDIN") == "1":
         threading.Thread(target=_exit_when_stdin_closes, daemon=True).start()
     port = int(os.environ.get("ENGINE_PORT", "8765"))
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

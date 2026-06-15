@@ -2,7 +2,7 @@
 import pandas as pd
 import pytest
 
-from triad_engine import reduce as rd
+from iris_engine import reduce as rd
 
 SCHEMA = {
     "schema_version": "1.0",

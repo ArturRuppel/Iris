@@ -1,5 +1,5 @@
 """The geom registry: single source of truth for composable layers."""
-from triad_engine import geoms
+from iris_engine import geoms
 
 
 def test_every_known_geom_is_registered():

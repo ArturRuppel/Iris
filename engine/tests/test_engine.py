@@ -7,8 +7,8 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from triad_engine import compiler, document, stats
-from triad_engine.main import app
+from iris_engine import compiler, document, stats
+from iris_engine.main import app
 
 client = TestClient(app)
 
@@ -512,7 +512,7 @@ def test_analyze_without_reduce_key_still_works():
 # ---------------- /reduce preview endpoint ----------------
 
 def test_reduce_preview_caps_rows_and_reports_total():
-    from triad_engine import main as main_mod
+    from iris_engine import main as main_mod
     # build a table bigger than the cap
     rows = [{"id": f"r{i}", "subject": f"S{i}", "treatment": "control",
              "dose": 1.0, "response": float(i), "excluded": False}
@@ -600,7 +600,7 @@ def test_layer_params_override_style_jitter():
 
 def test_blocking_point_cap_returns_422():
     # a dot layer over POINT_CAP raw points must block, not freeze
-    from triad_engine import geoms
+    from iris_engine import geoms
     rows = [{"id": f"r{i}", "subject": f"S{i}",
              "treatment": "control" if i % 2 else "drug_a",
              "dose": 1.0, "response": float(i), "excluded": False}

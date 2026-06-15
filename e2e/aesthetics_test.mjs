@@ -43,12 +43,12 @@ if (!second) {
 } else {
   await colorSelect.selectOption(second);
   await page.waitForTimeout(1800);
-  const figure = await page.locator(".triad svg").count();
+  const figure = await page.locator(".iris svg").count();
   const bar = await page.locator(".error-bar").count();
   if (figure === 0 && bar === 0)
     fail("color set: no figure and no status bar — rendered nothing");
   if (figure > 0) {
-    const legend = await page.locator('.triad svg g[id="legend"]').count();
+    const legend = await page.locator('.iris svg g[id="legend"]').count();
     if (legend === 0) fail("color mapped a second factor but no legend drawn");
     console.log("dodged figure with legend rendered");
   } else {

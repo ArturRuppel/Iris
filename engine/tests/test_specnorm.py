@@ -1,5 +1,5 @@
 """Normalize any legacy spec to the 2.0 grammar shape, idempotently."""
-from triad_engine import specnorm
+from iris_engine import specnorm
 
 
 def legacy_spec():

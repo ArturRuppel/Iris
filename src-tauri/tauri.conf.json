@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Triad",
+  "productName": "Iris",
   "version": "0.1.0",
-  "identifier": "app.triad.skeleton",
+  "identifier": "app.iris.skeleton",
   "build": {
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "npm run dev",
@@ -10,14 +10,14 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
-    "windows": [{ "title": "Triad", "width": 1280, "height": 840 }],
+    "windows": [{ "title": "Iris", "width": 1280, "height": 840 }],
     "security": { "csp": null },
     "withGlobalTauri": true
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "externalBin": ["binaries/triad-engine"],
+    "externalBin": ["binaries/iris-engine"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

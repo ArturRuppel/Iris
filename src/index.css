@@ -190,21 +190,21 @@ dd.strong { font-weight: 600; }
 .plottable-sidebar li.active input { cursor: text; }
 .plottable-sidebar li button { padding: 2px 5px; font-size: 11px; }
 .add-plottable { font-size: 12px; }
-.triad { flex: 1 1 auto; min-width: 0; overflow: auto; display: flex;
+.iris { flex: 1 1 auto; min-width: 0; overflow: auto; display: flex;
   flex-direction: column; gap: 8px; }
-.triad-section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+.iris-section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   overflow: hidden; flex: 0 0 auto; }
-.triad-section .section-header { width: 100%; text-align: left; background: #f8fafc;
+.iris-section .section-header { width: 100%; text-align: left; background: #f8fafc;
   border: none; border-bottom: 1px solid var(--line); padding: 6px 10px; cursor: pointer;
   font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
-.triad-section .section-header:hover { background: #f1f5f9; }
-.triad-section .section-body { padding: 0; }
+.iris-section .section-header:hover { background: #f1f5f9; }
+.iris-section .section-body { padding: 0; }
 .chevron { font-size: 11px; color: var(--faint); }
 .filter-row { display: flex; gap: 4px; margin: 2px 0; align-items: center; }
 .filter-row select, .filter-row input { font-size: 12px; }
 .filter-row input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; width: 110px; }
 .reduced-table { height: 240px; }
-.triad-section .section-body .reduced-table { height: 320px; }
+.iris-section .section-body .reduced-table { height: 320px; }
 
 /* ---- pipeline rail ---- */
 .pipeline-rail { width: 280px; flex: 0 0 auto; overflow: auto;

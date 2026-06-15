@@ -116,8 +116,8 @@ def _infer_schema(df: pd.DataFrame) -> dict:
 def load_sample() -> dict:
     """Serve the wide cells_by_frame dataset as the sample table. Falls back to
     the small synthetic dataset if the CSV is not present (e.g. CI, other
-    machines). Override the path with TRIAD_SAMPLE_CSV."""
-    path = Path(os.environ.get("TRIAD_SAMPLE_CSV", DEFAULT_SAMPLE_CSV))
+    machines). Override the path with IRIS_SAMPLE_CSV."""
+    path = Path(os.environ.get("IRIS_SAMPLE_CSV", DEFAULT_SAMPLE_CSV))
     if not path.exists():
         return {"schema": SAMPLE_SCHEMA, "rows": sample_rows()}
     df = pd.read_csv(path)

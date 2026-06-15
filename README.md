@@ -1,4 +1,4 @@
-# Triad — tier 1 walking skeleton
+# Iris — tier 1 walking skeleton
 
 The reactive triad (table ↔ figure ↔ statistics) with a **real** engine:
 every number comes from scipy/pingouin, every figure from matplotlib, and one
@@ -19,7 +19,7 @@ Terminal 1 — engine:
 ```bash
 cd engine
 pip install -r requirements.txt
-python -m triad_engine.main          # serves on 127.0.0.1:8765
+python -m iris_engine.main           # serves on 127.0.0.1:8765
 ```
 
 Terminal 2 — frontend:
@@ -40,7 +40,7 @@ Requires the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/)
 ```bash
 npm install
 cargo install tauri-cli --version "^2"
-cargo tauri dev        # spawns engine via system python3; set TRIAD_PYTHON to override
+cargo tauri dev        # spawns engine via system python3; set IRIS_PYTHON to override
 ```
 
 ## Packaging (tier 1 exit)
@@ -53,19 +53,19 @@ executable, so dev mode is unchanged).
 ```bash
 cd engine
 pip install -r requirements-dev.txt
-pyinstaller triad-engine.spec          # → dist/triad-engine (~210 MB)
+pyinstaller iris-engine.spec           # → dist/iris-engine (~210 MB)
 python tests/smoke_frozen.py           # protocol + lifecycle against the binary
 
 # Tauri expects the sidecar named with the host target triple:
 triple=$(rustc -vV | sed -n 's/host: //p')
 mkdir -p ../src-tauri/binaries
-cp dist/triad-engine "../src-tauri/binaries/triad-engine-$triple"
+cp dist/iris-engine "../src-tauri/binaries/iris-engine-$triple"
 
 cd .. && npx tauri build               # installers in src-tauri/target/release/bundle/
 ```
 
 Packaging notes, learned the hard way:
-- `triad_engine/main.py` uses relative imports, so the spec freezes
+- `iris_engine/main.py` uses relative imports, so the spec freezes
   `freeze_entry.py`, not `main.py` directly.
 - `freeze_runtime_hook.py` pins `MPLCONFIGDIR` to a per-user cache dir.
   Without it, matplotlib's font cache can land somewhere non-persistent and
@@ -100,7 +100,7 @@ packaging half is the remaining work.
 ## Repo map
 
 ```
-engine/triad_engine/   stats.py (pingouin orchestration + recommendation)
+engine/iris_engine/    stats.py (pingouin orchestration + recommendation)
                        compiler.py (spec → matplotlib, gid tagging, mm presets)
                        document.py (.viz ZIP format + sample data)
                        main.py (FastAPI protocol surface)

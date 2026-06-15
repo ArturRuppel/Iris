@@ -12,10 +12,10 @@ from pathlib import Path
 if "MPLCONFIGDIR" not in os.environ:
     if os.name == "nt":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-        cache = base / "Triad" / "matplotlib"
+        cache = base / "Iris" / "matplotlib"
     else:
         base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-        cache = base / "triad" / "matplotlib"
+        cache = base / "iris" / "matplotlib"
     try:
         cache.mkdir(parents=True, exist_ok=True)
         os.environ["MPLCONFIGDIR"] = str(cache)

@@ -1,7 +1,7 @@
 """Geom-level validity guards. The point cap is the 82k-freeze fix."""
 import pandas as pd
 
-from triad_engine import guards, geoms
+from iris_engine import guards, geoms
 
 SCHEMA = {"schema_version": "1.0", "columns": [
     {"name": "grp", "type": "categorical", "label": "Group",
