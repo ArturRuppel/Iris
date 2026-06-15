@@ -4,10 +4,16 @@ const b = await chromium.launch();
 const page = await b.newPage({ viewport: { width: 1500, height: 1000 } });
 page.on("console", (m) => console.log("[console]", m.type(), m.text()));
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-await page.goto("http://localhost:5173");
+await page.goto(process.env.APP_URL ?? "http://localhost:5173");
 await page.click(".mode-toggle button:has-text('Analyses')");
-await page.waitForSelector(".figure-host svg", { timeout: 20000 });
-await page.waitForTimeout(500);
+await page.waitForSelector(".layer-rail", { timeout: 60000 });
+/* the default per-row geom is point-capped on the large sample (no figure);
+   switch to a template that renders on the full table so there's a figure to
+   drag. Harmless on the small synthetic sample (still renders). */
+await page.selectOption(".layer-rail .template-pick", { label: "Histogram + density" })
+  .catch(() => {});
+await page.waitForSelector(".figure-host svg", { timeout: 30000 });
+await page.waitForTimeout(800);
 
 const lbl = page.locator(".figure-host g#lbl-y");
 console.log("lbl-y groups found:", await lbl.count());

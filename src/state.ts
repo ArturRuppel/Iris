@@ -10,6 +10,21 @@ export const rowsAtom = atom<Row[]>([]);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
 
+/* render lifecycle, surfaced to the user so a long /analyze never looks hung:
+   "running" while a figure/stats request is in flight, "ok" once it lands,
+   "error" if it fails. */
+export type RenderStatus = "idle" | "running" | "ok" | "error";
+export const analyzeStatusAtom = atom<RenderStatus>("idle");
+/* the analyze loop's own error channel, separate from engineErrorAtom: the
+   figure and the live reduce preview run as two independent loops, and a single
+   shared error atom let the (frequently-succeeding) reduce loop's setError(null)
+   wipe the analyze loop's block message — leaving a blank figure with no reason.
+   Keeping them separate means each loop owns, and only clears, its own error. */
+export const renderErrorAtom = atom<string | null>(null);
+/* true while the (potentially hundreds-of-MB) master table is being serialized
+   and uploaded — the one moment the UI can stall on large data. */
+export const dataLoadingAtom = atom<boolean>(false);
+
 /* the geom registry, fetched once from /health at startup; drives the rail */
 export const registryAtom = atom<Registry | null>(null);
 
@@ -321,6 +336,15 @@ export const setReducePreviewByIdAtom = atom(null,
 export const reducePreviewAtom = atom((get) => {
   const id = get(activePlottableIdAtom);
   return id ? (get(reducePreviewByIdAtom)[id] ?? null) : null;
+});
+
+/* the columns the figure actually sees: the post-reduction schema from the live
+   /reduce preview (which equals the master schema when the pipeline is empty),
+   falling back to the master schema before the first preview resolves. The X/Y
+   pickers must offer THESE, not master columns the pipeline may have dropped. */
+export const effectiveSchemaAtom = atom((get) => {
+  const rp = get(reducePreviewAtom);
+  return rp?.preview.schema ?? get(schemaAtom);
 });
 
 /* ---- layer CRUD + reorder on the ACTIVE plottable (mirrors reduce steps) ---- */

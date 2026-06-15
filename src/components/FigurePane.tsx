@@ -1,7 +1,8 @@
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  activePlottableAtom, analysisAtom, rowsAtom, selectedRowIdAtom, toggleExclusionAtom,
+  activePlottableAtom, analysisAtom, analyzeStatusAtom, dataLoadingAtom,
+  renderErrorAtom, rowsAtom, selectedRowIdAtom, toggleExclusionAtom,
 } from "../state";
 import type { StyleOverrides } from "../types";
 import { StylePane } from "./StylePane";
@@ -23,6 +24,9 @@ const PX_PER_PT = 96 / 72;
  *  are unhittable); the corner handle drag-resizes in real mm. */
 export function FigurePane() {
   const analysis = useAtomValue(analysisAtom);
+  const status = useAtomValue(analyzeStatusAtom);
+  const renderError = useAtomValue(renderErrorAtom);
+  const dataLoading = useAtomValue(dataLoadingAtom);
   const rows = useAtomValue(rowsAtom);
   const toggle = useSetAtom(toggleExclusionAtom);
   const [selected, setSelected] = useAtom(selectedRowIdAtom);
@@ -199,6 +203,19 @@ export function FigurePane() {
         {analysis && (
           <div ref={handle} className="resize-handle" title="drag to resize (mm)"
             onPointerDown={onResizeStart} />
+        )}
+        {(status === "running" || dataLoading) && (
+          <div className={`figure-overlay${analysis ? " over-figure" : ""}`}>
+            <span className="spinner" />
+            <span>{dataLoading ? "Loading data…" : "Rendering…"}</span>
+          </div>
+        )}
+        {!analysis && status !== "running" && !dataLoading && (
+          <div className="figure-overlay placeholder">
+            {status === "error"
+              ? (renderError ?? "Render failed.")
+              : "Map Y (and X) in the Encoding card to draw a figure."}
+          </div>
         )}
       </div>
       {menu && (

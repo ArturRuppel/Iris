@@ -5,8 +5,38 @@ import {
   registryAtom, removeLayerAtom, updateLayerAtom, TEMPLATES,
   type TemplateName,
 } from "../state";
-import type { Geom } from "../types";
+import type { Geom, Layer, Registry } from "../types";
 import { LayerCard } from "./LayerCards";
+import { EncodingsCard } from "./EncodingsCard";
+
+/* one geom layer, independently collapsible so a tall stack stays scannable */
+function LayerItem({ layer, registry, i, last, onMove, onRemove, onChange }: {
+  layer: Layer; registry: Registry; i: number; last: boolean;
+  onMove: (dir: -1 | 1) => void; onRemove: () => void;
+  onChange: (l: Layer) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const name = registry.geoms[layer.geom]?.label ?? layer.geom;
+  return (
+    <li className="layer-card">
+      <div className="layer-head">
+        <button className="card-toggle" title={open ? "Collapse" : "Expand"}
+          onClick={() => setOpen((o) => !o)}>
+          <span className="chevron">{open ? "▾" : "▸"}</span>
+          <span className="layer-name">{name}</span>
+        </button>
+        <span className="layer-actions">
+          <button className="icon" title="Move up" disabled={i === 0}
+            onClick={() => onMove(-1)}>↑</button>
+          <button className="icon" title="Move down" disabled={last}
+            onClick={() => onMove(1)}>↓</button>
+          <button className="icon" title="Remove layer" onClick={onRemove}>✕</button>
+        </span>
+      </div>
+      {open && <LayerCard layer={layer} registry={registry} onChange={onChange} />}
+    </li>
+  );
+}
 
 export function LayerRail() {
   const active = useAtomValue(activePlottableAtom);
@@ -30,7 +60,7 @@ export function LayerRail() {
   return (
     <div className="layer-rail">
       <div className="rail-head">
-        <strong>Layers</strong>
+        <strong>Encoding & layers</strong>
         <select className="template-pick" value=""
           onChange={(e) => { if (e.target.value) applyTemplate(e.target.value as TemplateName); }}>
           <option value="">Start from…</option>
@@ -40,27 +70,19 @@ export function LayerRail() {
         </select>
       </div>
 
+      <EncodingsCard />
+
       {layers.length === 0 && (
         <p className="rail-empty">No layers — add a geom or pick a template.</p>
       )}
 
       <ol className="layer-list">
         {layers.map((layer, i) => (
-          <li key={i} className="layer-card">
-            <div className="layer-head">
-              <span className="layer-name">{registry.geoms[layer.geom]?.label ?? layer.geom}</span>
-              <span className="layer-actions">
-                <button className="icon" title="Move up" disabled={i === 0}
-                  onClick={() => moveLayer({ index: i, dir: -1 })}>↑</button>
-                <button className="icon" title="Move down" disabled={i === layers.length - 1}
-                  onClick={() => moveLayer({ index: i, dir: 1 })}>↓</button>
-                <button className="icon" title="Remove layer"
-                  onClick={() => removeLayer(i)}>✕</button>
-              </span>
-            </div>
-            <LayerCard layer={layer} registry={registry}
-              onChange={(l) => updateLayer({ index: i, layer: l })} />
-          </li>
+          <LayerItem key={i} layer={layer} registry={registry} i={i}
+            last={i === layers.length - 1}
+            onMove={(dir) => moveLayer({ index: i, dir })}
+            onRemove={() => removeLayer(i)}
+            onChange={(l) => updateLayer({ index: i, layer: l })} />
         ))}
       </ol>
 

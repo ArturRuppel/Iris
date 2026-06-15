@@ -11,10 +11,10 @@ import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
-  applyTemplateAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
-  loadTableAtom, registryAtom, reducePreviewAtom, rowsAtom, schemaAtom,
-  setAnalysisByIdAtom, setReducePreviewByIdAtom, specAtom, tableTokenAtom,
-  viewModeAtom, TEMPLATES, type TemplateName,
+  analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
+  engineSnapshotAtom, exclusionLogAtom, loadTableAtom, registryAtom, renderErrorAtom,
+  rowsAtom, schemaAtom, setAnalysisByIdAtom, setReducePreviewByIdAtom, specAtom,
+  tableTokenAtom, viewModeAtom,
 } from "./state";
 import { downloadBase64, engine } from "./types";
 
@@ -29,6 +29,21 @@ function Section({ title, defaultOpen, children }:
       {open && <div className="section-body">{children}</div>}
     </section>
   );
+}
+
+/* Tells the user, at a glance, whether the figure is current, being computed,
+   or failed — so a long render never reads as a freeze or a crash. */
+function RenderIndicator({ dataLoading }: { dataLoading: boolean }) {
+  const status = useAtomValue(analyzeStatusAtom);
+  if (dataLoading)
+    return <span className="render-status loading"><span className="dot" />Loading data…</span>;
+  if (status === "running")
+    return <span className="render-status running"><span className="dot" />Rendering…</span>;
+  if (status === "error")
+    return <span className="render-status error">⚠ Render failed</span>;
+  if (status === "ok")
+    return <span className="render-status ok">✓ Up to date</span>;
+  return null;
 }
 
 export default function App() {
@@ -46,9 +61,12 @@ export default function App() {
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
-  const reducePreview = useAtomValue(reducePreviewAtom);
+  const effectiveSchema = useAtomValue(effectiveSchemaAtom);
   const setRegistry = useSetAtom(registryAtom);
-  const applyTemplate = useSetAtom(applyTemplateAtom);
+  const setStatus = useSetAtom(analyzeStatusAtom);
+  const setRenderError = useSetAtom(renderErrorAtom);
+  const renderError = useAtomValue(renderErrorAtom);
+  const [dataLoading, setDataLoading] = useAtom(dataLoadingAtom);
   const warnIssue = (useAtomValue(analysisAtom)?.issues ?? [])
     .find((i) => i.level === "warning");
   const error = useAtomValue(engineErrorAtom);
@@ -57,6 +75,7 @@ export default function App() {
   const [tableEpoch, setTableEpoch] = useState(0);
   const timer = useRef<number>();
   const previewTimer = useRef<number>();
+  const didInit = useRef(false);
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
@@ -66,30 +85,28 @@ export default function App() {
     family === "group_comparison" ? "categorical"
     : family === "correlation" ? "numeric" : "none";
 
-  const setMappings = (m: { x: string; y: string }) =>
-    active && setActive({ ...active, mappings: m });
   const setPreset = (p: string) => active && setActive({ ...active, preset: p });
 
   useEffect(() => {
+    /* run exactly once. React 18 StrictMode double-invokes mount effects in dev;
+       without this guard the sample is fetched + parsed twice (wasteful on a
+       large dataset) and the late second loadTable resets the active plottable,
+       wiping any edits made in the seconds-long load window. */
+    if (didInit.current) return;
+    didInit.current = true;
     engine.waitForHealth()
       .then((h) => { setSnapshot(h.engine_snapshot); setRegistry(h.registry); setEngineUp(true); })
-      .then(() => engine.sample())
+      /* the sample can be a large real dataset (tens of thousands of rows); flag
+         the load so the UI shows "Loading data…" instead of empty rails while the
+         browser fetches + parses it. The upload effect clears the flag. */
+      .then(() => { setDataLoading(true); return engine.sample(); })
       .then((t) => loadTable(t))
-      .catch(() => setEngineUp(false));
+      .catch(() => { setDataLoading(false); setEngineUp(false); });
   }, []);
 
-  /* the X/Y pickers must offer the columns that SURVIVE the reduction, not the
-     master columns — otherwise you can map X to a column the pipeline drops and
-     analyze 422s ("x column not found in schema"). The reduce preview carries
-     the post-reduction schema (and runs even with zero steps, where it equals
-     the master schema), so it's the source of truth; fall back to the master
-     schema only for the brief moment before the first preview resolves. */
-  const effectiveSchema = reducePreview?.preview.schema ?? schema;
-  const numericCols = effectiveSchema?.columns.filter((c) => c.type === "numeric") ?? [];
-  const catCols = effectiveSchema?.columns.filter((c) => c.type === "categorical") ?? [];
-  const xCols = xKind === "numeric" ? numericCols.filter((c) => c.name !== mappings.y) : catCols;
-
-  /* a stable signature of the surviving columns, so effects that must react to a
+  /* The X/Y pickers (now in the Encoding card) offer only the columns that
+     SURVIVE the reduction; the post-reduction schema lives in effectiveSchemaAtom.
+     a stable signature of the surviving columns, so effects that must react to a
      pipeline edit (which changes the schema but not necessarily the spec string)
      have something concrete to depend on */
   const schemaKey = effectiveSchema?.columns.map((c) => `${c.name}:${c.type}`).join(",") ?? "";
@@ -118,8 +135,9 @@ export default function App() {
      The token is cleared the moment the data changes so the analyze/preview
      loops wait for the fresh upload rather than referencing a stale table. */
   useEffect(() => {
-    if (!schema || rows.length === 0) { setTableToken(null); return; }
+    if (!schema || rows.length === 0) { setTableToken(null); setDataLoading(false); return; }
     setTableToken(null);
+    setDataLoading(true);
     let cancelled = false;
     const t = window.setTimeout(async () => {
       try {
@@ -127,6 +145,8 @@ export default function App() {
         if (!cancelled) setTableToken(token);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!cancelled) setDataLoading(false);
       }
     }, 150);
     return () => { cancelled = true; window.clearTimeout(t); };
@@ -140,20 +160,28 @@ export default function App() {
   const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
     if (!schema || !spec || !tableToken) return;
-    if (xKind !== "none" && !spec.encodings.x?.column) return;
-    if (mappingError) return; // a mapped column the pipeline drops — don't ship a doomed analyze
+    /* nothing to render yet, or a mapped column the pipeline drops — show no
+       render error (the mapping/empty state speaks for itself) and go idle */
+    if ((xKind !== "none" && !spec.encodings.x?.column) || mappingError) {
+      setStatus("idle"); setRenderError(null); return;
+    }
     window.clearTimeout(timer.current);
+    /* a change is pending the moment deps settle — show it immediately so the
+       debounce + request window never reads as "hung" or "crashed" */
+    setStatus("running");
     /* capture the target plottable at dispatch so a late-resolving result lands
        in the plottable it was computed for, not whichever is active on return */
     const targetId = spec.id;
     timer.current = window.setTimeout(async () => {
       try {
         const res = await engine.analyze({ token: tableToken }, spec);
-        setAnalysisById({ id: targetId, res }); setError(null);
+        setAnalysisById({ id: targetId, res }); setRenderError(null);
+        setStatus("ok");
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         if (/not cached/i.test(m)) { setTableEpoch((x) => x + 1); return; }
-        setError(m);
+        setRenderError(m);
+        setStatus("error");
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
@@ -218,39 +246,15 @@ export default function App() {
           <ImportWizard />
           <DataEntry />
           {viewMode === "analyses" && (
-            <>
-              <label>Plot
-                <select value=""
-                  onChange={(e) => { if (e.target.value) applyTemplate(e.target.value as TemplateName); }}>
-                  <option value="">Start from…</option>
-                  {(Object.keys(TEMPLATES) as TemplateName[]).map((t) => (
-                    <option key={t} value={t}>{TEMPLATES[t].label}</option>
-                  ))}
-                </select>
-              </label>
-              {xKind !== "none" && (
-                <label>X
-                  <select value={mappings.x}
-                    onChange={(e) => setMappings({ ...mappings, x: e.target.value })}>
-                    {xCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
-                  </select>
-                </label>
-              )}
-              <label>{xKind === "none" ? "Variable" : "Y"}
-                <select value={mappings.y}
-                  onChange={(e) => setMappings({ ...mappings, y: e.target.value })}>
-                  {numericCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
-                </select>
-              </label>
-              <label>Size
-                <select value={preset} onChange={(e) => setPreset(e.target.value)}>
-                  <option value="demo_default">Screen (140 mm)</option>
-                  <option value="nature_single_column">Nature single (89 mm)</option>
-                  <option value="nature_double_column">Nature double (183 mm)</option>
-                </select>
-              </label>
-            </>
+            <label>Size
+              <select value={preset} onChange={(e) => setPreset(e.target.value)}>
+                <option value="demo_default">Screen (140 mm)</option>
+                <option value="nature_single_column">Nature single (89 mm)</option>
+                <option value="nature_double_column">Nature double (183 mm)</option>
+              </select>
+            </label>
           )}
+          <RenderIndicator dataLoading={dataLoading} />
           <span className="spacer" />
           <button onClick={() => doExport("svg")}>SVG</button>
           <button onClick={() => doExport("pdf")}>PDF</button>
@@ -260,11 +264,17 @@ export default function App() {
       </header>
       {error ? <div className="error-bar">{error}</div>
         : mappingError ? <div className="error-bar warn-bar">{mappingError}</div>
+        : renderError ? <div className="error-bar">{renderError}</div>
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
       <main>
         {viewMode === "data" ? (
           <div className="data-mode"><DataTable /></div>
+        ) : !active ? (
+          <div className="analyses-loading">
+            <span className="spinner" />
+            <span>{dataLoading ? "Loading data…" : "Preparing analysis…"}</span>
+          </div>
         ) : (
           <div className="analyses-mode">
             <PlottableSidebar />

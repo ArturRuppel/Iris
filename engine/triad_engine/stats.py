@@ -11,6 +11,14 @@ from scipy import stats as sps
 
 MIN_N_FOR_NORMALITY_RULE = 12  # below this, rank-based test is the safe default
 
+# Shapiro–Wilk is hypersensitive at large N: with tens of thousands of points it
+# rejects normality for trivially small, irrelevant deviations, which would push
+# every large dataset onto the rank-based test. Cap the sample the check sees so
+# it stays informative (and fast) instead of always rejecting. The subsample is
+# deterministic (fixed seed) so the recommendation is reproducible.
+NORMALITY_CAP = 5000
+_NORM_RNG_SEED = 0
+
 
 def _col(row, *names):
     """Read a pingouin result field across versions (0.5: 'p-val', 0.6: 'p_val')."""
@@ -28,6 +36,14 @@ def shapiro_check(values: np.ndarray) -> dict:
     n = len(values)
     if n < 3:
         return {"ok": False, "reason": f"n = {n} < 3"}
+    if n > NORMALITY_CAP:
+        # see NORMALITY_CAP: assess normality on a deterministic subsample so the
+        # check stays meaningful (and milliseconds) at large N.
+        rng = np.random.default_rng(_NORM_RNG_SEED)
+        sample = rng.choice(values, NORMALITY_CAP, replace=False)
+        W, p = sps.shapiro(sample)
+        return {"ok": True, "W": float(W), "p": float(p), "n": n,
+                "n_assessed": NORMALITY_CAP}
     W, p = sps.shapiro(values)
     return {"ok": True, "W": float(W), "p": float(p), "n": n}
 
@@ -91,16 +107,21 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             f"p {_fmt_p(_col(row,'p_val','p-val'))}; Hedges' g = {gd:.2f} "
             f"(95% CI {gd - 1.96 * se_g:.2f} to {gd + 1.96 * se_g:.2f}).{excl_note}")
     else:
-        mw = pg.mwu(a, b)
-        row = mw.iloc[0]
+        # scipy's asymptotic U matches pingouin's exactly but skips pingouin's
+        # O(nA\u00b7nB) CLES brute force, which alone cost ~14 s on 80k-row groups.
+        # method="auto" mirrors pingouin's default (exact only for tiny n).
+        mw = sps.mannwhitneyu(a, b, alternative="two-sided", method="auto")
+        U = float(mw.statistic)
+        p = float(mw.pvalue)
+        rbc = (2.0 * U) / (nA * nB) - 1.0  # rank-biserial, pingouin's sign
         result = {
-            "test": "mann_whitney", "U": float(_col(row, "U_val", "U-val")), "p": float(_col(row, "p_val", "p-val")),
-            "effect": {"name": "rank_biserial", "value": float(_col(row, "RBC")), "ci": None},
+            "test": "mann_whitney", "U": U, "p": p,
+            "effect": {"name": "rank_biserial", "value": rbc, "ci": None},
         }
         methods = (
             f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
-            f"using the Mann\u2013Whitney U test. U = {_col(row,'U_val','U-val'):.0f}, "
-            f"p {_fmt_p(_col(row,'p_val','p-val'))}; rank-biserial r = {_col(row,'RBC'):.2f}.{excl_note}")
+            f"using the Mann\u2013Whitney U test. U = {U:.0f}, "
+            f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{excl_note}")
 
     # per-group summaries for the plot (mean ± 95% CI of the mean)
     summaries = []
