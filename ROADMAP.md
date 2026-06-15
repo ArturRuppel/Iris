@@ -13,10 +13,16 @@ data-entry wizard (one column per condition), and deliberate exclusion
 carrying its own figure and stats; the workspace splits into a maximized-table
 "Data" mode and an "Analyses" mode (plottable sidebar + collapsible
 reduced-table / figure / stats sections). The spec gained an additive `reduce`
-clause (1.1→1.2; specs without it analyze unchanged), applied engine-side in
-pandas before the existing mappings→figure→stats pipeline, which returns the
-reduced table it ran on. Project is under git as of 13 June 2026.
-Last updated 13 June 2026.*
+clause, now an **ordered pipeline of composable steps** — `select` (column
+projection), `filter`, `collapse` — applied engine-side in pandas before the
+existing mappings→figure→stats pipeline (spec 1.2→1.3; older specs migrate
+losslessly to a two-step filter→collapse pipeline). The Analyses workspace
+gained a collapsible **pipeline rail** with prefix-grouped, searchable column
+pickers (tames 50+ column datasets), a live `/reduce` preview (capped, with a
+per-step row-count funnel), and a content-hash table cache so large master
+tables upload once and ride as a token instead of re-sending on every edit. The
+wide `cells_by_frame` dataset is the new default sample. Project is under git as
+of 13 June 2026. Last updated 13 June 2026.*
 
 ## 1. Vision and positioning
 

@@ -136,19 +136,22 @@ def test_document_roundtrip():
 
 
 def test_document_roundtrip_keeps_reduce_clause():
-    # the document layer is spec-agnostic; guard that a reduce clause survives
+    # the document layer is spec-agnostic; guard that a reduce pipeline survives
     # save/load so a saved plottable recomputes identically on reopen
     table = make_table()
     spec = make_spec()
-    spec["spec_version"] = "1.2"
-    spec["reduce"] = {"filter": [{"column": "treatment", "op": "==", "value": "control"}],
-                      "collapse": {"group_by": ["subject"], "aggregate": {"response": "mean"}}}
+    spec["spec_version"] = "1.3"
+    spec["reduce"] = {"steps": [
+        {"kind": "filter",
+         "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
+        {"kind": "collapse", "group_by": ["subject"], "aggregate": {"response": "mean"}}]}
     saved = document.save_document(table["schema"], table["rows"], [spec, make_spec()],
                                    {"exclusions": []}, {"engine": "test"})
     doc = document.load_document(saved)
     assert len(doc["analyses"]) == 2
-    assert doc["analyses"][0]["reduce"]["collapse"]["group_by"] == ["subject"]
-    assert doc["analyses"][0]["reduce"]["filter"][0]["value"] == "control"
+    steps = doc["analyses"][0]["reduce"]["steps"]
+    assert steps[0]["conditions"][0]["value"] == "control"
+    assert steps[1]["group_by"] == ["subject"]
 
 
 def test_health_reports_versions():
@@ -446,38 +449,34 @@ def test_import_excel():
 
 # ---------------- reduce clause ----------------
 
-def _spec_with_reduce(reduce, **mapping):
+def _spec_with_steps(steps, **mapping):
     spec = make_spec()
-    spec["reduce"] = reduce
-    spec["spec_version"] = "1.2"
+    spec["reduce"] = {"steps": steps}
+    spec["spec_version"] = "1.3"
     spec["mappings"].update(mapping)
     return spec
 
 
 def test_analyze_filter_changes_n():
-    spec = _spec_with_reduce(
-        {"filter": [{"column": "treatment", "op": "==", "value": "control"}],
-         "collapse": None})
+    spec = _spec_with_steps(
+        [{"kind": "filter",
+          "conditions": [{"column": "treatment", "op": "==", "value": "control"}]}])
     spec["stats"]["family"] = "descriptive"
     spec["layers"] = [{"mark": "histogram", "options": {}}]
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 200
     assert r.json()["stats"]["result"]["n"] == 20  # only control rows
-    assert len(r.json()["reduced_table"]["rows"]) == 20
 
 
 def test_analyze_collapse_makes_stats_per_group():
     table = make_table()
-    spec = _spec_with_reduce(
-        {"filter": [],
-         "collapse": {"group_by": ["treatment", "subject"],
-                      "aggregate": {"response": "mean"}}},
+    spec = _spec_with_steps(
+        [{"kind": "collapse", "group_by": ["treatment", "subject"],
+          "aggregate": {"response": "mean"}}],
         x={"column": "treatment"}, y={"column": "response"})
     r = client.post("/analyze", json={"table": table, "spec": spec})
     assert r.status_code == 200
-    body = r.json()
-    assert len(body["reduced_table"]["rows"]) == 40
-    assert body["stats"]["summaries"][0]["n"] == 20
+    assert r.json()["stats"]["summaries"][0]["n"] == 20  # 20 subjects per group
 
 
 def test_analyze_filter_preserves_exclusion_provenance():
@@ -486,16 +485,18 @@ def test_analyze_filter_preserves_exclusion_provenance():
     table = make_table()
     table["rows"][0]["excluded"] = True
     table["rows"][1]["excluded"] = True
-    spec = _spec_with_reduce(
-        {"filter": [{"column": "response", "op": ">", "value": 0}], "collapse": None})
+    spec = _spec_with_steps(
+        [{"kind": "filter",
+          "conditions": [{"column": "response", "op": ">", "value": 0}]}])
     r = client.post("/analyze", json={"table": table, "spec": spec})
     assert r.status_code == 200
     assert "2 observation(s) were excluded" in r.json()["stats"]["methods_text"]
 
 
 def test_analyze_reduce_error_is_422():
-    spec = _spec_with_reduce(
-        {"filter": [{"column": "ghost", "op": "==", "value": 1}], "collapse": None})
+    spec = _spec_with_steps(
+        [{"kind": "filter",
+          "conditions": [{"column": "ghost", "op": "==", "value": 1}]}])
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 422
 
@@ -505,4 +506,73 @@ def test_analyze_without_reduce_key_still_works():
     assert "reduce" not in spec
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 200
-    assert len(r.json()["reduced_table"]["rows"]) == 40
+    assert "figure" in r.json() and "reduced_table" not in r.json()
+
+
+# ---------------- /reduce preview endpoint ----------------
+
+def test_reduce_preview_caps_rows_and_reports_total():
+    from triad_engine import main as main_mod
+    # build a table bigger than the cap
+    rows = [{"id": f"r{i}", "subject": f"S{i}", "treatment": "control",
+             "dose": 1.0, "response": float(i), "excluded": False}
+            for i in range(main_mod.PREVIEW_CAP + 50)]
+    table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
+    r = client.post("/reduce", json={"table": table, "steps": []})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["n_total"] == main_mod.PREVIEW_CAP + 50
+    assert len(body["preview"]["rows"]) == main_mod.PREVIEW_CAP
+
+
+def test_reduce_preview_trace_per_step():
+    table = make_table()  # 40 rows, 20 per treatment
+    steps = [
+        {"kind": "select", "columns": ["treatment", "subject", "response"]},
+        {"kind": "filter",
+         "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
+        {"kind": "collapse", "group_by": ["treatment"], "aggregate": {"response": "mean"}},
+    ]
+    r = client.post("/reduce", json={"table": table, "steps": steps})
+    assert r.status_code == 200
+    body = r.json()
+    assert [t["n_rows_out"] for t in body["trace"]] == [40, 20, 1]
+    assert body["n_total"] == 1
+    cols = [c["name"] for c in body["preview"]["schema"]["columns"]]
+    assert "treatment" in cols and "response" in cols and "subject" not in cols
+
+
+def test_reduce_preview_summary_counts():
+    table = make_table()
+    r = client.post("/reduce", json={"table": table, "steps": []})
+    assert r.status_code == 200
+    summary = {s["column"]: s for s in r.json()["summary"]}
+    assert summary["treatment"]["n_distinct"] == 2
+    assert summary["response"]["n"] == 40
+
+
+def test_reduce_preview_error_is_422():
+    r = client.post("/reduce", json={
+        "table": make_table(),
+        "steps": [{"kind": "select", "columns": ["ghost"]}]})
+    assert r.status_code == 422
+
+
+# ---------------- table cache (token transport) ----------------
+
+def test_table_token_roundtrip_analyze_and_reduce():
+    table = make_table()
+    tok = client.post("/table", json={"table": table}).json()["token"]
+    assert tok
+    # analyze by token only — no inline table
+    spec = make_spec()
+    r = client.post("/analyze", json={"table_token": tok, "spec": spec})
+    assert r.status_code == 200 and "figure" in r.json()
+    # reduce by token only
+    r2 = client.post("/reduce", json={"table_token": tok, "steps": []})
+    assert r2.status_code == 200 and r2.json()["n_total"] == 40
+
+
+def test_unknown_table_token_is_409():
+    r = client.post("/analyze", json={"table_token": "deadbeef", "spec": make_spec()})
+    assert r.status_code == 409

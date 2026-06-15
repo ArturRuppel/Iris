@@ -1,7 +1,8 @@
 import { atom } from "jotai";
 import type {
   AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily,
-  StyleOverrides, Table, TestName, ReduceSpec,
+  StyleOverrides, Table, TestName, ReduceSpec, ReduceStep, ReduceStepKind,
+  ReducePreview,
 } from "./types";
 
 export const schemaAtom = atom<Schema | null>(null);
@@ -106,8 +107,9 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     mappings: { x, y }, plotType, override: null,
     preset: "demo_default", style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
-       so an in-place mutation could never alias across plottables */
-    reduce: { filter: [], collapse: null },
+       so an in-place mutation could never alias across plottables.
+       Empty steps == the full table (today's default). */
+    reduce: { steps: [] },
   };
 }
 
@@ -153,6 +155,8 @@ export const loadTableAtom = atom(null, (get, set, table: Table) => {
   set(engineErrorAtom, null);
   set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
+  set(reducePreviewByIdAtom, {});
+  set(tableTokenAtom, null);
   const first = makeDefaultPlottable(table.schema);
   set(plottablesAtom, [first]);
   set(activePlottableIdAtom, first.id);
@@ -169,7 +173,7 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
     ?? recOk ?? pt.tests[0];
   const usedOverride = p.override !== null && test === p.override && test !== recOk;
   return {
-    spec_version: "1.2",
+    spec_version: "1.3",
     id: p.id,
     title: p.name,
     data: { filter: [], respect_exclusions: true },
@@ -236,10 +240,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     mappings: { ...src.mappings }, style: structuredClone(src.style),
-    reduce: { filter: src.reduce.filter.map((f) => ({ ...f })),
-              collapse: src.reduce.collapse
-                ? { group_by: [...src.reduce.collapse.group_by],
-                    aggregate: { ...src.reduce.collapse.aggregate } } : null },
+    reduce: { steps: structuredClone(src.reduce.steps) },
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
   set(activePlottableIdAtom, copy.id);
@@ -260,4 +261,64 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
     set(activePlottableIdAtom, next[Math.max(0, idx - 1)].id);
   const map = { ...get(analysisByIdAtom) }; delete map[id];
   set(analysisByIdAtom, map);
+  const prev = { ...get(reducePreviewByIdAtom) }; delete prev[id];
+  set(reducePreviewByIdAtom, prev);
+});
+
+/* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
+
+export function makeStep(kind: ReduceStepKind): ReduceStep {
+  if (kind === "select") return { kind, columns: [] };  // starts blank, by design
+  if (kind === "filter") return { kind, conditions: [] };
+  return { kind: "collapse", group_by: [], aggregate: {} };
+}
+
+export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) => {
+  const p = get(activePlottableAtom); if (!p) return;
+  set(activePlottableAtom,
+    { ...p, reduce: { steps: [...p.reduce.steps, makeStep(kind)] } });
+});
+
+export const updateStepAtom = atom(null,
+  (get, set, arg: { index: number; step: ReduceStep }) => {
+    const p = get(activePlottableAtom); if (!p) return;
+    set(activePlottableAtom, { ...p, reduce: { steps:
+      p.reduce.steps.map((s, i) => (i === arg.index ? arg.step : s)) } });
+  });
+
+export const removeStepAtom = atom(null, (get, set, index: number) => {
+  const p = get(activePlottableAtom); if (!p) return;
+  set(activePlottableAtom,
+    { ...p, reduce: { steps: p.reduce.steps.filter((_, i) => i !== index) } });
+});
+
+export const moveStepAtom = atom(null,
+  (get, set, arg: { index: number; dir: -1 | 1 }) => {
+    const p = get(activePlottableAtom); if (!p) return;
+    const steps = [...p.reduce.steps];
+    const j = arg.index + arg.dir;
+    if (j < 0 || j >= steps.length) return;
+    [steps[arg.index], steps[j]] = [steps[j], steps[arg.index]];
+    set(activePlottableAtom, { ...p, reduce: { steps } });
+  });
+
+/* ---- live /reduce preview + master-table content token ---- */
+
+/* content token for the master table; lets a large table upload once (via
+   /table) and ride as a token on analyze/reduce/export instead of re-sending
+   ~hundreds of MB on every pipeline edit */
+export const tableTokenAtom = atom<string | null>(null);
+
+/* the active plottable's reduced-table preview, keyed per plottable so a
+   late-resolving fetch lands in the plottable it was computed for */
+export const reducePreviewByIdAtom = atom<Record<string, ReducePreview>>({});
+export const setReducePreviewByIdAtom = atom(null,
+  (get, set, arg: { id: string; preview: ReducePreview | null }) => {
+    const map = { ...get(reducePreviewByIdAtom) };
+    if (arg.preview) map[arg.id] = arg.preview; else delete map[arg.id];
+    set(reducePreviewByIdAtom, map);
+  });
+export const reducePreviewAtom = atom((get) => {
+  const id = get(activePlottableIdAtom);
+  return id ? (get(reducePreviewByIdAtom)[id] ?? null) : null;
 });

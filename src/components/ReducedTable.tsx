@@ -3,7 +3,7 @@ import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef,
 } from "ag-grid-community";
-import { analysisAtom } from "../state";
+import { reducePreviewAtom } from "../state";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -20,9 +20,11 @@ const theme = themeQuartz.withParams({
 });
 
 export function ReducedTable() {
-  const analysis = useAtomValue(analysisAtom);
-  if (!analysis) return null;
-  const { schema, rows } = analysis.reduced_table;
+  const preview = useAtomValue(reducePreviewAtom);
+  if (!preview) return <div className="reduced-empty">Building preview…</div>;
+  const { schema, rows } = preview.preview;
+  const shown = rows.length;
+  const total = preview.n_total;
   const colDefs: ColDef[] = schema.columns.map((c) => ({
     field: c.name,
     headerName: c.label,
@@ -36,14 +38,22 @@ export function ReducedTable() {
     }),
   }));
   return (
-    <div className="grid-host reduced-table">
-      <AgGridReact
-        theme={theme}
-        rowData={rows}
-        columnDefs={colDefs}
-        headerHeight={30}
-        rowHeight={26}
-      />
+    <div className="reduced-wrap">
+      <div className="reduced-note">
+        {shown < total
+          ? `showing ${shown.toLocaleString()} of ${total.toLocaleString()} rows`
+          : `${total.toLocaleString()} row${total === 1 ? "" : "s"}`}
+        {" · "}{schema.columns.length} column{schema.columns.length === 1 ? "" : "s"}
+      </div>
+      <div className="grid-host reduced-table">
+        <AgGridReact
+          theme={theme}
+          rowData={rows}
+          columnDefs={colDefs}
+          headerHeight={30}
+          rowHeight={26}
+        />
+      </div>
     </div>
   );
 }

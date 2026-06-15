@@ -1,4 +1,8 @@
-"""Reduction layer: filter rows, then optionally collapse to group summaries.
+"""Reduction layer: an ordered pipeline of steps applied top-to-bottom.
+
+A step is one of `select` (project columns), `filter` (drop rows), or `collapse`
+(group + aggregate). Each step transforms the output of the one above, so order
+matters and is honored (e.g. filter → collapse → filter).
 
 Quantity-agnostic and pandas-only (no matplotlib, no FastAPI). The caller
 removes excluded rows first; reduction never sees them.
@@ -62,24 +66,61 @@ def _apply_filter(df: pd.DataFrame, schema: dict, conds: list[dict]) -> pd.DataF
     return df[mask]
 
 
+def _meta_cols(df: pd.DataFrame) -> list[str]:
+    """Bookkeeping columns that ride along but never appear in schema.columns."""
+    return [c for c in ("id", "excluded") if c in df.columns]
+
+
+def _apply_select(df: pd.DataFrame, schema: dict,
+                  columns: list[str]) -> tuple[pd.DataFrame, dict]:
+    cols = {c["name"]: c for c in schema["columns"]}
+    missing = [c for c in columns if c not in cols]
+    if missing:
+        raise ReduceError(f"select: unknown column(s) {missing!r}")
+    keep = _meta_cols(df) + [c for c in columns if c in df.columns]
+    out = df[keep].copy()
+    new_schema = {**schema, "columns": [cols[c] for c in columns]}
+    return out, new_schema
+
+
+def _apply_step(df: pd.DataFrame, schema: dict,
+                step: dict) -> tuple[pd.DataFrame, dict]:
+    kind = step.get("kind")
+    if kind == "select":
+        return _apply_select(df, schema, step.get("columns") or [])
+    if kind == "filter":
+        out = _apply_filter(df, schema, step.get("conditions") or [])
+        return out.reset_index(drop=True), schema
+    if kind == "collapse":
+        return _apply_collapse(df, schema, step)
+    raise ReduceError(f"unknown step kind {kind!r}")
+
+
 def apply_reduction(df: pd.DataFrame, schema: dict,
-                    reduce: dict | None) -> tuple[pd.DataFrame, dict]:
-    """Filter rows, then optionally collapse. Returns (frame, schema).
+                    steps: list[dict] | None) -> tuple[pd.DataFrame, dict]:
+    """Fold `steps` over (df, schema) in order. Returns (frame, schema).
 
     Carries the caller's `n_excluded` provenance through the reduction (pandas
     drops `.attrs` when it builds a new frame), so the methods text still
     reports how many raw observations were excluded before reducing."""
-    n_excluded = df.attrs.get("n_excluded", 0)
-    if not reduce:
-        return df, schema
-    out = _apply_filter(df, schema, reduce.get("filter") or [])
-    collapse = reduce.get("collapse")
-    if not collapse:
-        out = out.reset_index(drop=True)
-    else:
-        out, schema = _apply_collapse(out, schema, collapse)
-    out.attrs["n_excluded"] = n_excluded
+    out, schema, _ = reduce_with_trace(df, schema, steps)
     return out, schema
+
+
+def reduce_with_trace(
+    df: pd.DataFrame, schema: dict, steps: list[dict] | None,
+) -> tuple[pd.DataFrame, dict, list[dict]]:
+    """Like `apply_reduction`, but also returns a per-step trace
+    `[{n_rows_out, schema_out}]` (in order) for the live preview UI."""
+    n_excluded = df.attrs.get("n_excluded", 0)
+    out, sch, trace = df, schema, []
+    for step in (steps or []):
+        out, sch = _apply_step(out, sch, step)
+        out = out.reset_index(drop=True)
+        trace.append({"n_rows_out": int(len(out)), "schema_out": sch})
+    out = out.reset_index(drop=True)
+    out.attrs["n_excluded"] = n_excluded
+    return out, sch, trace
 
 
 _AGG = {

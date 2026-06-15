@@ -4,6 +4,7 @@ const b = await chromium.launch();
 const page = await b.newPage({ viewport: { width: 1600, height: 1100 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.goto("http://localhost:5173");
+await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".figure-host svg", { timeout: 20000 });
 await page.waitForTimeout(400);
 

@@ -4,14 +4,15 @@ import { DataEntry } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
+import { PipelineRail } from "./components/PipelineRail";
 import { PlottableSidebar } from "./components/PlottableSidebar";
-import { ReducePanel } from "./components/ReducePanel";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
-  activePlottableAtom, allSpecsAtom, engineErrorAtom, engineSnapshotAtom,
-  exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom,
-  specAtom, PLOT_TYPES, viewModeAtom, type PlotType,
+  activePlottableAtom, activePlottableIdAtom, allSpecsAtom, engineErrorAtom,
+  engineSnapshotAtom, exclusionLogAtom, loadTableAtom, rowsAtom, schemaAtom,
+  setAnalysisByIdAtom, setReducePreviewByIdAtom, specAtom, tableTokenAtom,
+  PLOT_TYPES, viewModeAtom, type PlotType,
 } from "./state";
 import { downloadBase64, engine } from "./types";
 
@@ -32,18 +33,23 @@ export default function App() {
   const [schema] = useAtom(schemaAtom);
   const [rows] = useAtom(rowsAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
+  const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
+  const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
+  const [tableToken, setTableToken] = useAtom(tableTokenAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
+  const [tableEpoch, setTableEpoch] = useState(0);
   const timer = useRef<number>();
+  const previewTimer = useRef<number>();
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
@@ -84,34 +90,78 @@ export default function App() {
     setActive({ ...active, plotType: next, override: nextOverride, mappings: nextMappings });
   };
 
-  /* the reactive loop: any change to rows/spec → debounced engine round trip.
-     `spec` is a freshly built object on every recompute, so depending on it
-     directly would never converge (analyze → result → specAtom recomputes via
-     the recommendation read → new object → analyze again). Depend on a stable
-     string key instead, which settles once the recommendation stabilizes. */
+  /* upload the master table once per data change and remember its content
+     token; subsequent pipeline/mapping edits then ride as a small token instead
+     of re-sending the whole (potentially hundreds of MB) table each round trip.
+     The token is cleared the moment the data changes so the analyze/preview
+     loops wait for the fresh upload rather than referencing a stale table. */
+  useEffect(() => {
+    if (!schema || rows.length === 0) { setTableToken(null); return; }
+    setTableToken(null);
+    let cancelled = false;
+    const t = window.setTimeout(async () => {
+      try {
+        const { token } = await engine.putTable({ schema, rows });
+        if (!cancelled) setTableToken(token);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    }, 150);
+    return () => { cancelled = true; window.clearTimeout(t); };
+  }, [rows, schema, tableEpoch]);
+
+  /* the reactive loop: figure + stats for the active plottable. Depends on the
+     table token (a data edit re-runs it) and a stable spec string (a pipeline or
+     mapping edit re-runs it). `spec` is rebuilt every recompute, so depending on
+     it directly would never converge; the string key settles once the
+     recommendation does. A stale-cache 409 bumps the epoch to re-upload. */
   const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
-    if (!schema || !spec || rows.length === 0) return;
+    if (!schema || !spec || !tableToken) return;
     if (xKind !== "none" && !spec.mappings.x.column) return;
     window.clearTimeout(timer.current);
-    /* capture the target plottable at dispatch so a late-resolving result
-       lands in the plottable it was computed for, not whichever is active when
-       the round trip returns */
+    /* capture the target plottable at dispatch so a late-resolving result lands
+       in the plottable it was computed for, not whichever is active on return */
     const targetId = spec.id;
     timer.current = window.setTimeout(async () => {
       try {
-        const res = await engine.analyze({ schema, rows }, spec);
+        const res = await engine.analyze({ token: tableToken }, spec);
         setAnalysisById({ id: targetId, res }); setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        const m = e instanceof Error ? e.message : String(e);
+        if (/not cached/i.test(m)) { setTableEpoch((x) => x + 1); return; }
+        setError(m);
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [rows, schema, specKey]);
+  }, [tableToken, specKey]);
+
+  /* live reduced-table preview for the active plottable, recomputed as the
+     pipeline changes. Independent of the analyze loop and valid before any
+     mapping is set, so the Reduced-table section updates while you build steps. */
+  const stepsKey = active ? JSON.stringify(active.reduce.steps) : null;
+  useEffect(() => {
+    if (!tableToken || !active) return;
+    window.clearTimeout(previewTimer.current);
+    const targetId = active.id;
+    const steps = active.reduce.steps;
+    previewTimer.current = window.setTimeout(async () => {
+      try {
+        const preview = await engine.reduce({ token: tableToken }, steps);
+        setReducePreviewById({ id: targetId, preview }); setError(null);
+      } catch (e) {
+        const m = e instanceof Error ? e.message : String(e);
+        if (/not cached/i.test(m)) { setTableEpoch((x) => x + 1); return; }
+        setError(m);
+      }
+    }, 200);
+    return () => window.clearTimeout(previewTimer.current);
+  }, [tableToken, stepsKey, activeId]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec) return;
-    const f = await engine.export({ schema, rows }, spec, format);
+    const ref = tableToken ? { token: tableToken } : { schema, rows };
+    const f = await engine.export(ref, spec, format);
     downloadBase64(f.filename, f.data_base64);
   };
   const doSave = async () => {
@@ -191,11 +241,9 @@ export default function App() {
         ) : (
           <div className="analyses-mode">
             <PlottableSidebar />
+            <PipelineRail />
             <div className="triad">
-              <Section title="Reduced table" defaultOpen>
-                <ReducePanel />
-                <ReducedTable />
-              </Section>
+              <Section title="Reduced table" defaultOpen><ReducedTable /></Section>
               <Section title="Figure" defaultOpen><FigurePane /></Section>
               <Section title="Statistics" defaultOpen><StatsPanel /></Section>
             </div>

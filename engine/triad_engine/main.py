@@ -6,6 +6,7 @@ Tauri mode: spawned by the shell at startup.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import sys
@@ -34,7 +35,11 @@ def engine_snapshot() -> dict:
 
 
 class AnalyzeRequest(BaseModel):
-    table: dict
+    # a request carries the table inline OR references one cached via /table.
+    # Wide datasets (tens of MB) upload once and then ride as a small token, so
+    # rapid spec/pipeline edits don't re-send the whole table each time.
+    table: dict | None = None
+    table_token: str | None = None
     spec: dict
 
 
@@ -53,6 +58,48 @@ class LoadRequest(BaseModel):
     data_base64: str
 
 
+class ReduceRequest(BaseModel):
+    table: dict | None = None
+    table_token: str | None = None
+    steps: list[dict] = []
+
+
+class TablePutRequest(BaseModel):
+    table: dict
+
+
+PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
+
+# In-memory cache of recently-seen tables, keyed by a content hash. Bounds the
+# repeated transfer of large master tables. LRU-ish: keep the last few.
+_TABLE_CACHE: dict[str, dict] = {}
+_TABLE_CACHE_ORDER: list[str] = []
+_TABLE_CACHE_MAX = 4
+
+
+def _cache_table(table: dict) -> str:
+    raw = json.dumps(table, separators=(",", ":")).encode()
+    token = hashlib.sha1(raw).hexdigest()
+    if token not in _TABLE_CACHE:
+        _TABLE_CACHE[token] = table
+        _TABLE_CACHE_ORDER.append(token)
+        while len(_TABLE_CACHE_ORDER) > _TABLE_CACHE_MAX:
+            _TABLE_CACHE.pop(_TABLE_CACHE_ORDER.pop(0), None)
+    return token
+
+
+def _resolve_table(table: dict | None, token: str | None) -> dict:
+    """A request may inline the table or reference a cached one by token.
+    Inlining also refreshes the cache so a follow-up token request hits."""
+    if table is not None:
+        if token:
+            _TABLE_CACHE.setdefault(token, table)
+        return table
+    if token and token in _TABLE_CACHE:
+        return _TABLE_CACHE[token]
+    raise HTTPException(409, "table not cached; resend full table")
+
+
 class ImportPreviewRequest(BaseModel):
     filename: str
     data_base64: str
@@ -63,11 +110,11 @@ class ImportCommitRequest(ImportPreviewRequest):
     columns: list[dict]
 
 
-def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
+def _load_frame(table: dict, respect_exclusions: bool) -> tuple[pd.DataFrame, dict]:
     schema = table["schema"]
     df = pd.DataFrame(table["rows"])
     n_before = len(df)
-    if spec.get("data", {}).get("respect_exclusions", True) and "excluded" in df:
+    if respect_exclusions and "excluded" in df:
         df = df[~df["excluded"].fillna(False)]
     df = df.copy()
     df.attrs["n_excluded"] = n_before - len(df)
@@ -77,14 +124,32 @@ def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
     return df, schema
 
 
+def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
+    return _load_frame(table, spec.get("data", {}).get("respect_exclusions", True))
+
+
 def _to_table(df: pd.DataFrame, schema: dict) -> dict:
     return {"schema": schema, "rows": json.loads(df.to_json(orient="records"))}
 
 
+def _column_summary(df: pd.DataFrame, schema: dict) -> list[dict]:
+    out = []
+    for c in schema["columns"]:
+        name = c["name"]
+        if name not in df:
+            continue
+        s = df[name]
+        out.append({"column": name, "n": int(s.notna().sum()),
+                    "n_distinct": int(s.nunique(dropna=True)),
+                    "n_missing": int(s.isna().sum())})
+    return out
+
+
 def _run(table: dict, spec: dict):
     df, schema = _prepare(table, spec)
+    steps = (spec.get("reduce") or {}).get("steps") or []
     try:
-        df, schema = reduce_mod.apply_reduction(df, schema, spec.get("reduce"))
+        df, schema = reduce_mod.apply_reduction(df, schema, steps)
     except reduce_mod.ReduceError as e:
         raise HTTPException(422, f"reduction failed: {e}") from e
     m = spec["mappings"]
@@ -93,7 +158,10 @@ def _run(table: dict, spec: dict):
     override = (spec["stats"].get("test")
                 if spec["stats"].get("chosen_by") == "user_override" else None)
     if family == "group_comparison":
-        xcol = next(c for c in schema["columns"] if c["name"] == m["x"]["column"])
+        xcol = next((c for c in schema["columns"] if c["name"] == m["x"]["column"]), None)
+        if xcol is None:
+            raise HTTPException(
+                422, f"x column {m['x']['column']!r} not found in schema")
         res = stats.group_comparison(
             df, m["x"]["column"], m["y"]["column"],
             levels=xcol.get("levels", []), alpha=alpha, override=override)
@@ -117,24 +185,49 @@ def health():
 
 @app.get("/sample")
 def sample():
-    return {"schema": document.SAMPLE_SCHEMA, "rows": document.sample_rows()}
+    return document.load_sample()
+
+
+@app.post("/table")
+def table_put(req: TablePutRequest):
+    """Cache a table and return a content token for subsequent token-only
+    analyze/reduce/export calls."""
+    return {"token": _cache_table(req.table)}
 
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    fig, point_groups, res, df, schema = _run(req.table, req.spec)
+    table = _resolve_table(req.table, req.table_token)
+    fig, point_groups, res, df, schema = _run(table, req.spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     return {"figure": {"svg": svg, "point_groups": point_groups},
-            "stats": res, "reduced_table": _to_table(df, schema),
-            "engine_snapshot": engine_snapshot()}
+            "stats": res, "engine_snapshot": engine_snapshot()}
+
+
+@app.post("/reduce")
+def reduce_preview(req: ReduceRequest):
+    """Preview-only: apply the reduction steps and return the (capped) reduced
+    table plus a per-step trace, with no figure/stats render. Drives the live
+    pipeline editor before any X/Y mapping exists."""
+    table = _resolve_table(req.table, req.table_token)
+    df, schema = _load_frame(table, respect_exclusions=True)
+    try:
+        out, sch, trace = reduce_mod.reduce_with_trace(df, schema, req.steps)
+    except reduce_mod.ReduceError as e:
+        raise HTTPException(422, f"reduction failed: {e}") from e
+    return {"preview": _to_table(out.head(PREVIEW_CAP), sch),
+            "n_total": int(len(out)),
+            "trace": trace,
+            "summary": _column_summary(out, sch)}
 
 
 @app.post("/export")
 def export(req: ExportRequest):
     if req.format not in ("svg", "pdf", "png"):
         raise HTTPException(400, "format must be svg, pdf, or png")
-    fig, _, _, _, _ = _run(req.table, req.spec)
+    table = _resolve_table(req.table, req.table_token)
+    fig, _, _, _, _ = _run(table, req.spec)
     data = compiler.figure_to_bytes(fig, req.format, dpi=req.dpi)
     compiler.close(fig)
     return {"filename": f"figure.{req.format}",

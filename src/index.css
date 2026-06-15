@@ -197,18 +197,64 @@ dd.strong { font-weight: 600; }
 .triad-section .section-header:hover { background: #f1f5f9; }
 .triad-section .section-body { padding: 0; }
 .chevron { font-size: 11px; color: var(--faint); }
-.reduce-panel { display: flex; gap: 24px; padding: 8px; flex-wrap: wrap;
-  border-bottom: 1px solid var(--line); }
-.reduce-filter { display: flex; flex-direction: column; gap: 4px; }
-.reduce-collapse { display: flex; flex-direction: column; gap: 4px; }
 .filter-row { display: flex; gap: 4px; margin: 2px 0; align-items: center; }
 .filter-row select, .filter-row input { font-size: 12px; }
-.filter-row input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; width: 120px; }
+.filter-row input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; width: 110px; }
 .reduced-table { height: 240px; }
-.group-by { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; margin-top: 4px; }
-.aggregates { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; margin-top: 4px; }
-.aggregates label { display: flex; align-items: center; gap: 4px; }
-.reduce-filter strong, .reduce-collapse strong { font-size: 12px; }
+.triad-section .section-body .reduced-table { height: 320px; }
+
+/* ---- pipeline rail ---- */
+.pipeline-rail { width: 280px; flex: 0 0 auto; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.pipeline-rail.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
+.rail-expand { writing-mode: vertical-rl; font-size: 12px; padding: 8px 2px; }
+.rail-head { display: flex; align-items: center; justify-content: space-between; }
+.rail-empty, .reduced-empty { font-size: 12px; color: var(--faint); padding: 6px 2px; }
+.step-list { list-style: none; margin: 0; padding: 0; display: flex;
+  flex-direction: column; gap: 8px; counter-reset: step; }
+.step-card { border: 1px solid var(--line); border-radius: 8px; overflow: hidden;
+  background: #fff; }
+.step-head { display: flex; align-items: center; gap: 6px; padding: 5px 8px;
+  background: #f8fafc; border-bottom: 1px solid var(--line); font-size: 12px; }
+.step-kind { font-weight: 600; }
+.step-kind::before { counter-increment: step; content: counter(step) ". "; color: var(--faint); }
+.step-rows { color: var(--faint); font-variant-numeric: tabular-nums; }
+.step-actions { margin-left: auto; display: flex; gap: 2px; }
+.step-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.step-meta { font-size: 11px; color: var(--faint); }
+.step-sub { font-size: 11px; font-weight: 600; color: #475569; margin-top: 2px; }
+.step-add-row { font-size: 12px; align-self: flex-start; }
+button.icon { padding: 1px 5px; font-size: 11px; line-height: 1.4; }
+button.icon:disabled { opacity: 0.3; }
+.add-step-btn { font-size: 12px; width: 100%; }
+.add-step-menu { display: flex; flex-direction: column; gap: 4px; }
+.add-step-menu button { font-size: 12px; }
+.add-step-menu .cancel { color: var(--faint); }
+
+/* ---- column picker ---- */
+.column-picker { display: flex; flex-direction: column; gap: 4px; }
+.cp-search { border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+.cp-groups { display: flex; flex-direction: column; gap: 2px; max-height: 260px; overflow: auto; }
+.cp-empty { font-size: 11px; color: var(--faint); padding: 4px; }
+.cp-group-head { display: flex; align-items: center; gap: 2px; }
+.cp-disclose { padding: 0 3px; font-size: 10px; background: none; border: none; cursor: pointer; }
+.cp-group-label { display: flex; align-items: center; gap: 5px; font-size: 12px;
+  font-weight: 600; flex: 1; min-width: 0; }
+.cp-prefix { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cp-count { color: var(--faint); font-weight: 400; font-variant-numeric: tabular-nums; }
+.cp-cols { list-style: none; margin: 0 0 0 16px; padding: 0; }
+.cp-cols label { display: flex; align-items: center; gap: 5px; font-size: 12px; padding: 1px 0; }
+.cp-unit { color: var(--faint); font-size: 10px; }
+
+/* ---- aggregate pickers ---- */
+.agg-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow: auto; }
+.agg-prefix { font-size: 11px; color: #475569; font-weight: 600; margin-top: 2px; }
+.agg-row { display: flex; align-items: center; justify-content: space-between; gap: 6px;
+  font-size: 12px; margin-left: 8px; }
+.agg-row select { font-size: 11px; }
+.reduced-wrap { display: flex; flex-direction: column; }
+.reduced-note { font-size: 11px; color: var(--faint); padding: 4px 8px; }
 
 footer { padding: 0 18px 22px; }
 footer pre { background: #0f172a; color: #cffafe; font-size: 11px;

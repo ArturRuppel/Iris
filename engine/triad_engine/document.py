@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import zipfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pandas as pd
 
@@ -75,3 +77,53 @@ def sample_rows() -> list[dict]:
                          "response": resp, "excluded": False})
             i += 1
     return rows
+
+
+# ----- wide real-world sample (cells_by_frame): drives the reduction pipeline -----
+
+DEFAULT_SAMPLE_CSV = "/home/aruppel/Data/aggregate_quantification/cells_by_frame.csv"
+# columns to treat as identifiers even though they parse as numbers/strings
+_ID_COLS = {"cell_id"}
+_CAT_MAX_CARD = 50  # object columns with <= this many distinct values -> categorical
+
+
+def _leaf_label(name: str) -> str:
+    return name.split(".")[-1].replace("_", " ")
+
+
+def _infer_schema(df: pd.DataFrame) -> dict:
+    cols = []
+    for name in df.columns:
+        if name in ("id", "excluded"):
+            continue
+        s = df[name]
+        nun = int(s.nunique(dropna=True))
+        if name in _ID_COLS or name.endswith("_id") and pd.api.types.is_integer_dtype(s):
+            ctype = "identifier"
+        elif pd.api.types.is_numeric_dtype(s):
+            ctype = "numeric"
+        elif nun <= _CAT_MAX_CARD:
+            ctype = "categorical"
+        else:
+            ctype = "identifier"
+        col = {"name": name, "type": ctype, "label": _leaf_label(name)}
+        if ctype == "categorical":
+            col["levels"] = sorted(str(v) for v in s.dropna().unique())
+        cols.append(col)
+    return {"schema_version": "1.0", "columns": cols}
+
+
+def load_sample() -> dict:
+    """Serve the wide cells_by_frame dataset as the sample table. Falls back to
+    the small synthetic dataset if the CSV is not present (e.g. CI, other
+    machines). Override the path with TRIAD_SAMPLE_CSV."""
+    path = Path(os.environ.get("TRIAD_SAMPLE_CSV", DEFAULT_SAMPLE_CSV))
+    if not path.exists():
+        return {"schema": SAMPLE_SCHEMA, "rows": sample_rows()}
+    df = pd.read_csv(path)
+    schema = _infer_schema(df)
+    rows = json.loads(df.to_json(orient="records"))
+    for i, r in enumerate(rows, 1):
+        r["id"] = str(i)
+        r["excluded"] = False
+    return {"schema": schema, "rows": rows}

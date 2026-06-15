@@ -23,7 +23,8 @@ export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
 
-/* ---- reduction: filter rows + optionally collapse to group summaries ---- */
+/* ---- reduction: an ordered pipeline of steps applied top-to-bottom ----
+   each step transforms the output of the one above (spec_version 1.3). */
 export type FilterOp = "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in";
 export interface FilterCond {
   column: string;
@@ -31,15 +32,34 @@ export interface FilterCond {
   value: string | number | (string | number)[]; // array only for in / not-in
 }
 export type AggFn = "mean" | "median" | "count" | "sum" | "sem";
-export interface CollapseSpec {
-  group_by: string[];                 // columns defining a group
+
+/* keep only these columns, in this order (projection). */
+export interface SelectStep { kind: "select"; columns: string[] }
+/* drop rows that fail every condition (AND-ed). */
+export interface FilterStep { kind: "filter"; conditions: FilterCond[] }
+/* group rows, replacing the table with one row per group. */
+export interface CollapseStep {
+  kind: "collapse";
+  group_by: string[];
   aggregate: Record<string, AggFn>;   // numeric column -> fn; unlisted numerics default to mean
 }
-export interface ReduceSpec {
-  filter: FilterCond[];               // AND-ed; [] means no filter
-  collapse: CollapseSpec | null;      // null means no collapse
+export type ReduceStep = SelectStep | FilterStep | CollapseStep;
+export type ReduceStepKind = ReduceStep["kind"];
+
+export interface ReduceSpec { steps: ReduceStep[] } // [] means the full table
+export const EMPTY_REDUCE: ReduceSpec = { steps: [] };
+
+/* ---- /reduce preview payload (display-only; no figure/stats render) ---- */
+export interface ColumnSummary {
+  column: string; n: number; n_distinct: number; n_missing: number;
 }
-export const EMPTY_REDUCE: ReduceSpec = { filter: [], collapse: null };
+export interface StepTrace { n_rows_out: number; schema_out: Schema }
+export interface ReducePreview {
+  preview: Table;        // reduced rows, capped to the first PREVIEW_CAP
+  n_total: number;       // true final row count
+  trace: StepTrace[];    // one entry per step, in order
+  summary: ColumnSummary[];
+}
 
 /* every key the style panel exposes; the engine fills in defaults, so all
    fields are optional and an empty object means "preset look" */
@@ -91,7 +111,7 @@ export interface StyleOverrides {
 }
 
 export interface AnalysisSpec {
-  spec_version: "1.2"; // 1.2 adds an additive `reduce` clause (filter + collapse)
+  spec_version: "1.3"; // 1.3 makes `reduce` an ordered steps[] pipeline
   id: string;
   title: string;
   data: { filter: unknown[]; respect_exclusions: boolean };
@@ -143,9 +163,28 @@ export interface StatsResult {
 export interface AnalyzeResponse {
   figure: { svg: string; point_groups: { gid: string; row_ids: string[] }[] };
   stats: StatsResult;
-  reduced_table: Table;
   engine_snapshot: Record<string, string>;
 }
+
+/* Upgrade a serialized analysis to spec_version 1.3, converting a legacy
+   { filter, collapse } reduce into the ordered steps[] pipeline. Lossless:
+   filter-then-collapse is exactly the two-step pipeline. */
+export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
+  const base = an as unknown as AnalysisSpec;
+  if (base.spec_version === "1.3") return base;
+  const steps: ReduceStep[] = [];
+  const r = an.reduce as
+    | { filter?: FilterCond[]; collapse?: CollapseStepLegacy | null; steps?: ReduceStep[] }
+    | undefined;
+  if (r?.steps) return { ...base, spec_version: "1.3", reduce: { steps: r.steps } };
+  if (r?.filter && r.filter.length) steps.push({ kind: "filter", conditions: r.filter });
+  if (r?.collapse) steps.push({
+    kind: "collapse", group_by: r.collapse.group_by,
+    aggregate: r.collapse.aggregate ?? {},
+  });
+  return { ...base, spec_version: "1.3", reduce: { steps } };
+}
+interface CollapseStepLegacy { group_by: string[]; aggregate?: Record<string, AggFn> }
 
 /* ---------------- import wizard ---------------- */
 
@@ -229,8 +268,15 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 
 const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
+/* a request may carry the full table inline, or reference one already uploaded
+   via /table by its content token (cheap on large tables) */
+export type TableRef = Table | { token: string };
+const tableField = (t: TableRef) =>
+  "token" in t ? { table_token: t.token } : { table: t };
+
 export const engine = {
   health: () => get<{ engine_snapshot: Record<string, string> }>("/health"),
+  putTable: (table: Table) => post<{ token: string }>("/table", { table }),
   /* a frozen sidecar takes a few seconds to boot; poll instead of giving up */
   waitForHealth: async (attempts = 30, delayMs = 500) => {
     for (let i = 0; ; i++) {
@@ -243,10 +289,13 @@ export const engine = {
     }
   },
   sample: (): Promise<Table> => get<Table>("/sample"),
-  analyze: (table: Table, spec: AnalysisSpec) =>
-    post<AnalyzeResponse>("/analyze", { table, spec }),
-  export: (table: Table, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
-    post<{ filename: string; data_base64: string }>("/export", { table, spec, format, dpi: 300 }),
+  analyze: (t: TableRef, spec: AnalysisSpec) =>
+    post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
+  reduce: (t: TableRef, steps: ReduceStep[]) =>
+    post<ReducePreview>("/reduce", { ...tableField(t), steps }),
+  export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
+    post<{ filename: string; data_base64: string }>(
+      "/export", { ...tableField(t), spec, format, dpi: 300 }),
   saveDocument: (table: Table, analyses: AnalysisSpec[], provenance: unknown) =>
     post<{ filename: string; data_base64: string }>("/document/save", { table, analyses, provenance }),
   importPreview: (filename: string, dataBase64: string, options: ImportOptions = {}) =>

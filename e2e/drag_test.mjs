@@ -5,6 +5,7 @@ const page = await b.newPage({ viewport: { width: 1500, height: 1000 } });
 page.on("console", (m) => console.log("[console]", m.type(), m.text()));
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.goto("http://localhost:5173");
+await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".figure-host svg", { timeout: 20000 });
 await page.waitForTimeout(500);
 

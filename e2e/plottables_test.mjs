@@ -1,14 +1,14 @@
 import { chromium } from "playwright";
 
-/* Smoke test for the derived-plottables UI: Data/Analyses modes, the reduce
-   panel (filter), the live reduced table, and plottable CRUD. Needs the engine
+/* Smoke test for the reduction-pipeline UI: Data/Analyses modes, the pipeline
+   rail (add a step, prefix-grouped column picker), the live reduced-table
+   preview, and plottable CRUD. Dataset-agnostic so it works against either the
+   wide cells_by_frame sample or the small synthetic fallback. Needs the engine
    (port 8765) and the vite dev server (port 5173) running.
 
-   Note: AG Grid virtualizes rows, so we don't assert an exact reduced row
-   count. Instead we filter on a numeric column and assert every rendered cell
-   satisfies the predicate — robust to virtualization and meaningful. We filter
-   `dose >= 25` (not `treatment == control`) so both treatment groups survive
-   and the default group-comparison stats stay valid. */
+   AG Grid virtualizes rows, so we assert on the column count via the reduced
+   note and on the pipeline wiring (a blank Select projects all columns away;
+   toggling a prefix group brings columns back), not on exact row counts. */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
 const browser = await chromium.launch();
@@ -20,39 +20,51 @@ const fail = (msg) => { console.error(msg); process.exit(1); };
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-// Switch to Analyses mode
+// Switch to Analyses mode; the pipeline rail and reduced preview appear.
 await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".analyses-mode", { timeout: 5000 });
+await page.waitForSelector(".pipeline-rail", { timeout: 5000 });
 
-// First analysis result populates the reduced table
-await page.waitForSelector(".reduced-table .ag-center-cols-container [role='row']",
-                           { timeout: 20000 });
-const before = await page.locator(
-  ".reduced-table .ag-center-cols-container [role='row']").count();
-if (before === 0) fail("reduced table rendered no rows before filter");
+// The reduced-table preview loads (table upload + /reduce round trip). The wide
+// sample is large, so allow generous time.
+await page.waitForSelector(".reduced-note", { timeout: 60000 });
+const noteFull = await page.locator(".reduced-note").innerText();
+if (!/\d+ column/.test(noteFull)) fail("reduced note missing column count: " + noteFull);
+console.log("initial preview:", noteFull.replace(/\s+/g, " "));
 
-// Add a filter: dose >= 25
-await page.click(".reduce-filter button:has-text('+ condition')");
-await page.waitForSelector(".filter-row");
-await page.selectOption(".filter-row select >> nth=0", "dose"); // option value = column name
-await page.selectOption(".filter-row select >> nth=1", ">=");
-await page.fill(".filter-row input", "25");
-await page.waitForTimeout(900); // debounced (200ms) analyze round-trip + render
+// Add a Select step — it starts blank, projecting every column away.
+await page.click(".add-step-btn");
+await page.click(".add-step-menu button:has-text('Select columns')");
+await page.waitForSelector(".column-picker", { timeout: 5000 });
+await page.waitForFunction(
+  () => /(^|\D)0 columns?/.test(document.querySelector(".reduced-note")?.innerText ?? ""),
+  null, { timeout: 15000 });
+console.log("blank Select projected all columns away");
 
+// Toggle the first prefix group on — columns come back.
+await page.click(".cp-group-label input >> nth=0");
+await page.waitForFunction(
+  () => !/(^|\D)0 columns?/.test(document.querySelector(".reduced-note")?.innerText ?? ""),
+  null, { timeout: 15000 });
 if (await page.locator(".error-bar").count() > 0)
-  fail("error-bar present after filter: " + await page.locator(".error-bar").innerText());
+  fail("error-bar after select: " + await page.locator(".error-bar").innerText());
+// the step card shows a row-count funnel badge once the trace is back
+await page.waitForSelector(".step-card .step-rows:has-text('rows')", { timeout: 15000 });
+console.log("prefix-group toggle restored columns; step badge shows rows");
 
-const doseCells = await page.locator(
-  ".reduced-table .ag-cell[col-id='dose']").allInnerTexts();
-if (doseCells.length === 0) fail("no dose cells rendered after filter");
-const bad = doseCells.map(Number).filter((v) => !(v >= 25));
-if (bad.length) fail("dose cells violating >= 25: " + JSON.stringify(bad));
-console.log(`filter applied: ${doseCells.length} visible dose cells all >= 25`);
-
-// Add a second plottable via the sidebar
+// Plottable CRUD: add a second analysis (starts with an empty pipeline).
 await page.click(".add-plottable");
 const count = await page.locator(".plottable-sidebar li").count();
 if (count !== 2) fail(`expected 2 plottables, got ${count}`);
+const stepsOnNew = await page.locator(".step-card").count();
+if (stepsOnNew !== 0) fail(`new plottable should have 0 steps, got ${stepsOnNew}`);
+
+// Switch back to the first plottable — its Select step is still there.
+// Click the li's left padding (not the rename input, which stops propagation).
+await page.locator(".plottable-sidebar li").first().click({ position: { x: 2, y: 8 } });
+await page.waitForSelector(".step-card", { timeout: 5000 });
+const stepsOnFirst = await page.locator(".step-card").count();
+if (stepsOnFirst !== 1) fail(`first plottable should keep 1 step, got ${stepsOnFirst}`);
 
 console.log("plottables e2e ok");
 await browser.close();
