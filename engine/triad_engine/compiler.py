@@ -17,7 +17,12 @@ import numpy as np
 import pandas as pd
 
 MM = 1 / 25.4
-PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"]
+# Okabe–Ito: an 8-colour qualitative palette that stays distinguishable under
+# the common forms of colour blindness. Default for every aesthetic series and
+# group palette, so figures are colourblind-safe out of the box. Black sits last
+# so a single-series plot leads with a coloured (not black) mark.
+PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
+           "#0072B2", "#D55E00", "#CC79A7", "#000000"]
 INK = "#0f172a"
 
 STYLE_PRESETS = {
