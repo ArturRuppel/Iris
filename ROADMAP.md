@@ -21,8 +21,17 @@ gained a collapsible **pipeline rail** with prefix-grouped, searchable column
 pickers (tames 50+ column datasets), a live `/reduce` preview (capped, with a
 per-step row-count funnel), and a content-hash table cache so large master
 tables upload once and ride as a token instead of re-sending on every edit. The
-wide `cells_by_frame` dataset is the new default sample. Project is under git as
-of 13 June 2026. Last updated 13 June 2026.*
+wide `cells_by_frame` dataset is the new default sample. Plots are now a
+**composable grammar of graphics** (Phase 1, *Layers*): the six fixed plot
+types became an ordered, editable stack of geom layers driven by an
+engine-authoritative geom registry, with first-class validity guards (a
+per-geom point cap that turns the 82k-row browser freeze into an actionable
+message) and statistics inferred from the encodings into a visible, overridable
+`stat_model` (with a describe-only escape hatch); the spec moved 1.3→2.0 and
+older specs/documents migrate losslessly. Phases 2 (*Aesthetics*:
+color/size/shape) and 3 (*Facets*) are designed into the schema and specced for
+follow-up (`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`).
+Project is under git as of 13 June 2026. Last updated 15 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -135,6 +144,24 @@ mapping). Each compiles from the same mappings-plus-layers grammar; the
 compiler targets seaborn's modern `objects` interface where it fits and raw
 matplotlib where annotation control demands it.
 
+**Composable grammar of graphics (Phase 1 — Layers, shipped 15 June 2026).**
+The plot matrix above is no longer a closed set of presets: a plot is an
+ordered stack of geom layers the user composes (add / remove / reorder /
+configure), seeded by the former presets as one-click templates. A single
+engine-authoritative geom registry (served on `/health`) drives the layer rail,
+the layered compiler, and a first-class guard pass; the guard pass's per-geom
+point cap (3,000 raw marks) is what fixed the 82,241-point browser freeze —
+blocking with an actionable message rather than emitting a 13.8 MB SVG.
+Statistics inverted from `plot-type → test` to `encodings → an inferred,
+plain-language, overridable stat_model`, defaulting to *describe, don't test*
+when the design is ambiguous. The spec moved 1.3→2.0 (encodings + ordered
+`{geom, params}` layers + a `facet` block), normalized engine-side so older
+specs and `.viz` documents keep working. Phases 2 (*Aesthetics* —
+color/size/shape ← a column, with scales and a legend) and 3 (*Facets* — small
+multiples) extend the same schema seams, each in its own spec → plan →
+implementation cycle; the full design is in
+`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`.
+
 **Test matrix.** One-sample, two-sample (Welch), and paired t-tests;
 Mann–Whitney and Wilcoxon signed-rank; one-way ANOVA with Tukey post-hocs;
 Kruskal–Wallis; chi-square; Pearson and Spearman correlations. All via
@@ -201,8 +228,11 @@ Statistical depth: two-way ANOVA with proper sums-of-squares options (via
 statsmodels), simple linear regression with diagnostic plots (residuals, QQ),
 and assumption-check transparency threaded through every analysis — what was
 checked, what it found, what it implies, in plain language. Faceting enters
-the plot grammar (`facet` mapping goes live). n and exclusion annotations
-become standard figure furniture.
+the plot grammar — **Phase 3 (*Facets*)** of the composable grammar of graphics
+(the `facet` block, already present in the 2.0 spec, goes live as a subplot
+grid; see the composable-grammar design spec). Phase 2 (*Aesthetics*:
+color/size/shape encodings) precedes it. n and exclusion annotations become
+standard figure furniture.
 
 Product hardening: autosave and crash recovery (continuous local snapshots
 beside the `.viz` file), polished empty and error states written to direct
