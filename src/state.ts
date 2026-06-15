@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type {
-  AnalysisSpec, AnalyzeResponse, Mark, Schema, Row, StatsFamily,
+  AnalysisSpec, AnalyzeResponse, Layer, Registry, Schema, Row, StatsFamily,
   StyleOverrides, Table, TestName, ReduceSpec, ReduceStep, ReduceStepKind,
   ReducePreview,
 } from "./types";
@@ -10,57 +10,46 @@ export const rowsAtom = atom<Row[]>([]);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
 
+/* the geom registry, fetched once from /health at startup; drives the rail */
+export const registryAtom = atom<Registry | null>(null);
+
 /* must match compiler.PALETTE; the style panel edits copies of it */
 export const DEFAULT_PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"];
 
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);
 
-/* plot type drives the spec's layers + stats family; each entry is a
-   sensible mark composition, not a free-form layer editor (yet) */
-export type PlotType = "dots" | "box" | "violin" | "bar" | "scatter" | "histogram";
-export const PLOT_TYPES: Record<PlotType, {
+/* Template seeds: one-click starting points that populate a layer stack +
+   encoding kind. They are NO LONGER a closed set the user is locked into — the
+   layer rail can add/remove/reorder geoms freely afterwards. */
+export type TemplateName = "dots" | "box" | "violin" | "bar" | "scatter" | "histogram";
+export const TEMPLATES: Record<TemplateName, {
   label: string;
   family: StatsFamily;
-  layers: AnalysisSpec["layers"];
-  tests: TestName[];
+  layers: Layer[];
   xKind: "categorical" | "numeric" | "none";
 }> = {
-  dots: {
-    label: "Dots + mean ± CI", family: "group_comparison",
-    layers: [{ mark: "dot" as Mark, options: { jitter: 0.18 } },
-             { mark: "summary" as Mark, stat: { center: "mean", error: "ci95" } }],
-    tests: ["welch_t", "mann_whitney"], xKind: "categorical",
-  },
-  box: {
-    label: "Box + dots", family: "group_comparison",
-    layers: [{ mark: "box" as Mark, options: {} },
-             { mark: "dot" as Mark, options: { jitter: 0.18 } }],
-    tests: ["welch_t", "mann_whitney"], xKind: "categorical",
-  },
-  violin: {
-    label: "Violin + dots", family: "group_comparison",
-    layers: [{ mark: "violin" as Mark, options: {} },
-             { mark: "dot" as Mark, options: { jitter: 0.18 } }],
-    tests: ["welch_t", "mann_whitney"], xKind: "categorical",
-  },
-  bar: {
-    label: "Bar ± CI", family: "group_comparison",
-    layers: [{ mark: "bar" as Mark, stat: { center: "mean", error: "ci95" } }],
-    tests: ["welch_t", "mann_whitney"], xKind: "categorical",
-  },
-  scatter: {
-    label: "Scatter + regression", family: "correlation",
-    layers: [{ mark: "scatter" as Mark, options: {} },
-             { mark: "regression" as Mark, options: { ci: 95 } }],
-    tests: ["pearson", "spearman"], xKind: "numeric",
-  },
-  histogram: {
-    label: "Histogram + density", family: "descriptive",
-    layers: [{ mark: "histogram" as Mark, options: { bins: "auto" } },
-             { mark: "density" as Mark, options: {} }],
-    tests: ["descriptive"], xKind: "none",
-  },
+  dots: { label: "Dots + mean ± CI", family: "group_comparison", xKind: "categorical",
+    layers: [{ geom: "dot", params: { jitter: 0.18 } },
+             { geom: "summary", params: { error_type: "ci95" } }] },
+  box: { label: "Box + dots", family: "group_comparison", xKind: "categorical",
+    layers: [{ geom: "box", params: {} }, { geom: "dot", params: { jitter: 0.18 } }] },
+  violin: { label: "Violin + dots", family: "group_comparison", xKind: "categorical",
+    layers: [{ geom: "violin", params: {} }, { geom: "dot", params: { jitter: 0.18 } }] },
+  bar: { label: "Bar ± CI", family: "group_comparison", xKind: "categorical",
+    layers: [{ geom: "bar", params: { error_type: "ci95" } }] },
+  scatter: { label: "Scatter + regression", family: "correlation", xKind: "numeric",
+    layers: [{ geom: "scatter", params: {} }, { geom: "regression", params: {} }] },
+  histogram: { label: "Histogram + density", family: "descriptive", xKind: "none",
+    layers: [{ geom: "histogram", params: {} }, { geom: "density", params: {} }] },
+};
+
+/* the tests each family offers, mirrored for cheap lookups when building the
+   spec and filtering override choices */
+export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
+  group_comparison: ["welch_t", "mann_whitney"],
+  correlation: ["pearson", "spearman"],
+  descriptive: ["descriptive"],
 };
 
 /* provenance: every exclusion toggle is logged, never silently applied */
@@ -82,8 +71,10 @@ export interface Plottable {
   id: string;
   name: string;
   mappings: { x: string; y: string };
-  plotType: PlotType;
+  family: StatsFamily;      // which stats family + geom palette this plottable uses
+  layers: Layer[];          // the editable, ordered geom stack
   override: TestName | null;
+  describeOnly: boolean;    // user asked to render without a test
   preset: string;
   style: StyleOverrides;
   reduce: ReduceSpec;
@@ -95,16 +86,18 @@ const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
 export function makeDefaultPlottable(schema: Schema): Plottable {
   const cats = schema.columns.filter((c) => c.type === "categorical");
   const nums = schema.columns.filter((c) => c.type === "numeric");
-  let plotType: PlotType = "dots";
-  if (cats.length === 0) plotType = nums.length >= 2 ? "scatter" : "histogram";
-  const kind = PLOT_TYPES[plotType].xKind;
+  let template: TemplateName = "dots";
+  if (cats.length === 0) template = nums.length >= 2 ? "scatter" : "histogram";
+  const t = TEMPLATES[template];
   const y = nums[nums.length - 1]?.name ?? "";
-  const x = kind === "numeric"
+  const x = t.xKind === "numeric"
     ? (nums.find((c) => c.name !== y)?.name ?? y)
     : (cats[0]?.name ?? "");
   return {
     id: nextId(), name: "Analysis 1",
-    mappings: { x, y }, plotType, override: null,
+    mappings: { x, y }, family: t.family,
+    layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    override: null, describeOnly: false,
     preset: "demo_default", style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
        so an in-place mutation could never alias across plottables.
@@ -167,28 +160,33 @@ export const loadTableAtom = atom(null, (get, set, table: Table) => {
    save path (every plottable), so the two can never drift. */
 export function buildSpec(p: Plottable, rec: TestName | undefined,
                           snapshot: Record<string, string>): AnalysisSpec {
-  const pt = PLOT_TYPES[p.plotType];
-  const recOk = rec && pt.tests.includes(rec) ? rec : undefined;
-  const test = (p.override && pt.tests.includes(p.override) ? p.override : null)
-    ?? recOk ?? pt.tests[0];
+  const tests = TEST_BY_FAMILY[p.family];
+  const recOk = rec && tests.includes(rec) ? rec : undefined;
+  const test = (p.override && tests.includes(p.override) ? p.override : null)
+    ?? recOk ?? tests[0];
   const usedOverride = p.override !== null && test === p.override && test !== recOk;
+  const chosen_by = p.describeOnly ? "describe_only"
+    : usedOverride ? "user_override"
+    : recOk ? "recommendation_accepted" : "default";
   return {
-    spec_version: "1.3",
+    spec_version: "2.0",
     id: p.id,
     title: p.name,
     data: { filter: [], respect_exclusions: true },
     reduce: p.reduce,
-    mappings: { x: { column: p.mappings.x }, y: { column: p.mappings.y },
-                color: pt.xKind === "categorical" ? { column: p.mappings.x } : null,
-                pair_by: null, facet: null },
-    layers: pt.layers,
+    encodings: {
+      x: p.family === "descriptive" ? null : { column: p.mappings.x },
+      y: { column: p.mappings.y },
+      color: p.family === "group_comparison" ? { column: p.mappings.x } : null,
+      size: null, shape: null,
+    },
+    facet: { row: null, col: null, share_x: true, share_y: true },
+    layers: p.layers,
     stats: {
-      family: pt.family, test,
-      chosen_by: usedOverride ? "user_override"
-        : recOk ? "recommendation_accepted" : "default",
-      alternatives_offered: pt.tests.filter((t) => t !== test),
+      family: p.family, test, chosen_by,
+      alternatives_offered: tests.filter((t) => t !== test),
       assumption_checks: [{ check: "shapiro_wilk",
-                            per: pt.family === "group_comparison" ? "group" : "variable" }],
+                            per: p.family === "group_comparison" ? "group" : "variable" }],
       alpha: 0.05,
       report: ["effect_size", "ci", "n_per_group"],
     },
@@ -203,9 +201,9 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const schema = get(schemaAtom);
   const p = get(activePlottableAtom);
   if (!schema || !p) return null;
-  const pt = PLOT_TYPES[p.plotType];
+  const tests = TEST_BY_FAMILY[p.family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
-  const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
+  const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
   return buildSpec(p, rec, get(engineSnapshotAtom) ?? {});
 });
 
@@ -216,9 +214,9 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
   const snap = get(engineSnapshotAtom) ?? {};
   const byId = get(analysisByIdAtom);
   return get(plottablesAtom).map((p) => {
-    const pt = PLOT_TYPES[p.plotType];
+    const tests = TEST_BY_FAMILY[p.family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
-    const rec = recRaw && pt.tests.includes(recRaw) ? recRaw : undefined;
+    const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
     return buildSpec(p, rec, snap);
   });
 });
@@ -239,7 +237,9 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   if (!src) return;
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
-    mappings: { ...src.mappings }, style: structuredClone(src.style),
+    mappings: { ...src.mappings },
+    layers: src.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    style: structuredClone(src.style),
     reduce: { steps: structuredClone(src.reduce.steps) },
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
@@ -321,4 +321,47 @@ export const setReducePreviewByIdAtom = atom(null,
 export const reducePreviewAtom = atom((get) => {
   const id = get(activePlottableIdAtom);
   return id ? (get(reducePreviewByIdAtom)[id] ?? null) : null;
+});
+
+/* ---- layer CRUD + reorder on the ACTIVE plottable (mirrors reduce steps) ---- */
+
+export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
+  const p = get(activePlottableAtom); if (!p) return;
+  const reg = get(registryAtom);
+  const params = { ...(reg?.geoms[geom]?.params ?? {}) };
+  set(activePlottableAtom, { ...p, layers: [...p.layers, { geom, params }] });
+});
+
+export const updateLayerAtom = atom(null,
+  (get, set, arg: { index: number; layer: Layer }) => {
+    const p = get(activePlottableAtom); if (!p) return;
+    set(activePlottableAtom, { ...p, layers:
+      p.layers.map((l, i) => (i === arg.index ? arg.layer : l)) });
+  });
+
+export const removeLayerAtom = atom(null, (get, set, index: number) => {
+  const p = get(activePlottableAtom); if (!p) return;
+  set(activePlottableAtom,
+    { ...p, layers: p.layers.filter((_, i) => i !== index) });
+});
+
+export const moveLayerAtom = atom(null,
+  (get, set, arg: { index: number; dir: -1 | 1 }) => {
+    const p = get(activePlottableAtom); if (!p) return;
+    const layers = [...p.layers];
+    const j = arg.index + arg.dir;
+    if (j < 0 || j >= layers.length) return;
+    [layers[arg.index], layers[j]] = [layers[j], layers[arg.index]];
+    set(activePlottableAtom, { ...p, layers });
+  });
+
+/* apply a template seed: swap the layer stack + family in one shot */
+export const applyTemplateAtom = atom(null, (get, set, name: TemplateName) => {
+  const p = get(activePlottableAtom); if (!p) return;
+  const t = TEMPLATES[name];
+  const nextOverride = t.family !== p.family ? null : p.override;
+  set(activePlottableAtom, {
+    ...p, family: t.family, override: nextOverride, describeOnly: false,
+    layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+  });
 });
