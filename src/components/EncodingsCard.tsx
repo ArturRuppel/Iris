@@ -1,5 +1,27 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { activePlottableAtom, effectiveSchemaAtom } from "../state";
+import type { ColumnDef } from "../types";
+import { groupByPrefix } from "./ColumnPicker";
+
+/* Dotted column names share a family prefix (cell_shape.area, cell_shape.peri).
+   Labels carry only the leaf ("area"), so two families would look identical in
+   a flat list — group them under <optgroup> so the prefix gives context.
+   Columns with no dot stay at the top level. */
+function GroupedOptions({ cols }: { cols: ColumnDef[] }) {
+  return (
+    <>
+      {groupByPrefix(cols).map(({ prefix, cols }) =>
+        prefix === "(other)" ? (
+          cols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)
+        ) : (
+          <optgroup key={prefix} label={prefix}>
+            {cols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
+          </optgroup>
+        ),
+      )}
+    </>
+  );
+}
 
 /* X/Y mapping, living inside the composable column next to Layers — one place
    for "what does the plot show", instead of a separate header row. The choices
@@ -31,7 +53,7 @@ export function EncodingsCard() {
         <span className="enc-label">{xKind === "none" ? "Variable" : "Y"}</span>
         <select value={mappings.y}
           onChange={(e) => setMappings({ ...mappings, y: e.target.value })}>
-          {numericCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
+          <GroupedOptions cols={numericCols} />
         </select>
       </div>
       {xKind !== "none" && (
@@ -39,7 +61,7 @@ export function EncodingsCard() {
           <span className="enc-label">X</span>
           <select value={mappings.x}
             onChange={(e) => setMappings({ ...mappings, x: e.target.value })}>
-            {xCols.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
+            <GroupedOptions cols={xCols} />
           </select>
         </div>
       )}

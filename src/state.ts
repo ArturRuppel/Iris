@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type {
-  AnalysisSpec, AnalyzeResponse, Layer, Registry, Schema, Row, StatsFamily,
+  AnalysisSpec, AnalyzeResponse, Geom, Layer, Registry, Schema, Row, StatsFamily,
   StyleOverrides, Table, TestName, ReduceSpec, ReduceStep, ReduceStepKind,
   ReducePreview,
 } from "./types";
@@ -58,6 +58,18 @@ export const TEMPLATES: Record<TemplateName, {
   histogram: { label: "Histogram + density", family: "descriptive", xKind: "none",
     layers: [{ geom: "histogram", params: {} }, { geom: "density", params: {} }] },
 };
+
+/* "Start from…" seeds: the base/primitive plot types only. Overlays (mean ± CI,
+   regression, density) are built up afterwards via "+ Add layer" or by mutating
+   a layer's plot type in place — so the seed menu stays composite-free. */
+export const PRIMITIVES: { geom: Geom; label: string; family: StatsFamily }[] = [
+  { geom: "dot", label: "Dots", family: "group_comparison" },
+  { geom: "box", label: "Box", family: "group_comparison" },
+  { geom: "violin", label: "Violin", family: "group_comparison" },
+  { geom: "bar", label: "Bar", family: "group_comparison" },
+  { geom: "scatter", label: "Scatter", family: "correlation" },
+  { geom: "histogram", label: "Histogram", family: "descriptive" },
+];
 
 /* the tests each family offers, mirrored for cheap lookups when building the
    spec and filtering override choices */
@@ -379,13 +391,16 @@ export const moveLayerAtom = atom(null,
     set(activePlottableAtom, { ...p, layers });
   });
 
-/* apply a template seed: swap the layer stack + family in one shot */
-export const applyTemplateAtom = atom(null, (get, set, name: TemplateName) => {
+/* seed from a single primitive: swap to that geom's family and a one-layer
+   stack, dropping any prior layers. Composites are built up from here. */
+export const seedPrimitiveAtom = atom(null, (get, set, geom: Geom) => {
   const p = get(activePlottableAtom); if (!p) return;
-  const t = TEMPLATES[name];
-  const nextOverride = t.family !== p.family ? null : p.override;
+  const prim = PRIMITIVES.find((x) => x.geom === geom); if (!prim) return;
+  const reg = get(registryAtom);
+  const params = { ...(reg?.geoms[geom]?.params ?? {}) };
+  const nextOverride = prim.family !== p.family ? null : p.override;
   set(activePlottableAtom, {
-    ...p, family: t.family, override: nextOverride, describeOnly: false,
-    layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    ...p, family: prim.family, override: nextOverride, describeOnly: false,
+    layers: [{ geom, params }],
   });
 });

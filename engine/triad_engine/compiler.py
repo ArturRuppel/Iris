@@ -450,14 +450,18 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
-    marks = {layer["geom"] for layer in spec.get("layers", [])} or {"histogram"}
+    layers = spec.get("layers", [])
+    marks = {layer["geom"] for layer in layers} or {"histogram"}
+    hist_params = next((l.get("params", {}) for l in layers
+                        if l["geom"] == "histogram"), {})
     vals = df[y].dropna().to_numpy(dtype=float)
 
     with plt.rc_context(_rc(style)):
         fig, ax = plt.subplots(
             figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
             layout="constrained")
-        bins = int(style["hist_bins"]) if style["hist_bins"] else "auto"
+        bins_val = _param(hist_params, "hist_bins", style, "hist_bins")
+        bins = int(bins_val) if bins_val else "auto"
         counts, edges, _ = ax.hist(vals, bins=bins, color=_group_color(style, 0),
                                    alpha=0.65, edgecolor="white",
                                    linewidth=0.5, zorder=2)

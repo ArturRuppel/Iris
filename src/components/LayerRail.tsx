@@ -1,30 +1,39 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import {
-  activePlottableAtom, addLayerAtom, applyTemplateAtom, moveLayerAtom,
-  registryAtom, removeLayerAtom, updateLayerAtom, TEMPLATES,
-  type TemplateName,
+  activePlottableAtom, addLayerAtom, moveLayerAtom, PRIMITIVES,
+  registryAtom, removeLayerAtom, seedPrimitiveAtom, updateLayerAtom,
 } from "../state";
 import type { Geom, Layer, Registry } from "../types";
 import { LayerCard } from "./LayerCards";
 import { EncodingsCard } from "./EncodingsCard";
 
-/* one geom layer, independently collapsible so a tall stack stays scannable */
-function LayerItem({ layer, registry, i, last, onMove, onRemove, onChange }: {
-  layer: Layer; registry: Registry; i: number; last: boolean;
+/* one geom layer, independently collapsible so a tall stack stays scannable.
+   The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
+   violin) without removing and re-adding it. */
+function LayerItem({ layer, registry, i, last, geomOptions, onMove, onRemove, onChange }: {
+  layer: Layer; registry: Registry; i: number; last: boolean; geomOptions: Geom[];
   onMove: (dir: -1 | 1) => void; onRemove: () => void;
   onChange: (l: Layer) => void;
 }) {
   const [open, setOpen] = useState(true);
-  const name = registry.geoms[layer.geom]?.label ?? layer.geom;
+  /* switching geom resets params to that geom's defaults — same result as
+     removing the layer and adding the new one, just in place. */
+  const retype = (geom: Geom) =>
+    onChange({ geom, params: { ...(registry.geoms[geom]?.params ?? {}) } });
   return (
     <li className="layer-card">
       <div className="layer-head">
-        <button className="card-toggle" title={open ? "Collapse" : "Expand"}
+        <button className="card-toggle layer-toggle" title={open ? "Collapse" : "Expand"}
           onClick={() => setOpen((o) => !o)}>
           <span className="chevron">{open ? "▾" : "▸"}</span>
-          <span className="layer-name">{name}</span>
         </button>
+        <select className="layer-geom" value={layer.geom} title="Change plot type"
+          onChange={(e) => retype(e.target.value as Geom)}>
+          {geomOptions.map((g) => (
+            <option key={g} value={g}>{registry.geoms[g]?.label ?? g}</option>
+          ))}
+        </select>
         <span className="layer-actions">
           <button className="icon" title="Move up" disabled={i === 0}
             onClick={() => onMove(-1)}>↑</button>
@@ -45,7 +54,7 @@ export function LayerRail() {
   const updateLayer = useSetAtom(updateLayerAtom);
   const removeLayer = useSetAtom(removeLayerAtom);
   const moveLayer = useSetAtom(moveLayerAtom);
-  const applyTemplate = useSetAtom(applyTemplateAtom);
+  const seedPrimitive = useSetAtom(seedPrimitiveAtom);
   const [adding, setAdding] = useState(false);
 
   if (!active || !registry) return null;
@@ -53,19 +62,24 @@ export function LayerRail() {
 
   /* only geoms whose family matches this plottable are addable (Phase 1 keeps
      geoms tied to the family the encodings imply) */
-  const addable = (Object.keys(registry.geoms) as Geom[])
-    .filter((g) => registry.geoms[g].family === active.family)
-    .filter((g) => !layers.some((l) => l.geom === g));
+  const inFamily = (Object.keys(registry.geoms) as Geom[])
+    .filter((g) => registry.geoms[g].family === active.family);
+  const used = new Set(layers.map((l) => l.geom));
+  const addable = inFamily.filter((g) => !used.has(g));
+  /* options offered when re-typing a layer: same family, minus geoms already
+     used by *other* layers, but always keeping this layer's own current geom. */
+  const retypeOptions = (geom: Geom) =>
+    inFamily.filter((g) => g === geom || !used.has(g));
 
   return (
     <div className="layer-rail">
       <div className="rail-head">
         <strong>Encoding & layers</strong>
         <select className="template-pick" value=""
-          onChange={(e) => { if (e.target.value) applyTemplate(e.target.value as TemplateName); }}>
+          onChange={(e) => { if (e.target.value) seedPrimitive(e.target.value as Geom); }}>
           <option value="">Start from…</option>
-          {(Object.keys(TEMPLATES) as TemplateName[]).map((t) => (
-            <option key={t} value={t}>{TEMPLATES[t].label}</option>
+          {PRIMITIVES.map((p) => (
+            <option key={p.geom} value={p.geom}>{p.label}</option>
           ))}
         </select>
       </div>
@@ -79,7 +93,7 @@ export function LayerRail() {
       <ol className="layer-list">
         {layers.map((layer, i) => (
           <LayerItem key={i} layer={layer} registry={registry} i={i}
-            last={i === layers.length - 1}
+            last={i === layers.length - 1} geomOptions={retypeOptions(layer.geom)}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}
             onChange={(l) => updateLayer({ index: i, layer: l })} />

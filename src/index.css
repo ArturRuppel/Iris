@@ -191,7 +191,7 @@ dd.strong { font-weight: 600; }
 .triad { flex: 1 1 auto; min-width: 0; overflow: auto; display: flex;
   flex-direction: column; gap: 8px; }
 .triad-section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  overflow: hidden; }
+  overflow: hidden; flex: 0 0 auto; }
 .triad-section .section-header { width: 100%; text-align: left; background: #f8fafc;
   border: none; border-bottom: 1px solid var(--line); padding: 6px 10px; cursor: pointer;
   font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
@@ -273,6 +273,11 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .layer-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; }
 .layer-head { display: flex; align-items: center; justify-content: space-between; }
 .layer-name { font-weight: 600; font-size: 13px; }
+.layer-head .layer-toggle { flex: 0 0 auto; }
+.layer-geom { flex: 1; min-width: 0; margin: 0 4px; font: inherit; font-size: 13px;
+  font-weight: 600; color: var(--ink); border: 1px solid transparent; background: none;
+  border-radius: 6px; padding: 1px 4px; cursor: pointer; }
+.layer-geom:hover { border-color: var(--line); background: #fff; }
 .layer-actions .icon { margin-left: 2px; }
 .layer-params { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
 .layer-param { display: flex; align-items: center; justify-content: space-between;
