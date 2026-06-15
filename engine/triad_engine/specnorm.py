@@ -18,6 +18,7 @@ def normalize(spec: dict) -> dict:
     if spec.get("spec_version") == "2.0":
         out = dict(spec)
         out.setdefault("_override", _override_of(spec))
+        out.setdefault("_describe_only", _describe_only_of(spec))
         return out
 
     out = dict(spec)
@@ -42,6 +43,7 @@ def normalize(spec: dict) -> dict:
         for layer in spec.get("layers", [])
     ]
     out["_override"] = _override_of(spec)
+    out["_describe_only"] = _describe_only_of(spec)
     return out
 
 
@@ -50,3 +52,7 @@ def _override_of(spec: dict) -> str | None:
     if st.get("chosen_by") == "user_override":
         return st.get("test")
     return None
+
+
+def _describe_only_of(spec: dict) -> bool:
+    return spec.get("stats", {}).get("chosen_by") == "describe_only"

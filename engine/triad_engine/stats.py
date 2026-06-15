@@ -126,6 +126,48 @@ def _summary(label: str, v: np.ndarray) -> dict:
             "ci95_half": ci_half}
 
 
+def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
+                    alpha: float = 0.05) -> dict:
+    """Per-group summaries for the comparison figure with NO inferential test —
+    the 'describe only' path. Matches group_comparison's summaries shape so the
+    figure (dots, box, bar, mean ± error) renders, but reports no p/effect."""
+    sub = df[[x, y]].dropna()
+    found = [lv for lv in levels if lv in set(sub[x])]
+    found += sorted(set(sub[x]) - set(levels))
+    summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
+                 for lv in found]
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    methods = (f"{y} was summarized by {x} across {len(found)} group(s); "
+               f"no statistical test was run (describe only).{excl}")
+    return {
+        "levels": found, "checks": [],
+        "recommendation": {"test": "none", "reason": "describe only — no test was run"},
+        "chosen_by": "describe_only",
+        "result": {"test": "none", "n": int(len(sub)),
+                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+        "summaries": summaries, "alpha": alpha, "methods_text": methods,
+    }
+
+
+def describe_pairs(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dict:
+    """Scatter of two numeric columns with NO correlation test — the 'describe
+    only' path. Raw points only; no regression line, r, or p."""
+    sub = df[[x, y]].dropna()
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    return {
+        "levels": [], "checks": [],
+        "recommendation": {"test": "none", "reason": "describe only — no test was run"},
+        "chosen_by": "describe_only",
+        "result": {"test": "none", "n": int(len(sub)),
+                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+        "summaries": [], "alpha": alpha,
+        "methods_text": (f"{x} and {y} were plotted without a correlation test "
+                         f"(describe only).{excl}"),
+    }
+
+
 def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
                 override: str | None = None) -> dict:
     """Pearson/Spearman correlation between two numeric columns, plus the

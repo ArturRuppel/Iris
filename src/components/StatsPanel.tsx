@@ -101,9 +101,15 @@ export function StatsPanel() {
           </div>
         ))}
 
-        <h3>{s.result.test === "descriptive" ? "Reading the distribution" : "Recommended test"}</h3>
-        <p className="reason"><strong>{TEST_LABELS[rec.test] ?? rec.test}</strong> — {rec.reason}.</p>
-        {alternatives.length > 0 && (
+        {model.chosen_by === "describe_only" ? (
+          <p className="reason">No test was run — describing only. Untick “Describe only” to run a test.</p>
+        ) : (
+          <>
+            <h3>{s.result.test === "descriptive" ? "Reading the distribution" : "Recommended test"}</h3>
+            <p className="reason"><strong>{TEST_LABELS[rec.test] ?? rec.test}</strong> — {rec.reason}.</p>
+          </>
+        )}
+        {model.chosen_by !== "describe_only" && alternatives.length > 0 && (
           <div className="btn-row">
             {alternatives.map((t) => (
               <button key={t}

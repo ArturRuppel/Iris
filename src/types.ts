@@ -238,8 +238,10 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
   }));
 
   const st = (base.stats ?? {}) as AnalysisSpec["stats"];
+  const { mappings, ...rest } = base; // drop the legacy key, now folded into encodings
+  void mappings;
   return {
-    ...(base as object),
+    ...rest,
     spec_version: "2.0",
     reduce, encodings, layers,
     facet: { row: null, col: null, share_x: true, share_y: true },

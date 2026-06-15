@@ -247,9 +247,10 @@ def _comparison_context(df, schema, spec, stats):
         groups.append({"gi": gi, "lv": lv, "ys": ys,
                        "row_ids": rows["id"].tolist(),
                        "color": _group_color(style, gi), "summary": s})
+    p = stats["result"].get("p")  # absent in the describe-only path → no bracket
     return {"x": x, "y": y, "cols": cols, "style": style, "levels": levels,
             "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
-            "top": top, "p_sig": stats["result"]["p"] < stats.get("alpha", 0.05)}
+            "top": top, "p_sig": p is not None and p < stats.get("alpha", 0.05)}
 
 
 def _geom_violin(ax, ctx, params):
@@ -425,7 +426,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         point_groups = [{"gid": "pts-0", "row_ids": rows["id"].tolist()}]
 
         extra = {}
-        if style["show_annotation"]:
+        if style["show_annotation"] and stats["result"].get("r") is not None:
             r = stats["result"]
             symbol = "r" if r["test"] == "pearson" else "ρ"
             p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"

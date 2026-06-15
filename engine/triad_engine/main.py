@@ -155,7 +155,12 @@ def _run(table: dict, spec: dict):
     except reduce_mod.ReduceError as e:
         raise HTTPException(422, f"reduction failed: {e}") from e
 
+    describe_only = bool(spec.get("_describe_only"))
     model = statmodel.infer(spec["encodings"], schema, spec.get("_override"))
+    if describe_only and model["family"] != "none":
+        # the user asked to render the figure but run no inferential test
+        model["chosen_by"] = "describe_only"
+        model["test"] = None
     spec["stat_model"] = model
 
     issues = guards.evaluate(df, schema, spec, model)
@@ -173,12 +178,19 @@ def _run(table: dict, spec: dict):
         if xcol is None:
             raise HTTPException(
                 422, f"x column {enc['x']['column']!r} not found in schema")
-        res = stats.group_comparison(
-            df, enc["x"]["column"], enc["y"]["column"],
-            levels=xcol.get("levels", []), alpha=alpha, override=override)
+        res = (stats.describe_groups(
+                   df, enc["x"]["column"], enc["y"]["column"],
+                   levels=xcol.get("levels", []), alpha=alpha)
+               if describe_only else
+               stats.group_comparison(
+                   df, enc["x"]["column"], enc["y"]["column"],
+                   levels=xcol.get("levels", []), alpha=alpha, override=override))
     elif family == "correlation":
-        res = stats.correlation(df, enc["x"]["column"], enc["y"]["column"],
-                                alpha=alpha, override=override)
+        res = (stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
+                                    alpha=alpha)
+               if describe_only else
+               stats.correlation(df, enc["x"]["column"], enc["y"]["column"],
+                                 alpha=alpha, override=override))
     elif family == "descriptive":
         res = stats.descriptive(df, enc["y"]["column"], alpha=alpha)
     else:

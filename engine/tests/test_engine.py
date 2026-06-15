@@ -626,3 +626,33 @@ def test_health_serves_the_geom_registry():
     assert "registry" in body
     assert "dot" in body["registry"]["geoms"]
     assert body["registry"]["point_cap"] == 3000
+
+
+# ---------------- phase 1: describe-only (run no test) ----------------------
+
+def test_describe_only_comparison_renders_without_a_test():
+    # ticking "describe only" must render the figure but run no inferential
+    # test: no p, no significance bracket, methods text says so
+    spec = make_spec()
+    spec["stats"] = {**spec["stats"], "chosen_by": "describe_only"}
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stat_model"]["chosen_by"] == "describe_only"
+    assert body["stat_model"]["test"] is None
+    assert "p" not in body["stats"]["result"]
+    assert "no statistical test was run" in body["stats"]["methods_text"]
+    assert "***" not in body["figure"]["svg"]  # bracket suppressed
+    # per-group summaries are still present (the figure needs the means)
+    assert [s["group"] for s in body["stats"]["summaries"]] == ["control", "drug_a"]
+
+
+def test_describe_only_correlation_has_no_regression_or_r():
+    spec = make_scatter_spec()
+    spec["stats"] = {**spec["stats"], "chosen_by": "describe_only"}
+    r = client.post("/analyze", json={"table": make_scatter_table(), "spec": spec})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stat_model"]["chosen_by"] == "describe_only"
+    assert "regression" not in body["stats"]
+    assert body["stats"]["result"].get("r") is None
