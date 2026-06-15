@@ -85,6 +85,11 @@ export function StatsPanel() {
       <div className="stats-body">
         <h3>Inferred model</h3>
         <p className="reason">{model.design}.</p>
+        {(model.issues as { code?: string; message?: string }[])
+          .filter((i) => i.code === "color_second_factor")
+          .map((i, k) => (
+            <p className="reason stat-notice" key={k}>{i.message}</p>
+          ))}
         <label className="describe-toggle">
           <input type="checkbox" checked={active?.describeOnly ?? false}
             onChange={(e) => setDescribeOnly(e.target.checked)} />
