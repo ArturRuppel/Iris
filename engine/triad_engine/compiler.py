@@ -211,7 +211,7 @@ def _decorate(fig, ax, style: dict, extra: dict | None = None):
 
 
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
-    """Dispatch on the stats family. Returns (fig, point_groups);
+    """Dispatch on the inferred stat_model family. Returns (fig, point_groups);
     point_groups maps SVG gids to row ids in draw order, so the frontend can
     wire click-to-exclude per point (empty for aggregate-only figures)."""
     family = spec["stat_model"]["family"]

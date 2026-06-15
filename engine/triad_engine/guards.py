@@ -30,6 +30,8 @@ def _xy(spec: dict):
 
 
 def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dict]:
+    # stat_model is unused in Phase 1 — it's the deliberate seam for model-level
+    # guards (facet multiplicity, etc.) that land in Phases 2-3.
     x, y = _xy(spec)
     issues: list[dict] = []
     for layer in spec.get("layers", []):
