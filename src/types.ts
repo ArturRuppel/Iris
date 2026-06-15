@@ -23,6 +23,36 @@ export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
 
+export type Geom = Mark; // geom name == existing mark string (dot, box, …)
+
+export interface Layer { geom: Geom; params: Record<string, unknown> }
+
+export interface ParamSpec {
+  key: string; label: string;
+  type: "number" | "select";
+  min?: number; max?: number; step?: number; options?: string[];
+}
+export interface GeomMeta {
+  label: string; family: StatsFamily; aggregates: boolean;
+  needs: string[]; params: Record<string, unknown>;
+  param_specs: ParamSpec[]; point_cap: number | null;
+}
+export interface Registry { point_cap: number; geoms: Record<string, GeomMeta> }
+
+export interface StatModel {
+  design: string;
+  family: StatsFamily | "none";
+  factors: { column: string; role: string }[];
+  test: TestName | null;
+  facet_handling: null;
+  chosen_by: "inferred" | "user_override" | "describe_only";
+  issues: unknown[];
+}
+export interface Issue {
+  level: "blocking" | "warning";
+  code: string; message: string; geom: string | null;
+}
+
 /* ---- reduction: an ordered pipeline of steps applied top-to-bottom ----
    each step transforms the output of the one above (spec_version 1.3). */
 export type FilterOp = "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in";
@@ -111,23 +141,24 @@ export interface StyleOverrides {
 }
 
 export interface AnalysisSpec {
-  spec_version: "1.3"; // 1.3 makes `reduce` an ordered steps[] pipeline
+  spec_version: "2.0";
   id: string;
   title: string;
   data: { filter: unknown[]; respect_exclusions: boolean };
   reduce: ReduceSpec;
-  mappings: {
-    x: { column: string };
-    y: { column: string };
+  encodings: {
+    x: { column: string } | null;
+    y: { column: string } | null;
     color: { column: string } | null;
-    pair_by: null;
-    facet: null;
+    size: { column: string } | null;   // Phase 2
+    shape: { column: string } | null;  // Phase 2
   };
-  layers: { mark: Mark; options?: Record<string, unknown>; stat?: unknown }[];
+  facet: { row: null; col: null; share_x: boolean; share_y: boolean }; // Phase 3
+  layers: Layer[];
   stats: {
     family: StatsFamily;
     test: TestName;
-    chosen_by: "recommendation_accepted" | "user_override" | "default";
+    chosen_by: "recommendation_accepted" | "user_override" | "default" | "describe_only";
     alternatives_offered: string[];
     assumption_checks: { check: string; per: string }[];
     alpha: number;
@@ -163,26 +194,57 @@ export interface StatsResult {
 export interface AnalyzeResponse {
   figure: { svg: string; point_groups: { gid: string; row_ids: string[] }[] };
   stats: StatsResult;
+  stat_model: StatModel;
+  issues: Issue[];
   engine_snapshot: Record<string, string>;
 }
 
-/* Upgrade a serialized analysis to spec_version 1.3, converting a legacy
-   { filter, collapse } reduce into the ordered steps[] pipeline. Lossless:
-   filter-then-collapse is exactly the two-step pipeline. */
+/* Upgrade a serialized analysis to spec_version 2.0. Legacy reduce shapes
+   ({filter, collapse}) become the ordered steps[] pipeline; legacy mappings
+   become encodings; legacy {mark, options|stat} layers become {geom, params}.
+   Lossless: the engine does the same normalization server-side. */
 export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
-  const base = an as unknown as AnalysisSpec;
-  if (base.spec_version === "1.3") return base;
+  if ((an as { spec_version?: string }).spec_version === "2.0") {
+    return an as unknown as AnalysisSpec;
+  }
+  const base = an as Record<string, unknown>;
+
+  /* --- reduce: legacy {filter, collapse} -> steps[] (unchanged logic) --- */
   const steps: ReduceStep[] = [];
-  const r = an.reduce as
+  const r = base.reduce as
     | { filter?: FilterCond[]; collapse?: CollapseStepLegacy | null; steps?: ReduceStep[] }
     | undefined;
-  if (r?.steps) return { ...base, spec_version: "1.3", reduce: { steps: r.steps } };
-  if (r?.filter && r.filter.length) steps.push({ kind: "filter", conditions: r.filter });
-  if (r?.collapse) steps.push({
-    kind: "collapse", group_by: r.collapse.group_by,
-    aggregate: r.collapse.aggregate ?? {},
-  });
-  return { ...base, spec_version: "1.3", reduce: { steps } };
+  let reduce: ReduceSpec;
+  if (r?.steps) reduce = { steps: r.steps };
+  else {
+    if (r?.filter && r.filter.length) steps.push({ kind: "filter", conditions: r.filter });
+    if (r?.collapse) steps.push({ kind: "collapse", group_by: r.collapse.group_by,
+                                  aggregate: r.collapse.aggregate ?? {} });
+    reduce = { steps };
+  }
+
+  /* --- mappings -> encodings --- */
+  const m = (base.mappings ?? {}) as Record<string, { column: string } | null>;
+  const encodings = {
+    x: m.x ?? null, y: m.y ?? null, color: m.color ?? null,
+    size: null, shape: null,
+  };
+
+  /* --- {mark, options|stat} -> {geom, params} --- */
+  const legacyLayers = (base.layers ?? []) as
+    { mark: Geom; options?: Record<string, unknown>; stat?: unknown }[];
+  const layers: Layer[] = legacyLayers.map((l) => ({
+    geom: l.mark, params: { ...(l.options ?? {}) },
+  }));
+
+  const st = (base.stats ?? {}) as AnalysisSpec["stats"];
+  return {
+    ...(base as object),
+    spec_version: "2.0",
+    reduce, encodings, layers,
+    facet: { row: null, col: null, share_x: true, share_y: true },
+    stats: st,
+  } as AnalysisSpec;
 }
 interface CollapseStepLegacy { group_by: string[]; aggregate?: Record<string, AggFn> }
 
@@ -275,7 +337,7 @@ const tableField = (t: TableRef) =>
   "token" in t ? { table_token: t.token } : { table: t };
 
 export const engine = {
-  health: () => get<{ engine_snapshot: Record<string, string> }>("/health"),
+  health: () => get<{ engine_snapshot: Record<string, string>; registry: Registry }>("/health"),
   putTable: (table: Table) => post<{ token: string }>("/table", { table }),
   /* a frozen sidecar takes a few seconds to boot; poll instead of giving up */
   waitForHealth: async (attempts = 30, delayMs = 500) => {
