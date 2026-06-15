@@ -36,6 +36,7 @@ export interface GeomMeta {
   label: string; family: StatsFamily; aggregates: boolean;
   needs: string[]; params: Record<string, unknown>;
   param_specs: ParamSpec[]; point_cap: number | null;
+  aes: string[];   // accepted aesthetic channels: "color" | "size" | "shape"
 }
 export interface Registry { point_cap: number; geoms: Record<string, GeomMeta> }
 

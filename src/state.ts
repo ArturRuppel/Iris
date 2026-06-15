@@ -98,6 +98,11 @@ export interface Plottable {
   id: string;
   name: string;
   mappings: { x: string; y: string };
+  /* aesthetic channels (Phase 2), "" = unmapped. color defaults to x for a
+     group comparison (today's look); a color ≠ x dodges a second factor. */
+  color: string;
+  size: string;
+  shape: string;
   family: StatsFamily;      // which stats family + geom palette this plottable uses
   layers: Layer[];          // the editable, ordered geom stack
   override: TestName | null;
@@ -106,6 +111,8 @@ export interface Plottable {
   style: StyleOverrides;
   reduce: ReduceSpec;
 }
+
+export type Channel = "color" | "size" | "shape";
 
 let _pid = 0;
 const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
@@ -122,7 +129,11 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     : (cats[0]?.name ?? "");
   return {
     id: nextId(), name: "Analysis 1",
-    mappings: { x, y }, family: t.family,
+    mappings: { x, y },
+    /* color = x reproduces today's per-group palette + no legend; size/shape
+       start unmapped. */
+    color: t.family === "group_comparison" ? x : "", size: "", shape: "",
+    family: t.family,
     layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
     override: null, describeOnly: false,
     preset: "demo_default", style: {},
@@ -204,8 +215,9 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
     encodings: {
       x: p.family === "descriptive" ? null : { column: p.mappings.x },
       y: { column: p.mappings.y },
-      color: p.family === "group_comparison" ? { column: p.mappings.x } : null,
-      size: null, shape: null,
+      color: p.color ? { column: p.color } : null,
+      size: p.size ? { column: p.size } : null,
+      shape: p.shape ? { column: p.shape } : null,
     },
     facet: { row: null, col: null, share_x: true, share_y: true },
     layers: p.layers,
