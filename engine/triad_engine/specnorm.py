@@ -24,8 +24,14 @@ def normalize(spec: dict) -> dict:
     out["spec_version"] = "2.0"
 
     m = spec.get("mappings", {})
+    # A legacy "descriptive" spec keeps x mapped (the old frontend always set
+    # it, even for histograms that ignore it). The grammar reads the family from
+    # the encodings, where descriptive means "distribution of y, no grouping x",
+    # so drop x — matching how the 2.0 frontend builds a descriptive spec.
+    descriptive = spec.get("stats", {}).get("family") == "descriptive"
     out["encodings"] = {
-        "x": m.get("x"), "y": m.get("y"), "color": m.get("color"),
+        "x": None if descriptive else m.get("x"),
+        "y": m.get("y"), "color": m.get("color"),
         "size": None, "shape": None,
     }
     out.pop("mappings", None)

@@ -44,6 +44,16 @@ def test_no_override_when_recommendation_accepted():
     assert out["_override"] is None
 
 
+def test_legacy_descriptive_drops_x_so_inference_reads_it_right():
+    # legacy descriptive specs left x mapped; the grammar reads family from the
+    # encodings, so x must be dropped or it would misinfer as comparison
+    spec = legacy_spec()
+    spec["stats"]["family"] = "descriptive"
+    out = specnorm.normalize(spec)
+    assert out["encodings"]["x"] is None
+    assert out["encodings"]["y"] == {"column": "response"}
+
+
 def test_idempotent_on_2_0():
     out = specnorm.normalize(legacy_spec())
     again = specnorm.normalize(out)

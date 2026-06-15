@@ -576,3 +576,53 @@ def test_table_token_roundtrip_analyze_and_reduce():
 def test_unknown_table_token_is_409():
     r = client.post("/analyze", json={"table_token": "deadbeef", "spec": make_spec()})
     assert r.status_code == 409
+
+
+# ---------------- phase 1: layered renderer honors order + params ----------
+
+def test_layer_params_override_style_jitter():
+    # a 2.0 spec whose dot layer sets its own jitter must reach the SVG
+    # regardless of the global style jitter
+    spec = make_spec()
+    spec["spec_version"] = "2.0"
+    spec["encodings"] = {"x": {"column": "treatment"},
+                         "y": {"column": "response"},
+                         "color": {"column": "treatment"},
+                         "size": None, "shape": None}
+    spec.pop("mappings", None)
+    spec["layers"] = [{"geom": "dot", "params": {"jitter": 0.0}}]
+    r = client.post("/analyze", json={"table": make_table(), "spec": spec})
+    assert r.status_code == 200
+    # the click contract still holds (one <use> per row, ordered groups)
+    body = r.json()
+    assert [g["gid"] for g in body["figure"]["point_groups"]] == ["pts-0", "pts-1"]
+
+
+def test_blocking_point_cap_returns_422():
+    # a dot layer over POINT_CAP raw points must block, not freeze
+    from triad_engine import geoms
+    rows = [{"id": f"r{i}", "subject": f"S{i}",
+             "treatment": "control" if i % 2 else "drug_a",
+             "dose": 1.0, "response": float(i), "excluded": False}
+            for i in range(geoms.POINT_CAP * 2 + 10)]
+    table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
+    r = client.post("/analyze", json={"table": table, "spec": make_spec()})
+    assert r.status_code == 422
+    assert "too many" in r.json()["detail"].lower()
+
+
+def test_analyze_returns_stat_model_and_issues():
+    r = client.post("/analyze", json={"table": make_table(),
+                                      "spec": make_spec()})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["stat_model"]["family"] == "group_comparison"
+    assert "design" in body["stat_model"]
+    assert body["issues"] == []  # default sample is small + clean
+
+
+def test_health_serves_the_geom_registry():
+    body = client.get("/health").json()
+    assert "registry" in body
+    assert "dot" in body["registry"]["geoms"]
+    assert body["registry"]["point_cap"] == 3000

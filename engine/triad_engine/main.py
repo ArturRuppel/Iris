@@ -16,7 +16,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import compiler, document, importer, reduce as reduce_mod, stats
+from . import (compiler, document, geoms, guards, importer,
+               reduce as reduce_mod, specnorm, stats, statmodel)
 
 app = FastAPI(title="triad-engine")
 app.add_middleware(
@@ -146,41 +147,52 @@ def _column_summary(df: pd.DataFrame, schema: dict) -> list[dict]:
 
 
 def _run(table: dict, spec: dict):
+    spec = specnorm.normalize(spec)
     df, schema = _prepare(table, spec)
     steps = (spec.get("reduce") or {}).get("steps") or []
     try:
         df, schema = reduce_mod.apply_reduction(df, schema, steps)
     except reduce_mod.ReduceError as e:
         raise HTTPException(422, f"reduction failed: {e}") from e
-    m = spec["mappings"]
-    family = spec["stats"]["family"]
-    alpha = spec["stats"].get("alpha", 0.05)
-    override = (spec["stats"].get("test")
-                if spec["stats"].get("chosen_by") == "user_override" else None)
+
+    model = statmodel.infer(spec["encodings"], schema, spec.get("_override"))
+    spec["stat_model"] = model
+
+    issues = guards.evaluate(df, schema, spec, model)
+    blocking = next((i for i in issues if i["level"] == "blocking"), None)
+    if blocking:
+        raise HTTPException(422, blocking["message"])
+
+    enc = spec["encodings"]
+    alpha = spec.get("stats", {}).get("alpha", 0.05)
+    override = spec.get("_override")
+    family = model["family"]
     if family == "group_comparison":
-        xcol = next((c for c in schema["columns"] if c["name"] == m["x"]["column"]), None)
+        xcol = next((c for c in schema["columns"]
+                     if c["name"] == enc["x"]["column"]), None)
         if xcol is None:
             raise HTTPException(
-                422, f"x column {m['x']['column']!r} not found in schema")
+                422, f"x column {enc['x']['column']!r} not found in schema")
         res = stats.group_comparison(
-            df, m["x"]["column"], m["y"]["column"],
+            df, enc["x"]["column"], enc["y"]["column"],
             levels=xcol.get("levels", []), alpha=alpha, override=override)
     elif family == "correlation":
-        res = stats.correlation(df, m["x"]["column"], m["y"]["column"],
+        res = stats.correlation(df, enc["x"]["column"], enc["y"]["column"],
                                 alpha=alpha, override=override)
     elif family == "descriptive":
-        res = stats.descriptive(df, m["y"]["column"], alpha=alpha)
+        res = stats.descriptive(df, enc["y"]["column"], alpha=alpha)
     else:
-        raise HTTPException(400, f"unknown stats family {family!r}")
+        raise HTTPException(422, "no statistical model — map X / Y to analyze")
     if "error" in res:
         raise HTTPException(422, res["error"])
     fig, point_groups = compiler.build_figure(df, schema, spec, res)
-    return fig, point_groups, res, df, schema
+    return fig, point_groups, res, df, schema, model, issues
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "engine_snapshot": engine_snapshot()}
+    return {"status": "ok", "engine_snapshot": engine_snapshot(),
+            "registry": geoms.registry_payload()}
 
 
 @app.get("/sample")
@@ -198,11 +210,12 @@ def table_put(req: TablePutRequest):
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
     table = _resolve_table(req.table, req.table_token)
-    fig, point_groups, res, df, schema = _run(table, req.spec)
+    fig, point_groups, res, df, schema, model, issues = _run(table, req.spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     return {"figure": {"svg": svg, "point_groups": point_groups},
-            "stats": res, "engine_snapshot": engine_snapshot()}
+            "stats": res, "stat_model": model, "issues": issues,
+            "engine_snapshot": engine_snapshot()}
 
 
 @app.post("/reduce")
@@ -227,7 +240,7 @@ def export(req: ExportRequest):
     if req.format not in ("svg", "pdf", "png"):
         raise HTTPException(400, "format must be svg, pdf, or png")
     table = _resolve_table(req.table, req.table_token)
-    fig, _, _, _, _ = _run(table, req.spec)
+    fig, _, _, _, _, _, _ = _run(table, req.spec)
     data = compiler.figure_to_bytes(fig, req.format, dpi=req.dpi)
     compiler.close(fig)
     return {"filename": f"figure.{req.format}",

@@ -134,11 +134,11 @@ def _group_color(style: dict, i: int) -> str:
     return palette[i % len(palette)]
 
 
-def _err_half(s: dict, style: dict) -> float:
+def _err_half(s: dict, error_type: str) -> float:
     """Half-length of an error bar for one group summary."""
-    if style["error_type"] == "sem":
+    if error_type == "sem":
         return s["sd"] / np.sqrt(s["n"]) if s["n"] else 0.0
-    if style["error_type"] == "sd":
+    if error_type == "sd":
         return s["sd"]
     return s["ci95_half"]
 
@@ -214,7 +214,7 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Dispatch on the stats family. Returns (fig, point_groups);
     point_groups maps SVG gids to row ids in draw order, so the frontend can
     wire click-to-exclude per point (empty for aggregate-only figures)."""
-    family = spec["stats"]["family"]
+    family = spec["stat_model"]["family"]
     if family == "correlation":
         return build_scatter_figure(df, schema, spec, stats)
     if family == "descriptive":
@@ -222,87 +222,144 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     return build_comparison_figure(df, schema, spec, stats)
 
 
-def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
-    """Group comparison; spec.layers picks the marks (dot, box, violin, bar,
-    summary), which compose: e.g. box + dot overlays points on the boxes."""
-    x = spec["mappings"]["x"]["column"]
-    y = spec["mappings"]["y"]["column"]
+def _param(params: dict, key: str, style: dict, style_key: str):
+    """A layer param wins over the global style; falling back to style keeps
+    legacy specs (which carry no params) pixel-identical to today."""
+    v = params.get(key)
+    return v if v is not None else style[style_key]
+
+
+def _comparison_context(df, schema, spec, stats):
+    x = spec["encodings"]["x"]["column"]
+    y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
-    p_sig = stats["result"]["p"] < stats.get("alpha", 0.05)
-    marks = {layer["mark"] for layer in spec.get("layers", [])} or {"dot", "summary"}
-    lw = style["line_width"]
+    levels = stats["levels"]
+    has_dots = any(l["geom"] == "dot" for l in spec.get("layers", []))
+    groups, top = [], -np.inf
+    for gi, lv in enumerate(levels):
+        rows = df[(df[x] == lv) & df[y].notna()]
+        ys = rows[y].to_numpy(dtype=float)
+        s = next(s for s in stats["summaries"] if s["group"] == lv)
+        err = _err_half(s, style["error_type"])
+        if len(ys):
+            top = max(top, ys.max(), s["mean"] + err)
+        groups.append({"gi": gi, "lv": lv, "ys": ys,
+                       "row_ids": rows["id"].tolist(),
+                       "color": _group_color(style, gi), "summary": s})
+    return {"x": x, "y": y, "cols": cols, "style": style, "levels": levels,
+            "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
+            "top": top, "p_sig": stats["result"]["p"] < stats.get("alpha", 0.05)}
+
+
+def _geom_violin(ax, ctx, params):
+    style, lw = ctx["style"], ctx["lw"]
+    width = _param(params, "mark_width", style, "mark_width") or 0.7
+    for grp in ctx["groups"]:
+        ys = grp["ys"]
+        if len(ys) <= 1:
+            continue
+        vp = ax.violinplot([ys], positions=[grp["gi"]], widths=width,
+                           showextrema=False)
+        for body in vp["bodies"]:
+            body.set_facecolor(grp["color"]); body.set_alpha(0.22)
+            body.set_edgecolor(grp["color"]); body.set_linewidth(lw * 0.6)
+            body.set_zorder(1)
+    return None
+
+
+def _geom_box(ax, ctx, params):
+    style, lw = ctx["style"], ctx["lw"]
+    width = _param(params, "mark_width", style, "mark_width") or 0.42
+    show_fliers = not ctx["has_dots"] and style["outlier_marker"] != "none"
+    line = dict(color="#475569", linewidth=lw * 0.65)
+    for grp in ctx["groups"]:
+        ys = grp["ys"]
+        if not len(ys):
+            continue
+        ax.boxplot([ys], positions=[grp["gi"]], widths=width,
+                   notch=style["notch"] and len(ys) > 5, showfliers=show_fliers,
+                   boxprops=line, whiskerprops=line, capprops=line,
+                   medianprops=dict(color=INK, linewidth=lw * 0.93),
+                   flierprops=dict(marker=style["outlier_marker"],
+                                   markersize=style["outlier_size"],
+                                   markerfacecolor=grp["color"],
+                                   markeredgecolor=grp["color"],
+                                   markeredgewidth=0.8),
+                   zorder=2)
+    return None
+
+
+def _geom_bar(ax, ctx, params):
+    style, lw = ctx["style"], ctx["lw"]
+    error_type = _param(params, "error_type", style, "error_type")
+    width = style["mark_width"] or 0.6
+    for grp in ctx["groups"]:
+        s = grp["summary"]
+        err = _err_half(s, error_type)
+        ax.bar(grp["gi"], s["mean"], width=width, color=grp["color"],
+               alpha=0.55, zorder=1)
+        ax.errorbar(grp["gi"], s["mean"], yerr=err, fmt="none", ecolor=INK,
+                    elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
+    return None
+
+
+def _geom_dot(ax, ctx, params):
+    style = ctx["style"]
+    jitter = _param(params, "jitter", style, "jitter")
+    point_group = None
+    for grp in ctx["groups"]:
+        xs = grp["gi"] + np.array([_stable_jitter(rid, jitter)
+                                   for rid in grp["row_ids"]])
+        sc = ax.scatter(xs, grp["ys"], s=style["marker_size"],
+                        color=grp["color"], alpha=style["marker_alpha"],
+                        linewidths=0.6, edgecolors="white", zorder=3)
+        gid = f"pts-{grp['gi']}"
+        sc.set_gid(gid)
+        point_group = point_group or []
+        point_group.append({"gid": gid, "row_ids": grp["row_ids"]})
+    return point_group
+
+
+def _geom_summary(ax, ctx, params):
+    style, lw = ctx["style"], ctx["lw"]
+    error_type = _param(params, "error_type", style, "error_type")
+    for grp in ctx["groups"]:
+        s = grp["summary"]
+        err = _err_half(s, error_type)
+        cx = grp["gi"] + 0.28
+        ax.errorbar(cx, s["mean"], yerr=err, fmt="none", ecolor=INK,
+                    elinewidth=lw, capsize=style["capsize"], zorder=4)
+        ax.plot(cx, s["mean"], marker="D", ms=5, color=INK, zorder=5)
+    return None
+
+
+_COMPARISON_GEOMS = {"violin": _geom_violin, "box": _geom_box, "bar": _geom_bar,
+                     "dot": _geom_dot, "summary": _geom_summary}
+
+
+def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
+    """Group comparison rendered as ordered geom layers; each layer draws with
+    its own params (falling back to the global style)."""
+    ctx = _comparison_context(df, schema, spec, stats)
+    style, levels = ctx["style"], ctx["levels"]
 
     with plt.rc_context(_rc(style)):
         fig, ax = plt.subplots(
             figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
             layout="constrained")
-        levels = stats["levels"]
         point_groups = []
-        top = -np.inf
+        for layer in spec.get("layers", []):
+            render = _COMPARISON_GEOMS.get(layer["geom"])
+            if render is None:
+                continue
+            pg = render(ax, ctx, layer.get("params") or {})
+            if pg:
+                point_groups.extend(pg)
 
-        for gi, lv in enumerate(levels):
-            rows = df[(df[x] == lv) & df[y].notna()]
-            ys = rows[y].to_numpy(dtype=float)
-            color = _group_color(style, gi)
-            s = next(s for s in stats["summaries"] if s["group"] == lv)
-            err = _err_half(s, style)
-            if len(ys):
-                top = max(top, ys.max(), s["mean"] + err)
-
-            if "violin" in marks and len(ys) > 1:
-                vp = ax.violinplot([ys], positions=[gi],
-                                   widths=style["mark_width"] or 0.7,
-                                   showextrema=False)
-                for body in vp["bodies"]:
-                    body.set_facecolor(color)
-                    body.set_alpha(0.22)
-                    body.set_edgecolor(color)
-                    body.set_linewidth(lw * 0.6)
-                    body.set_zorder(1)
-            if "box" in marks and len(ys):
-                line = dict(color="#475569", linewidth=lw * 0.65)
-                show_fliers = ("dot" not in marks
-                               and style["outlier_marker"] != "none")
-                ax.boxplot([ys], positions=[gi],
-                           widths=style["mark_width"] or 0.42,
-                           notch=style["notch"] and len(ys) > 5,
-                           showfliers=show_fliers,
-                           boxprops=line, whiskerprops=line, capprops=line,
-                           medianprops=dict(color=INK, linewidth=lw * 0.93),
-                           flierprops=dict(marker=style["outlier_marker"],
-                                           markersize=style["outlier_size"],
-                                           markerfacecolor=color,
-                                           markeredgecolor=color,
-                                           markeredgewidth=0.8),
-                           zorder=2)
-            if "bar" in marks:
-                ax.bar(gi, s["mean"], width=style["mark_width"] or 0.6,
-                       color=color, alpha=0.55, zorder=1)
-                ax.errorbar(gi, s["mean"], yerr=err, fmt="none",
-                            ecolor=INK, elinewidth=lw * 0.85,
-                            capsize=style["capsize"], zorder=3)
-
-            if "dot" in marks:
-                xs = gi + np.array([_stable_jitter(rid, style["jitter"])
-                                    for rid in rows["id"]])
-                sc = ax.scatter(xs, ys, s=style["marker_size"], color=color,
-                                alpha=style["marker_alpha"], linewidths=0.6,
-                                edgecolors="white", zorder=3)
-                gid = f"pts-{gi}"
-                sc.set_gid(gid)
-                point_groups.append({"gid": gid, "row_ids": rows["id"].tolist()})
-
-            if "summary" in marks:
-                cx = gi + 0.28
-                ax.errorbar(cx, s["mean"], yerr=err, fmt="none",
-                            ecolor=INK, elinewidth=lw,
-                            capsize=style["capsize"], zorder=4)
-                ax.plot(cx, s["mean"], marker="D", ms=5, color=INK, zorder=5)
-
-        if p_sig and style["show_significance"]:
+        if ctx["p_sig"] and style["show_significance"]:
             yr = ax.get_ylim()
-            h = top + (yr[1] - yr[0]) * 0.08
+            h = ctx["top"] + (yr[1] - yr[0]) * 0.08
             tick = (yr[1] - yr[0]) * 0.02
             ax.plot([0, 0, 1, 1], [h, h + tick, h + tick, h],
                     color=INK, lw=1.1, zorder=5)
@@ -313,10 +370,10 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
             ax.set_ylim(yr[0], max(yr[1], h + tick * 5))
 
         ax.set_xticks(range(len(levels)))
-        labels = cols.get(x, {}).get("labels", {}) or {}
+        labels = ctx["cols"].get(ctx["x"], {}).get("labels", {}) or {}
         ax.set_xticklabels([labels.get(lv, lv) for lv in levels])
         ax.set_xlim(-0.55, len(levels) - 0.45)
-        ax.set_ylabel(cols.get(y, {}).get("label", y))
+        ax.set_ylabel(ctx["cols"].get(ctx["y"], {}).get("label", ctx["y"]))
         _apply_axes(ax, style, x_numeric=False,
                     grid_x_default=False, grid_y_default=True)
         if style["show_n"]:
@@ -337,11 +394,11 @@ def _axis_label(cols: dict, name: str) -> str:
 def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Scatter of two numeric columns; the `regression` layer adds the OLS
     line and 95% CI band computed by the stats module."""
-    x = spec["mappings"]["x"]["column"]
-    y = spec["mappings"]["y"]["column"]
+    x = spec["encodings"]["x"]["column"]
+    y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
-    marks = {layer["mark"] for layer in spec.get("layers", [])} or {"scatter",
+    marks = {layer["geom"] for layer in spec.get("layers", [])} or {"scatter",
                                                                     "regression"}
     rows = df[df[x].notna() & df[y].notna()]
     color = _group_color(style, 0)
@@ -389,10 +446,10 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     """Histogram of one numeric column (mapped on y); the `density` layer
     overlays a KDE curve scaled to the count axis. Bars aggregate rows, so
     there are no per-point click targets."""
-    y = spec["mappings"]["y"]["column"]
+    y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
-    marks = {layer["mark"] for layer in spec.get("layers", [])} or {"histogram"}
+    marks = {layer["geom"] for layer in spec.get("layers", [])} or {"histogram"}
     vals = df[y].dropna().to_numpy(dtype=float)
 
     with plt.rc_context(_rc(style)):
