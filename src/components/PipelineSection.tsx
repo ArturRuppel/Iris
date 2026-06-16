@@ -57,7 +57,12 @@ function StepItem({ step, cols, out, i, last, onMove, onRemove, onChange }: {
   );
 }
 
-export function PipelineRail() {
+/* The data pipeline (filter rows / select columns) as a collapsible section of
+   the Encoding & layers rail — Collapse moved to the data hierarchy, leaving
+   this too small to justify its own column (TODO #19). It still reduces the
+   table that flows to the figure; the live row counts come from the /reduce
+   trace via reducePreviewAtom. */
+export function PipelineSection() {
   const schema = useAtomValue(schemaAtom);
   const active = useAtomValue(activePlottableAtom);
   const preview = useAtomValue(reducePreviewAtom);
@@ -65,12 +70,14 @@ export function PipelineRail() {
   const updateStep = useSetAtom(updateStepAtom);
   const removeStep = useSetAtom(removeStepAtom);
   const moveStep = useSetAtom(moveStepAtom);
-  const [collapsed, setCollapsed] = useState(false);
+  // null = follow the default (open iff there are steps); a click pins it.
+  const [openState, setOpen] = useState<boolean | null>(null);
   const [adding, setAdding] = useState(false);
 
   if (!schema || !active) return null;
   const steps = active.reduce.steps;
   const trace = preview?.trace ?? [];
+  const open = openState ?? steps.length > 0;
 
   /* the columns available at step i's INPUT = the previous step's output schema
      (from the live /reduce trace), or the master schema for the first step.
@@ -83,55 +90,60 @@ export function PipelineRail() {
   const rowsOut = (i: number): number | null =>
     trace[i] ? trace[i].n_rows_out : null;
 
-  if (collapsed) {
-    return (
-      <div className="pipeline-rail collapsed">
-        <button className="rail-expand" title="Show pipeline"
-          onClick={() => setCollapsed(false)}>⋮ Pipeline</button>
-      </div>
-    );
-  }
+  const summary = steps.length === 0 ? "full table"
+    : `${steps.length} step${steps.length > 1 ? "s" : ""}`;
 
   return (
-    <div className="pipeline-rail">
-      <div className="rail-head">
-        <strong>Pipeline</strong>
-        <button className="icon" title="Hide pipeline"
-          onClick={() => setCollapsed(true)}>⟨</button>
+    <div className="pipeline-section">
+      <div className="rep-key-head">
+        <button className="card-toggle" title={open ? "Collapse" : "Expand"}
+          onClick={() => setOpen(!open)}>
+          <span className="chevron">{open ? "▾" : "▸"}</span>
+          <strong>Data</strong>
+        </button>
+        <span className="dim" title="Filter rows / select columns before plotting">
+          {summary}
+        </span>
       </div>
 
-      {steps.length === 0 && (
-        <p className="rail-empty">
-          No steps — the full table flows to the figure. Add a step to reduce it.
-        </p>
-      )}
+      {open && (
+        <>
+          {steps.length === 0 && (
+            <p className="rail-empty">
+              No filters — the full table flows to the figure.
+            </p>
+          )}
 
-      <ol className="step-list">
-        {steps.map((step, i) => (
-          <StepItem key={i} step={step} cols={inputColumnsFor(i)} out={rowsOut(i)}
-            i={i} last={i === steps.length - 1}
-            onMove={(dir) => moveStep({ index: i, dir })}
-            onRemove={() => removeStep(i)}
-            onChange={(s: ReduceStep) => updateStep({ index: i, step: s })} />
-        ))}
-      </ol>
-
-      <div className="add-step">
-        {adding ? (
-          <div className="add-step-menu">
-            {/* collapse is superseded by the data hierarchy (pick a level);
-                select/filter remain. Legacy collapse steps still render/run. */}
-            {(["select", "filter"] as ReduceStepKind[]).map((k) => (
-              <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
-                {KIND_LABEL[k]}
-              </button>
+          <ol className="step-list">
+            {steps.map((step, i) => (
+              <StepItem key={i} step={step} cols={inputColumnsFor(i)} out={rowsOut(i)}
+                i={i} last={i === steps.length - 1}
+                onMove={(dir) => moveStep({ index: i, dir })}
+                onRemove={() => removeStep(i)}
+                onChange={(s: ReduceStep) => updateStep({ index: i, step: s })} />
             ))}
-            <button className="cancel" onClick={() => setAdding(false)}>cancel</button>
+          </ol>
+
+          <div className="add-step">
+            {adding ? (
+              <div className="add-step-menu">
+                {/* collapse is superseded by the data hierarchy (pick a level);
+                    select/filter remain. Legacy collapse steps still render/run. */}
+                {(["select", "filter"] as ReduceStepKind[]).map((k) => (
+                  <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
+                    {KIND_LABEL[k]}
+                  </button>
+                ))}
+                <button className="cancel" onClick={() => setAdding(false)}>cancel</button>
+              </div>
+            ) : (
+              <button className="add-step-btn" onClick={() => setAdding(true)}>
+                + Filter / Select
+              </button>
+            )}
           </div>
-        ) : (
-          <button className="add-step-btn" onClick={() => setAdding(true)}>+ Add step</button>
-        )}
-      </div>
+        </>
+      )}
     </div>
   );
 }

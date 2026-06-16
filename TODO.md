@@ -324,9 +324,19 @@ Paul Tol's qualitative hues for 9–16 series. The style panel renders one swatc
 per *series* (not per palette entry), so it's unaffected; users can still
 override any colour. 209 engine tests pass; tsc clean.
 
-### 19. "Pipeline" rail is over-claiming screen space
-The "pipeline" now is just filter and select. That's not enough to justify so
-much screen space — needs to be reconsidered.
+### 19. "Pipeline" rail is over-claiming screen space — FIXED 2026-06-16
+The analyses view had three left rails before the figure — Analyses (200px),
+Pipeline (280px, the widest), Encoding & layers (250px) — and Pipeline, now just
+Filter rows + Select columns (Collapse moved to the data hierarchy), usually sat
+empty. Decided (with the user) to merge it into the Encoding & layers rail
+rather than collapse-by-default or move to a popover. `PipelineRail` →
+`PipelineSection` (file renamed): the rail chrome/own-column is gone; it's now a
+collapsible "Data" section at the foot of `LayerRail`, separated by a hairline,
+defaulting open iff there are steps and showing a "{n} steps / full table"
+summary when collapsed. The add button reads "+ Filter / Select". This reclaims
+the entire 280px column for the figure. Dead `.pipeline-rail` CSS removed; step
+card/list styles reused. tsc + vite build clean. NOTE: layout not click-tested
+in a browser here (no Chromium — same as items 3/13).
 
 ### 20. "Paired" detector false-positive — FIXED 2026-06-16
 Symptom: comparing `class_label` (positive/negative) was reported as *paired*

@@ -282,10 +282,10 @@ dd.strong { font-weight: 600; }
 .iris-section .section-body .reduced-table { height: 320px; }
 
 /* ---- pipeline rail ---- */
-.pipeline-rail { width: 280px; flex: 0 0 auto; overflow: auto;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
-  padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-.pipeline-rail.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
+/* the pipeline now lives as a section at the foot of the Encoding & layers rail
+   (TODO #19), separated by a hairline rather than owning its own column */
+.pipeline-section { display: flex; flex-direction: column; gap: 8px;
+  border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 .rail-expand { writing-mode: vertical-rl; font-size: 12px; padding: 8px 2px; }
 .rail-head { display: flex; align-items: center; justify-content: space-between; }
 .rail-empty, .reduced-empty { font-size: 12px; color: var(--faint); padding: 6px 2px; }

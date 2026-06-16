@@ -5,7 +5,6 @@ import { DataTable } from "./components/DataTable";
 import { HierarchyPanel } from "./components/HierarchyPanel";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
-import { PipelineRail } from "./components/PipelineRail";
 import { LayerRail } from "./components/LayerRail";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { ReducedTable } from "./components/ReducedTable";
@@ -313,7 +312,6 @@ export default function App() {
         ) : (
           <div className="analyses-mode">
             <PlottableSidebar />
-            <PipelineRail />
             <LayerRail />
             <div className="iris">
               <Section title="Reduced table" defaultOpen><ReducedTable /></Section>
