@@ -1,11 +1,12 @@
-import { useMemo } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
   type CellEditRequestEvent, type ColDef,
 } from "ag-grid-community";
-import { rowsAtom, schemaAtom, toggleExclusionAtom } from "../state";
+import { rowsAtom, schemaAtom, toggleExclusionAtom, typeColorsAtom } from "../state";
+import type { ColumnType } from "../state";
 import type { Row } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -25,11 +26,15 @@ const theme = themeQuartz.withParams({
 });
 
 const TYPE_BADGE = { numeric: "123", categorical: "abc", identifier: "id" } as const;
+const TYPE_LABEL: Record<ColumnType, string> = {
+  numeric: "numeric", categorical: "categorical", identifier: "identifier",
+};
 
 export function DataTable() {
   const schema = useAtomValue(schemaAtom);
   const [rows, setRows] = useAtom(rowsAtom);
   const toggle = useSetAtom(toggleExclusionAtom);
+  const [typeColors, setTypeColors] = useAtom(typeColorsAtom);
 
   const columnDefs = useMemo<ColDef<Row>[]>(() => {
     if (!schema) return [];
@@ -48,6 +53,7 @@ export function DataTable() {
         field: c.name,
         headerName: `${c.label}`,
         headerTooltip: `${c.type} (${TYPE_BADGE[c.type]})`,
+        headerClass: `type-${c.type}`,
         editable: c.type !== "identifier",
         flex: 1,
         minWidth: 90,
@@ -90,13 +96,32 @@ export function DataTable() {
   };
 
   const included = rows.filter((r) => !r.excluded).length;
+  /* expose the configurable type colours to the grid headers as CSS vars */
+  const typeVars = {
+    "--type-numeric": typeColors.numeric,
+    "--type-categorical": typeColors.categorical,
+    "--type-identifier": typeColors.identifier,
+  } as CSSProperties;
   return (
     <section className="pane table-pane">
       <div className="pane-head">
         <h2>Data</h2>
+        <div className="type-legend" title="Data-type colours — click a swatch to recolour">
+          {(Object.keys(typeColors) as ColumnType[]).map((t) => (
+            <label key={t} className="type-chip" style={{ "--chip": typeColors[t] } as CSSProperties}>
+              <input
+                type="color"
+                value={typeColors[t]}
+                onChange={(e) => setTypeColors({ ...typeColors, [t]: e.target.value })}
+              />
+              <span className="type-dot" />
+              {TYPE_LABEL[t]}
+            </label>
+          ))}
+        </div>
         <span className="provenance">{included} included · {rows.length - included} excluded</span>
       </div>
-      <div className="grid-host">
+      <div className="grid-host" style={typeVars}>
         <AgGridReact<Row>
           theme={theme}
           rowData={rows}

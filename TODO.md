@@ -321,10 +321,16 @@ the cell/label case and only separable by count/balance (the deferred option-2
 heuristic). Acceptable default: prefer a false "independent" (conservative) over a
 false "paired"; the user can still override to a paired test when one applies.
 
-### 21. Color-code data types in the table overview
-The different data types (numerical, categorical, etc.) should be encoded in the
-table overview with color. The type→color mapping should be configurable at the
-application level.
+### 21. Color-code data types in the table overview — FIXED 2026-06-16
+The `DataTable` headers now carry a per-type colour: a tinted top accent
+(`box-shadow` inset) plus a coloured header label, keyed by `type-{numeric,
+categorical,identifier}` `headerClass` and driven by CSS vars set on the grid
+host. The type→colour map is app-level configurable and persisted: a new
+`typeColorsAtom` (`atomWithStorage`, key `iris.typeColors`, defaults in
+`DEFAULT_TYPE_COLORS`) backs a compact legend in the Data pane head where each
+swatch is a `<input type="color">` — clicking it recolours that type everywhere
+and survives reloads. tsc + vite build clean. When the bool type lands (item
+16) it just needs an entry in `DEFAULT_TYPE_COLORS` + the three CSS rules.
 
 ### 22. Progressive import: headers first, stats after
 The import wizard should load only the headers first and show them, then compute

@@ -1,6 +1,7 @@
 import { atom } from "jotai";
+import { atomWithStorage } from "jotai/utils";
 import type {
-  AnalysisSpec, AnalyzeResponse, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
+  AnalysisSpec, AnalyzeResponse, ColumnDef, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
   StatsFamily, StyleOverrides, Table, TestName, ReduceSpec, ReduceStep,
   ReduceStepKind, ReducePreview,
 } from "./types";
@@ -56,6 +57,18 @@ export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
   "#0072B2", "#D55E00", "#CC79A7", "#000000",
   "#332288", "#117733", "#88CCEE", "#882255",
   "#999933", "#AA4499", "#44AA99", "#661100"];
+
+/* App-level colour coding for column data types, shown in the table overview.
+   Configurable (and persisted) so a user can match their own convention; the
+   key set must stay in sync with ColumnDef["type"]. */
+export type ColumnType = ColumnDef["type"];
+export const DEFAULT_TYPE_COLORS: Record<ColumnType, string> = {
+  numeric: "#0e7490",      // teal — measurements
+  categorical: "#9333ea",  // purple — classifiers
+  identifier: "#64748b",   // slate — nesting keys
+};
+export const typeColorsAtom = atomWithStorage<Record<ColumnType, string>>(
+  "iris.typeColors", DEFAULT_TYPE_COLORS);
 
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);
