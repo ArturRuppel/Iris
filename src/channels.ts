@@ -26,8 +26,7 @@ export const RENDERABLE: Record<Channel, Partial<Record<ColType, Support>>> = {
   x: { categorical: true, numeric: true },
   y: { categorical: { reason: "needs a horizontal or tile geom (3c/3d)" },
        numeric: true },
-  color: { categorical: true,
-           numeric: { reason: "continuous color coming soon (3b)" } },
+  color: { categorical: true, numeric: true }, // numeric → continuous colormap (3b)
   size: { numeric: true }, // categorical size is not offered at all
   shape: { categorical: true,
            numeric: { reason: "shape can't be continuous" } },

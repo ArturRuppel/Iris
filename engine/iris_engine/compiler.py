@@ -257,6 +257,20 @@ def _draw_legend(fig, ax, sc, style, x_col):
     return leg
 
 
+def _draw_colorbar(fig, ax, mappable, style, label):
+    """Phase 3b: the colorbar a numeric color channel draws in place of legend
+    swatches. Honors show_legend (None = auto, False = hide); no-op when no
+    numeric-color mappable was produced. Kept visually quiet (no outline) to
+    match the open-frame look."""
+    if mappable is None or style.get("show_legend") is False:
+        return None
+    cb = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04)
+    cb.set_label(label, fontsize=style["font_pt"] - 1)
+    cb.ax.tick_params(labelsize=style["font_pt"] - 1)
+    cb.outline.set_visible(False)
+    return cb
+
+
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Dispatch on the inferred stat_model family. Returns (fig, point_groups);
     point_groups maps SVG gids to row ids in draw order, so the frontend can
@@ -309,6 +323,9 @@ def _comparison_context(df, schema, spec, stats):
     dodged = (color_col is not None and color_col != x
               and _is_categorical(schema, color_col))
     sc = scales_mod.resolve_scales(enc, df[df[y].notna()], schema, style)
+    # Phase 3b: a numeric color colours each raw dot by its value (per-point,
+    # via the colormap) rather than by group; aggregate geoms keep group colour.
+    num_color_col = color_col if sc.color_numeric else None
 
     groups, top, gi = [], -np.inf, 0
     if dodged:
@@ -339,15 +356,19 @@ def _comparison_context(df, schema, spec, stats):
             err = _err_half(s, style["error_type"])
             if len(ys):
                 top = max(top, ys.max(), s["mean"] + err)
+            cvals = (rows[num_color_col].to_numpy(dtype=float)
+                     if num_color_col else None)
             groups.append({"gi": li, "pos": li, "lv": lv, "ys": ys,
                            "row_ids": rows["id"].tolist(),
-                           "color": _group_color(style, li), "summary": s})
+                           "color": _group_color(style, li), "cvals": cvals,
+                           "summary": s})
 
     p = stats["result"].get("p")  # absent in the describe-only path → no bracket
     return {"x": x, "y": y, "cols": cols, "style": style, "levels": levels,
             "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
             "top": top, "dodged": dodged, "wscale": wscale, "scales": sc,
             "summary_dx": 0.0 if dodged else 0.28,
+            "cbar_mappable": None,  # set by the dot geom when color is numeric
             "p_sig": (not dodged) and p is not None
                      and p < stats.get("alpha", 0.05)}
 
@@ -406,14 +427,22 @@ def _geom_bar(ax, ctx, params):
 
 def _geom_dot(ax, ctx, params):
     style = ctx["style"]
+    scales = ctx["scales"]
     jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
     point_group = None
     for grp in ctx["groups"]:
         xs = grp["pos"] + np.array([_stable_jitter(rid, jitter)
                                     for rid in grp["row_ids"]])
-        sc = ax.scatter(xs, grp["ys"], s=style["marker_size"],
-                        color=grp["color"], alpha=style["marker_alpha"],
-                        linewidths=0.6, edgecolors="white", zorder=3)
+        common = dict(s=style["marker_size"], alpha=style["marker_alpha"],
+                      linewidths=0.6, edgecolors="white", zorder=3)
+        if scales.color_numeric and grp.get("cvals") is not None:
+            # Phase 3b: colour each raw dot by its numeric value via the colormap;
+            # keep the brightest mappable for the colorbar.
+            sc = ax.scatter(xs, grp["ys"], c=grp["cvals"], cmap=scales.color_cmap,
+                            vmin=scales.color_lo, vmax=scales.color_hi, **common)
+            ctx["cbar_mappable"] = sc
+        else:
+            sc = ax.scatter(xs, grp["ys"], color=grp["color"], **common)
         gid = f"pts-{grp['gi']}"
         sc.set_gid(gid)
         point_group = point_group or []
@@ -474,6 +503,9 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         ax.set_xticklabels([labels.get(lv, lv) for lv in levels])
         ax.set_xlim(-0.55, len(levels) - 0.45)
         ax.set_ylabel(ctx["cols"].get(ctx["y"], {}).get("label", ctx["y"]))
+        cbar = ctx["scales"].colorbar_spec()
+        if cbar:
+            _draw_colorbar(fig, ax, ctx["cbar_mappable"], style, cbar["label"])
         _apply_axes(ax, style, x_numeric=False,
                     grid_x_default=False, grid_y_default=True)
         if style["show_n"]:
@@ -498,34 +530,47 @@ def _draw_points(ax, rows, x, y, sc, style):
     and marker, and emits one point_groups entry per sub-series so the
     click-to-exclude contract (gid → row ids) survives. With no color/shape
     mapped this is a single 'pts-0' series identical to the pre-aesthetics path;
-    size, when mapped, varies marker area per point within a series."""
-    color_levels = sc.color_levels if sc.color_col else [None]
+    size, when mapped, varies marker area per point within a series.
+
+    Returns (point_groups, colorbar_mappable). A *numeric* color (Phase 3b) is
+    not split into levels: each point is coloured by its value through the
+    colormap (c=values + cmap), and the returned mappable feeds the colorbar."""
+    numeric_color = sc.color_col is not None and sc.color_numeric
+    color_levels = sc.color_levels if (sc.color_col and not numeric_color) else [None]
     shape_levels = sc.shape_levels if sc.shape_col else [None]
-    split = sc.color_col is not None or sc.shape_col is not None
-    point_groups, idx = [], 0
+    split = (sc.color_col is not None and not numeric_color) or sc.shape_col is not None
+    point_groups, idx, mappable = [], 0, None
     for cl in color_levels:
         for sl in shape_levels:
             sub = rows
-            if sc.color_col is not None:
+            if sc.color_col is not None and not numeric_color:
                 sub = sub[sub[sc.color_col].astype(str) == cl]
             if sc.shape_col is not None:
                 sub = sub[sub[sc.shape_col].astype(str) == sl]
             if not len(sub):
                 continue
-            color = sc.color_for(cl) if sc.color_col else _group_color(style, 0)
             marker = sc.marker_for(sl) if sc.shape_col else "o"
             size = ([sc.size_for(v) for v in sub[sc.size_col]] if sc.size_col
                     else style["marker_size"])
-            coll = ax.scatter(sub[x].to_numpy(dtype=float),
-                              sub[y].to_numpy(dtype=float),
-                              s=size, color=color, marker=marker,
-                              alpha=style["marker_alpha"],
-                              linewidths=0.6, edgecolors="white", zorder=3)
+            common = dict(s=size, marker=marker, alpha=style["marker_alpha"],
+                          linewidths=0.6, edgecolors="white", zorder=3)
+            if numeric_color:
+                coll = ax.scatter(sub[x].to_numpy(dtype=float),
+                                  sub[y].to_numpy(dtype=float),
+                                  c=sub[sc.color_col].to_numpy(dtype=float),
+                                  cmap=sc.color_cmap, vmin=sc.color_lo,
+                                  vmax=sc.color_hi, **common)
+                mappable = coll
+            else:
+                color = sc.color_for(cl) if sc.color_col else _group_color(style, 0)
+                coll = ax.scatter(sub[x].to_numpy(dtype=float),
+                                  sub[y].to_numpy(dtype=float),
+                                  color=color, **common)
             gid = f"pts-{idx}" if split else "pts-0"
             coll.set_gid(gid)
             point_groups.append({"gid": gid, "row_ids": sub["id"].tolist()})
             idx += 1
-    return point_groups
+    return point_groups, mappable
 
 
 def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
@@ -554,7 +599,10 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
             ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
                     color=color, linewidth=style["line_width"], zorder=2)
 
-        point_groups = _draw_points(ax, rows, x, y, sc_scales, style)
+        point_groups, cbar_mappable = _draw_points(ax, rows, x, y, sc_scales, style)
+        cbar = sc_scales.colorbar_spec()
+        if cbar:
+            _draw_colorbar(fig, ax, cbar_mappable, style, cbar["label"])
 
         extra = {}
         if style["show_annotation"] and stats["result"].get("r") is not None:

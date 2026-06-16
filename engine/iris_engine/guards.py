@@ -26,7 +26,7 @@ COLOR_CAP = 8   # the default Okabe–Ito palette length; above it, colors repea
 # e.g., a continuous color it has no scale for yet. Kept in sync with the frontend
 # support matrix (src/channels.ts); a later chunk flips an entry to renderable.
 UNRENDERABLE: dict[tuple[str, str], str] = {
-    ("color", "numeric"): "continuous color isn't supported yet — coming soon",
+    # ("color", "numeric") is renderable as of Phase 3b (continuous colormap).
     ("shape", "numeric"): "shape can't encode a continuous value",
     ("size", "categorical"): "size encodes a numeric value, not categories",
 }
@@ -105,11 +105,11 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
                     f"a group has fewer than {MIN_BOX_N} observations — the "
                     f"{name} summary is unreliable.", geom=name))
 
-    issues.extend(_aesthetic_issues(df, spec))
+    issues.extend(_aesthetic_issues(df, schema, spec))
     return issues
 
 
-def _aesthetic_issues(df: pd.DataFrame, spec: dict) -> list[dict]:
+def _aesthetic_issues(df: pd.DataFrame, schema: dict, spec: dict) -> list[dict]:
     """Phase 2: warn when an aesthetic channel has no effect (no layer accepts
     it) or exhausts its scale (more levels than colors/markers available)."""
     enc = spec["encodings"]
@@ -131,6 +131,10 @@ def _aesthetic_issues(df: pd.DataFrame, spec: dict) -> list[dict]:
                 f"{col} is mapped to {ch}, but no current layer draws {ch} — "
                 f"it has no effect. Add a geom that uses it, or clear the "
                 f"mapping."))
+            continue
+        # a numeric color is a continuous colorbar (Phase 3b), not a palette —
+        # it can't "exhaust" a discrete set, so skip the cardinality check.
+        if ch == "color" and _coltype(schema, col) == "numeric":
             continue
         if ch in ("color", "shape") and col in df:
             n = int(df[col].dropna().astype(str).nunique())

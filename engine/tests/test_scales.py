@@ -58,6 +58,33 @@ def test_categorical_shape_cycles_markers():
     assert sc.marker_for("b") == scales.MARKERS[1]
 
 
+def test_numeric_color_resolves_continuous_not_palette():
+    # Phase 3b: a numeric color column becomes a continuous colormap (range +
+    # cmap), NOT discrete palette swatches.
+    sc = scales.resolve_scales(_enc(color="dose"), DF, SCHEMA, STYLE)
+    assert "color" in sc.mapped
+    assert sc.color_numeric is True
+    assert sc.color_lo == 0.0 and sc.color_hi == 10.0   # data range of dose
+    assert sc.color_cmap == scales.COLOR_CMAP
+    assert sc.color_levels == []                         # no discrete levels
+
+
+def test_numeric_color_emits_colorbar_not_legend_swatches():
+    sc = scales.resolve_scales(_enc(color="dose"), DF, SCHEMA, STYLE)
+    # no color entry in the swatch legend …
+    assert [e for e in sc.legend_entries() if e["channel"] == "color"] == []
+    # … instead a colorbar spec carries label + range + cmap
+    cb = sc.colorbar_spec()
+    assert cb == {"label": "dose", "vmin": 0.0, "vmax": 10.0,
+                  "cmap": scales.COLOR_CMAP}
+
+
+def test_categorical_color_has_no_colorbar_spec():
+    sc = scales.resolve_scales(_enc(color="cond"), DF, SCHEMA, STYLE)
+    assert sc.color_numeric is False
+    assert sc.colorbar_spec() is None
+
+
 def test_no_channels_is_identity_with_palette0_fallback():
     sc = scales.resolve_scales(_enc(x="cond", y="y"), DF, SCHEMA, STYLE)
     assert sc.mapped == set()

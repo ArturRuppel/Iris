@@ -53,9 +53,9 @@ describe("offer rule (§4) — derived from the registry for x/y, the matrix for
     expect(isOfferable(REG, "y", "numeric")).toBe(true);
     expect(isOfferable(REG, "y", "categorical")).toBe(false);
   });
-  it("color offers categoricals; numeric color is offerable-but-not-renderable", () => {
+  it("color offers both: categorical palette and numeric continuous colormap (3b)", () => {
     expect(renderStatus(REG, "color", "categorical")).toBe("ok");
-    expect(renderStatus(REG, "color", "numeric")).toMatchObject({ reason: expect.any(String) });
+    expect(renderStatus(REG, "color", "numeric")).toBe("ok");
   });
   it("size offers numerics only; shape offers categoricals", () => {
     expect(renderStatus(REG, "size", "numeric")).toBe("ok");
@@ -71,8 +71,14 @@ describe("offer rule (§4) — derived from the registry for x/y, the matrix for
 });
 
 describe("offeredColumns — selectable vs disabled-with-reason, identifiers excluded", () => {
-  it("color: categorical selectable, numeric disabled, identifier excluded", () => {
+  it("color: both categorical and numeric selectable (3b), identifier excluded", () => {
     const { selectable, disabled } = offeredColumns(REG, "color", COLS);
+    expect(selectable.map((c) => c.name)).toEqual(["grp", "val"]);
+    expect(disabled).toEqual([]);                       // no id (identifier excluded)
+  });
+
+  it("shape: categorical selectable, numeric disabled-with-reason", () => {
+    const { selectable, disabled } = offeredColumns(REG, "shape", COLS);
     expect(selectable.map((c) => c.name)).toEqual(["grp"]);
     expect(disabled.map((d) => d.col.name)).toEqual(["val"]);
     expect(disabled[0].reason).toBeTruthy();

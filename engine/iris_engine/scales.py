@@ -1,10 +1,13 @@
 """Resolve aesthetic encodings into concrete scales the compiler draws from.
 
 Each mapped channel (color / size / shape) becomes a lookup the per-point and
-per-group geoms consult, plus a legend entry. Color and shape are categorical
-(one swatch per level, in the schema's declared level order); size is continuous
-(numeric value -> marker area). When a channel is unmapped, its lookup falls
-back to a single-series default so the no-aesthetics path is unchanged.
+per-group geoms consult, plus a legend entry. Shape is categorical (one swatch
+per level, in the schema's declared level order); size is continuous (numeric
+value -> marker area); color is *either* — a categorical column resolves to a
+discrete palette (one swatch per level) while a numeric column (Phase 3b)
+resolves through a continuous colormap with a colorbar instead of swatches. When
+a channel is unmapped, its lookup falls back to a single-series default so the
+no-aesthetics path is unchanged.
 
 This is the single source of truth shared by the geom render functions and the
 legend, so a level always draws the same color/marker as its legend swatch.
@@ -24,12 +27,21 @@ SIZE_MAX_AREA = 120.0
 # categorical shape cycle; wraps past the end (a cardinality guard warns)
 MARKERS = ["o", "s", "^", "D", "v", "P"]
 
+# default continuous colormap for a numeric color channel: perceptually uniform
+# and colourblind-safe, matching the Okabe–Ito ethos of the categorical palette.
+COLOR_CMAP = "viridis"
+
 
 def _levels(df: pd.DataFrame, schema: dict, name: str) -> list[str]:
     for c in schema["columns"]:
         if c["name"] == name and c.get("levels"):
             return list(c["levels"])
     return sorted(str(v) for v in df[name].dropna().unique())
+
+
+def _is_numeric(schema: dict, name: str) -> bool:
+    return any(c["name"] == name and c["type"] == "numeric"
+               for c in schema["columns"])
 
 
 def _col(enc: dict, key: str, present: set[str]) -> str | None:
@@ -47,6 +59,13 @@ class Scales:
     color_col: str | None = None
     color_levels: list[str] = field(default_factory=list)
     _color_map: dict = field(default_factory=dict)
+    # numeric color (Phase 3b): when the color column is numeric it resolves
+    # through a continuous colormap (compiler passes c=values + cmap), not the
+    # discrete palette. color_levels stays empty so per-point geoms don't split.
+    color_numeric: bool = False
+    color_lo: float = 0.0
+    color_hi: float = 1.0
+    color_cmap: str = COLOR_CMAP
     size_col: str | None = None
     size_lo: float = 0.0
     size_hi: float = 1.0
@@ -80,9 +99,18 @@ class Scales:
         i = self.shape_levels.index(str(level)) if str(level) in self.shape_levels else 0
         return MARKERS[i % len(MARKERS)]
 
+    def colorbar_spec(self) -> dict | None:
+        """For a numeric color channel, the colorbar the compiler draws in place
+        of discrete swatches; None when color is unmapped or categorical."""
+        if self.color_col is None or not self.color_numeric:
+            return None
+        return {"label": self.color_col, "vmin": self.color_lo,
+                "vmax": self.color_hi, "cmap": self.color_cmap}
+
     def legend_entries(self) -> list[dict]:
         out: list[dict] = []
-        if self.color_col is not None:
+        # numeric color is a colorbar (colorbar_spec), not legend swatches
+        if self.color_col is not None and not self.color_numeric:
             out.append({"channel": "color", "label": self.color_col,
                         "swatches": [{"value": lv, "color": self._color_map[lv]}
                                      for lv in self.color_levels]})
@@ -107,11 +135,19 @@ def resolve_scales(encodings: dict, df: pd.DataFrame, schema: dict,
 
     color = _col(encodings, "color", present)
     if color:
-        levels = _levels(df, schema, color)
         sc.color_col = color
-        sc.color_levels = levels
-        sc._color_map = {lv: palette[i % len(palette)]
-                         for i, lv in enumerate(levels)}
+        if _is_numeric(schema, color):
+            # Phase 3b: continuous color. Normalize over the data range; the
+            # compiler renders points with c=values + cmap and a colorbar.
+            vals = df[color].dropna().to_numpy(dtype=float)
+            sc.color_numeric = True
+            sc.color_lo = float(vals.min()) if len(vals) else 0.0
+            sc.color_hi = float(vals.max()) if len(vals) else 1.0
+        else:
+            levels = _levels(df, schema, color)
+            sc.color_levels = levels
+            sc._color_map = {lv: palette[i % len(palette)]
+                             for i, lv in enumerate(levels)}
 
     size = _col(encodings, "size", present)
     if size:

@@ -176,6 +176,53 @@ def test_show_legend_false_suppresses_it():
     assert fig.axes[0].get_legend() is None
 
 
+# ---------------- continuous color (Phase 3b) ----------------
+
+def test_scatter_numeric_color_is_single_series_with_colorbar():
+    fig, pg = compiler.build_scatter_figure(DF, SCHEMA,
+                                            _scatter_spec(color="w"), RESULT)
+    # a numeric color is NOT split into discrete level series
+    assert pg == [{"gid": "pts-0", "row_ids": DF["id"].tolist()}]
+    # the scatter carries a per-point value array, and a colorbar adds an Axes
+    arr = fig.axes[0].collections[0].get_array()
+    assert arr is not None and len(arr) == len(DF)
+    assert len(fig.axes) == 2                          # main + colorbar
+    assert fig.axes[0].get_legend() is None            # no swatch legend
+
+
+def test_scatter_numeric_color_show_legend_false_hides_colorbar():
+    spec = _scatter_spec(color="w")
+    spec["style"]["overrides"]["show_legend"] = False
+    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    assert len(fig.axes) == 1                          # colorbar suppressed
+
+
+def _num_color_cmp():
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "cond", "type": "categorical", "label": "Condition",
+         "levels": ["ctrl", "drug"]},
+        {"name": "age", "type": "numeric", "label": "Age"},
+        {"name": "resp", "type": "numeric", "label": "Response"}]}
+    rows, rid = [], 0
+    for cond in ("ctrl", "drug"):
+        for v in (1.0, 2.0, 3.0, 4.0):
+            rows.append({"id": f"r{rid}", "cond": cond, "age": float(v),
+                         "resp": v + (0 if cond == "ctrl" else 2)})
+            rid += 1
+    return pd.DataFrame(rows), schema
+
+
+def test_comparison_dots_numeric_color_per_point_not_dodged():
+    df, schema = _num_color_cmp()
+    spec = _cmp_spec("dot", color="age")               # numeric color in a group cmp
+    ctx = compiler._comparison_context(df, schema, spec, _cmp_stats())
+    assert ctx["dodged"] is False                      # numeric color never dodges
+    assert ctx["scales"].color_numeric is True
+    fig, pg = compiler.build_comparison_figure(df, schema, spec, _cmp_stats())
+    assert len(pg) == 2                                 # one dot series per x-level
+    assert len(fig.axes) == 2                           # colorbar present
+
+
 def test_dodged_comparison_draws_legend_but_color_equals_x_does_not():
     df = _cmp_df()
     fig, _ = compiler.build_comparison_figure(

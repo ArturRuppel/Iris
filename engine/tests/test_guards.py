@@ -74,18 +74,17 @@ def test_color_on_a_scatter_is_not_ignored():
     assert [i for i in issues if i["code"] == "channel_ignored"] == []
 
 
-def test_numeric_color_is_unrenderable_warned_and_dropped():
-    # Phase 3 safeguard: a numeric column on color can't be drawn yet (continuous
-    # color is a later chunk), so it warns and the channel is dropped before render.
-    df = frame(5)
-    s = _aes_spec("dot", color="val")          # val is numeric
+def test_numeric_color_is_renderable_kept_and_not_palette_warned():
+    # Phase 3b: a numeric color resolves through a continuous colormap, so it is
+    # kept (not dropped) and never trips channel_unrenderable / palette_exhausted
+    # — a colorbar has no discrete palette to exhaust.
+    rows = [{"id": f"r{i}", "grp": "a" if i % 2 else "b", "val": float(i),
+             "excluded": False} for i in range(20)]   # 20 distinct color values
+    df = pd.DataFrame(rows)
+    s = _aes_spec("dot", color="val")          # val is numeric → continuous color
     issues = guards.evaluate(df, SCHEMA, s, stat_model=None)
-    warn = [i for i in issues if i["code"] == "channel_unrenderable"]
-    assert warn and "color" in warn[0]["message"]
-    # the channel is removed from the spec so the compiler never sees it
-    assert s["encodings"]["color"] is None
-    # and it does not also trip channel_ignored / palette_exhausted
-    assert [i for i in issues if i["code"] in ("channel_ignored",
+    assert s["encodings"]["color"] == {"column": "val"}    # kept
+    assert [i for i in issues if i["code"] in ("channel_unrenderable",
                                                "palette_exhausted")] == []
 
 
