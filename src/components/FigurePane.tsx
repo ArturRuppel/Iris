@@ -214,7 +214,7 @@ export function FigurePane() {
           <div className="figure-overlay placeholder">
             {status === "error"
               ? (renderError ?? "Render failed.")
-              : "Map Y (and X) in the Encoding card to draw a figure."}
+              : "Map Y (and X) in the Encoding card and add a layer to draw a figure."}
           </div>
         )}
       </div>

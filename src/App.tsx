@@ -85,19 +85,12 @@ export default function App() {
 
   useEffect(() => {
     /* run exactly once. React 18 StrictMode double-invokes mount effects in dev;
-       without this guard the sample is fetched + parsed twice (wasteful on a
-       large dataset) and the late second loadTable resets the active plottable,
-       wiping any edits made in the seconds-long load window. */
+       without this guard the health check fires twice for no reason. */
     if (didInit.current) return;
     didInit.current = true;
     engine.waitForHealth()
       .then((h) => { setSnapshot(h.engine_snapshot); setRegistry(h.registry); setEngineUp(true); })
-      /* the sample can be a large real dataset (tens of thousands of rows); flag
-         the load so the UI shows "Loading data…" instead of empty rails while the
-         browser fetches + parses it. The upload effect clears the flag. */
-      .then(() => { setDataLoading(true); return engine.sample(); })
-      .then((t) => loadTable(t))
-      .catch(() => { setDataLoading(false); setEngineUp(false); });
+      .catch(() => setEngineUp(false));
   }, []);
 
   /* The X/Y pickers (now in the Encoding card) offer only the columns that
@@ -156,11 +149,14 @@ export default function App() {
   const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
     if (!schema || !spec || !tableToken) return;
-    /* nothing to render yet (no Y mapped), or a mapped column the pipeline drops
-       — show no render error (the mapping/empty state speaks for itself) and go
+    /* nothing to render yet (no Y mapped, no layer added), or a mapped column
+       the pipeline drops — show no render error (the mapping/empty state
+       speaks for itself), clear any stale figure from a removed layer, and go
        idle. An empty X is fine: it's simply the descriptive (histogram) case. */
-    if (!spec.encodings.y?.column || mappingError) {
-      setStatus("idle"); setRenderError(null); return;
+    if (!spec.encodings.y?.column || spec.layers.length === 0 || mappingError) {
+      setStatus("idle"); setRenderError(null);
+      setAnalysisById({ id: spec.id, res: null });
+      return;
     }
     window.clearTimeout(timer.current);
     /* a change is pending the moment deps settle — show it immediately so the
@@ -267,10 +263,14 @@ export default function App() {
       <main>
         {viewMode === "data" ? (
           <div className="data-mode"><DataTable /></div>
-        ) : !active ? (
+        ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />
-            <span>{dataLoading ? "Loading data…" : "Preparing analysis…"}</span>
+            <span>Loading data…</span>
+          </div>
+        ) : !active ? (
+          <div className="analyses-empty">
+            <span>No data yet — import a file or enter data to start an analysis.</span>
           </div>
         ) : (
           <div className="analyses-mode">

@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type {
-  AnalysisSpec, AnalyzeResponse, Geom, Layer, Registry, Schema, Row, StatsFamily,
+  AnalysisSpec, AnalyzeResponse, Layer, Registry, Schema, Row, StatsFamily,
   StyleOverrides, Table, TestName, ReduceSpec, ReduceStep, ReduceStepKind,
   ReducePreview,
 } from "./types";
@@ -35,51 +35,15 @@ export const DEFAULT_PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"];
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);
 
-/* Template seeds: one-click starting points that populate a layer stack +
-   encoding kind. They are NO LONGER a closed set the user is locked into — the
-   layer rail can add/remove/reorder geoms freely afterwards. */
-/* Templates seed a layer stack + the axis types the seed expects; `xKind` is the
-   column type the default x should have (or "none" for the descriptive seed). The
-   stats family is no longer stored — it's derived from the seeded mappings. */
-export type TemplateName = "dots" | "box" | "violin" | "bar" | "scatter" | "histogram";
-export const TEMPLATES: Record<TemplateName, {
-  label: string;
-  layers: Layer[];
-  xKind: "categorical" | "numeric" | "none";
-}> = {
-  dots: { label: "Dots + mean ± CI", xKind: "categorical",
-    layers: [{ geom: "dot", params: { jitter: 0.18 } },
-             { geom: "summary", params: { error_type: "ci95" } }] },
-  box: { label: "Box + dots", xKind: "categorical",
-    layers: [{ geom: "box", params: {} }, { geom: "dot", params: { jitter: 0.18 } }] },
-  violin: { label: "Violin + dots", xKind: "categorical",
-    layers: [{ geom: "violin", params: {} }, { geom: "dot", params: { jitter: 0.18 } }] },
-  bar: { label: "Bar ± CI", xKind: "categorical",
-    layers: [{ geom: "bar", params: { error_type: "ci95" } }] },
-  scatter: { label: "Scatter + regression", xKind: "numeric",
-    layers: [{ geom: "scatter", params: {} }, { geom: "regression", params: {} }] },
-  histogram: { label: "Histogram + density", xKind: "none",
-    layers: [{ geom: "histogram", params: {} }, { geom: "density", params: {} }] },
-};
-
-/* "Start from…" seeds: the base/primitive plot types only. Overlays (mean ± CI,
-   regression, density) are built up afterwards via "+ Add layer" or by mutating
-   a layer's plot type in place — so the seed menu stays composite-free. */
-export const PRIMITIVES: { geom: Geom; label: string }[] = [
-  { geom: "dot", label: "Dots" },
-  { geom: "box", label: "Box" },
-  { geom: "violin", label: "Violin" },
-  { geom: "bar", label: "Bar" },
-  { geom: "scatter", label: "Scatter" },
-  { geom: "histogram", label: "Histogram" },
-];
-
 /* the tests each family offers, mirrored for cheap lookups when building the
    spec and filtering override choices */
 export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
   group_comparison: ["welch_t", "mann_whitney"],
   correlation: ["pearson", "spearman"],
   descriptive: ["descriptive"],
+  /* no inferential test in this phase (chi-square is the planned follow-up) —
+     an empty offer list, matching the engine's contingency_counts recommendation. */
+  contingency: [],
 };
 
 /* provenance: every exclusion toggle is logged, never silently applied */
@@ -120,23 +84,14 @@ export interface Plottable {
 let _pid = 0;
 const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
 
+/* a brand-new plottable starts completely blank: no preselected mapping, no
+   preselected geom. The user picks x/y and adds layers explicitly. */
 export function makeDefaultPlottable(schema: Schema): Plottable {
-  const cats = schema.columns.filter((c) => c.type === "categorical");
-  const nums = schema.columns.filter((c) => c.type === "numeric");
-  let template: TemplateName = "dots";
-  if (cats.length === 0) template = nums.length >= 2 ? "scatter" : "histogram";
-  const t = TEMPLATES[template];
-  const y = nums[nums.length - 1]?.name ?? "";
-  const x = t.xKind === "numeric"
-    ? (nums.find((c) => c.name !== y)?.name ?? y)
-    : (cats[0]?.name ?? "");
   return {
     id: nextId(), name: "Analysis 1",
-    mappings: { x, y },
-    /* color = x reproduces today's per-group palette + no legend (only when x is
-       a categorical group); size/shape start unmapped. */
-    color: t.xKind === "categorical" ? x : "", size: "", shape: "",
-    layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    mappings: { x: "", y: "" },
+    color: "", size: "", shape: "",
+    layers: [],
     override: null, describeOnly: false,
     preset: "demo_default", style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
@@ -414,16 +369,3 @@ export const moveLayerAtom = atom(null,
     [layers[arg.index], layers[j]] = [layers[j], layers[arg.index]];
     set(activePlottableAtom, { ...p, layers });
   });
-
-/* seed from a single primitive: swap to a one-layer stack of that geom, dropping
-   any prior layers. The encodings (and therefore the derived family) are not
-   touched — primitive gating already ensures only geoms compatible with the
-   current encodings are offerable, so the family can't change here. Composites
-   are built up from this seed. */
-export const seedPrimitiveAtom = atom(null, (get, set, geom: Geom) => {
-  const p = get(activePlottableAtom); if (!p) return;
-  if (!PRIMITIVES.some((x) => x.geom === geom)) return;
-  const reg = get(registryAtom);
-  const params = { ...(reg?.geoms[geom]?.params ?? {}) };
-  set(activePlottableAtom, { ...p, describeOnly: false, layers: [{ geom, params }] });
-});

@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import {
   activePlottableAtom, addLayerAtom, effectiveSchemaAtom, moveLayerAtom,
-  PRIMITIVES, registryAtom, removeLayerAtom, seedPrimitiveAtom, updateLayerAtom,
+  registryAtom, removeLayerAtom, updateLayerAtom,
 } from "../state";
 import { axisTypes, geomGateReason } from "../channels";
 import type { Geom, Layer, Registry } from "../types";
@@ -63,7 +63,6 @@ export function LayerRail() {
   const updateLayer = useSetAtom(updateLayerAtom);
   const removeLayer = useSetAtom(removeLayerAtom);
   const moveLayer = useSetAtom(moveLayerAtom);
-  const seedPrimitive = useSetAtom(seedPrimitiveAtom);
   const [adding, setAdding] = useState(false);
 
   if (!active || !registry) return null;
@@ -92,24 +91,12 @@ export function LayerRail() {
     <div className="layer-rail">
       <div className="rail-head">
         <strong>Encoding & layers</strong>
-        <select className="template-pick" value=""
-          onChange={(e) => { if (e.target.value) seedPrimitive(e.target.value as Geom); }}>
-          <option value="">Start from…</option>
-          {PRIMITIVES.map((p) => {
-            const reason = gateReason(p.geom);
-            return (
-              <option key={p.geom} value={p.geom} disabled={!!reason}>
-                {p.label}{reason ? ` — ${reason}` : ""}
-              </option>
-            );
-          })}
-        </select>
       </div>
 
       <EncodingsCard />
 
       {layers.length === 0 && (
-        <p className="rail-empty">No layers — add a geom or pick a template.</p>
+        <p className="rail-empty">No layers — add a geom.</p>
       )}
 
       <ol className="layer-list">
