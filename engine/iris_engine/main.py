@@ -18,7 +18,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import (compiler, document, geoms, guards, hierarchy, importer,
-               reduce as reduce_mod, specnorm, stats, statmodel)
+               reduce as reduce_mod, session as session_mod, specnorm, stats,
+               statmodel)
 
 app = FastAPI(title="iris-engine")
 app.add_middleware(
@@ -81,6 +82,29 @@ class HierarchyRequest(BaseModel):
     classifiers: list[str] = []
 
 
+class CreateSessionRequest(BaseModel):
+    table: dict
+
+
+class WindowRequest(BaseModel):
+    start: int = 0
+    end: int = 100
+
+
+class EditRequest(BaseModel):
+    row_id: str
+    column: str
+    value: object | None = None
+
+
+class ExcludeRequest(BaseModel):
+    row_id: str
+
+
+class DistinctRequest(BaseModel):
+    column: str
+
+
 PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
 
 # In-memory cache of recently-seen tables, keyed by a content hash. Bounds the
@@ -88,6 +112,8 @@ PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
 _TABLE_CACHE: dict[str, dict] = {}
 _TABLE_CACHE_ORDER: list[str] = []
 _TABLE_CACHE_MAX = 4
+
+_SESSIONS = session_mod.SessionStore()
 
 
 def _store_table(token: str, table: dict) -> str:
@@ -115,6 +141,13 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
     if token and token in _TABLE_CACHE:
         return _TABLE_CACHE[token]
     raise HTTPException(409, "table not cached; resend full table")
+
+
+def _session_or_409(tid: str) -> "session_mod.SessionTable":
+    t = _SESSIONS.get(tid)
+    if t is None:
+        raise HTTPException(409, "session table not found; reload the data")
+    return t
 
 
 class ImportUploadRequest(BaseModel):
@@ -368,7 +401,12 @@ def health():
 
 @app.get("/sample")
 def sample():
-    return document.load_sample()
+    data = document.load_sample()                       # {schema, rows}
+    tid = _SESSIONS.create(data["schema"],
+                           frame_from_table(data))
+    t = _SESSIONS.get(tid)
+    return {"id": tid, "n": t.n, "version": t.version,
+            "schema": data["schema"], "rows": t.window(0, 200)}
 
 
 @app.post("/table")
@@ -376,6 +414,58 @@ def table_put(req: TablePutRequest):
     """Cache a table and return a content token for subsequent token-only
     analyze/reduce/export calls."""
     return {"token": _cache_table(req.table)}
+
+
+@app.post("/table/create")
+def table_create(req: CreateSessionRequest):
+    """Build the server-owned session table from a {schema, rows|columns} payload
+    and return its stable id + row count + version. The browser keeps the id, not
+    the rows."""
+    schema = req.table["schema"]
+    df = frame_from_table(req.table)
+    if "id" not in df:
+        df.insert(0, "id", [str(i + 1) for i in range(len(df))])
+    if "excluded" not in df:
+        df["excluded"] = False
+    tid = _SESSIONS.create(schema, df)
+    t = _SESSIONS.get(tid)
+    return {"id": tid, "n": t.n, "version": t.version, "schema": schema}
+
+
+@app.post("/table/{tid}/rows")
+def table_rows(tid: str, req: WindowRequest):
+    t = _session_or_409(tid)
+    return fast_json({"rows": t.window(req.start, req.end),
+                      "n": t.n, "version": t.version})
+
+
+@app.post("/table/{tid}/edit")
+def table_edit(tid: str, req: EditRequest):
+    t = _session_or_409(tid)
+    try:
+        t.edit_cell(req.row_id, req.column, req.value)
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"version": t.version}
+
+
+@app.post("/table/{tid}/exclude")
+def table_exclude(tid: str, req: ExcludeRequest):
+    t = _session_or_409(tid)
+    try:
+        excluded = t.toggle_exclusion(req.row_id)
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"excluded": excluded, "version": t.version}
+
+
+@app.post("/table/{tid}/distinct")
+def table_distinct(tid: str, req: DistinctRequest):
+    t = _session_or_409(tid)
+    try:
+        return {"values": t.distinct(req.column)}
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
 
 
 @app.post("/analyze")

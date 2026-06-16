@@ -856,3 +856,30 @@ def test_describe_only_correlation_has_no_regression_or_r():
     assert body["stat_model"]["chosen_by"] == "describe_only"
     assert "regression" not in body["stats"]
     assert body["stats"]["result"].get("r") is None
+
+
+def test_session_create_window_and_ops():
+    rows = [{"id": str(i + 1), "excluded": False, "treatment": "control",
+             "dose": float(i), "response": float(i)} for i in range(40)]
+    table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
+    cid = client.post("/table/create", json={"table": table}).json()
+    assert cid["n"] == 40 and cid["version"] == 0 and "id" in cid
+    tid = cid["id"]
+
+    win = client.post(f"/table/{tid}/rows", json={"start": 0, "end": 10}).json()
+    assert len(win["rows"]) == 10 and win["rows"][0]["id"] == "1"
+
+    ex = client.post(f"/table/{tid}/exclude", json={"row_id": "1"}).json()
+    assert ex["excluded"] is True and ex["version"] == 1
+
+    ed = client.post(f"/table/{tid}/edit",
+                     json={"row_id": "2", "column": "dose", "value": 7.0}).json()
+    assert ed["version"] == 2
+
+    dist = client.post(f"/table/{tid}/distinct", json={"column": "treatment"}).json()
+    assert dist["values"] == ["control"]
+
+
+def test_session_missing_id_is_409():
+    r = client.post("/table/deadbeef/rows", json={"start": 0, "end": 5})
+    assert r.status_code == 409
