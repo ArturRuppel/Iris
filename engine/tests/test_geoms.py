@@ -4,7 +4,8 @@ from iris_engine import geoms
 
 def test_every_known_geom_is_registered():
     expected = {"dot", "summary", "box", "violin", "bar",
-                "scatter", "regression", "histogram", "density"}
+                "scatter", "regression", "histogram", "density",
+                "tile"}  # Phase 3d
     assert set(geoms.GEOMS) == expected
 
 

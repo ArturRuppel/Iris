@@ -28,6 +28,11 @@ class GeomDef:
     # stats engine reads; it no longer gates the UI — the type-match does.
     x_type: str = "categorical"       # "categorical" | "numeric" | "none"
     y_type: str = "numeric"           # "categorical" | "numeric" | "none"
+    # Phase 3c: True on group-comparison geoms that render horizontally when
+    # the encoding has numeric x + categorical y. Lets the offer rule surface
+    # categorical columns on the Y channel and the gate rule enable these geoms
+    # for the swapped orientation — no new geom keys, no UI rework.
+    h_orient: bool = False
     params: dict = field(default_factory=dict)        # default param values
     param_specs: list[dict] = field(default_factory=list)  # frontend editors
     point_cap: int | None = None      # blocking cap for per-row geoms
@@ -49,30 +54,30 @@ def _err_select(key="error_type", label="Error bars"):
 GEOMS: dict[str, GeomDef] = {
     "dot": GeomDef(
         "Dots", "group_comparison", False, ["x", "y"],
-        x_type="categorical", y_type="numeric",
+        x_type="categorical", y_type="numeric", h_orient=True,
         params={"jitter": 0.18},
         param_specs=[_num("jitter", "Jitter", lo=0.0, hi=0.5, step=0.02)],
         point_cap=POINT_CAP, aes=["color", "size", "shape"]),
     "summary": GeomDef(
         "Mean ± error", "group_comparison", True, ["x", "y"],
-        x_type="categorical", y_type="numeric",
+        x_type="categorical", y_type="numeric", h_orient=True,
         params={"error_type": "ci95"},
         param_specs=[_err_select()], aes=["color"]),
     "box": GeomDef(
         "Box", "group_comparison", True, ["x", "y"],
-        x_type="categorical", y_type="numeric",
+        x_type="categorical", y_type="numeric", h_orient=True,
         params={},
         param_specs=[_num("mark_width", "Width", lo=0.1, hi=1.0, step=0.05)],
         aes=["color"]),
     "violin": GeomDef(
         "Violin", "group_comparison", True, ["x", "y"],
-        x_type="categorical", y_type="numeric",
+        x_type="categorical", y_type="numeric", h_orient=True,
         params={},
         param_specs=[_num("mark_width", "Width", lo=0.1, hi=1.0, step=0.05)],
         aes=["color"]),
     "bar": GeomDef(
         "Bar ± error", "group_comparison", True, ["x", "y"],
-        x_type="categorical", y_type="numeric",
+        x_type="categorical", y_type="numeric", h_orient=True,
         params={"error_type": "ci95"},
         param_specs=[_err_select()], aes=["color"]),
     "scatter": GeomDef(
@@ -98,6 +103,13 @@ GEOMS: dict[str, GeomDef] = {
         "Density", "descriptive", True, ["y"],
         x_type="none", y_type="numeric",
         params={}, param_specs=[]),
+    # Phase 3d: tile/heatmap geom — categorical x × categorical y → fill = count.
+    # The one geom that makes categorical-vs-categorical worth offering; no
+    # inferential test in 3d (chi-square is the natural follow-up in Tier 2).
+    "tile": GeomDef(
+        "Tile (heatmap)", "contingency", True, ["x", "y"],
+        x_type="categorical", y_type="categorical",
+        params={}, param_specs=[]),
 }
 
 
@@ -109,6 +121,7 @@ def registry_payload() -> dict:
             name: {"label": g.label, "family": g.family,
                    "aggregates": g.aggregates, "needs": list(g.needs),
                    "x_type": g.x_type, "y_type": g.y_type,
+                   "h_orient": g.h_orient,
                    "params": dict(g.params), "param_specs": list(g.param_specs),
                    "point_cap": g.point_cap, "aes": list(g.aes)}
             for name, g in GEOMS.items()

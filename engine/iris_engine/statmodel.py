@@ -35,6 +35,19 @@ def infer(encodings: dict, schema: dict, override: str | None) -> dict:
         family = "group_comparison"
         design = f"comparison of {y} between groups of {x}"
         factors = [{"column": x, "role": "group"}]
+    # Phase 3c: horizontal orientation — categorical y + numeric x is still a
+    # group comparison; the grouping factor is y and the measurement is x.
+    elif xk == "numeric" and yk == "categorical":
+        family = "group_comparison"
+        design = f"comparison of {x} between groups of {y}"
+        factors = [{"column": y, "role": "group"}]
+    # Phase 3d: both axes categorical → contingency tile; no inferential test in
+    # this phase (chi-square is the natural next step, deferred to Tier 2).
+    elif xk == "categorical" and yk == "categorical":
+        family = "contingency"
+        design = f"count of {y} per {x}"
+        factors = [{"column": x, "role": "column_factor"},
+                   {"column": y, "role": "row_factor"}]
     elif xk == "numeric" and yk == "numeric":
         family = "correlation"
         design = f"association between {x} and {y}"
@@ -50,20 +63,22 @@ def infer(encodings: dict, schema: dict, override: str | None) -> dict:
                 "facet_handling": None, "chosen_by": "describe_only",
                 "issues": []}
 
-    # Phase 2: a categorical color distinct from x *could* be a second factor.
-    # We surface it (and show it as dodged groups) but do NOT run a two-way test
-    # — that is Tier-3 work. The one-factor family/test above is unchanged.
+    # Phase 2: a categorical color distinct from the grouping factor *could* be a
+    # second factor. We surface it but do NOT run a two-way test (Tier-3 work).
+    # The grouping factor is always factors[0]["column"] — x for vertical, y for
+    # horizontal (Phase 3c), so we compare against that rather than hardcoding x.
+    group_factor = factors[0]["column"]
     issues = []
-    if (family == "group_comparison" and color and color != x
+    if (family == "group_comparison" and color and color != group_factor
             and _kind(schema, color) == "categorical"):
         design += (f"; color ({color}) could be a second factor — it is drawn "
-                   f"as separate groups, but only {x} is tested")
+                   f"as separate groups, but only {group_factor} is tested")
         issues.append({
             "level": "warning", "code": "color_second_factor", "geom": None,
             "message": (f"You mapped color = {color}. It may be a second factor "
                         f"in a two-way design; for now it is shown as separate "
-                        f"groups and only {x} is tested. A two-way test is "
-                        f"planned; use the test override to change the design.")})
+                        f"groups and only {group_factor} is tested. A two-way test "
+                        f"is planned; use the test override to change the design.")})
 
     chosen_by = "user_override" if override else "inferred"
     return {"design": design, "family": family, "factors": factors,

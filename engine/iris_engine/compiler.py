@@ -280,6 +280,8 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
         return build_scatter_figure(df, schema, spec, stats)
     if family == "descriptive":
         return build_histogram_figure(df, schema, spec, stats)
+    if family == "contingency":
+        return build_tile_figure(df, schema, spec, stats)
     return build_comparison_figure(df, schema, spec, stats)
 
 
@@ -308,21 +310,30 @@ def _summary_of(label, ys):
 
 def _comparison_context(df, schema, spec, stats):
     enc = spec["encodings"]
-    x = enc["x"]["column"]
-    y = enc["y"]["column"]
+    enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
+    enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     levels = stats["levels"]
     has_dots = any(l["geom"] == "dot" for l in spec.get("layers", []))
 
-    # a categorical color distinct from x becomes a second factor: marks dodge
-    # within each x slot, one sub-series per color level (colored by the scale).
-    # color == x (today's default) or unmapped → the single-series-per-x path.
+    # Phase 3c: detect horizontal orientation (categorical y + numeric x).
+    # cat_col = the categorical column (groups); val_col = the numeric column
+    # (values). The stats result always groups by cat_col regardless of which
+    # encoding axis it sits on.
+    h_orient = _is_categorical(schema, enc_y) and enc_x is not None
+    if h_orient:
+        cat_col, val_col = enc_y, enc_x
+    else:
+        cat_col, val_col = enc_x, enc_y
+
+    # a categorical color distinct from the grouping factor becomes a second
+    # factor: marks dodge within each group slot, one sub-series per color level.
     color = enc.get("color")
     color_col = color["column"] if color and color.get("column") else None
-    dodged = (color_col is not None and color_col != x
+    dodged = (color_col is not None and color_col != cat_col
               and _is_categorical(schema, color_col))
-    sc = scales_mod.resolve_scales(enc, df[df[y].notna()], schema, style)
+    sc = scales_mod.resolve_scales(enc, df[df[val_col].notna()], schema, style)
     # Phase 3b: a numeric color colours each raw dot by its value (per-point,
     # via the colormap) rather than by group; aggregate geoms keep group colour.
     num_color_col = color_col if sc.color_numeric else None
@@ -331,13 +342,13 @@ def _comparison_context(df, schema, spec, stats):
     if dodged:
         clevels = sc.color_levels
         k = max(1, len(clevels))
-        slot = 0.8 / k                      # sub-slot width within an x position
-        wscale = slot                       # geoms shrink their width to the slot
+        slot = 0.8 / k
+        wscale = slot
         for li, lv in enumerate(levels):
             for cj, clv in enumerate(clevels):
-                rows = df[(df[x] == lv) & (df[color_col].astype(str) == clv)
-                          & df[y].notna()]
-                ys = rows[y].to_numpy(dtype=float)
+                rows = df[(df[cat_col] == lv) & (df[color_col].astype(str) == clv)
+                          & df[val_col].notna()]
+                ys = rows[val_col].to_numpy(dtype=float)
                 s = _summary_of(f"{lv}/{clv}", ys)
                 err = _err_half(s, style["error_type"])
                 if len(ys):
@@ -350,8 +361,8 @@ def _comparison_context(df, schema, spec, stats):
     else:
         wscale = 1.0
         for li, lv in enumerate(levels):
-            rows = df[(df[x] == lv) & df[y].notna()]
-            ys = rows[y].to_numpy(dtype=float)
+            rows = df[(df[cat_col] == lv) & df[val_col].notna()]
+            ys = rows[val_col].to_numpy(dtype=float)
             s = next(s for s in stats["summaries"] if s["group"] == lv)
             err = _err_half(s, style["error_type"])
             if len(ys):
@@ -364,7 +375,12 @@ def _comparison_context(df, schema, spec, stats):
                            "summary": s})
 
     p = stats["result"].get("p")  # absent in the describe-only path → no bracket
-    return {"x": x, "y": y, "cols": cols, "style": style, "levels": levels,
+    return {"cat_col": cat_col, "val_col": val_col,
+            # keep "x"/"y" as aliases so any callers that already use ctx["x"]
+            # still work; for vertical these equal enc_x/enc_y as before.
+            "x": cat_col, "y": val_col,
+            "h_orient": h_orient,
+            "cols": cols, "style": style, "levels": levels,
             "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
             "top": top, "dodged": dodged, "wscale": wscale, "scales": sc,
             "summary_dx": 0.0 if dodged else 0.28,
@@ -375,13 +391,15 @@ def _comparison_context(df, schema, spec, stats):
 
 def _geom_violin(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
+    h = ctx["h_orient"]
     width = (_param(params, "mark_width", style, "mark_width") or 0.7) * ctx["wscale"]
     for grp in ctx["groups"]:
         ys = grp["ys"]
         if len(ys) <= 1:
             continue
+        orient = "vertical" if not h else "horizontal"
         vp = ax.violinplot([ys], positions=[grp["pos"]], widths=width,
-                           showextrema=False)
+                           orientation=orient, showextrema=False)
         for body in vp["bodies"]:
             body.set_facecolor(grp["color"]); body.set_alpha(0.22)
             body.set_edgecolor(grp["color"]); body.set_linewidth(lw * 0.6)
@@ -391,6 +409,7 @@ def _geom_violin(ax, ctx, params):
 
 def _geom_box(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
+    h = ctx["h_orient"]
     width = (_param(params, "mark_width", style, "mark_width") or 0.42) * ctx["wscale"]
     show_fliers = not ctx["has_dots"] and style["outlier_marker"] != "none"
     line = dict(color="#475569", linewidth=lw * 0.65)
@@ -398,7 +417,9 @@ def _geom_box(ax, ctx, params):
         ys = grp["ys"]
         if not len(ys):
             continue
+        orient = "vertical" if not h else "horizontal"
         ax.boxplot([ys], positions=[grp["pos"]], widths=width,
+                   orientation=orient,
                    notch=style["notch"] and len(ys) > 5, showfliers=show_fliers,
                    boxprops=line, whiskerprops=line, capprops=line,
                    medianprops=dict(color=INK, linewidth=lw * 0.93),
@@ -413,36 +434,54 @@ def _geom_box(ax, ctx, params):
 
 def _geom_bar(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
+    h = ctx["h_orient"]
     error_type = _param(params, "error_type", style, "error_type")
     width = (style["mark_width"] or 0.6) * ctx["wscale"]
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
-        ax.bar(grp["pos"], s["mean"], width=width, color=grp["color"],
-               alpha=0.55, zorder=1)
-        ax.errorbar(grp["pos"], s["mean"], yerr=err, fmt="none", ecolor=INK,
-                    elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
+        if h:
+            ax.barh(grp["pos"], s["mean"], height=width, color=grp["color"],
+                    alpha=0.55, zorder=1)
+            ax.errorbar(s["mean"], grp["pos"], xerr=err, fmt="none", ecolor=INK,
+                        elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
+        else:
+            ax.bar(grp["pos"], s["mean"], width=width, color=grp["color"],
+                   alpha=0.55, zorder=1)
+            ax.errorbar(grp["pos"], s["mean"], yerr=err, fmt="none", ecolor=INK,
+                        elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
     return None
 
 
 def _geom_dot(ax, ctx, params):
     style = ctx["style"]
     scales = ctx["scales"]
+    h = ctx["h_orient"]
     jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
     point_group = None
     for grp in ctx["groups"]:
-        xs = grp["pos"] + np.array([_stable_jitter(rid, jitter)
-                                    for rid in grp["row_ids"]])
+        # jitter runs along the categorical axis; in horizontal mode that is y
+        cat_pos = grp["pos"] + np.array([_stable_jitter(rid, jitter)
+                                         for rid in grp["row_ids"]])
         common = dict(s=style["marker_size"], alpha=style["marker_alpha"],
                       linewidths=0.6, edgecolors="white", zorder=3)
         if scales.color_numeric and grp.get("cvals") is not None:
             # Phase 3b: colour each raw dot by its numeric value via the colormap;
             # keep the brightest mappable for the colorbar.
-            sc = ax.scatter(xs, grp["ys"], c=grp["cvals"], cmap=scales.color_cmap,
-                            vmin=scales.color_lo, vmax=scales.color_hi, **common)
+            if h:
+                sc = ax.scatter(grp["ys"], cat_pos, c=grp["cvals"],
+                                cmap=scales.color_cmap, vmin=scales.color_lo,
+                                vmax=scales.color_hi, **common)
+            else:
+                sc = ax.scatter(cat_pos, grp["ys"], c=grp["cvals"],
+                                cmap=scales.color_cmap, vmin=scales.color_lo,
+                                vmax=scales.color_hi, **common)
             ctx["cbar_mappable"] = sc
         else:
-            sc = ax.scatter(xs, grp["ys"], color=grp["color"], **common)
+            if h:
+                sc = ax.scatter(grp["ys"], cat_pos, color=grp["color"], **common)
+            else:
+                sc = ax.scatter(cat_pos, grp["ys"], color=grp["color"], **common)
         gid = f"pts-{grp['gi']}"
         sc.set_gid(gid)
         point_group = point_group or []
@@ -452,14 +491,21 @@ def _geom_dot(ax, ctx, params):
 
 def _geom_summary(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
+    h = ctx["h_orient"]
     error_type = _param(params, "error_type", style, "error_type")
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
-        cx = grp["pos"] + ctx["summary_dx"]
-        ax.errorbar(cx, s["mean"], yerr=err, fmt="none", ecolor=INK,
-                    elinewidth=lw, capsize=style["capsize"], zorder=4)
-        ax.plot(cx, s["mean"], marker="D", ms=5, color=INK, zorder=5)
+        # summary_dx offsets along the categorical axis (same logic for both)
+        cpos = grp["pos"] + ctx["summary_dx"]
+        if h:
+            ax.errorbar(s["mean"], cpos, xerr=err, fmt="none", ecolor=INK,
+                        elinewidth=lw, capsize=style["capsize"], zorder=4)
+            ax.plot(s["mean"], cpos, marker="D", ms=5, color=INK, zorder=5)
+        else:
+            ax.errorbar(cpos, s["mean"], yerr=err, fmt="none", ecolor=INK,
+                        elinewidth=lw, capsize=style["capsize"], zorder=4)
+            ax.plot(cpos, s["mean"], marker="D", ms=5, color=INK, zorder=5)
     return None
 
 
@@ -469,9 +515,11 @@ _COMPARISON_GEOMS = {"violin": _geom_violin, "box": _geom_box, "bar": _geom_bar,
 
 def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Group comparison rendered as ordered geom layers; each layer draws with
-    its own params (falling back to the global style)."""
+    its own params (falling back to the global style). Phase 3c: the h_orient
+    flag in ctx switches all axis assignments for horizontal orientation."""
     ctx = _comparison_context(df, schema, spec, stats)
     style, levels = ctx["style"], ctx["levels"]
+    h = ctx["h_orient"]
 
     with plt.rc_context(_rc(style)):
         fig, ax = plt.subplots(
@@ -487,35 +535,64 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 point_groups.extend(pg)
 
         if ctx["p_sig"] and style["show_significance"]:
-            yr = ax.get_ylim()
-            h = ctx["top"] + (yr[1] - yr[0]) * 0.08
-            tick = (yr[1] - yr[0]) * 0.02
-            ax.plot([0, 0, 1, 1], [h, h + tick, h + tick, h],
-                    color=INK, lw=1.1, zorder=5)
             p = stats["result"]["p"]
             label = "***" if p < 0.001 else "**" if p < 0.01 else "*"
-            ax.text(0.5, h + tick * 1.4, label, ha="center", va="bottom",
-                    color=INK)
-            ax.set_ylim(yr[0], max(yr[1], h + tick * 5))
+            if h:
+                xr = ax.get_xlim()
+                hv = ctx["top"] + (xr[1] - xr[0]) * 0.08
+                tick = (xr[1] - xr[0]) * 0.02
+                ax.plot([hv, hv + tick, hv + tick, hv], [0, 0, 1, 1],
+                        color=INK, lw=1.1, zorder=5)
+                ax.text(hv + tick * 1.4, 0.5, label, ha="left", va="center",
+                        color=INK)
+                ax.set_xlim(xr[0], max(xr[1], hv + tick * 5))
+            else:
+                yr = ax.get_ylim()
+                hv = ctx["top"] + (yr[1] - yr[0]) * 0.08
+                tick = (yr[1] - yr[0]) * 0.02
+                ax.plot([0, 0, 1, 1], [hv, hv + tick, hv + tick, hv],
+                        color=INK, lw=1.1, zorder=5)
+                ax.text(0.5, hv + tick * 1.4, label, ha="center", va="bottom",
+                        color=INK)
+                ax.set_ylim(yr[0], max(yr[1], hv + tick * 5))
 
-        ax.set_xticks(range(len(levels)))
-        labels = ctx["cols"].get(ctx["x"], {}).get("labels", {}) or {}
-        ax.set_xticklabels([labels.get(lv, lv) for lv in levels])
-        ax.set_xlim(-0.55, len(levels) - 0.45)
-        ax.set_ylabel(ctx["cols"].get(ctx["y"], {}).get("label", ctx["y"]))
+        cat_labels = ctx["cols"].get(ctx["cat_col"], {}).get("labels", {}) or {}
+        lv_labels = [cat_labels.get(lv, lv) for lv in levels]
+        if h:
+            ax.set_yticks(range(len(levels)))
+            ax.set_yticklabels(lv_labels)
+            ax.set_ylim(-0.55, len(levels) - 0.45)
+            ax.set_xlabel(ctx["cols"].get(ctx["val_col"], {}).get("label",
+                                                                   ctx["val_col"]))
+        else:
+            ax.set_xticks(range(len(levels)))
+            ax.set_xticklabels(lv_labels)
+            ax.set_xlim(-0.55, len(levels) - 0.45)
+            ax.set_ylabel(ctx["cols"].get(ctx["val_col"], {}).get("label",
+                                                                   ctx["val_col"]))
+
         cbar = ctx["scales"].colorbar_spec()
         if cbar:
             _draw_colorbar(fig, ax, ctx["cbar_mappable"], style, cbar["label"])
-        _apply_axes(ax, style, x_numeric=False,
-                    grid_x_default=False, grid_y_default=True)
+        # for horizontal the value axis is X (numeric); grids follow accordingly
+        _apply_axes(ax, style, x_numeric=h,
+                    grid_x_default=h, grid_y_default=not h)
         if style["show_n"]:
             for s, lv in zip(stats["summaries"], levels):
-                ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
-                            xycoords=("data", "axes fraction"),
-                            xytext=(0, -26), textcoords="offset points",
-                            ha="center", fontsize=style["font_pt"] - 2,
-                            color="#94a3b8", annotation_clip=False)
-        _draw_legend(fig, ax, ctx["scales"], style, ctx["x"])
+                if h:
+                    ax.annotate(f"n = {s['n']}", (0, levels.index(lv)),
+                                xycoords=("axes fraction", "data"),
+                                xytext=(-4, 0), textcoords="offset points",
+                                ha="right", va="center",
+                                fontsize=style["font_pt"] - 2,
+                                color="#94a3b8", annotation_clip=False)
+                else:
+                    ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
+                                xycoords=("data", "axes fraction"),
+                                xytext=(0, -26), textcoords="offset points",
+                                ha="center", fontsize=style["font_pt"] - 2,
+                                color="#94a3b8", annotation_clip=False)
+        _draw_legend(fig, ax, ctx["scales"], style, ctx["cat_col"])
         _decorate(fig, ax, style)
     return fig, point_groups
 
@@ -669,6 +746,60 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                     grid_x_default=False, grid_y_default=True)
         _decorate(fig, ax, style, extra=extra)
     return fig, []
+
+
+def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
+    """Phase 3d: tile/heatmap for categorical x × categorical y. Fill = count of
+    rows in each (x_level, y_level) cell. No per-row click targets (aggregate)."""
+    enc = spec["encodings"]
+    x = enc["x"]["column"]
+    y = enc["y"]["column"]
+    cols = {c["name"]: c for c in schema["columns"]}
+    style = resolve_style(spec)
+
+    x_levels = stats["x_levels"]
+    y_levels = stats["y_levels"]
+    counts = np.array(stats["counts"], dtype=float)   # shape (n_y, n_x)
+
+    with plt.rc_context(_rc(style)):
+        fig, ax = plt.subplots(
+            figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
+            layout="constrained")
+
+        # imshow: rows = y_levels (top → bottom), cols = x_levels (left → right)
+        im = ax.imshow(counts, cmap="Blues", aspect="auto", origin="upper")
+
+        ax.set_xticks(range(len(x_levels)))
+        x_lbl = cols.get(x, {}).get("labels", {}) or {}
+        ax.set_xticklabels([x_lbl.get(lv, lv) for lv in x_levels])
+
+        ax.set_yticks(range(len(y_levels)))
+        y_lbl = cols.get(y, {}).get("labels", {}) or {}
+        ax.set_yticklabels([y_lbl.get(lv, lv) for lv in y_levels])
+
+        if style["show_annotation"]:
+            vmax = float(counts.max()) if counts.size else 1.0
+            for yi in range(len(y_levels)):
+                for xi in range(len(x_levels)):
+                    c = int(counts[yi, xi])
+                    text_col = "white" if (vmax > 0 and counts[yi, xi] / vmax > 0.6) else INK
+                    ax.text(xi, yi, str(c), ha="center", va="center",
+                            fontsize=style["font_pt"] - 1, color=text_col)
+
+        ax.set_xlabel(_axis_label(cols, x))
+        ax.set_ylabel(_axis_label(cols, y))
+
+        if style.get("show_legend") is not False:
+            cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cb.set_label("Count", fontsize=style["font_pt"] - 1)
+            cb.ax.tick_params(labelsize=style["font_pt"] - 1)
+            cb.outline.set_visible(False)
+
+        # both axes are categorical: no scale/limit style knobs apply; no grid
+        _apply_axes(ax, style, x_numeric=False,
+                    grid_x_default=False, grid_y_default=False)
+        _decorate(fig, ax, style)
+    return fig, []   # aggregate: no per-point click targets
 
 
 def figure_to_svg(fig) -> str:

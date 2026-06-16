@@ -262,6 +262,37 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
     }
 
 
+def contingency_counts(df: pd.DataFrame, x: str, y: str,
+                       x_levels: list[str], y_levels: list[str],
+                       alpha: float = 0.05) -> dict:
+    """Phase 3d: count matrix for a categorical x × categorical y tile plot.
+    No inferential test is run here; chi-square is the planned follow-up
+    in Tier 2. Returns a shape compatible with the existing stats result
+    contract so the compiler can route on it uniformly."""
+    sub = df[[x, y]].dropna()
+    total = int(len(sub))
+    counts = [
+        [int(((sub[x] == xl) & (sub[y] == yl)).sum())
+         for xl in x_levels]
+        for yl in y_levels
+    ]
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    return {
+        "x_levels": x_levels, "y_levels": y_levels, "counts": counts,
+        "total": total,
+        "levels": [], "checks": [],
+        "recommendation": {"test": "none",
+                           "reason": "contingency tile — no test (describe only)"},
+        "chosen_by": "describe_only",
+        "result": {"test": "none", "n": total,
+                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+        "summaries": [], "alpha": alpha,
+        "methods_text": (f"The contingency of {y} × {x} was displayed for "
+                         f"n = {total} observations.{excl}"),
+    }
+
+
 def descriptive(df: pd.DataFrame, y: str, alpha: float = 0.05) -> dict:
     """Single numeric variable: distribution summary for the histogram."""
     v = df[y].dropna().to_numpy(dtype=float)

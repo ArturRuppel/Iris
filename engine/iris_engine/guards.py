@@ -73,6 +73,20 @@ def _xy(spec: dict):
     return x, y
 
 
+def _cat_val_cols(spec: dict, schema: dict):
+    """Return (cat_col, val_col) accounting for Phase 3c horizontal orientation.
+    For vertical: cat_col=x (categorical), val_col=y (numeric).
+    For horizontal: cat_col=y (categorical), val_col=x (numeric)."""
+    enc = spec["encodings"]
+    enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
+    enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
+    y_is_categorical = any(c["name"] == enc_y and c["type"] == "categorical"
+                           for c in schema["columns"]) if enc_y else False
+    if y_is_categorical:
+        return enc_y, enc_x   # horizontal
+    return enc_x, enc_y       # vertical
+
+
 def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dict]:
     # stat_model is unused in Phase 1 — it's the deliberate seam for model-level
     # guards (facet multiplicity, etc.) that land in Phases 2-3.
@@ -97,13 +111,16 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
                     f"aggregate, or use a summarizing geom (bar, box, violin).",
                     geom=name))
 
-        if name in ("box", "violin") and x and y and x in df and y in df:
-            sizes = df.dropna(subset=[y]).groupby(x)[y].size()
-            if len(sizes) and int(sizes.min()) < MIN_BOX_N:
-                issues.append(_issue(
-                    "warning", "min_observations",
-                    f"a group has fewer than {MIN_BOX_N} observations — the "
-                    f"{name} summary is unreliable.", geom=name))
+        if name in ("box", "violin"):
+            # Phase 3c: group by the categorical column regardless of orientation
+            cat_col, val_col = _cat_val_cols(spec, schema)
+            if cat_col and val_col and cat_col in df and val_col in df:
+                sizes = df.dropna(subset=[val_col]).groupby(cat_col)[val_col].size()
+                if len(sizes) and int(sizes.min()) < MIN_BOX_N:
+                    issues.append(_issue(
+                        "warning", "min_observations",
+                        f"a group has fewer than {MIN_BOX_N} observations — the "
+                        f"{name} summary is unreliable.", geom=name))
 
     issues.extend(_aesthetic_issues(df, schema, spec))
     return issues

@@ -12,7 +12,7 @@ const geom = (x_type: string, y_type: string): GeomMeta => ({
   x_type, y_type, params: {}, param_specs: [], point_cap: null, aes: [],
 });
 
-/* today's registry: the axis types that ship in 3a */
+/* today's registry: the axis types that ship in 3a (no h_orient, no tile) */
 const REG: Registry = { point_cap: 3000, geoms: {
   dot: geom("categorical", "numeric"),
   summary: geom("categorical", "numeric"),
@@ -25,6 +25,11 @@ const REG: Registry = { point_cap: 3000, geoms: {
   density: geom("none", "numeric"),
 } };
 
+/* registry as shipped in 3d: includes the tile geom */
+const REG_3D: Registry = { ...REG, geoms: { ...REG.geoms,
+  tile: geom("categorical", "categorical"),
+} };
+
 const COLS: ColumnDef[] = [
   { name: "grp", type: "categorical", label: "Group" },
   { name: "val", type: "numeric", label: "Value" },
@@ -33,25 +38,39 @@ const COLS: ColumnDef[] = [
 const SCHEMA: Schema = { schema_version: "1.0", columns: COLS };
 
 describe("familyFor — (x_type, y_type) → derived family", () => {
-  it("maps the three real families", () => {
+  it("maps the three real families (vertical orientation)", () => {
     expect(familyFor("categorical", "numeric")).toBe("group_comparison");
     expect(familyFor("numeric", "numeric")).toBe("correlation");
     expect(familyFor(null, "numeric")).toBe("descriptive");
   });
+  it("Phase 3c: numeric x + categorical y → group_comparison (horizontal)", () => {
+    expect(familyFor("numeric", "categorical")).toBe("group_comparison");
+  });
   it("falls through to describe-only ('none') for combos stats can't read", () => {
-    expect(familyFor("categorical", "categorical")).toBe("none");
-    expect(familyFor("numeric", "categorical")).toBe("none");
+    // Note: categorical×categorical is "contingency" (Phase 3d), not "none"
     expect(familyFor("categorical", null)).toBe("none");
     expect(familyFor(null, null)).toBe("none");
   });
 });
 
+/* registry with h_orient=true on all group-comparison geoms, as shipped in 3c */
+const REG_3C: Registry = { ...REG, geoms: Object.fromEntries(
+  Object.entries(REG.geoms).map(([k, g]) =>
+    ["dot", "summary", "box", "violin", "bar"].includes(k)
+      ? [k, { ...g, h_orient: true }] : [k, g])
+) };
+
 describe("offer rule (§4) — derived from the registry for x/y, the matrix for aes", () => {
-  it("X offers both types; Y offers numerics only", () => {
+  it("X offers both types; Y offers numerics only (pre-3c registry)", () => {
     expect(isOfferable(REG, "x", "categorical")).toBe(true);
     expect(isOfferable(REG, "x", "numeric")).toBe(true);
     expect(isOfferable(REG, "y", "numeric")).toBe(true);
     expect(isOfferable(REG, "y", "categorical")).toBe(false);
+  });
+  it("Phase 3c: h_orient geoms make Y offer categoricals", () => {
+    expect(isOfferable(REG_3C, "y", "categorical")).toBe(true);
+    expect(isOfferable(REG_3C, "y", "numeric")).toBe(true);  // still offered
+    expect(isOfferable(REG_3C, "x", "numeric")).toBe(true);  // still via scatter/reg
   });
   it("color offers both: categorical palette and numeric continuous colormap (3b)", () => {
     expect(renderStatus(REG, "color", "categorical")).toBe("ok");
@@ -83,9 +102,14 @@ describe("offeredColumns — selectable vs disabled-with-reason, identifiers exc
     expect(disabled.map((d) => d.col.name)).toEqual(["val"]);
     expect(disabled[0].reason).toBeTruthy();
   });
-  it("y: only the numeric column is selectable", () => {
+  it("y (pre-3c): only the numeric column is selectable", () => {
     const { selectable, disabled } = offeredColumns(REG, "y", COLS);
     expect(selectable.map((c) => c.name)).toEqual(["val"]);
+    expect(disabled).toEqual([]);
+  });
+  it("Phase 3c y: both numeric and categorical are selectable via h_orient", () => {
+    const { selectable, disabled } = offeredColumns(REG_3C, "y", COLS);
+    expect(selectable.map((c) => c.name)).toEqual(["grp", "val"]);
     expect(disabled).toEqual([]);
   });
   it("size: only the numeric column; categorical is not offered at all", () => {
@@ -98,6 +122,8 @@ describe("offeredColumns — selectable vs disabled-with-reason, identifiers exc
 describe("primitive gating — geom enabled iff (x_type, y_type) satisfied", () => {
   const enabled = (g: string, x: ColType | null, y: ColType | null) =>
     geomGateReason(REG.geoms[g], x, y) === null;
+  const enabled3c = (g: string, x: ColType | null, y: ColType | null) =>
+    geomGateReason(REG_3C.geoms[g], x, y) === null;
 
   it("categorical x + numeric y: group geoms enabled, scatter/regression disabled", () => {
     for (const g of ["dot", "summary", "box", "violin", "bar"])
@@ -120,6 +146,57 @@ describe("primitive gating — geom enabled iff (x_type, y_type) satisfied", () 
     expect(enabled("density", null, "numeric")).toBe(true);
     expect(geomGateReason(REG.geoms.dot, null, "numeric")).toMatch(/categorical X/);
   });
+  it("Phase 3c: numeric x + categorical y enables h_orient group geoms", () => {
+    for (const g of ["dot", "summary", "box", "violin", "bar"])
+      expect(enabled3c(g, "numeric", "categorical")).toBe(true);
+    // scatter/regression have no h_orient — still disabled
+    expect(enabled3c("scatter", "numeric", "categorical")).toBe(false);
+    expect(enabled3c("regression", "numeric", "categorical")).toBe(false);
+    // descriptive geoms also disabled (need x absent)
+    expect(enabled3c("histogram", "numeric", "categorical")).toBe(false);
+  });
+  it("Phase 3c: h_orient geoms still work for vertical (categorical x + numeric y)", () => {
+    for (const g of ["dot", "box"])
+      expect(enabled3c(g, "categorical", "numeric")).toBe(true);
+  });
+});
+
+describe("familyFor — Phase 3d: categorical × categorical → contingency", () => {
+  it("both categorical axes yield contingency (tile geom)", () => {
+    expect(familyFor("categorical", "categorical")).toBe("contingency");
+  });
+  it("contingency never falls through to describe-only", () => {
+    expect(familyFor("categorical", "categorical")).not.toBe("none");
+  });
+});
+
+describe("Phase 3d primitive gating — tile geom enabled by REG_3D", () => {
+  const enabled3d = (g: string, x: ColType | null, y: ColType | null) =>
+    geomGateReason(REG_3D.geoms[g], x, y) === null;
+
+  it("tile: categorical x + categorical y → enabled", () => {
+    expect(enabled3d("tile", "categorical", "categorical")).toBe(true);
+  });
+  it("tile: numeric x or missing axis → disabled", () => {
+    expect(enabled3d("tile", "numeric", "categorical")).toBe(false);
+    expect(enabled3d("tile", "categorical", "numeric")).toBe(false);
+    expect(enabled3d("tile", null, "categorical")).toBe(false);
+  });
+  it("tile does not have h_orient, so swapped pair does not enable it", () => {
+    // tile has no h_orient, so the h_orient shortcut must not fire
+    expect(REG_3D.geoms["tile"].h_orient).toBeFalsy();
+    expect(enabled3d("tile", "numeric", "categorical")).toBe(false);
+  });
+  it("group-comparison geoms remain disabled for categorical×categorical", () => {
+    for (const g of ["dot", "box", "violin", "bar", "summary"])
+      expect(enabled3d(g, "categorical", "categorical")).toBe(false);
+  });
+  it("REG_3D: Y offers categoricals (via tile geom's y_type)", () => {
+    expect(isOfferable(REG_3D, "y", "categorical")).toBe(true);
+  });
+  it("REG_3D: X still offers numerics (via scatter/regression)", () => {
+    expect(isOfferable(REG_3D, "x", "numeric")).toBe(true);
+  });
 });
 
 describe("back-compat — derived family matches the pre-3a stored family", () => {
@@ -130,8 +207,7 @@ describe("back-compat — derived family matches the pre-3a stored family", () =
     expect(familyForMappings({ x: "val", y: "val" }, SCHEMA)).toBe("correlation");
     // histogram: empty x + numeric y
     expect(familyForMappings({ x: "", y: "val" }, SCHEMA)).toBe("descriptive");
-  });
-  it("the describe-only fall-through serializes as descriptive", () => {
-    expect(familyForMappings({ x: "grp", y: "grp" }, SCHEMA)).toBe("descriptive");
+    // Phase 3d: categorical × categorical → contingency (no longer falls back to descriptive)
+    expect(familyForMappings({ x: "grp", y: "grp" }, SCHEMA)).toBe("contingency");
   });
 });

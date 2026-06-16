@@ -16,7 +16,7 @@ export interface Row {
 }
 export interface Table { schema: Schema; rows: Row[] }
 
-export type StatsFamily = "group_comparison" | "correlation" | "descriptive";
+export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency";
 export type TestName =
   | "welch_t" | "mann_whitney" | "pearson" | "spearman" | "descriptive";
 export type Mark =
@@ -38,6 +38,10 @@ export interface GeomMeta {
   /* Phase 3: the column type each axis requires, driving type-match gating.
      "categorical" | "numeric" | "none" ("none" = the axis must be absent). */
   x_type: string; y_type: string;
+  /* Phase 3c: true on group-comparison geoms that render horizontally when the
+     encoding has numeric x + categorical y; lets the offer rule surface
+     categorical columns on Y and enables those geoms for the swapped types. */
+  h_orient?: boolean;
   params: Record<string, unknown>;
   param_specs: ParamSpec[]; point_cap: number | null;
   aes: string[];   // accepted aesthetic channels: "color" | "size" | "shape"

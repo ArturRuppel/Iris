@@ -173,18 +173,28 @@ def _run(table: dict, spec: dict):
     override = spec.get("_override")
     family = model["family"]
     if family == "group_comparison":
-        xcol = next((c for c in schema["columns"]
-                     if c["name"] == enc["x"]["column"]), None)
-        if xcol is None:
+        enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
+        enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
+        # Phase 3c: detect horizontal orientation (numeric x + categorical y).
+        # The stats function always receives (grouping_col, value_col); for
+        # horizontal the roles are swapped relative to the encoding axes.
+        x_is_numeric = any(c["name"] == enc_x and c["type"] == "numeric"
+                           for c in schema["columns"]) if enc_x else False
+        if x_is_numeric:
+            cat_col, val_col = enc_y, enc_x   # horizontal: y groups, x measures
+        else:
+            cat_col, val_col = enc_x, enc_y   # vertical: x groups, y measures
+        cat_schema = next((c for c in schema["columns"] if c["name"] == cat_col), None)
+        if cat_schema is None:
             raise HTTPException(
-                422, f"x column {enc['x']['column']!r} not found in schema")
+                422, f"grouping column {cat_col!r} not found in schema")
         res = (stats.describe_groups(
-                   df, enc["x"]["column"], enc["y"]["column"],
-                   levels=xcol.get("levels", []), alpha=alpha)
+                   df, cat_col, val_col,
+                   levels=cat_schema.get("levels", []), alpha=alpha)
                if describe_only else
                stats.group_comparison(
-                   df, enc["x"]["column"], enc["y"]["column"],
-                   levels=xcol.get("levels", []), alpha=alpha, override=override))
+                   df, cat_col, val_col,
+                   levels=cat_schema.get("levels", []), alpha=alpha, override=override))
     elif family == "correlation":
         res = (stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
@@ -193,6 +203,17 @@ def _run(table: dict, spec: dict):
                                  alpha=alpha, override=override))
     elif family == "descriptive":
         res = stats.descriptive(df, enc["y"]["column"], alpha=alpha)
+    elif family == "contingency":
+        # Phase 3d: tile/heatmap — count rows per (x_level, y_level) cell.
+        enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
+        enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
+        x_sch = next((c for c in schema["columns"] if c["name"] == enc_x), None)
+        y_sch = next((c for c in schema["columns"] if c["name"] == enc_y), None)
+        x_levels = ((x_sch.get("levels") or []) if x_sch else []) or sorted(
+            str(v) for v in df[enc_x].dropna().unique())
+        y_levels = ((y_sch.get("levels") or []) if y_sch else []) or sorted(
+            str(v) for v in df[enc_y].dropna().unique())
+        res = stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels, alpha=alpha)
     else:
         raise HTTPException(422, "no statistical model — map X / Y to analyze")
     if "error" in res:

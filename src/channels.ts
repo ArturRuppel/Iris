@@ -24,8 +24,8 @@ export type Channel = "x" | "y" | "color" | "size" | "shape";
 export type Support = true | { reason: string };
 export const RENDERABLE: Record<Channel, Partial<Record<ColType, Support>>> = {
   x: { categorical: true, numeric: true },
-  y: { categorical: { reason: "needs a horizontal or tile geom (3c/3d)" },
-       numeric: true },
+  // Phase 3c: categorical y is now renderable via horizontal group-comparison geoms
+  y: { categorical: true, numeric: true },
   color: { categorical: true, numeric: true }, // numeric → continuous colormap (3b)
   size: { numeric: true }, // categorical size is not offered at all
   shape: { categorical: true,
@@ -43,14 +43,19 @@ export function colType(schema: Schema | null, name: string): ColType | null {
 /* the derived stats family — the label the stats engine reads — computed from
    the mapped axis types rather than stored on the plottable. The fall-through
    ("none") is the describe-only case: a combination the geoms might draw but the
-   stats engine can't read (e.g. categorical-vs-categorical). */
+   stats engine can't read (e.g. categorical-vs-categorical).
+   Phase 3c adds the horizontal case: numeric x + categorical y is still a
+   group comparison (the grouping factor is y; the measurement is x). */
 export function familyFor(
   xType: ColType | null, yType: ColType | null,
 ): StatsFamily | "none" {
-  if (yType !== "numeric") return "none";
-  if (xType === "categorical") return "group_comparison";
-  if (xType === "numeric") return "correlation";
-  if (xType === null) return "descriptive";
+  if (xType === "categorical" && yType === "numeric") return "group_comparison";
+  // Phase 3c: horizontal orientation
+  if (xType === "numeric" && yType === "categorical") return "group_comparison";
+  if (xType === "numeric" && yType === "numeric") return "correlation";
+  if (xType === null && yType === "numeric") return "descriptive";
+  // Phase 3d: categorical × categorical → contingency tile (no inferential test yet)
+  if (xType === "categorical" && yType === "categorical") return "contingency";
   return "none";
 }
 
@@ -81,7 +86,17 @@ export function familyForMappings(
    says *which* channels a geom takes (its `aes`), so type acceptance comes from
    the support matrix above. --- */
 function geomConsumes(geoms: Record<string, GeomMeta>, axis: "x" | "y", type: ColType): boolean {
-  return Object.values(geoms).some((g) => (axis === "x" ? g.x_type : g.y_type) === type);
+  return Object.values(geoms).some((g) => {
+    const primary = axis === "x" ? g.x_type : g.y_type;
+    if (primary === type) return true;
+    // Phase 3c: h_orient geoms also consume the swapped axis types so the offer
+    // rule surfaces categorical Y and numeric X without new geom keys.
+    if (g.h_orient) {
+      if (axis === "y" && type === "categorical") return true;
+      if (axis === "x" && type === "numeric") return true;
+    }
+    return false;
+  });
 }
 
 export function isOfferable(reg: Registry | null, channel: Channel, type: ColType): boolean {
@@ -118,6 +133,8 @@ function axisReason(axis: "X" | "Y", required: string): string {
 export function geomGateReason(
   meta: GeomMeta, xType: ColType | null, yType: ColType | null,
 ): string | null {
+  // Phase 3c: h_orient geoms also accept the horizontal pair (numeric x, categorical y)
+  if (meta.h_orient && xType === "numeric" && yType === "categorical") return null;
   if (!typeSatisfied(meta.x_type, xType)) return axisReason("X", meta.x_type);
   if (!typeSatisfied(meta.y_type, yType)) return axisReason("Y", meta.y_type);
   return null;

@@ -227,6 +227,25 @@ one `⛔`/`—` in the channel×type matrix to `✅`. No `spec_version` bump exp
 (*Facets*)** follows; its design is in
 `docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`.
 
+**Composable grammar of graphics (Phase 5 — Superplots, planned).** A single
+plot can display the same measurement at several collapse levels at once — raw
+replicates, one mark per experimental unit (e.g. per-subject means), and the
+group summary — the *superplot* pattern (Lord et al. 2020) that defeats
+pseudoreplication by making the real n visible. The mechanism is a
+**layer-level summary stat** (`{group, fn}` on a `Layer`, the grammar's
+`stat_summary` / seaborn `so.Agg`), **not** another `reduce.collapse` step: it
+is a visual transform that leaves the data model, n, and provenance untouched,
+whereas `reduce.collapse` changes what a row *is* (and is logged as such). The
+careful half is statistical, not visual: the figure may show three levels but
+the `stat_model` binds to exactly **one** declared inferential unit (the
+independent experimental unit), tests on it (n = units), and *describes* the
+lower levels in plain language — the Phase 2 *describe-don't-test* discipline
+extended to nesting depth. Depends on the `pair_by` nesting concept (Tier 2/3)
+and is the conceptual lead-in to mixed models (Tier 4). Spec impact stays
+within the 2.0 seams: a new optional `stat` param on a layer plus an explicit
+inferential-`unit` on `stat_model` — new params, no major bump, absent = today's
+behaviour. Follows Phase 4 (*Facets*).
+
 **Test matrix.** One-sample, two-sample (Welch), and paired t-tests;
 Mann–Whitney and Wilcoxon signed-rank; one-way ANOVA with Tukey post-hocs;
 Kruskal–Wallis; chi-square; Pearson and Spearman correlations. All via
@@ -296,7 +315,9 @@ checked, what it found, what it implies, in plain language. Faceting enters
 the plot grammar — **Phase 4 (*Facets*)** of the composable grammar of graphics
 (the `facet` block, already present in the 2.0 spec, goes live as a subplot
 grid; see the composable-grammar design spec). Phases 2 (*Aesthetics*:
-color/size/shape encodings) and 3 (*Data-First Encodings*) precede it. n and
+color/size/shape encodings) and 3 (*Data-First Encodings*) precede it, and
+**Phase 5 (*Superplots* — nested collapse levels on one plot, tested on a single
+honest inferential unit)** follows it (see Tier 2's grammar phases). n and
 exclusion annotations become
 standard figure furniture.
 
@@ -319,7 +340,8 @@ Written down so they don't creep in early, and ordered by expected demand
 from the beta rather than by engineering appetite. Mixed models and
 repeated-measures ANOVA (the most likely first request from the target
 fields; statsmodels first, with the option of an R engine via rpy2 behind the
-same protocol — the jamovi pattern — if R's implementations prove necessary).
+same protocol — the jamovi pattern — if R's implementations prove necessary);
+this is the rigorous analysis that Phase 5 superplots visualize as a lead-in.
 Logistic regression and a restricted model-formula grammar in the spec
 (`family: "model"`). Multi-panel figure composition (a document-level
 `figure` object referencing analyses). Multi-table documents with joins
