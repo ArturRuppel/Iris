@@ -327,9 +327,33 @@ def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
     leg.set_gid("legend")
     off = (style["offsets"] or {}).get("legend")
     if off and (off[0] or off[1]):
-        leg.set_transform(leg.get_transform() + mtransforms.ScaledTranslation(
-            off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
+        # Unlike the text labels, a legend is positioned by its loc/anchor at
+        # draw time and ignores an artist transform, so the nudge can't be a
+        # ScaledTranslation. Stash it; _apply_legend_offset (run once everything
+        # is drawn, from figure_to_svg/_bytes) resolves the auto-placed position
+        # and re-anchors the legend by the offset.
+        fig._iris_legend_nudge = (
+            leg, fig.transFigure if faceted else ax.transAxes, off)
     return leg
+
+
+def _apply_legend_offset(fig) -> None:
+    """Re-anchor a dragged legend (offsets['legend']) by its stored pixel offset.
+    Must run after all artists are placed: draw once to resolve the auto
+    ('best'/'outside') position, shift its lower-left by the offset (points → px,
+    y flipped to the SVG/label convention), express that as an anchor fraction,
+    then freeze the layout engine so the final save doesn't relayout it away.
+    Pops the stash so it stays a no-op (and idempotent) on a second save."""
+    nudge = fig.__dict__.pop("_iris_legend_nudge", None)
+    if not nudge:
+        return
+    leg, anchor_trans, off = nudge
+    fig.canvas.draw()
+    bb = leg.get_window_extent()
+    dx, dy = off[0] * fig.dpi / 72.0, -off[1] * fig.dpi / 72.0  # y up in display
+    fx, fy = anchor_trans.inverted().transform((bb.x0 + dx, bb.y0 + dy))
+    leg._loc = (float(fx), float(fy))     # 2-tuple loc = lower-left in the anchor
+    fig.set_layout_engine("none")
 
 
 def _draw_colorbar(fig, ax, mappable, style, label):
@@ -1139,12 +1163,14 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
 
 
 def figure_to_svg(fig) -> str:
+    _apply_legend_offset(fig)
     buf = io.StringIO()
     fig.savefig(buf, format="svg")
     return buf.getvalue()
 
 
 def figure_to_bytes(fig, fmt: str, dpi: int = 300) -> bytes:
+    _apply_legend_offset(fig)
     buf = io.BytesIO()
     fig.savefig(buf, format=fmt, dpi=dpi)
     return buf.getvalue()

@@ -275,8 +275,28 @@ We don't have a load `.viz` option yet (save/load of a project/figure file).
 ### 16. Add the fourth data type (bool for stochastic-event counts)
 We need to add the fourth data type — a bool, for counts of stochastic events.
 
-### 17. Draggable plot legends
-The legends in the plot should be draggable.
+### 17. Draggable plot legends — FIXED 2026-06-16
+The legend was already gid-tagged `legend` and the frontend label-drag writes
+`offsets[gid]`, but two gaps: (a) the frontend `DRAGGABLE` list omitted
+`legend`, so it was never grabbable; (b) the engine applied the legend offset
+via `leg.set_transform(... ScaledTranslation)`, which a legend *ignores* — it's
+positioned by its loc/anchor at draw time, so the offset was a silent no-op
+(verified: the SVG legend group got no transform). Fixes:
+- Frontend: added `legend` to `DRAGGABLE` (`FigurePane`); it now gets the same
+  transparent hit-rect + pointer-drag → `offsets.legend` write as the labels.
+- Engine: `_draw_legend` stashes the offset; new `_apply_legend_offset` (called
+  from `figure_to_svg`/`figure_to_bytes`) draws once to resolve the auto
+  ('best'/'outside') position, shifts its lower-left by the offset (points→px, y
+  flipped to the SVG/label convention), re-anchors via `leg._loc` as an
+  anchor-fraction tuple, then freezes the layout engine so the final save
+  doesn't relayout it away (constrained_layout otherwise undid the x-shift). The
+  stash is popped on first apply, so SVG-then-PNG export doesn't double-nudge.
+Tests: `test_legend_offset_moves_the_drawn_legend`,
+`test_legend_offset_idempotent_across_saves`. 212 engine tests pass; tsc + vite
+build clean. NOTE: engine verified headlessly (the legend marker moves in the
+rendered SVG by the offset); the browser drag gesture itself isn't click-tested
+here (no Chromium — same constraint as items 3/13), but it reuses the
+already-shipped label-drag path.
 
 ### 18. More colors — FIXED 2026-06-16
 The group palette was the 8-color Okabe–Ito set, and `_group_color` wraps with

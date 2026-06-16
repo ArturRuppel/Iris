@@ -172,6 +172,43 @@ def test_color_scatter_draws_legend_with_level_labels():
     assert {"a", "b"} <= labels                       # one entry per color level
 
 
+def _legend_marker_xy(svg):
+    """Display position of the legend's first drawn element in the rendered SVG
+    (its first child's translate), so we can tell whether the legend moved."""
+    import re
+    i = svg.find('id="legend"')
+    assert i != -1, "no legend group in SVG"
+    m = re.search(r'translate\(([0-9.]+) ([0-9.]+)\)', svg[i:])
+    assert m, "no positioned element in legend group"
+    return float(m.group(1)), float(m.group(2))
+
+
+def test_legend_offset_moves_the_drawn_legend():
+    # dragging the legend writes offsets['legend'] (SVG px, y down); the engine
+    # must re-anchor the *drawn* legend by that delta, not just tag it.
+    base_spec = _scatter_spec(color="grp")
+    fig0, _ = compiler.build_scatter_figure(DF, SCHEMA, base_spec, RESULT)
+    x0, y0 = _legend_marker_xy(compiler.figure_to_svg(fig0))
+
+    spec = _scatter_spec(color="grp")
+    spec["style"]["overrides"]["offsets"] = {"legend": [40, 20]}
+    fig1, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    x1, y1 = _legend_marker_xy(compiler.figure_to_svg(fig1))
+
+    # +x moves right, +y (SVG down) moves down → larger SVG y
+    assert x1 > x0 + 20 and y1 > y0 + 10
+
+
+def test_legend_offset_idempotent_across_saves():
+    # a second save (e.g. SVG then PNG export) must not double-apply the nudge
+    spec = _scatter_spec(color="grp")
+    spec["style"]["overrides"]["offsets"] = {"legend": [40, 20]}
+    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    first = _legend_marker_xy(compiler.figure_to_svg(fig))
+    second = _legend_marker_xy(compiler.figure_to_svg(fig))
+    assert first == pytest.approx(second)
+
+
 def test_no_channels_draws_no_legend():
     fig, _ = compiler.build_scatter_figure(DF, SCHEMA, _scatter_spec(), RESULT)
     assert fig.axes[0].get_legend() is None

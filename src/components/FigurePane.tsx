@@ -9,9 +9,9 @@ import { StylePane } from "./StylePane";
 
 const SVGNS = "http://www.w3.org/2000/svg";
 
-/* gid-tagged text the engine marks as draggable (title, axis labels, the
-   r/p or median annotation) */
-const DRAGGABLE = ["lbl-title", "lbl-x", "lbl-y", "lbl-annot"];
+/* gid-tagged artists the engine marks as draggable (title, axis labels, the
+   r/p or median annotation, and the legend) */
+const DRAGGABLE = ["lbl-title", "lbl-x", "lbl-y", "lbl-annot", "legend"];
 
 const PT_PER_MM = 72 / 25.4;
 const PX_PER_PT = 96 / 72;
@@ -270,8 +270,8 @@ export function FigurePane() {
         </>
       )}
       <p className="hint">
-        Click a point to select it; right-click to exclude. Drag labels to
-        reposition, drag the corner handle to resize — exports match.
+        Click a point to select it; right-click to exclude. Drag labels or the
+        legend to reposition, drag the corner handle to resize — exports match.
       </p>
       <StylePane />
     </section>
