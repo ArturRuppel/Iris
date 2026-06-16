@@ -1,13 +1,13 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
-  type CellEditRequestEvent, type ColDef,
+  type CellEditRequestEvent, type ColDef, type GridApi, type IDatasource,
 } from "ag-grid-community";
-import { rowsAtom, schemaAtom, toggleExclusionAtom, typeColorsAtom } from "../state";
+import { rowsAtom, schemaAtom, tableHandleAtom, toggleExclusionAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
-import type { Row } from "../types";
+import { engine, type Row } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -32,9 +32,28 @@ const TYPE_LABEL: Record<ColumnType, string> = {
 
 export function DataTable() {
   const schema = useAtomValue(schemaAtom);
+  const handle = useAtomValue(tableHandleAtom);
   const [rows, setRows] = useAtom(rowsAtom);
   const toggle = useSetAtom(toggleExclusionAtom);
   const [typeColors, setTypeColors] = useAtom(typeColorsAtom);
+  const gridApiRef = useRef<GridApi<Row> | null>(null);
+
+  /* Infinite Row Model datasource: the grid pulls row windows from the engine
+     instead of holding all N rows. A version bump (an edit/exclusion, Phase C)
+     rebuilds this so the affected block refetches. */
+  const datasource = useMemo<IDatasource>(() => ({
+    rowCount: handle?.n,
+    getRows: async (params) => {
+      if (!handle) { params.failCallback(); return; }
+      try {
+        const { rows, n } = await engine.rowsWindow(
+          handle.id, params.startRow, params.endRow);
+        params.successCallback(rows, n);     // n = known last row -> exact count
+      } catch {
+        params.failCallback();
+      }
+    },
+  }), [handle?.id, handle?.version]);
 
   const columnDefs = useMemo<ColDef<Row>[]>(() => {
     if (!schema) return [];
@@ -104,7 +123,6 @@ export function DataTable() {
     setRows(rows.map((r) => (r.id === e.data.id ? { ...r, [field]: value } : r)));
   };
 
-  const included = rows.filter((r) => !r.excluded).length;
   /* expose the configurable type colours to the grid headers as CSS vars */
   const typeVars = {
     "--type-numeric": typeColors.numeric,
@@ -129,12 +147,15 @@ export function DataTable() {
             </label>
           ))}
         </div>
-        <span className="provenance">{included} included · {rows.length - included} excluded</span>
+        <span className="provenance">{handle?.n ?? 0} rows</span>
       </div>
       <div className="grid-host" style={typeVars}>
         <AgGridReact<Row>
           theme={theme}
-          rowData={rows}
+          rowModelType="infinite"
+          datasource={datasource}
+          cacheBlockSize={200}
+          maxBlocksInCache={10}
           columnDefs={columnDefs}
           getRowId={(p) => p.data.id}
           /* our family columns carry dots (cell_shape.area_um2); without this
@@ -143,6 +164,7 @@ export function DataTable() {
           suppressFieldDotNotation
           readOnlyEdit
           onCellEditRequest={onCellEditRequest}
+          onGridReady={(e) => { gridApiRef.current = e.api; }}
           rowClassRules={{ excluded: (p) => !!p.data?.excluded }}
           singleClickEdit
           stopEditingWhenCellsLoseFocus
