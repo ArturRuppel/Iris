@@ -52,7 +52,8 @@ class ExportRequest(AnalyzeRequest):
 
 
 class SaveRequest(BaseModel):
-    table: dict
+    table: dict | None = None
+    table_id: str | None = None
     analyses: list[dict]
     provenance: dict
 
@@ -591,7 +592,8 @@ def import_commit(req: ImportCommitRequest):
 
 @app.post("/document/save")
 def doc_save(req: SaveRequest):
-    data = document.save_document(req.table["schema"], req.table["rows"],
+    table = _resolve_table(req.table, req.table_id)
+    data = document.save_document(table["schema"], table["rows"],
                                   req.analyses, req.provenance,
                                   engine_snapshot())
     return {"filename": "document.iris",

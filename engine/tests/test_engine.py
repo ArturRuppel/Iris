@@ -895,3 +895,14 @@ def test_analyze_by_session_id():
     r = client.post("/analyze", json={"table_token": tid, "spec": spec})
     assert r.status_code == 200
     assert "figure" in r.json()
+
+
+def test_save_by_session_id_roundtrips():
+    rows = [{"id": str(i + 1), "excluded": False, "treatment": "control",
+             "dose": float(i), "response": float(i)} for i in range(5)]
+    table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
+    tid = client.post("/table/create", json={"table": table}).json()["id"]
+    saved = client.post("/document/save", json={
+        "table_id": tid, "analyses": [make_spec()],
+        "provenance": {"exclusions": []}}).json()
+    assert saved["filename"] == "document.iris"

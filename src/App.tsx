@@ -200,14 +200,13 @@ export default function App() {
   }, [tableToken, handle?.version, stepsKey, activeId]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
-    if (!schema || !spec) return;
-    const ref = tableToken ? { token: tableToken } : { schema, rows };
-    const f = await engine.export(ref, spec, format);
+    if (!schema || !spec || !handle) return;
+    const f = await engine.export({ token: handle.id }, spec, format);
     downloadBase64(f.filename, f.data_base64);
   };
   const doSave = async () => {
-    if (!schema || allSpecs.length === 0) return;
-    const f = await engine.saveDocument({ schema, rows }, allSpecs,
+    if (!schema || allSpecs.length === 0 || !handle) return;
+    const f = await engine.saveDocument(handle.id, allSpecs,
       { exclusions: exclusionLog });
     downloadBase64(f.filename, f.data_base64);
   };

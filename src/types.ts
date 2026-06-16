@@ -516,8 +516,9 @@ export const engine = {
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
     post<{ filename: string; data_base64: string }>(
       "/export", { ...tableField(t), spec, format, dpi: 300 }),
-  saveDocument: (table: Table, analyses: AnalysisSpec[], provenance: unknown) =>
-    post<{ filename: string; data_base64: string }>("/document/save", { table, analyses, provenance }),
+  saveDocument: (tableId: string, analyses: AnalysisSpec[], provenance: unknown) =>
+    post<{ filename: string; data_base64: string }>(
+      "/document/save", { table_id: tableId, analyses, provenance }),
   /* read back a saved .viz; analyses come as raw specs (run through migrateSpec) */
   loadDocument: (dataBase64: string) =>
     post<LoadedDocument>("/document/load", { data_base64: dataBase64 }),
