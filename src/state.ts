@@ -214,6 +214,66 @@ export const loadTableAtom = atom(null, (get, set,
   set(activePlottableIdAtom, first.id);
 });
 
+/* Inverse of buildSpec: reconstruct the editable Plottable from a saved analysis
+   spec so a loaded .viz comes back fully editable, not just renderable. The spec
+   carries everything the Plottable needs except previewLevel (a transient UI
+   preview state), which resets to raw. */
+export function plottableFromSpec(spec: AnalysisSpec): Plottable {
+  const s = spec.stats;
+  return {
+    id: spec.id || nextId(),
+    name: spec.title || "Analysis",
+    mappings: { x: spec.encodings.x?.column ?? "", y: spec.encodings.y?.column ?? "" },
+    color: spec.encodings.color?.column ?? "",
+    size: spec.encodings.size?.column ?? "",
+    shape: spec.encodings.shape?.column ?? "",
+    facetRow: spec.facet?.row?.column ?? "",
+    facetCol: spec.facet?.col?.column ?? "",
+    shareX: spec.facet?.share_x ?? true,
+    shareY: spec.facet?.share_y ?? true,
+    layers: spec.layers ?? [],
+    override: s?.chosen_by === "user_override" ? s.test : null,
+    describeOnly: s?.chosen_by === "describe_only",
+    previewLevel: RAW_LEVEL,
+    preset: spec.style?.preset ?? "demo_default",
+    style: spec.style?.overrides ?? {},
+    reduce: spec.reduce ?? { steps: [] },
+  };
+}
+
+export interface LoadedDoc {
+  schema: Schema;
+  rows: Row[];
+  analyses: AnalysisSpec[];                 // already migrated to the current spec
+  exclusions: ExclusionEvent[];
+}
+
+/* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
+   (rebuilt as editable plottables), the shared hierarchy, and the exclusion log
+   instead of starting blank. */
+export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
+  set(schemaAtom, doc.schema);
+  set(rowsAtom, doc.rows);
+  set(seededTokenAtom, null);
+  // the hierarchy is table-level (shared by every analysis); take it off the
+  // first saved spec, falling back to the identifier columns for older files.
+  const saved = doc.analyses[0]?.hierarchy;
+  set(hierarchyAtom, saved && saved.spine?.length
+    ? { spine: saved.spine, fn: saved.fn ?? {} }
+    : { spine: identifierCols(doc.schema), fn: {} });
+  set(exclusionLogAtom, doc.exclusions);
+  set(engineErrorAtom, null);
+  set(selectedRowIdAtom, null);
+  set(analysisByIdAtom, {});
+  set(reducePreviewByIdAtom, {});
+  set(tableTokenAtom, null);
+  const plottables = doc.analyses.length
+    ? doc.analyses.map(plottableFromSpec)
+    : [makeDefaultPlottable(doc.schema)];
+  set(plottablesAtom, plottables);
+  set(activePlottableIdAtom, plottables[0].id);
+});
+
 /* Pure builder: a plottable + its derived stats family + (optional) recommended
    test + engine snapshot → an analysis spec. `family` is derived by the caller
    from the encoding column types (channels.familyForMappings) — it is no longer

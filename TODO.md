@@ -269,8 +269,24 @@ stray leading/trailing `_`/`.`); `_looks_like_identifier` already split on
 dotted names), so the change is safe. Regression test:
 `test_import_preserves_dotted_family_names`.
 
-### 15. No "load .viz" option yet
-We don't have a load `.viz` option yet (save/load of a project/figure file).
+### 15. No "load .viz" option yet — FIXED 2026-06-16
+The engine already had both `/document/save` and `/document/load` (and a tested
+round-trip), and `migrateSpec` existed but was unused — the gap was purely the
+frontend, which only had "Save .viz". Added a "Load .viz" button + hidden
+`.viz` file input in the header (`App.doLoad`): reads the file, calls
+`engine.loadDocument`, runs each saved analysis through `migrateSpec` (so older
+`.viz` files still open), and dispatches the new `loadDocumentAtom`. Because the
+document stores compiled `AnalysisSpec[]` (not the editable `Plottable`s), added
+`plottableFromSpec` — the inverse of `buildSpec` — so a loaded analysis comes
+back fully *editable*, not just renderable (encodings, facets, layers, reduce
+pipeline, style/preset, and the test choice via `chosen_by`→`override`/
+`describeOnly`; `previewLevel` resets to raw). `loadDocumentAtom` restores the
+table, the shared hierarchy (off the first spec, falling back to identifier
+columns for old files), and the exclusion log from provenance, then rebuilds the
+plottables and switches to the Analyses view when the file carries any. tsc +
+vite build clean; engine save/load round-trip (incl. exclusions/provenance)
+verified via TestClient. NOTE: the browser file-open gesture isn't click-tested
+here (no Chromium — same as items 3/13).
 
 ### 16. Add the fourth data type (bool for stochastic-event counts)
 We need to add the fourth data type — a bool, for counts of stochastic events.

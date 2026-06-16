@@ -357,6 +357,16 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
 }
 interface CollapseStepLegacy { group_by: string[]; aggregate?: Record<string, AggFn> }
 
+/* a loaded .viz: table + the analyses (raw specs, pre-migration) + provenance
+   (the exclusion log). Mirrors document.load_document's payload. */
+export interface LoadedDocument {
+  manifest: unknown;
+  schema: Schema;
+  rows: Row[];
+  analyses: Record<string, unknown>[];
+  provenance: { exclusions?: { row_id: string; excluded: boolean; at: string }[] } | null;
+}
+
 /* ---------------- import wizard ---------------- */
 
 export interface ReshapeOptions {
@@ -476,6 +486,9 @@ export const engine = {
       "/export", { ...tableField(t), spec, format, dpi: 300 }),
   saveDocument: (table: Table, analyses: AnalysisSpec[], provenance: unknown) =>
     post<{ filename: string; data_base64: string }>("/document/save", { table, analyses, provenance }),
+  /* read back a saved .viz; analyses come as raw specs (run through migrateSpec) */
+  loadDocument: (dataBase64: string) =>
+    post<LoadedDocument>("/document/load", { data_base64: dataBase64 }),
   /* upload a file's bytes once; preview/commit then reference it by token so
      wizard edits don't re-ship the whole file (see ImportSource) */
   importUpload: (filename: string, dataBase64: string) =>

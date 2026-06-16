@@ -13,11 +13,11 @@ import { StatsPanel } from "./components/StatsPanel";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
-  engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadTableAtom, registryAtom,
-  renderErrorAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom, setReducePreviewByIdAtom,
-  seededTokenAtom, specAtom, tableTokenAtom, viewModeAtom,
+  engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadDocumentAtom, loadTableAtom,
+  registryAtom, renderErrorAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom,
+  setReducePreviewByIdAtom, seededTokenAtom, specAtom, tableTokenAtom, viewModeAtom,
 } from "./state";
-import { downloadBase64, engine } from "./types";
+import { downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
 
 function Section({ title, defaultOpen, children }:
   { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -54,6 +54,7 @@ export default function App() {
   const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
+  const loadDocument = useSetAtom(loadDocumentAtom);
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
@@ -78,6 +79,7 @@ export default function App() {
   const timer = useRef<number>();
   const previewTimer = useRef<number>();
   const didInit = useRef(false);
+  const loadFileRef = useRef<HTMLInputElement>(null);
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
@@ -232,6 +234,21 @@ export default function App() {
       { exclusions: exclusionLog });
     downloadBase64(f.filename, f.data_base64);
   };
+  const doLoad = async (file: File) => {
+    try {
+      const doc = await engine.loadDocument(fileToBase64(await file.arrayBuffer()));
+      loadDocument({
+        schema: doc.schema, rows: doc.rows,
+        analyses: doc.analyses.map(migrateSpec),   // tolerate older .viz specs
+        exclusions: doc.provenance?.exclusions ?? [],
+      });
+      setViewMode(doc.analyses.length ? "analyses" : "data");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (loadFileRef.current) loadFileRef.current.value = "";   // allow re-pick
+    }
+  };
 
   if (engineUp === false) return (
     <div className="engine-down">
@@ -270,6 +287,9 @@ export default function App() {
           <button onClick={() => doExport("svg")}>SVG</button>
           <button onClick={() => doExport("pdf")}>PDF</button>
           <button onClick={() => doExport("png")}>PNG</button>
+          <button onClick={() => loadFileRef.current?.click()}>Load .viz</button>
+          <input ref={loadFileRef} type="file" hidden accept=".viz"
+            onChange={(e) => e.target.files?.[0] && void doLoad(e.target.files[0])} />
           <button className="primary" onClick={doSave}>Save .viz</button>
         </div>
       </header>
