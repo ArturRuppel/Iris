@@ -16,13 +16,16 @@ export interface Row {
 }
 export interface Table { schema: Schema; rows: Row[] }
 
+export interface TableCounts { total: number; excluded: number }
+
 /* a handle to the server-owned session table: the browser holds this (id +
-   version + schema + row count), not the N rows themselves. */
+   version + schema + row count + included/excluded split), not the N rows. */
 export interface TableHandle {
   id: string;
   n: number;
   version: number;
   schema: Schema;
+  counts?: TableCounts;
 }
 
 /* the compact wire form of a full table: one array per column instead of one
@@ -491,16 +494,16 @@ export const engine = {
   },
   sample: (): Promise<Table> => get<Table>("/sample"),
   createSession: (table: Table) =>
-    post<{ id: string; n: number; version: number; schema: Schema }>(
+    post<{ id: string; n: number; version: number; schema: Schema; counts: TableCounts }>(
       "/table/create", { table }),
   rowsWindow: (id: string, start: number, end: number) =>
     post<{ rows: Row[]; n: number; version: number }>(
       `/table/${id}/rows`, { start, end }),
   editCell: (id: string, rowId: string, column: string, value: unknown) =>
-    post<{ version: number }>(`/table/${id}/edit`,
+    post<{ version: number; counts: TableCounts }>(`/table/${id}/edit`,
       { row_id: rowId, column, value }),
   toggleExclude: (id: string, rowId: string) =>
-    post<{ excluded: boolean; version: number }>(`/table/${id}/exclude`,
+    post<{ excluded: boolean; version: number; counts: TableCounts }>(`/table/${id}/exclude`,
       { row_id: rowId }),
   distinct: (id: string, column: string) =>
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),

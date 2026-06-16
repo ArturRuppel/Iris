@@ -98,13 +98,16 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
 export interface ExclusionEvent { row_id: string; excluded: boolean; at: string }
 export const exclusionLogAtom = atom<ExclusionEvent[]>([]);
 
-export const toggleExclusionAtom = atom(null, (get, set, rowId: string) => {
-  const rows = get(rowsAtom);
-  const row = rows.find((r) => r.id === rowId);
-  if (!row) return;
-  set(rowsAtom, rows.map((r) => (r.id === rowId ? { ...r, excluded: !r.excluded } : r)));
+/* Exclusion state lives server-side now: toggle the row on the session table,
+   then bump the handle (version drives the grid refetch + a recompute) and log
+   the provenance event with the authoritative new state the server returned. */
+export const toggleExclusionAtom = atom(null, async (get, set, rowId: string) => {
+  const handle = get(tableHandleAtom);
+  if (!handle) return;
+  const { excluded, version, counts } = await engine.toggleExclude(handle.id, rowId);
+  set(tableHandleAtom, { ...handle, version, counts });
   set(exclusionLogAtom, [...get(exclusionLogAtom),
-    { row_id: rowId, excluded: !row.excluded, at: new Date().toISOString() }]);
+    { row_id: rowId, excluded, at: new Date().toISOString() }]);
 });
 
 /* ---- Plottable: one analysis bundled with its visual + reduce config ---- */
@@ -196,18 +199,14 @@ export const setAnalysisByIdAtom = atom(
 /* swap in a freshly imported (or loaded) table and reset everything that
    referred to the old one: plottables, analysis, exclusion log */
 export const loadTableAtom = atom(null, async (get, set,
-    table: Table & { id?: string; n?: number; version?: number; token?: string }) => {
+    table: Table & { token?: string }) => {
   set(schemaAtom, table.schema);
-  // The engine owns the table behind a session handle. A loader that already
-  // created the session (e.g. a future /import that returns one) hands back its
-  // id/n/version; otherwise we create it here from the rows we received. Either
-  // way the browser keeps the handle, not the dataset.
-  const handle: TableHandle = table.id != null
-    ? { id: table.id, n: table.n!, version: table.version!, schema: table.schema }
-    : await (async () => {
-        const s = await engine.createSession({ schema: table.schema, rows: table.rows });
-        return { id: s.id, n: s.n, version: s.version, schema: s.schema };
-      })();
+  // The engine owns the table behind a session handle, created here from the
+  // rows the importer handed us. The browser keeps the handle, not the dataset.
+  const s = await engine.createSession({ schema: table.schema, rows: table.rows });
+  const handle: TableHandle = {
+    id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts,
+  };
   set(tableHandleAtom, handle);
   set(rowsAtom, table.rows ?? []);           // preview window only
   // seed the hierarchy spine from the imported identifier columns (coarsest →
@@ -289,12 +288,10 @@ export interface LoadedDoc {
    instead of starting blank. */
 export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   set(schemaAtom, doc.schema);
-  const handle: TableHandle = doc.id != null
-    ? { id: doc.id, n: doc.n!, version: doc.version!, schema: doc.schema }
-    : await (async () => {
-        const s = await engine.createSession({ schema: doc.schema, rows: doc.rows });
-        return { id: s.id, n: s.n, version: s.version, schema: s.schema };
-      })();
+  const s = await engine.createSession({ schema: doc.schema, rows: doc.rows });
+  const handle: TableHandle = {
+    id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts,
+  };
   set(tableHandleAtom, handle);
   set(rowsAtom, doc.rows ?? []);             // preview window only
   // the hierarchy is table-level (shared by every analysis); take it off the
@@ -537,19 +534,20 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
    non-numeric column is one or the other. A schema change re-uploads the table,
    so the engine sees the new types on the next analyze/preview. */
 export const setColumnRoleAtom = atom(null,
-  (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
+  async (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
     const schema = get(schemaAtom); if (!schema) return;
-    const rows = get(rowsAtom);
+    const handle = get(tableHandleAtom);
     const newType: "identifier" | "categorical" =
       arg.role === "identifier" ? "identifier" : "categorical";
+    // a column becoming a classifier needs levels for the editor / ordering;
+    // derive them from the server-owned table (not a browser-side row copy).
+    const target = schema.columns.find((c) => c.name === arg.name);
+    const fetched = newType === "categorical" && target && !target.levels && handle
+      ? (await engine.distinct(handle.id, arg.name)).values
+      : undefined;
     const columns = schema.columns.map((c) => {
       if (c.name !== arg.name) return c;
-      // a column becoming a classifier needs levels for the editor / ordering;
-      // derive them from the data if not already present.
-      const levels = newType === "categorical" && !c.levels
-        ? [...new Set(rows.map((r) => r[arg.name]).filter((v) => v != null)
-            .map((v) => String(v)))].sort()
-        : c.levels;
+      const levels = newType === "categorical" && !c.levels ? fetched : c.levels;
       return { ...c, type: newType, levels };
     });
     const nextSchema = { ...schema, columns };

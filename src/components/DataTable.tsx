@@ -5,7 +5,7 @@ import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
   type CellEditRequestEvent, type ColDef, type GridApi, type IDatasource,
 } from "ag-grid-community";
-import { rowsAtom, schemaAtom, tableHandleAtom, toggleExclusionAtom, typeColorsAtom } from "../state";
+import { schemaAtom, tableHandleAtom, toggleExclusionAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
 import { engine, type Row } from "../types";
 
@@ -33,7 +33,7 @@ const TYPE_LABEL: Record<ColumnType, string> = {
 export function DataTable() {
   const schema = useAtomValue(schemaAtom);
   const handle = useAtomValue(tableHandleAtom);
-  const [rows, setRows] = useAtom(rowsAtom);
+  const setHandle = useSetAtom(tableHandleAtom);
   const toggle = useSetAtom(toggleExclusionAtom);
   const [typeColors, setTypeColors] = useAtom(typeColorsAtom);
   const gridApiRef = useRef<GridApi<Row> | null>(null);
@@ -104,23 +104,26 @@ export function DataTable() {
     </div>
   );
 
-  /* readOnlyEdit: the grid never mutates; edits arrive here and go through
-     the store, so exclusions keep their provenance log entry */
-  const onCellEditRequest = (e: CellEditRequestEvent<Row>) => {
+  /* readOnlyEdit: the grid never mutates locally. An edit is an op against the
+     server-owned table; bumping the handle version refetches the affected block
+     (and re-runs compute). Exclusions go through the provenance-logging atom. */
+  const onCellEditRequest = async (e: CellEditRequestEvent<Row>) => {
+    if (!handle) return;
     const field = e.colDef.field!;
     if (field === "excluded") {
-      toggle(e.data.id);
+      await toggle(e.data.id);
       return;
     }
     const col = schema.columns.find((c) => c.name === field);
-    let value = e.newValue as Row[string];
+    let value: unknown = e.newValue;
     if (col?.type === "numeric")
       value = value == null || value === "" || Number.isNaN(Number(value))
         ? null : Number(value);
     else if (col?.type === "bool")
       value = value == null || value === "" ? null
         : value === "true" || value === true;
-    setRows(rows.map((r) => (r.id === e.data.id ? { ...r, [field]: value } : r)));
+    const { version, counts } = await engine.editCell(handle.id, e.data.id, field, value);
+    setHandle((h) => (h ? { ...h, version, counts } : h));
   };
 
   /* expose the configurable type colours to the grid headers as CSS vars */

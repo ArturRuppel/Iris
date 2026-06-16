@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   activePlottableAtom, analysisAtom, analyzeStatusAtom, dataLoadingAtom,
-  renderErrorAtom, rowsAtom, selectedRowIdAtom, toggleExclusionAtom,
+  renderErrorAtom, selectedRowIdAtom, tableHandleAtom, toggleExclusionAtom,
 } from "../state";
 import type { StyleOverrides } from "../types";
 import { StylePane } from "./StylePane";
@@ -27,7 +27,7 @@ export function FigurePane() {
   const status = useAtomValue(analyzeStatusAtom);
   const renderError = useAtomValue(renderErrorAtom);
   const dataLoading = useAtomValue(dataLoadingAtom);
-  const rows = useAtomValue(rowsAtom);
+  const tableHandle = useAtomValue(tableHandleAtom);
   const toggle = useSetAtom(toggleExclusionAtom);
   const [selected, setSelected] = useAtom(selectedRowIdAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
@@ -214,13 +214,15 @@ export function FigurePane() {
     window.addEventListener("pointerup", up);
   };
 
-  const exclude = (rowIds: string[]) => {
-    rowIds.forEach((id) => toggle(id));   // a coarse mark excludes its whole unit
+  const exclude = async (rowIds: string[]) => {
+    // a coarse mark excludes its whole unit; serialize so the handle counts
+    // settle on the final server state rather than racing concurrent toggles.
+    for (const id of rowIds) await toggle(id);
     setMenu(null);
     setSelected(null);
   };
 
-  const nExcluded = rows.filter((r) => r.excluded).length;
+  const nExcluded = tableHandle?.counts?.excluded ?? 0;
   return (
     <section className="pane figure-pane">
       <div className="pane-head">
