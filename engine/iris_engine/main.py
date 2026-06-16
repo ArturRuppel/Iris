@@ -217,8 +217,11 @@ def _run(table: dict, spec: dict):
         facet = spec.get("facet") or {}
         frow = facet.get("row") or {}
         fcol = facet.get("col") or {}
-        split_cols = [c for c in (cat_col, color_col, frow.get("column"),
-                                  fcol.get("column")) if c and c in df.columns]
+        # dedupe (order-preserving): a column may drive several encodings at once
+        # — e.g. a superplot groups by class on x *and* colours by the same class.
+        split_cols = list(dict.fromkeys(
+            c for c in (cat_col, color_col, frow.get("column"), fcol.get("column"))
+            if c and c in df.columns))
         level_tables, present_spine = hierarchy.materialize_levels(
             df, schema, spine, hier.get("fn"), split_cols)
         # Pairing follows from the spine (paired/partially/unpaired across the

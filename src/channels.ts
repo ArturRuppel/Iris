@@ -10,8 +10,10 @@
  */
 import type { ColumnDef, GeomMeta, Registry, Schema, StatsFamily } from "./types";
 
-/* the two column types a channel can carry; "identifier" columns are never
-   mapped to a visual channel, so they don't appear here */
+/* the two column types a channel can carry. "identifier" columns are not a
+   ColType: they never drive axes/stats and aren't mapped to most channels. The
+   one exception is color, where a spine identifier is treated as a discrete
+   categorical (see offeredColumns) so per-grain dots can be colored by grain. */
 export type ColType = "categorical" | "numeric";
 export type Channel = "x" | "y" | "color" | "size" | "shape"
                      | "facet_row" | "facet_col";
@@ -146,14 +148,19 @@ export function geomGateReason(
 
 /* the columns offerable on a channel, split into selectable (renderable) and
    disabled-with-reason (offerable but not drawn today). Identifier columns are
-   excluded by colType returning null. */
+   excluded by colType returning null — except on the color channel, where a
+   spine identifier (a replicate id like `date`) is offered and drawn as a
+   discrete palette: the superplot idiom of coloring per-grain dots by grain. */
 export function offeredColumns(
   reg: Registry | null, channel: Channel, columns: ColumnDef[],
 ): { selectable: ColumnDef[]; disabled: { col: ColumnDef; reason: string }[] } {
   const selectable: ColumnDef[] = [];
   const disabled: { col: ColumnDef; reason: string }[] = [];
   for (const c of columns) {
-    const t = c.type === "numeric" || c.type === "categorical" ? c.type : null;
+    const t: ColType | null =
+      c.type === "numeric" || c.type === "categorical" ? c.type
+      : channel === "color" && c.type === "identifier" ? "categorical"
+      : null;
     if (!t) continue;
     const st = renderStatus(reg, channel, t);
     if (st === "ok") selectable.push(c);

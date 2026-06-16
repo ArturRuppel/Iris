@@ -87,7 +87,10 @@ def materialize_levels(
 
     for i, lv in enumerate(present):
         prefix = present[: i + 1]
-        grain = prefix + [c for c in split if c not in prefix]
+        # dict.fromkeys dedupes split against the prefix *and* against itself, so a
+        # column used for several encodings can't land in the grain twice (which
+        # would make reset_index fail to re-insert a duplicated index level).
+        grain = list(dict.fromkeys(prefix + split))
         levels[lv] = _level_table(df, schema, grain, fn.get(lv, "mean"))
     return levels, present
 

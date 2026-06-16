@@ -95,11 +95,17 @@ describe("offer rule (§4) — derived from the registry for x/y, the matrix for
   });
 });
 
-describe("offeredColumns — selectable vs disabled-with-reason, identifiers excluded", () => {
-  it("color: both categorical and numeric selectable (3b), identifier excluded", () => {
+describe("offeredColumns — selectable vs disabled-with-reason, identifiers excluded (except colour)", () => {
+  it("color: categorical, numeric AND identifier selectable (id colours per-grain dots)", () => {
     const { selectable, disabled } = offeredColumns(REG, "color", COLS);
-    expect(selectable.map((c) => c.name)).toEqual(["grp", "val"]);
-    expect(disabled).toEqual([]);                       // no id (identifier excluded)
+    expect(selectable.map((c) => c.name)).toEqual(["grp", "val", "id"]);
+    expect(disabled).toEqual([]);                       // identifier offered as discrete
+  });
+
+  it("shape: identifier excluded — only colour offers identifiers", () => {
+    const { selectable, disabled } = offeredColumns(REG, "shape", COLS);
+    expect(selectable.map((c) => c.name)).not.toContain("id");
+    expect(disabled.map((d) => d.col.name)).not.toContain("id");
   });
 
   it("shape: categorical selectable, numeric disabled-with-reason", () => {

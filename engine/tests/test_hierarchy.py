@@ -190,6 +190,34 @@ def test_two_dot_layers_unique_gids_and_chained_ids():
     assert every <= set(df["id"])
 
 
+def test_identifier_color_colours_dots_per_grain_without_dodge():
+    """Mapping an identifier (a replicate id) to colour draws each per-grain dot
+    in its own swatch — the superplot replicate colouring — without dodging the
+    group into sub-columns. Each (x-level × colour) sub-series is its own
+    point-group so the click/exclude contract survives, and a box layer at a
+    different grain keeps a single uniform mark per x-level."""
+    df = _unpaired_df()
+    schema = _schema()
+    levels, _ = hierarchy.materialize_levels(df, schema, SPINE, {}, ["group", "subject"])
+    spec = _spec([
+        {"geom": "box", "params": {}, "level": "subject"},
+        {"geom": "dot", "params": {}, "level": "subject"},   # one bold dot per subject
+    ])
+    spec["encodings"]["color"] = {"column": "subject"}        # identifier on colour
+    fig, pg = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    # two groups (A, B) × two subjects each = four per-subject dot series, each a
+    # single mark (one subject-level dot), and gids stay unique.
+    assert len(pg) == 4
+    assert all(len(g["row_ids"]) == 1 for g in pg)
+    assert len({g["gid"] for g in pg}) == 4
+    # the four subject dots take four distinct colours (no two subjects share)
+    dot_colors = {tuple(round(x, 3) for x in coll.get_facecolors()[0])
+                  for ax in fig.axes for coll in ax.collections
+                  if len(coll.get_offsets()) == 1}
+    assert len(dot_colors) == 4
+    compiler.close(fig)
+
+
 def test_summary_error_from_level_spread():
     """A summary bound to the subject level reports the spread *across subjects*
     (the honest unit-level error), not across raw reps — the spec's core claim."""

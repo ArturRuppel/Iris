@@ -63,8 +63,13 @@ template — making n visible ("count the big marks") and closing `TODO.md` item
 10's "n does nothing" gap. A known e2e-suite regression from the Phase 3 fix pass
 is tracked in `TODO.md`; Phase 4's (`e2e/facets_test.mjs`) and Phase 5's
 (`e2e/superplot_test.mjs`) own e2e smokes are written but unverified in this
-sandbox for the same Chromium-unavailability reason. Project is under git as of
-13 June 2026. Last updated 16 June 2026.*
+sandbox for the same Chromium-unavailability reason. The Tier 2 statistics
+approach was redesigned (not yet built) around an opt-in, describe-by-default
+**guided test picker**: the family is fixed by the mapped column types, two
+questions (structural + assumption) select the test with the diagnostic
+proposing and the user confirming, and a Poisson/NB rate family plus an
+omnibus→post-hoc correction layer extend the same grid (§5). Project is under
+git as of 13 June 2026. Last updated 16 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -308,14 +313,74 @@ the semantics are mean of unit means with unit-level error. The rep key's
 paired-design gap (units spanning both groups) still resolves later through the
 single inferential-`unit` + `pair_by` mechanism.
 
-**Test matrix.** One-sample, two-sample (Welch), and paired t-tests;
-Mann–Whitney and Wilcoxon signed-rank; one-way ANOVA with Tukey post-hocs;
-Kruskal–Wallis; chi-square; Pearson and Spearman correlations. All via
-pingouin, all reporting effect sizes and confidence intervals, all wired into
-the recommendation tree: number of groups, paired or independent (derived
-from `pair_by`), and assumption checks select the suggested test, with the
-reasoning always displayed and always overridable. Overrides are recorded as
-`user_override` in the spec, as today.
+**Statistics — the guided test picker.** Inference is *opt-in and
+describe-by-default*: every analysis renders its figure and summaries with **no
+test** until the user adds one on purpose (the resting state is the `describe_*`
+path, consistent with the auto-seed removal in `111243b`). Adding a test runs a
+short **guided decision**, not a silent recommendation. The family is fixed by
+the mapped column *types* — it is the encoding, never asked — and within a
+family the choice splits on at most two questions: a **structural** one
+(independent vs paired/matched, prefilled from `pair_by`) and an **assumption**
+one (the only genuine judgment call). On the assumption question the engine
+**proposes an answer with a plain-language, diagnostic-backed reason, and the
+user confirms it** — the Shapiro/dispersion check *informs* the question instead
+of gating the test silently behind it; `chosen_by` records
+`recommendation_accepted` vs `user_override` per question, as today.
+"Comprehensive but not overwhelming" is delivered by progressive disclosure: the
+guide leads with the two obvious options and tucks rarer ones behind a "more"
+reveal. The bivariate families fall on one symmetric grid — every cell is
+`(structural) × (assumption)`:
+
+| family (from column types) | indep · parametric | indep · robust | paired · parametric | paired · robust |
+| --- | --- | --- | --- | --- |
+| numeric × group (2 levels) | Welch's t | Mann–Whitney U | paired t | Wilcoxon signed-rank |
+| numeric × numeric (scatter) | Pearson r | Spearman ρ | — (already within-pair) | Kendall τ ("more") |
+| categorical × categorical | chi-square | Fisher's exact | McNemar | exact McNemar ("more") |
+
+Variance adds no axis — Welch is used unconditionally (the modern default: no
+Levene pretest, so Student's t is intentionally absent); one-sample tests (t /
+Wilcoxon vs a constant) are a separate design, not a two-group cell. Every test
+reports an **effect size + CI** (Hedges' g; rank-biserial; r/ρ/τ; Cramér's V or
+odds ratio for 2×2) — the rigor backbone. Tests come from pingouin (t / rank /
+ANOVA / correlation) and scipy (exact tests); the contingency inferential side
+(chi-square / Fisher / McNemar) is still unbuilt — `contingency_counts` returns
+counts only — and is the concrete gap to close.
+
+**Counts as a stochastic outcome — the rate (Poisson) family.** A count column
+is type-indistinguishable from a continuous measurement (both `numeric`), so
+naïve type-inference would misroute an event count to Welch's t. Counts
+therefore get a **deliberate distribution-family declaration on the response**:
+the engine detects integer / non-negative candidates and *offers* "model [y] as
+event counts," default off. A count outcome is a **rate model** (Poisson, log
+link; effect = rate ratio / IRR), not a mean comparison — and the contingency
+chi-square is a special case of the same log-linear machinery, so this family
+*generalizes* the categorical×categorical one. Its assumption axis is
+**dispersion** — Poisson vs negative binomial, recommended from a Pearson-χ²/df
+dispersion check (mandatory, because real counts overdisperse and naïve Poisson
+is anticonservative) — and an optional **exposure/offset** column turns raw
+counts into rates. Two conditions: rate ratio + the exact two-sample Poisson
+test (scipy `poisson_means_test`) or a Poisson GLM. This is the GLM /
+`family: "model"` lane otherwise parked in Tier 4: a **minimal slice** (1–2
+conditions, rate ratio, exact test, dispersion check, via statsmodels) is
+feasible here in Tier 2, while the general Poisson/NB regression (≥3 conditions,
+offsets, covariates) and the repeated-measures Poisson GLMM stay in Tier 4 (§7).
+
+**Multiple groups — the omnibus → post-hoc layer.** Above two groups a single
+test cannot say *which* groups differ, so the design splits into two stages, and
+this is where multiple-comparisons correction lives. Stage 1 is an **omnibus**
+test (means: one-way ANOVA *F* / Welch / Kruskal–Wallis; counts: a
+likelihood-ratio test on the factor in the Poisson/NB GLM). Stage 2 is
+**corrected pairwise** comparisons, offered only after the omnibus: for means,
+**Tukey HSD** (its built-in family-wise control, the planned default); for GLMs,
+pairwise **Wald** tests on the coefficients (each a log rate ratio vs the
+reference level) with a generic family-wise correction — **Holm by default
+(uniformly more powerful than Bonferroni)**, with Bonferroni and others behind
+"more." Tukey is reserved for the means row because it assumes the normal,
+equal-variance means a GLM does not provide. The structural "how many groups"
+answer gates the whole layer (2 → single test, no correction; ≥3 → omnibus +
+corrected pairwise); this is exactly the correction step Phase 4 deferred for
+facets and the post-hoc work the multi-group item in §10 names, and the figure's
+significance brackets read from the (corrected) pairwise p-values.
 
 **Import wizard.** A preview UI in front of `pandas.read_csv` and
 `openpyxl`: delimiter and encoding detection, decimal-comma locales, type
@@ -460,9 +525,11 @@ per cell, gid-uniqueness and singular figure chrome across the grid, and
 **Phase 5 (Superplots)**: a layer-level per-unit stat + one-click superplot
 template that makes the inferential n visible (closing item 10's gap). That
 completes the composable-grammar track through Phase 5. Remaining for Tier 2:
-the multi-group path — one-way ANOVA with Tukey post-hocs and Kruskal–Wallis,
-plus the bracket annotation work it drives; paired plots and tests (`pair_by`);
-undo/redo; methods/statistics-table export. A known e2e-suite regression (stale
+the redesigned statistics (§5) — the opt-in, describe-by-default **guided test
+picker**, the paired and contingency-inferential cells the current engine lacks,
+the omnibus→post-hoc/correction layer (one-way ANOVA + Tukey, Kruskal–Wallis)
+and the significance brackets it drives, plus the minimal Poisson rate slice;
+paired plots and tests (`pair_by`); undo/redo; methods/statistics-table export. A known e2e-suite regression (stale
 selectors and assumptions left over from the Phase 3 fix pass, plus no
 UI-level coverage yet for Phase 3's three new render paths) is tracked in
 `TODO.md` — fix before trusting `e2e/` results again; Phase 4 and Phase 5 add

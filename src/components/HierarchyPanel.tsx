@@ -1,9 +1,10 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
-  hierarchyAtom, moveSpineAtom, schemaAtom, setColumnRoleAtom, tableTokenAtom,
+  hierarchyAtom, moveSpineAtom, schemaAtom, setColumnRoleAtom, setLevelFnAtom,
+  tableTokenAtom,
 } from "../state";
-import { engine, type HierarchyInfo } from "../types";
+import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
 
 /* The data hierarchy, defined on the DATA (not per analysis). Every non-numeric
    column is either an *identifier* (a nesting level on the spine) or a
@@ -17,6 +18,7 @@ export function HierarchyPanel() {
   const token = useAtomValue(tableTokenAtom);
   const setRole = useSetAtom(setColumnRoleAtom);
   const moveSpine = useSetAtom(moveSpineAtom);
+  const setLevelFn = useSetAtom(setLevelFnAtom);
   const [info, setInfo] = useState<HierarchyInfo | null>(null);
   const timer = useRef<number>();
 
@@ -93,24 +95,33 @@ export function HierarchyPanel() {
                 <span className="hp-rail" aria-hidden>
                   <span className="hp-dot" />
                 </span>
-                <span className="hp-level">
-                  <span className="hp-level-name">{labelFor(s)}</span>
-                  {nGroups(s) != null && (
-                    <span className="hp-count">{nGroups(s)!.toLocaleString()}</span>
-                  )}
-                  <span className="hp-move">
-                    <button className="icon" title="Coarser" disabled={i === 0}
-                      onClick={() => moveSpine({ index: i, dir: -1 })}>↑</button>
-                    <button className="icon" title="Finer" disabled={i === spine.length - 1}
-                      onClick={() => moveSpine({ index: i, dir: 1 })}>↓</button>
-                  </span>
-                </span>
-                <span className="hp-branches">
-                  {attachedAt(s).map((c) => (
-                    <span key={c.name} className="hp-branch" title={`${c.label} is constant within a ${labelFor(s)}`}>
-                      ┤ {c.label}
+                <span className="hp-node-body">
+                  <span className="hp-level">
+                    <span className="hp-level-name">{labelFor(s)}</span>
+                    {nGroups(s) != null && (
+                      <span className="hp-count">{nGroups(s)!.toLocaleString()}</span>
+                    )}
+                    <select className="hp-fn" value={hierarchy.fn[s] ?? "mean"}
+                      title={`How finer rows collapse into a ${labelFor(s)}`}
+                      onChange={(e) => setLevelFn({ level: s, fn: e.target.value as LevelFn })}>
+                      {LEVEL_FNS.map((fn) => <option key={fn} value={fn}>{fn}</option>)}
+                    </select>
+                    <span className="hp-move">
+                      <button className="icon" title="Coarser" disabled={i === 0}
+                        onClick={() => moveSpine({ index: i, dir: -1 })}>↑</button>
+                      <button className="icon" title="Finer" disabled={i === spine.length - 1}
+                        onClick={() => moveSpine({ index: i, dir: 1 })}>↓</button>
                     </span>
-                  ))}
+                  </span>
+                  {attachedAt(s).length > 0 && (
+                    <span className="hp-branches">
+                      {attachedAt(s).map((c) => (
+                        <span key={c.name} className="hp-branch" title={`${c.label} is constant within a ${labelFor(s)}`}>
+                          {c.label}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </span>
               </li>
             ))}

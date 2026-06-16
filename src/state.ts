@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type {
-  AnalysisSpec, AnalyzeResponse, Hierarchy, Layer, Registry, Schema, Row,
+  AnalysisSpec, AnalyzeResponse, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
   StatsFamily, StyleOverrides, Table, TestName, ReduceSpec, ReduceStep,
   ReduceStepKind, ReducePreview,
 } from "./types";
@@ -433,6 +433,15 @@ export const moveSpineAtom = atom(null,
     if (j < 0 || j >= spine.length) return;
     [spine[arg.index], spine[j]] = [spine[j], spine[arg.index]];
     set(hierarchyAtom, { ...h, spine });
+  });
+
+/* set the aggregate fn for a spine level — how finer rows collapse into that
+   grain. Table-level: shared by every analysis/layer and the preview that draw
+   the level. Unset means mean (the engine's default). */
+export const setLevelFnAtom = atom(null,
+  (get, set, arg: { level: string; fn: LevelFn }) => {
+    const h = get(hierarchyAtom);
+    set(hierarchyAtom, { ...h, fn: { ...h.fn, [arg.level]: arg.fn } });
   });
 
 export const setPreviewLevelAtom = atom(null, (get, set, level: string) => {

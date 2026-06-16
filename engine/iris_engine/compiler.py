@@ -146,19 +146,26 @@ def _group_color(style: dict, i: int) -> str:
     return palette[i % len(palette)]
 
 
-def _aes_arrays(rows, sc, num_color_col) -> dict:
+def _aes_arrays(rows, sc, num_color_col, cat_color_col=None) -> dict:
     """Per-row aesthetic values a dot layer varies *within* a group: numeric
-    color (Phase 3b), size (marker area), and shape (categorical marker). Spread
-    into the group dict; aggregate geoms (bar/box/violin/summary) ignore them."""
-    # size/shape/numeric-colour are per-row channels that only exist at the raw
-    # level; coarser level tables aggregate those columns away, so guard on
-    # presence and fall back to None (group colour, default size) for a coarse
-    # mark — exactly the "a unit mark is an aggregate" rule from the spec.
+    color (Phase 3b), discrete per-point color (an identifier/replicate id),
+    size (marker area), and shape (categorical marker). Spread into the group
+    dict; aggregate geoms (bar/box/violin/summary) ignore them."""
+    # these are per-row channels that only exist where the column survives; a
+    # coarser level table aggregates finer columns away, so guard on presence and
+    # fall back to None (group colour, default size) for a coarse mark — exactly
+    # the "a unit mark is an aggregate" rule from the spec. A color column coarser
+    # than the layer's grain (e.g. date colouring per-date dots) is single-valued
+    # per row and survives, so the per-point colour applies; finer columns drop.
     def _has(col):
         return col and col in rows.columns
     return {
         "cvals": (rows[num_color_col].to_numpy(dtype=float)
                   if _has(num_color_col) else None),
+        # per-row discrete colour: each dot drawn in its level's palette swatch
+        # with no dodge — the superplot idiom of colouring marks by replicate.
+        "ccols": ([sc.color_for(v) for v in rows[cat_color_col].astype(str)]
+                  if _has(cat_color_col) else None),
         "svals": (rows[sc.size_col].to_numpy(dtype=float)
                   if _has(sc.size_col) else None),
         "shvals": (rows[sc.shape_col].astype(str).to_numpy()
@@ -492,6 +499,15 @@ def _group(rows, lv, pos, color, layout):
     coarse aggregate — drops every underlying raw row uniformly."""
     val_col, sc = layout["val_col"], layout["scales"]
     num_color_col = layout["color_col"] if sc.color_numeric else None
+    # a discrete colour that isn't dodged and isn't the x grouping (an
+    # identifier/replicate id) colours each dot per-row instead of splitting the
+    # group into sub-columns. When colour just follows x it is constant within a
+    # group, so the uniform group-colour path is used (keeping the marker-reuse
+    # <use> SVG the click-to-exclude contract relies on).
+    cat_color_col = (layout["color_col"]
+                     if (layout["color_col"] and not sc.color_numeric
+                         and not layout["dodged"]
+                         and layout["color_col"] != layout["cat_col"]) else None)
     ys = rows[val_col].to_numpy(dtype=float) if val_col in rows else np.array([])
     if "row_ids" in rows:
         point_ids = [list(r) for r in rows["row_ids"].tolist()]
@@ -501,7 +517,7 @@ def _group(rows, lv, pos, color, layout):
             "point_ids": point_ids,
             "keys": rows["id"].tolist() if "id" in rows else list(range(len(ys))),
             "summary": _summary_of(lv, ys),
-            **_aes_arrays(rows, sc, num_color_col)}
+            **_aes_arrays(rows, sc, num_color_col, cat_color_col)}
 
 
 def _groups(level_df, layout):
@@ -607,9 +623,11 @@ def _geom_dot(ax, ctx, layer):
     group into one scatter call per marker, each its own point-group so the
     gid → row-ids click/exclude contract survives). At a coarser level it is one
     prominent mark per grain (e.g. one per date) — the superplot's "big marks"
-    that make n visible — coloured by group, with the per-row channels bypassed
-    (a coarse mark is an aggregate). Each mark carries the chained raw row-ids of
-    everything it aggregates, so excluding it drops the whole unit.
+    that make n visible — coloured by group, or per-grain when colour maps a
+    discrete column that survives the grain (e.g. date colouring per-date dots);
+    the numeric size/colour per-row channels stay bypassed (a coarse mark is an
+    aggregate). Each mark carries the chained raw row-ids of everything it
+    aggregates, so excluding it drops the whole unit.
 
     Per-layer `marker_size` and `alpha` params let a raw layer be faint/small and
     an aggregate layer bold/large within one composed figure."""
@@ -628,12 +646,25 @@ def _geom_dot(ax, ctx, layer):
         cat_pos = grp["pos"] + np.array([_stable_jitter(k, jitter) for k in keys]) \
             if len(ys) else np.array([])
         cvals, svals, shvals = grp.get("cvals"), grp.get("svals"), grp.get("shvals")
-        # one sub-series per shape level (each a distinct marker); no shape → one
-        sub_series = ([(scales.marker_for(lv), np.flatnonzero(shvals == lv))
-                       for lv in scales.shape_levels]
-                      if shvals is not None
-                      else [("o", np.arange(len(ys)))])
-        for marker, sel in sub_series:
+        ccols = grp.get("ccols")
+        # Sub-series split first by shape marker, then (for a discrete per-point
+        # colour) by colour level. Each (marker × colour) sub-series is a single
+        # scatter call with a uniform marker+colour, so matplotlib renders it as
+        # reusable <use> glyphs — keeping the gid → row-ids per-point click/exclude
+        # contract that breaks if one call carries per-point colours.
+        shape_series = ([(scales.marker_for(lv), np.flatnonzero(shvals == lv))
+                         for lv in scales.shape_levels]
+                        if shvals is not None
+                        else [("o", np.arange(len(ys)))])
+        sub_series = []
+        for marker, sel in shape_series:
+            if ccols is not None:
+                for col in dict.fromkeys(ccols[i] for i in sel):  # first-seen order
+                    csel = np.array([i for i in sel if ccols[i] == col], dtype=int)
+                    sub_series.append((marker, col, csel))
+            else:
+                sub_series.append((marker, None, sel))
+        for marker, color, sel in sub_series:
             if not len(sel):
                 continue
             size = (np.array([scales.size_for(v) for v in svals[sel]])
@@ -649,7 +680,11 @@ def _geom_dot(ax, ctx, layer):
                                   **common)
                 ctx["cbar_mappable"] = coll
             else:
-                coll = ax.scatter(px, py, color=grp["color"], **common)
+                # `color` is the sub-series' discrete swatch (per-grain colouring)
+                # or None to fall back to the group colour.
+                coll = ax.scatter(px, py,
+                                  color=color if color is not None else grp["color"],
+                                  **common)
             gid = f"pts-{idx}"
             coll.set_gid(gid)
             # row_ids[k] is the chained raw-id list behind the k-th drawn point

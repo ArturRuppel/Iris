@@ -33,10 +33,16 @@ export type Geom = Mark; // geom name == existing mark string (dot, box, …)
    `hierarchy`, shared by every consumer. */
 export interface Layer { geom: Geom; params: Record<string, unknown>; level: string }
 
+/* How finer rows collapse into a coarser grain. The set the engine's
+   `materialize_levels` actually honors (hierarchy._AGG); distinct from the
+   reduce-step `AggFn`, which also carries count/sem but no min/max. */
+export type LevelFn = "mean" | "median" | "sum" | "min" | "max";
+export const LEVEL_FNS: LevelFn[] = ["mean", "median", "sum", "min", "max"];
+
 /* The nesting spine (coarsest → finest, e.g. date › position › cell › frame) and
    the per-level aggregate function (default mean). Defined once per plottable;
    each layer and the reduced-table preview pick a level from it. */
-export interface Hierarchy { spine: string[]; fn: Record<string, AggFn> }
+export interface Hierarchy { spine: string[]; fn: Record<string, LevelFn> }
 export const EMPTY_HIERARCHY: Hierarchy = { spine: [], fn: {} };
 export const RAW_LEVEL = "";
 
