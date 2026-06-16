@@ -25,9 +25,9 @@ const theme = themeQuartz.withParams({
   wrapperBorder: false,
 });
 
-const TYPE_BADGE = { numeric: "123", categorical: "abc", identifier: "id" } as const;
+const TYPE_BADGE = { numeric: "123", categorical: "abc", identifier: "id", bool: "T/F" } as const;
 const TYPE_LABEL: Record<ColumnType, string> = {
-  numeric: "numeric", categorical: "categorical", identifier: "identifier",
+  numeric: "numeric", categorical: "categorical", identifier: "identifier", bool: "bool",
 };
 
 export function DataTable() {
@@ -59,10 +59,16 @@ export function DataTable() {
         minWidth: 90,
         cellDataType: c.type === "numeric" ? "number" : "text",
         cellClass: c.type === "identifier" ? "mono dim"
-          : c.type === "numeric" ? "mono" : undefined,
+          : c.type === "numeric" || c.type === "bool" ? "mono" : undefined,
         ...(c.type === "categorical" && {
           cellEditor: "agSelectCellEditor",
           cellEditorParams: { values: c.levels ?? [] },
+        }),
+        ...(c.type === "bool" && {
+          cellEditor: "agSelectCellEditor",
+          cellEditorParams: { values: ["true", "false"] },
+          valueFormatter: (p: { value: unknown }) =>
+            p.value == null ? "NA" : p.value ? "true" : "false",
         }),
         ...(c.type === "numeric" && {
           valueFormatter: (p: { value: unknown }) =>
@@ -92,6 +98,9 @@ export function DataTable() {
     if (col?.type === "numeric")
       value = value == null || value === "" || Number.isNaN(Number(value))
         ? null : Number(value);
+    else if (col?.type === "bool")
+      value = value == null || value === "" ? null
+        : value === "true" || value === true;
     setRows(rows.map((r) => (r.id === e.data.id ? { ...r, [field]: value } : r)));
   };
 
@@ -101,6 +110,7 @@ export function DataTable() {
     "--type-numeric": typeColors.numeric,
     "--type-categorical": typeColors.categorical,
     "--type-identifier": typeColors.identifier,
+    "--type-bool": typeColors.bool,
   } as CSSProperties;
   return (
     <section className="pane table-pane">
@@ -127,6 +137,10 @@ export function DataTable() {
           rowData={rows}
           columnDefs={columnDefs}
           getRowId={(p) => p.data.id}
+          /* our family columns carry dots (cell_shape.area_um2); without this
+             ag-grid reads `field` as a nested path (row.cell_shape.area_um2)
+             and every dotted column renders NA. Treat field as a flat key. */
+          suppressFieldDotNotation
           readOnlyEdit
           onCellEditRequest={onCellEditRequest}
           rowClassRules={{ excluded: (p) => !!p.data?.excluded }}

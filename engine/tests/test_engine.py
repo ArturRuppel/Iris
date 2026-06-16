@@ -358,6 +358,37 @@ def test_import_commit_feeds_analyze():
     assert r.json()["stats"]["result"]["p"] < 0.001
 
 
+def test_import_bool_type_plots_as_fraction():
+    # a true/false column is the fourth data type (a stochastic-event flag); it
+    # imports as `bool` and, on analyze, collapses to numeric 1/0 so a group
+    # summary reads as the fraction of trues.
+    csv_data = (b"group,divided\n"
+                b"control,no\ncontrol,no\ncontrol,no\ncontrol,yes\n"
+                b"treated,yes\ntreated,yes\ntreated,yes\ntreated,no\n")
+    prev = client.post("/import/preview", json={
+        "filename": "events.csv", "data_base64": _b64(csv_data)}).json()
+    cols = {c["name"]: c for c in prev["columns"]}
+    assert cols["divided"]["type"] == "bool"
+    assert cols["group"]["type"] == "categorical"
+
+    commit = client.post("/import/commit", json={
+        "filename": "events.csv", "data_base64": _b64(csv_data),
+        "options": prev["options"], "columns": prev["columns"]}).json()
+    # bool values are emitted as JSON booleans, not strings
+    assert commit["columns"]["divided"][:2] == [False, False]
+    assert commit["columns"]["divided"][3] is True
+
+    spec = make_spec()
+    spec["mappings"]["x"] = {"column": "group"}
+    spec["mappings"]["y"] = {"column": "divided"}
+    spec["mappings"]["color"] = {"column": "group"}
+    r = client.post("/analyze", json={"table": commit, "spec": spec})
+    assert r.status_code == 200
+    means = {s["group"]: s["mean"] for s in r.json()["stats"]["summaries"]}
+    assert means["control"] == pytest.approx(0.25)  # 1 of 4 divided
+    assert means["treated"] == pytest.approx(0.75)  # 3 of 4 divided
+
+
 def test_import_reserved_and_duplicate_names():
     csv_data = b"id,excluded,value,value\n1,yes,3.2,4.1\n2,no,3.5,4.4\n3,no,3.1,4.2\n"
     body = client.post("/import/preview", json={

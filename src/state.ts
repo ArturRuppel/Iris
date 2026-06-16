@@ -66,6 +66,7 @@ export const DEFAULT_TYPE_COLORS: Record<ColumnType, string> = {
   numeric: "#0e7490",      // teal — measurements
   categorical: "#9333ea",  // purple — classifiers
   identifier: "#64748b",   // slate — nesting keys
+  bool: "#c2410c",         // rust — stochastic-event flags (true/false)
 };
 export const typeColorsAtom = atomWithStorage<Record<ColumnType, string>>(
   "iris.typeColors", DEFAULT_TYPE_COLORS);

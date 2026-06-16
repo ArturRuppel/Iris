@@ -43,7 +43,11 @@ export const RENDERABLE: Record<Channel, Partial<Record<ColType, Support>>> = {
 export function colType(schema: Schema | null, name: string): ColType | null {
   if (!schema || !name) return null;
   const c = schema.columns.find((c) => c.name === name);
-  return c && (c.type === "numeric" || c.type === "categorical") ? c.type : null;
+  if (!c) return null;
+  // a bool is a stochastic-event flag: it plots/analyzes as numeric 1/0 (the
+  // fraction of trues), so every channel treats it as numeric.
+  if (c.type === "numeric" || c.type === "bool") return "numeric";
+  return c.type === "categorical" ? "categorical" : null;
 }
 
 /* the derived stats family — the label the stats engine reads — computed from
@@ -158,7 +162,8 @@ export function offeredColumns(
   const disabled: { col: ColumnDef; reason: string }[] = [];
   for (const c of columns) {
     const t: ColType | null =
-      c.type === "numeric" || c.type === "categorical" ? c.type
+      c.type === "numeric" || c.type === "bool" ? "numeric"
+      : c.type === "categorical" ? "categorical"
       : channel === "color" && c.type === "identifier" ? "categorical"
       : null;
     if (!t) continue;

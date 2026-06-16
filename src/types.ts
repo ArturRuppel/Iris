@@ -2,7 +2,7 @@
 
 export interface ColumnDef {
   name: string;
-  type: "numeric" | "categorical" | "identifier";
+  type: "numeric" | "categorical" | "identifier" | "bool";
   label: string;
   unit?: string;
   levels?: string[];

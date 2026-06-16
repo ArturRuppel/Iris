@@ -124,6 +124,14 @@ describe("offeredColumns — selectable vs disabled-with-reason, identifiers exc
     expect(selectable.map((c) => c.name)).toEqual(["grp", "val"]);
     expect(disabled).toEqual([]);
   });
+  it("bool is offered like a numeric on y (it plots as a fraction)", () => {
+    const cols: ColumnDef[] = [...COLS, { name: "hit", type: "bool", label: "Hit" }];
+    const { selectable } = offeredColumns(REG, "y", cols);
+    expect(selectable.map((c) => c.name)).toEqual(["val", "hit"]);
+    // and it derives the numeric family on the value axis
+    const schema: Schema = { schema_version: "1.0", columns: cols };
+    expect(familyForMappings({ x: "grp", y: "hit" }, schema)).toBe("group_comparison");
+  });
   it("size: only the numeric column; categorical is not offered at all", () => {
     const { selectable, disabled } = offeredColumns(REG, "size", COLS);
     expect(selectable.map((c) => c.name)).toEqual(["val"]);

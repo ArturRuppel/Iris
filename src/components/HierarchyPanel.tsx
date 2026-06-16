@@ -23,7 +23,8 @@ export function HierarchyPanel() {
   const timer = useRef<number>();
 
   const classifiers = (schema?.columns ?? []).filter((c) => c.type === "categorical");
-  const measures = (schema?.columns ?? []).filter((c) => c.type === "numeric");
+  const measures = (schema?.columns ?? []).filter(
+    (c) => c.type === "numeric" || c.type === "bool");
   const spine = hierarchy.spine;
 
   /* fetch home levels + grain cardinalities whenever the spine or the set of

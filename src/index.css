@@ -54,9 +54,11 @@ main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 14px;
 .ag-header-cell.type-numeric { box-shadow: inset 0 2px 0 var(--type-numeric); }
 .ag-header-cell.type-categorical { box-shadow: inset 0 2px 0 var(--type-categorical); }
 .ag-header-cell.type-identifier { box-shadow: inset 0 2px 0 var(--type-identifier); }
+.ag-header-cell.type-bool { box-shadow: inset 0 2px 0 var(--type-bool); }
 .ag-header-cell.type-numeric .ag-header-cell-text { color: var(--type-numeric); }
 .ag-header-cell.type-categorical .ag-header-cell-text { color: var(--type-categorical); }
 .ag-header-cell.type-identifier .ag-header-cell-text { color: var(--type-identifier); }
+.ag-header-cell.type-bool .ag-header-cell-text { color: var(--type-bool); }
 
 .table-scroll { max-height: 560px; overflow: auto; }
 .grid-host { height: 560px; }

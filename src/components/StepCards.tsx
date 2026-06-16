@@ -93,7 +93,9 @@ export function StepCollapse(
   const setAgg = (col: string, fn: AggFn) =>
     onChange({ ...step, aggregate: { ...step.aggregate, [col]: fn } });
 
-  const numerics = columns.filter((c) => c.type === "numeric" && !step.group_by.includes(c.name));
+  // bool collapses to numeric 1/0, so it's aggregatable too (mean → fraction true)
+  const numerics = columns.filter(
+    (c) => (c.type === "numeric" || c.type === "bool") && !step.group_by.includes(c.name));
   return (
     <>
       <div className="step-sub">Group by</div>

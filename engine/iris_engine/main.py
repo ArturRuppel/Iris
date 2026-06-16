@@ -206,10 +206,19 @@ def _load_frame(table: dict, respect_exclusions: bool) -> tuple[pd.DataFrame, di
         df = df[~df["excluded"].fillna(False)]
     df = df.copy()
     df.attrs["n_excluded"] = n_before - len(df)
+    # A `bool` column (a stochastic-event flag) collapses to numeric 1/0 for every
+    # compute path — so a summary/bar of it reads as the fraction of trues — and
+    # is presented as numeric to the rest of the engine. Normalize a copy of the
+    # schema so the compiler/stats/guards never need a bool branch (and the cached
+    # source table's schema isn't mutated).
+    norm_cols = []
     for col in schema["columns"]:
-        if col["type"] == "numeric" and col["name"] in df:
+        if col["type"] in ("numeric", "bool") and col["name"] in df:
             df[col["name"]] = pd.to_numeric(df[col["name"]], errors="coerce")
-    return df, schema
+        if col["type"] == "bool":
+            col = {**col, "type": "numeric"}
+        norm_cols.append(col)
+    return df, {**schema, "columns": norm_cols}
 
 
 def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:

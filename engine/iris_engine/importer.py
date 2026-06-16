@@ -16,6 +16,15 @@ import pandas as pd
 # tokens treated as missing in addition to truly empty cells
 MISSING_TOKENS = {"", "na", "n/a", "nan", "null", "none", "-", "?", "missing", "."}
 
+# boolean vocabulary for the `bool` type (counts of stochastic events: did the
+# event happen?). Detection is deliberately conservative — only an unambiguous
+# true/false vocabulary, NOT 0/1, so a genuine numeric 0/1 measure isn't hijacked
+# (a user can still retype a 0/1 column to bool in the wizard). On compute a bool
+# collapses to numeric 1/0, so a bar/summary of it reads as the fraction of trues.
+TRUE_TOKENS = {"true", "t", "yes", "y"}
+FALSE_TOKENS = {"false", "f", "no", "n"}
+BOOL_TOKENS = TRUE_TOKENS | FALSE_TOKENS
+
 RESERVED_NAMES = {"id", "excluded"}  # row bookkeeping fields in the table model
 
 EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls")
@@ -176,10 +185,25 @@ def _looks_like_identifier(name: object) -> bool:
     return any(t in _ID_TOKENS for t in tokens)
 
 
+def _parse_bool(v: object) -> bool | None:
+    if pd.isna(v):
+        return None
+    t = str(v).strip().lower()
+    if t in TRUE_TOKENS:
+        return True
+    if t in FALSE_TOKENS:
+        return False
+    return None
+
+
 def _infer_type(s: pd.Series, decimal: str) -> str:
     non_na = s.dropna()
     if non_na.empty:
         return "categorical"
+    # bool before numeric: an all true/false (yes/no) column is a stochastic
+    # event flag, not a measure or a free categorical.
+    if set(str(v).strip().lower() for v in non_na.unique()) <= BOOL_TOKENS:
+        return "bool"
     name_id = _looks_like_identifier(s.name)
     nums = _as_numeric(non_na, decimal)
     if nums.notna().mean() >= 0.95:
@@ -218,6 +242,8 @@ def _column_report(df: pd.DataFrame, labels: list[str], decimal: str,
             col["n_distinct"] = int(non_na.nunique())
             if ctype == "numeric":
                 col["n_unparsed"] = int((_as_numeric(non_na, decimal).isna()).sum())
+            elif ctype == "bool":
+                col["n_unparsed"] = int(sum(_parse_bool(v) is None for v in non_na))
             elif ctype == "categorical":
                 col["levels"] = _levels_in_order(s)[:MAX_LEVELS]
         cols.append(col)
@@ -236,6 +262,8 @@ def _typed_columns(df: pd.DataFrame, columns: list[dict], decimal: str,
         if col["type"] == "numeric":
             nums = _as_numeric(s, decimal)
             converted[col["name"]] = [None if pd.isna(v) else float(v) for v in nums]
+        elif col["type"] == "bool":
+            converted[col["name"]] = [_parse_bool(v) for v in s]
         else:
             converted[col["name"]] = [None if pd.isna(v) else str(v) for v in s]
     return converted

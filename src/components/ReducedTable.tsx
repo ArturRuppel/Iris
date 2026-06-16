@@ -68,6 +68,9 @@ export function ReducedTable() {
           theme={theme}
           rowData={rows}
           columnDefs={colDefs}
+          /* family columns carry dots (cell_shape.area_um2); without this
+             ag-grid reads `field` as a nested path and renders NA. */
+          suppressFieldDotNotation
           headerHeight={30}
           rowHeight={26}
         />

@@ -10,6 +10,7 @@ const TYPE_LABELS: Record<ColumnDef["type"], string> = {
   numeric: "numeric (123)",
   categorical: "categorical (abc)",
   identifier: "identifier (id)",
+  bool: "bool (T/F)",
 };
 
 /** "Import data…" button plus the preview/confirm dialog. Parsing happens in
@@ -196,7 +197,7 @@ export function ImportWizard() {
                       </span>
                       {(c.n_unparsed ?? 0) > 0 && (
                         <span className="warn">
-                          {c.n_unparsed} value(s) not numeric → missing
+                          {c.n_unparsed} value(s) not {c.type === "bool" ? "true/false" : "numeric"} → missing
                         </span>
                       )}
                     </div>
