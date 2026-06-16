@@ -61,7 +61,17 @@ export function FigurePane() {
 
   useEffect(() => {
     const el = host.current;
-    if (!el || !analysis) return;
+    if (!el) return;
+    /* no analysis (invalidated / errored / not yet mapped): clear the stale SVG
+       so the placeholder shows alone — the error/empty overlay is a static
+       block, not a cover, so a leftover figure would render beside it (item 11) */
+    if (!analysis) {
+      el.innerHTML = "";
+      useByRow.current.clear();
+      setMenu(null);
+      setDims(null);
+      return;
+    }
     el.innerHTML = analysis.figure.svg;
     setMenu(null);
     useByRow.current.clear();
@@ -155,9 +165,29 @@ export function FigurePane() {
     const svg = host.current?.querySelector("svg");
     if (!svg || !dims) return;
     e0.preventDefault();
+    const vb = svg.viewBox.baseVal;
+    /* The figure is only re-rendered (re-laid-out at the new w×h mm) on release.
+       For the live preview to show the right *shape*, stretch the existing SVG
+       to fill the target box: the default preserveAspectRatio="meet" would
+       letterbox and keep the aspect ratio constant — which is exactly the
+       reported mismatch with the final render. The maxWidth cap is lifted too
+       so the previewed box is the true target size, not the pane width. */
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.style.maxWidth = "none";
+    /* back to the shrink-to-fit display the SVG-injection effect sets up */
+    const restoreFit = () => {
+      svg.removeAttribute("preserveAspectRatio");
+      svg.style.width = `${vb.width * PX_PER_PT}px`;
+      svg.style.maxWidth = "100%";
+      svg.style.height = "auto";
+      placeHandle();
+    };
+    const dimsFor = (e: PointerEvent) => ({
+      w: Math.max(40, Math.round(dims.w + (e.clientX - e0.clientX) / PX_PER_PT / PT_PER_MM)),
+      h: Math.max(30, Math.round(dims.h + (e.clientY - e0.clientY) / PX_PER_PT / PT_PER_MM)),
+    });
     const move = (e: PointerEvent) => {
-      const w = Math.max(40, Math.round(dims.w + (e.clientX - e0.clientX) / PX_PER_PT / PT_PER_MM));
-      const h = Math.max(30, Math.round(dims.h + (e.clientY - e0.clientY) / PX_PER_PT / PT_PER_MM));
+      const { w, h } = dimsFor(e);
       svg.style.width = `${w * PT_PER_MM * PX_PER_PT}px`;
       svg.style.height = `${h * PT_PER_MM * PX_PER_PT}px`;
       setResizing(`${w} × ${h} mm`);
@@ -167,8 +197,10 @@ export function FigurePane() {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       setResizing(null);
-      const w = Math.max(40, Math.round(dims.w + (e.clientX - e0.clientX) / PX_PER_PT / PT_PER_MM));
-      const h = Math.max(30, Math.round(dims.h + (e.clientY - e0.clientY) / PX_PER_PT / PT_PER_MM));
+      const { w, h } = dimsFor(e);
+      /* drop the stretched preview either way; a real change re-renders, an
+         unchanged release just returns to the fit display */
+      restoreFit();
       if (w !== dims.w || h !== dims.h)
         setStyle((st) => ({ ...st, width_mm: w, height_mm: h }));
     };

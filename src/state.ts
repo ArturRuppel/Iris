@@ -29,8 +29,11 @@ export const dataLoadingAtom = atom<boolean>(false);
 /* the geom registry, fetched once from /health at startup; drives the rail */
 export const registryAtom = atom<Registry | null>(null);
 
-/* must match compiler.PALETTE; the style panel edits copies of it */
-export const DEFAULT_PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"];
+/* must match compiler.PALETTE (Okabe–Ito) so the swatches shown in the style
+   panel for an unset palette are the exact colors the engine draws; the style
+   panel edits copies of it */
+export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
+  "#0072B2", "#D55E00", "#CC79A7", "#000000"];
 
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);
@@ -82,6 +85,10 @@ export interface Plottable {
   layers: Layer[];          // the editable, ordered geom stack
   override: TestName | null;
   describeOnly: boolean;    // user asked to render without a test
+  /* item 10: column(s) defining an independent repetition; empty = n counts raw
+     rows. When set, the engine averages technical replicates per unit before
+     computing n and the test (the figure keeps the raw points). */
+  repetitionKey: string[];
   preset: string;
   style: StyleOverrides;
   reduce: ReduceSpec;
@@ -100,6 +107,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     facetRow: "", facetCol: "", shareX: true, shareY: true,
     layers: [],
     override: null, describeOnly: false,
+    repetitionKey: [],
     preset: "demo_default", style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
        so an in-place mutation could never alias across plottables.
@@ -201,6 +209,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
                             per: family === "group_comparison" ? "group" : "variable" }],
       alpha: 0.05,
       report: ["effect_size", "ci", "n_per_group"],
+      repetition_key: p.repetitionKey,
     },
     annotations: { significance_brackets: "auto", show_n: true },
     style: { preset: p.preset, overrides: p.style },
@@ -255,6 +264,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     mappings: { ...src.mappings },
+    repetitionKey: [...src.repetitionKey],
     layers: src.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
     style: structuredClone(src.style),
     reduce: { steps: structuredClone(src.reduce.steps) },

@@ -177,6 +177,13 @@ def _run(table: dict, spec: dict):
     alpha = spec.get("stats", {}).get("alpha", 0.05)
     override = spec.get("_override")
     family = model["family"]
+    # Phase / item 10: the independent-repetition key(s) that define n. Keep only
+    # those that survived the reduction so a stale/dropped column is ignored
+    # rather than raising; the figure still draws raw rows, only the stats count
+    # units (see stats._aggregate_reps).
+    present_cols = {c["name"] for c in schema["columns"]}
+    rep_key = [k for k in (spec.get("stats", {}).get("repetition_key") or [])
+               if k in present_cols]
     if family == "group_comparison":
         enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
         enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
@@ -195,11 +202,13 @@ def _run(table: dict, spec: dict):
                 422, f"grouping column {cat_col!r} not found in schema")
         res = (stats.describe_groups(
                    df, cat_col, val_col,
-                   levels=cat_schema.get("levels", []), alpha=alpha)
+                   levels=cat_schema.get("levels", []), alpha=alpha,
+                   rep_key=rep_key)
                if describe_only else
                stats.group_comparison(
                    df, cat_col, val_col,
-                   levels=cat_schema.get("levels", []), alpha=alpha, override=override))
+                   levels=cat_schema.get("levels", []), alpha=alpha,
+                   override=override, rep_key=rep_key))
     elif family == "correlation":
         res = (stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)

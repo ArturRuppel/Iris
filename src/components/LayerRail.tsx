@@ -8,6 +8,7 @@ import { axisTypes, geomGateReason } from "../channels";
 import type { Geom, Layer, Registry } from "../types";
 import { LayerCard } from "./LayerCards";
 import { EncodingsCard } from "./EncodingsCard";
+import { RepetitionKey } from "./RepetitionKey";
 
 /* one geom layer, independently collapsible so a tall stack stays scannable.
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
@@ -64,8 +65,17 @@ export function LayerRail() {
   const removeLayer = useSetAtom(removeLayerAtom);
   const moveLayer = useSetAtom(moveLayerAtom);
   const [adding, setAdding] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
 
   if (!active || !registry) return null;
+  if (collapsed) {
+    return (
+      <div className="layer-rail collapsed">
+        <button className="rail-expand" title="Show encoding & layers"
+          onClick={() => setCollapsed(false)}>⋮ Encoding</button>
+      </div>
+    );
+  }
   const layers = active.layers;
 
   /* type-driven gating (Phase 3): a geom is offerable iff the current axis types
@@ -79,9 +89,14 @@ export function LayerRail() {
 
   const allGeoms = Object.keys(registry.geoms) as Geom[];
   const used = new Set(layers.map((l) => l.geom));
-  /* every geom not already in the stack is shown in the add menu; incompatible
-     ones are disabled-with-reason rather than dropped. */
-  const addable = allGeoms.filter((g) => !used.has(g));
+  /* the add menu offers only geoms compatible with the current encoding (item
+     6): an incompatible geom can't be drawn, so adding it just produces a broken
+     layer. Already-used geoms are excluded too. Incompatible ones are hidden
+     here (not disabled-with-reason as in the retype dropdown, where seeing why a
+     switch is blocked is useful); a count tells the user some were hidden. */
+  const notUsed = allGeoms.filter((g) => !used.has(g));
+  const addable = notUsed.filter((g) => !gateReason(g));
+  const hiddenCount = notUsed.length - addable.length;
   /* retype options: all geoms minus those used by *other* layers, but always
      keeping this layer's own current geom. */
   const retypeOptions = (geom: Geom) =>
@@ -91,9 +106,13 @@ export function LayerRail() {
     <div className="layer-rail">
       <div className="rail-head">
         <strong>Encoding & layers</strong>
+        <button className="icon" title="Hide encoding & layers"
+          onClick={() => setCollapsed(true)}>⟨</button>
       </div>
 
       <EncodingsCard />
+
+      <RepetitionKey />
 
       {layers.length === 0 && (
         <p className="rail-empty">No layers — add a geom.</p>
@@ -113,16 +132,22 @@ export function LayerRail() {
       <div className="add-layer">
         {adding ? (
           <div className="add-layer-menu">
-            {addable.length === 0 && <em className="rail-empty">all geoms added</em>}
-            {addable.map((g) => {
-              const reason = gateReason(g);
-              return (
-                <button key={g} disabled={!!reason} title={reason ?? undefined}
-                  onClick={() => { addLayer(g); setAdding(false); }}>
-                  {registry.geoms[g].label}{reason ? ` — ${reason}` : ""}
-                </button>
-              );
-            })}
+            {addable.length === 0 && (
+              <em className="rail-empty">
+                {notUsed.length === 0 ? "all geoms added"
+                  : "No layer fits the current encoding — map X / Y to enable layers."}
+              </em>
+            )}
+            {addable.map((g) => (
+              <button key={g} onClick={() => { addLayer(g); setAdding(false); }}>
+                {registry.geoms[g].label}
+              </button>
+            ))}
+            {hiddenCount > 0 && addable.length > 0 && (
+              <em className="rail-empty">
+                {hiddenCount} more hidden — incompatible with the current encoding
+              </em>
+            )}
             <button className="cancel" onClick={() => setAdding(false)}>cancel</button>
           </div>
         ) : (

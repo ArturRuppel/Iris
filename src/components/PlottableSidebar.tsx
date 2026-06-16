@@ -1,4 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useState } from "react";
 import {
   activePlottableIdAtom, addPlottableAtom, deletePlottableAtom,
   duplicatePlottableAtom, plottablesAtom, renamePlottableAtom,
@@ -11,8 +12,24 @@ export function PlottableSidebar() {
   const dup = useSetAtom(duplicatePlottableAtom);
   const del = useSetAtom(deletePlottableAtom);
   const rename = useSetAtom(renamePlottableAtom);
+  const [collapsed, setCollapsed] = useState(false);
+
+  if (collapsed) {
+    return (
+      <aside className="plottable-sidebar collapsed">
+        <button className="rail-expand" title="Show analyses"
+          onClick={() => setCollapsed(false)}>⋮ Analyses</button>
+      </aside>
+    );
+  }
+
   return (
     <aside className="plottable-sidebar">
+      <div className="rail-head">
+        <strong>Analyses</strong>
+        <button className="icon" title="Hide analyses"
+          onClick={() => setCollapsed(true)}>⟨</button>
+      </div>
       <button className="add-plottable" onClick={() => add()}>+ Analysis</button>
       <ul>
         {plottables.map((p) => (

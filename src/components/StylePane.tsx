@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom } from "../state";
 import { familyForMappings } from "../channels";
@@ -29,7 +29,12 @@ const OUTLIER_LABELS = {
  *  owns the defaults, and mark options only appear for the active plot. */
 export function StylePane() {
   const [active, setActive] = useAtom(activePlottableAtom);
-  const [colorMenu, setColorMenu] = useState<{ x: number; y: number; index: number } | null>(null);
+  /* anchor = the swatch button's rect; the popover positions itself off it and
+     clamps into the viewport (a fixed top/bottom would clip near a screen edge,
+     which is what happened in fullscreen where the drawer sits lower) */
+  const [colorMenu, setColorMenu] = useState<{ anchor: DOMRect; index: number } | null>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const [popPos, setPopPos] = useState<{ left: number; top: number } | null>(null);
   const style = active?.style ?? {};
   const analysis = useAtomValue(analysisAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
@@ -57,6 +62,22 @@ export function StylePane() {
   const colorOf = (i: number) => palette[i % palette.length];
   const setColor = (i: number, color: string) =>
     set({ palette: seriesNames.map((_, k) => (k === i ? color : colorOf(k))) });
+
+  /* place the popover once its size is known: open below the swatch, but flip
+     above / clamp to the edges so it never runs off-screen */
+  useLayoutEffect(() => {
+    if (!colorMenu || !popRef.current) { setPopPos(null); return; }
+    const M = 8;
+    const { width, height } = popRef.current.getBoundingClientRect();
+    const a = colorMenu.anchor;
+    let top = a.bottom + 4;
+    if (top + height > window.innerHeight - M)
+      top = Math.max(M, a.top - 4 - height);
+    let left = a.left;
+    if (left + width > window.innerWidth - M)
+      left = Math.max(M, window.innerWidth - M - width);
+    setPopPos({ left, top });
+  }, [colorMenu]);
 
   const dirty = Object.keys(style).length > 0;
 
@@ -335,10 +356,8 @@ export function StylePane() {
             <label key={name}>{name}
               <button type="button" className="color-swatch-btn"
                 style={{ background: colorOf(i) }}
-                onClick={(e) => {
-                  const r = e.currentTarget.getBoundingClientRect();
-                  setColorMenu({ x: r.left, y: r.bottom + 4, index: i });
-                }} />
+                onClick={(e) =>
+                  setColorMenu({ anchor: e.currentTarget.getBoundingClientRect(), index: i })} />
             </label>
           ))}
         </fieldset>
@@ -372,7 +391,9 @@ export function StylePane() {
       {colorMenu && (
         <>
           <div className="menu-backdrop" onClick={() => setColorMenu(null)} />
-          <div className="context-menu color-popover" style={{ left: colorMenu.x, top: colorMenu.y }}>
+          <div ref={popRef} className="context-menu color-popover"
+            style={{ left: popPos?.left ?? colorMenu.anchor.left, top: popPos?.top ?? colorMenu.anchor.bottom + 4,
+              visibility: popPos ? "visible" : "hidden" }}>
             <input type="text" className="color-hex" value={colorOf(colorMenu.index)}
               onChange={(e) => setColor(colorMenu.index, e.target.value)} />
             <div className="color-swatch-grid">

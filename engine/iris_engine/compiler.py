@@ -145,6 +145,36 @@ def _group_color(style: dict, i: int) -> str:
     return palette[i % len(palette)]
 
 
+def _aes_arrays(rows, sc, num_color_col) -> dict:
+    """Per-row aesthetic values a dot layer varies *within* a group: numeric
+    color (Phase 3b), size (marker area), and shape (categorical marker). Spread
+    into the group dict; aggregate geoms (bar/box/violin/summary) ignore them."""
+    return {
+        "cvals": (rows[num_color_col].to_numpy(dtype=float)
+                  if num_color_col else None),
+        "svals": (rows[sc.size_col].to_numpy(dtype=float)
+                  if sc.size_col else None),
+        "shvals": (rows[sc.shape_col].astype(str).to_numpy()
+                   if sc.shape_col else None),
+    }
+
+
+def _drawn_value_max(ax, horizontal: bool) -> float:
+    """The top of what is actually DRAWN on the value axis, read from the axes'
+    data limits after all geoms are added. matplotlib's dataLim only grows to
+    artists it has drawn, so a bar/summary excludes the raw outliers (their dots
+    aren't drawn) while a box with fliers or a dot layer includes them — exactly
+    "the range of what's on the plot." Used to anchor the significance bracket
+    so it clears the drawn content without stretching the axis to undrawn
+    outliers (TODO item 7)."""
+    bb = ax.dataLim
+    v = bb.x1 if horizontal else bb.y1
+    if np.isfinite(v):
+        return float(v)
+    lim = ax.get_xlim() if horizontal else ax.get_ylim()
+    return float(lim[1])
+
+
 def _err_half(s: dict, error_type: str) -> float:
     """Half-length of an error bar for one group summary."""
     if error_type == "sem":
@@ -173,7 +203,10 @@ def _apply_axes(ax, style: dict, *, x_numeric: bool,
     elif style["y_tick_spacing"]:
         ax.yaxis.set_major_locator(MultipleLocator(style["y_tick_spacing"]))
     if style["y_min"] is not None or style["y_max"] is not None:
-        ax.set_ylim(bottom=style["y_min"], top=style["y_max"])
+        # skip a degenerate y_min == y_max (singular-transform warning); a zero-
+        # height range can't be drawn, so leave the autoscaled limits in place
+        if not (style["y_min"] is not None and style["y_min"] == style["y_max"]):
+            ax.set_ylim(bottom=style["y_min"], top=style["y_max"])
 
     if style["minor_ticks"]:
         if x_numeric and style["x_scale"] != "log":
@@ -331,9 +364,17 @@ def _build_grid(width_mm: float, height_mm: float, n_rows: int, n_cols: int,
                 sharex: bool, sharey: bool):
     """plt.subplots wrapper for the facet grid; squeeze=False keeps `axes`
     a uniform 2D array even for a 1×1 (unfaceted) or 1×N grid, so callers
-    never need a special case for "no facets"."""
+    never need a special case for "no facets".
+
+    width_mm/height_mm are the *per-cell* target, so the whole figure grows with
+    the grid (small-multiples convention). A fixed total figure size instead
+    shrank every cell as the grid grew until constrained_layout could no longer
+    fit the fixed-size chrome (ticks, per-facet titles, shared legend) and
+    collapsed the axes to zero size — i.e. "facets cannot be plotted" (item 12).
+    For a 1×1 grid this is width_mm × height_mm, so the unfaceted path is
+    unchanged."""
     return plt.subplots(n_rows, n_cols,
-                        figsize=(width_mm * MM, height_mm * MM),
+                        figsize=(width_mm * n_cols * MM, height_mm * n_rows * MM),
                         layout="constrained", sharex=sharex, sharey=sharey,
                         squeeze=False)
 
@@ -410,7 +451,7 @@ def _comparison_context(df, schema, spec, stats, *, gid_start: int = 0, scales=N
     # via the colormap) rather than by group; aggregate geoms keep group colour.
     num_color_col = color_col if sc.color_numeric else None
 
-    groups, top, gi = [], -np.inf, gid_start
+    groups, gi = [], gid_start
     if dodged:
         clevels = sc.color_levels
         k = max(1, len(clevels))
@@ -422,13 +463,11 @@ def _comparison_context(df, schema, spec, stats, *, gid_start: int = 0, scales=N
                           & df[val_col].notna()]
                 ys = rows[val_col].to_numpy(dtype=float)
                 s = _summary_of(f"{lv}/{clv}", ys)
-                err = _err_half(s, style["error_type"])
-                if len(ys):
-                    top = max(top, ys.max(), s["mean"] + err)
                 pos = li + (cj - (k - 1) / 2) * slot
                 groups.append({"gi": gi, "pos": pos, "lv": lv, "ys": ys,
                                "row_ids": rows["id"].tolist(),
-                               "color": sc.color_for(clv), "summary": s})
+                               "color": sc.color_for(clv), "summary": s,
+                               **_aes_arrays(rows, sc, num_color_col)})
                 gi += 1
     else:
         wscale = 1.0
@@ -436,15 +475,10 @@ def _comparison_context(df, schema, spec, stats, *, gid_start: int = 0, scales=N
             rows = df[(df[cat_col] == lv) & df[val_col].notna()]
             ys = rows[val_col].to_numpy(dtype=float)
             s = next(s for s in stats["summaries"] if s["group"] == lv)
-            err = _err_half(s, style["error_type"])
-            if len(ys):
-                top = max(top, ys.max(), s["mean"] + err)
-            cvals = (rows[num_color_col].to_numpy(dtype=float)
-                     if num_color_col else None)
             groups.append({"gi": gid_start + li, "pos": li, "lv": lv, "ys": ys,
                            "row_ids": rows["id"].tolist(),
-                           "color": _group_color(style, li), "cvals": cvals,
-                           "summary": s})
+                           "color": _group_color(style, li), "summary": s,
+                           **_aes_arrays(rows, sc, num_color_col)})
 
     p = stats["result"].get("p")  # absent in the describe-only path → no bracket
     return {"cat_col": cat_col, "val_col": val_col,
@@ -454,10 +488,10 @@ def _comparison_context(df, schema, spec, stats, *, gid_start: int = 0, scales=N
             "h_orient": h_orient,
             "cols": cols, "style": style, "levels": levels,
             "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
-            "top": top, "dodged": dodged, "wscale": wscale, "scales": sc,
+            "dodged": dodged, "wscale": wscale, "scales": sc,
             "summary_dx": 0.0 if dodged else 0.28,
             "cbar_mappable": None,  # set by the dot geom when color is numeric
-            "next_gid_start": gid_start + len(groups),
+            "gid_start": gid_start,  # dot numbers its point series from here
             "p_sig": (not dodged) and p is not None
                      and p < stats.get("alpha", 0.05)}
 
@@ -527,38 +561,49 @@ def _geom_bar(ax, ctx, params):
 
 
 def _geom_dot(ax, ctx, params):
+    """Raw dots per group. Beyond color, a dot layer also honours the size
+    (per-point marker area) and shape (per-point marker) channels: matplotlib's
+    scatter takes one marker per call, so a mapped shape splits each group's rows
+    into one scatter call per shape level, each emitting its own point-group so
+    the gid → row-ids click/exclude contract survives (TODO item 9)."""
     style = ctx["style"]
     scales = ctx["scales"]
     h = ctx["h_orient"]
     jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
-    point_group = None
+    point_group, idx = [], ctx["gid_start"]
     for grp in ctx["groups"]:
         # jitter runs along the categorical axis; in horizontal mode that is y
         cat_pos = grp["pos"] + np.array([_stable_jitter(rid, jitter)
                                          for rid in grp["row_ids"]])
-        common = dict(s=style["marker_size"], alpha=style["marker_alpha"],
-                      linewidths=0.6, edgecolors="white", zorder=3)
-        if scales.color_numeric and grp.get("cvals") is not None:
-            # Phase 3b: colour each raw dot by its numeric value via the colormap;
-            # keep the brightest mappable for the colorbar.
-            if h:
-                sc = ax.scatter(grp["ys"], cat_pos, c=grp["cvals"],
-                                cmap=scales.color_cmap, vmin=scales.color_lo,
-                                vmax=scales.color_hi, **common)
+        ys, row_ids = grp["ys"], grp["row_ids"]
+        cvals, svals, shvals = grp.get("cvals"), grp.get("svals"), grp.get("shvals")
+        # one sub-series per shape level (each a distinct marker); no shape → one
+        sub_series = ([(scales.marker_for(lv), np.flatnonzero(shvals == lv))
+                       for lv in scales.shape_levels]
+                      if shvals is not None
+                      else [("o", np.arange(len(ys)))])
+        for marker, sel in sub_series:
+            if not len(sel):
+                continue
+            size = (np.array([scales.size_for(v) for v in svals[sel]])
+                    if svals is not None else style["marker_size"])
+            common = dict(s=size, marker=marker, alpha=style["marker_alpha"],
+                          linewidths=0.6, edgecolors="white", zorder=3)
+            px, py = (ys[sel], cat_pos[sel]) if h else (cat_pos[sel], ys[sel])
+            if scales.color_numeric and cvals is not None:
+                # Phase 3b: colour each raw dot by its numeric value via the
+                # colormap; keep a mappable for the colorbar.
+                coll = ax.scatter(px, py, c=cvals[sel], cmap=scales.color_cmap,
+                                  vmin=scales.color_lo, vmax=scales.color_hi,
+                                  **common)
+                ctx["cbar_mappable"] = coll
             else:
-                sc = ax.scatter(cat_pos, grp["ys"], c=grp["cvals"],
-                                cmap=scales.color_cmap, vmin=scales.color_lo,
-                                vmax=scales.color_hi, **common)
-            ctx["cbar_mappable"] = sc
-        else:
-            if h:
-                sc = ax.scatter(grp["ys"], cat_pos, color=grp["color"], **common)
-            else:
-                sc = ax.scatter(cat_pos, grp["ys"], color=grp["color"], **common)
-        gid = f"pts-{grp['gi']}"
-        sc.set_gid(gid)
-        point_group = point_group or []
-        point_group.append({"gid": gid, "row_ids": grp["row_ids"]})
+                coll = ax.scatter(px, py, color=grp["color"], **common)
+            gid = f"pts-{idx}"
+            coll.set_gid(gid)
+            point_group.append({"gid": gid,
+                                "row_ids": [row_ids[k] for k in sel]})
+            idx += 1
     return point_group
 
 
@@ -625,7 +670,6 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                               if faceted else stats)
                 ctx = _comparison_context(cell_df, schema, spec, cell_stats,
                                           gid_start=gid_next, scales=sc_global)
-                gid_next = ctx["next_gid_start"]
                 levels = ctx["levels"]
                 h = ctx["h_orient"]
 
@@ -636,13 +680,16 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     pg = render(ax, ctx, layer.get("params") or {})
                     if pg:
                         point_groups.extend(pg)
+                        # advance by the series actually drawn (shape splits a
+                        # group into several) so gids stay unique across cells
+                        gid_next += len(pg)
 
                 if ctx["p_sig"] and style["show_significance"]:
                     p = cell_stats["result"]["p"]
                     label = "***" if p < 0.001 else "**" if p < 0.01 else "*"
                     if h:
                         xr = ax.get_xlim()
-                        hv = ctx["top"] + (xr[1] - xr[0]) * 0.08
+                        hv = _drawn_value_max(ax, True) + (xr[1] - xr[0]) * 0.08
                         tick = (xr[1] - xr[0]) * 0.02
                         ax.plot([hv, hv + tick, hv + tick, hv], [0, 0, 1, 1],
                                 color=INK, lw=1.1, zorder=5)
@@ -651,7 +698,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         ax.set_xlim(xr[0], max(xr[1], hv + tick * 5))
                     else:
                         yr = ax.get_ylim()
-                        hv = ctx["top"] + (yr[1] - yr[0]) * 0.08
+                        hv = _drawn_value_max(ax, False) + (yr[1] - yr[0]) * 0.08
                         tick = (yr[1] - yr[0]) * 0.02
                         ax.plot([0, 0, 1, 1], [hv, hv + tick, hv + tick, hv],
                                 color=INK, lw=1.1, zorder=5)

@@ -48,9 +48,30 @@ def shapiro_check(values: np.ndarray) -> dict:
     return {"ok": True, "W": float(W), "p": float(p), "n": n}
 
 
+def _aggregate_reps(df: pd.DataFrame, group: str, value: str,
+                    rep_key: list[str]) -> pd.DataFrame:
+    """Collapse technical replicates to one value per *independent repetition*
+    before the stats run, so n and the test reflect independent units rather than
+    raw rows (TODO item 10). A unit is (grouping column × repetition key); the
+    value within each unit is averaged. The figure still plots the raw rows, so
+    this only changes the inferential numbers (mean ± error, the test, and n).
+    The combine method is a mean here; choosing a different summary (median, …)
+    is the Collapse pipeline step's job, not this one's."""
+    keys = [group] + [k for k in rep_key if k and k not in (group, value)]
+    agg = (df[[*keys, value]].dropna(subset=[value])
+           .groupby(keys, as_index=False, observed=True)[value].mean())
+    agg.attrs["n_excluded"] = int(df.attrs.get("n_excluded", 0))
+    return agg
+
+
 def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
-                     alpha: float = 0.05, override: str | None = None) -> dict:
-    """Two-group comparison matching the frozen analysis-spec semantics."""
+                     alpha: float = 0.05, override: str | None = None,
+                     rep_key: list[str] | None = None) -> dict:
+    """Two-group comparison matching the frozen analysis-spec semantics. When
+    rep_key is set, technical replicates are first collapsed to one value per
+    independent unit (see _aggregate_reps) so n and the test count units."""
+    if rep_key:
+        df = _aggregate_reps(df, x, y, rep_key)
     sub = df[[x, y]].dropna()
     found = [lv for lv in levels if lv in set(sub[x])]
     extra = sorted(set(sub[x]) - set(levels))
@@ -86,6 +107,10 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     nA, nB = len(a), len(b)
     n_excl = int(df.attrs.get("n_excluded", 0))
     excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    if rep_key:
+        excl_note += (f" n counts independent repetitions "
+                      f"({' × '.join(rep_key)}); technical replicates were "
+                      f"averaged within each before testing.")
 
     if test == "welch_t":
         tt = pg.ttest(a, b, correction=True)
@@ -148,10 +173,13 @@ def _summary(label: str, v: np.ndarray) -> dict:
 
 
 def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
-                    alpha: float = 0.05) -> dict:
+                    alpha: float = 0.05, rep_key: list[str] | None = None) -> dict:
     """Per-group summaries for the comparison figure with NO inferential test —
     the 'describe only' path. Matches group_comparison's summaries shape so the
-    figure (dots, box, bar, mean ± error) renders, but reports no p/effect."""
+    figure (dots, box, bar, mean ± error) renders, but reports no p/effect.
+    Honors rep_key so the reported n / error bars count independent units."""
+    if rep_key:
+        df = _aggregate_reps(df, x, y, rep_key)
     sub = df[[x, y]].dropna()
     found = [lv for lv in levels if lv in set(sub[x])]
     found += sorted(set(sub[x]) - set(levels))

@@ -186,6 +186,7 @@ dd.strong { font-weight: 600; }
 .plottable-sidebar { width: 200px; flex: 0 0 auto; overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+.plottable-sidebar.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
 .plottable-sidebar ul { list-style: none; margin: 0; padding: 0; }
 .plottable-sidebar li { display: flex; align-items: center; gap: 4px; padding: 2px 4px;
   cursor: pointer; border-radius: 6px; }
@@ -271,8 +272,11 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .engine-down code { background: var(--line); padding: 1px 5px; border-radius: 4px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
-.layer-rail { display: flex; flex-direction: column; gap: 8px; padding: 10px;
-  border-right: 1px solid #e2e8f0; min-width: 220px; max-width: 260px; }
+/* unified with the pipeline rail (item 8): same panel card, head, collapse */
+.layer-rail { width: 250px; flex: 0 0 auto; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+.layer-rail.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
 .layer-rail .rail-head { display: flex; align-items: center; justify-content: space-between; }
 .layer-rail .template-pick { font-size: 12px; }
 .layer-list { list-style: none; margin: 0; padding: 0; display: flex;
@@ -342,6 +346,18 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .encodings-card select { flex: 1; min-width: 0; font-size: 12px; }
 .encodings-card .enc-warn { flex-basis: 100%; padding-left: 62px;
   font-size: 11px; color: var(--warn); }
+
+/* ---- independent-repetition (n) picker (item 10) ---- */
+.rep-key { display: flex; flex-direction: column; gap: 4px;
+  background: #f8fafc; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px; }
+.rep-key-head { display: flex; align-items: baseline; gap: 6px; }
+.rep-key-head strong { font-size: 12px; color: #475569; }
+.rep-key-head .dim { font-size: 11px; cursor: help; }
+.rep-key-opts { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.rep-key-opts label { display: flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--ink); }
+.rep-key-note { font-size: 11px; }
 
 .analyses-loading { display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; height: 100%; color: var(--dim);

@@ -173,6 +173,10 @@ export default function App() {
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         if (/not cached/i.test(m)) { setTableEpoch((x) => x + 1); return; }
+        /* a config change invalidated the plot and the recompute failed: drop
+           the now-stale figure/stats for this plottable so the error shows
+           instead of a figure that no longer matches the config (item 11). */
+        setAnalysisById({ id: targetId, res: null });
         setRenderError(m);
         setStatus("error");
       }

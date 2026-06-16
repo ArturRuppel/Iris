@@ -4,14 +4,20 @@ Ordered easy → hard.
 
 ## Bugs & UX issues reported 2026-06-16
 
-### 1. Color palette clips in fullscreen
-Opening the color palette in the styling tab works, but the palette popover gets
-clipped when the browser is in fullscreen. Fix the popover positioning/overflow.
+### 1. Color palette clips in fullscreen — FIXED 2026-06-16
+The styling tab's color palette was swapped from the native `<input
+type="color">` (whose OS panel clips in fullscreen) to a custom popover in
+`400fcd9`, but that popover still positioned itself with a fixed `top =
+swatch.bottom + 4` and never clamped to the viewport, so it still ran off the
+bottom edge when the swatch sat low on screen (taller fullscreen window). Fixed:
+`StylePane` now measures the popover after render (`useLayoutEffect` + ref) and
+flips it above the swatch / clamps it to the screen edges so it never clips.
 
-### 2. Empty start page
-On a fresh start the page is just blank. It should instead show an empty table
-layout for entering data manually, or at minimum a prompt like "Import or enter
-data to start."
+### 2. Empty start page — FIXED 2026-06-16
+`400fcd9` made `DataTable` show "Import or enter data to start." instead of
+rendering nothing when there's no schema. The data view is the default on a
+fresh start, so the prompt (the TODO's stated minimum) shows immediately; the
+"Enter data…" wizard covers manual entry.
 
 ## e2e suite is broken (found 2026-06-16, unrelated to Phase 3 itself)
 
@@ -33,65 +39,188 @@ seeded. Verified by running all five against a live engine (8765) + vite
 
 ## Bugs & UX issues reported 2026-06-16 (continued)
 
-### 4. Color mismatch between styling tab and plot
-Colors render in a different color than what's shown in the styling tab. The
-plotted color should match the selected color.
+### 4. Color mismatch between styling tab and plot — FIXED 2026-06-16
+Root cause: the frontend `DEFAULT_PALETTE` (`src/state.ts`) had drifted from the
+engine's default `compiler.PALETTE` (Okabe–Ito) despite a comment claiming they
+must match. With no palette override the style panel showed its own four colors
+(teal/orange/green/purple) while the engine drew the Okabe–Ito eight. Fixed by
+restoring `DEFAULT_PALETTE` to the exact Okabe–Ito values, so the unset swatches
+match the drawn colors (and the first color edit no longer freezes wrong
+defaults for the other series). Once a color is explicitly chosen it was already
+sent through to the engine, so that path always matched.
 
-### 5. Live preview vs final render mismatch on resize
-When resizing plots, the live preview doesn't match the final render. The
-preview keeps the aspect ratio constant, but the final resize does not. Make the
-preview reflect the actual resize behavior.
+### 5. Live preview vs final render mismatch on resize — FIXED 2026-06-16
+Root cause: the injected `<svg>` kept the default
+`preserveAspectRatio="xMidYMid meet"`, so during a corner drag `FigurePane`
+resized the SVG's *box* but the vector content only letterboxed — keeping the
+aspect ratio constant. The final render re-lays-out at the new w×h mm, so its
+shape changes. `maxWidth: 100%` also clamped the previewed box to the pane
+width, distorting the previewed proportions. Fixed: during the drag the SVG is
+stretched to the target box (`preserveAspectRatio="none"`, `maxWidth` lifted) so
+the preview reflects the new aspect ratio; on release the fit-display is
+restored and the engine re-renders. (The preview stretch is an approximation —
+the engine keeps font/margin sizes fixed and only the plot area changes — but it
+now conveys the correct target shape instead of a constant one.)
 
-### 6. Add-layer menu should filter by encoding compatibility
-When adding a new layer, only layers that are compatible with the selected
-encoding should be offered.
+### 6. Add-layer menu should filter by encoding compatibility — FIXED 2026-06-16
+The gating logic (`geomGateReason`) already existed, but the add-layer menu
+showed incompatible geoms *disabled-with-reason* rather than hiding them. Now the
+add menu (`LayerRail`) offers only geoms whose `(x_type, y_type)` is satisfied by
+the current encoding; incompatible ones are hidden, with a "N more hidden —
+incompatible with the current encoding" note and an empty-state hint ("map X / Y
+to enable layers") so the filtering is discoverable. The retype dropdown keeps
+its disabled-with-reason behavior (there, seeing why a switch is blocked helps).
 
-### 7. Auto scale picker too sensitive to outliers
-The automatic scale picker is too sensitive to outliers. For plots that display
-the outliers (e.g. scatter), this is correct. But for plots where outliers
-aren't shown (e.g. bar plots), the range should be defined by what's actually
-drawn on the plot.
+### 7. Auto scale picker too sensitive to outliers — FIXED 2026-06-16
+Matplotlib already autoscales the value axis to the drawn artists (so a bar plot
+on its own ignores undrawn outliers). The leak was the significance bracket: it
+was anchored at `ctx["top"] = max(ys.max(), mean+err)` — the raw data max,
+outliers included — then `set_ylim` stretched the axis to fit the bracket above
+an undrawn outlier. Fixed by dropping the precomputed `top` and anchoring the
+bracket on `_drawn_value_max(ax)`, read from `ax.dataLim` after the geoms draw —
+so the anchor includes outliers only when they're actually drawn (box fliers /
+dot layer) and not for bar/summary. Verified: a bar plot with a 100-value
+outlier now tops out at y≈5 (drawn extent) while a dot plot of the same data
+extends to ≈119 (the drawn outlier). All 167 engine tests pass.
 
-### 8. Analysis / Pipeline / Encoding bars: unify style + collapsible
-The Analysis, Pipeline, and Encoding bars should match in style and all be
-collapsible. Use the Pipeline bar as the template for the others.
+### 8. Analysis / Pipeline / Encoding bars: unify style + collapsible — FIXED 2026-06-16
+The Pipeline rail was already a panel card with a `rail-head` (title + `⟨`
+collapse) and a `⋮` expand pill. The Analyses sidebar (`PlottableSidebar`) had no
+head/collapse and the Encoding & layers rail (`LayerRail`) had a head but no
+collapse, and used a different chrome (`border-right`, not a card). Now all three
+share: the panel-card style, a `rail-head` with a `⟨` hide button, and a
+collapsed state rendering the vertical `rail-expand` pill (`⋮ Analyses` /
+`⋮ Pipeline` / `⋮ Encoding`). CSS for `.plottable-sidebar`/`.layer-rail` was
+aligned to `.pipeline-rail` with matching `.collapsed` widths.
 
-### 9. Shape/size encoding broken in dot plots
-Encoding categorical or numerical data as shape or size doesn't work in dot
-plots.
+### 9. Shape/size encoding broken in dot plots — FIXED 2026-06-16
+The dot geom declared `aes=["color","size","shape"]` (so no "channel ignored"
+warning) but `_geom_dot` only ever drew a fixed `marker_size` and a circle —
+size/shape mappings were silently dropped. Fixed: `_comparison_context` now
+carries per-row size/shape values into each group (`_aes_arrays`), and
+`_geom_dot` varies marker area by the size value and splits each group's rows
+into one scatter call per shape level (matplotlib takes one marker per call),
+each emitting its own point-group. gid numbering moved off the fixed group count
+onto the actually-drawn series count (`gid_start` + emitted count), so shape
+splits stay unique across facet cells and the gid→row-ids click/exclude contract
+holds. The existing size/shape legend entries now render automatically. Verified:
+size spans 10→120 pt², shape yields distinct markers, row-ids stay complete.
 
-### 10. Define the independent-repetition key (n for stats)
-It should be possible to choose which key (or combination of keys) represents an
-independent repetition. This defines `n` for the various calculations and
-statistical tests.
+### 10. Define the independent-repetition key (n for stats) — REOPENED 2026-06-16
 
-### 11. Stale plots when data/stats should be removed
-Changing something in the config invalidates the current plot, but the new plot
-can't be rendered and the stale one sticks around. Symptom: a config change
-happens, but the render either keeps showing the old figure or fails silently
-instead of producing the updated plot. Need to trace the render-invalidation
-path — figure out why a config change that should drop the old data/stats and
-recompute doesn't successfully re-render.
+REOPENED: the wiring works but the *visible* effect is too weak/under-specified.
+Verified end-to-end that with a repetition key the engine collapses to units and
+that flows to: the test (n, recommended test, p), the per-group n-label
+(`n = 3` not `n = 12` in the SVG), and **bar/summary error bars** (recomputed
+from unit-level summaries). BUT box / violin / dot draw the raw distribution, so
+on those geoms the only change is the small n-label — which reads as "n does
+nothing." Open design questions to settle before re-closing:
+- When a rep key is set, what should box/violin/dot show? Options: (A) collapse
+  the *plotted* data to one point/box per unit too (clearest, but loses the raw
+  technical-replicate view); (B) keep raw marks but overlay a unit-level summary
+  (mean ± error) so the inference basis is visible; (C) current — raw marks,
+  unit-level n-label + bar/summary error only.
+- Should the n-label / error bars *always* be shown when a rep key is set, so the
+  effect is unmistakable regardless of geom?
+- Confirm the error-bar/label semantics are statistically what we want (mean of
+  unit means; error from unit-level SEM/CI).
+Current (option B for bar/summary) implementation kept below as the starting
+point; the engine plumbing (`stats._aggregate_reps`, `rep_key` params,
+`main._run`, `spec.stats.repetition_key`, frontend `RepetitionKey` control) and
+tests (`engine/tests/test_repetition_key.py`) stay.
 
-### 12. Facets cannot be plotted
-Plotting facets currently errors. Console shows engine warnings:
-- `compiler.py:175` — "Attempting to set identical low and high ylims makes
-  transformation singular; automatically expanding." (in the
-  `style["y_min"]`/`style["y_max"]` branch)
-- `compiler.py:807` — "constrained_layout not applied because axes sizes
-  collapsed to zero" (repeated, at the per-facet `ax = axes[ri][ci]` access)
-The facet axes are collapsing to zero size. Investigate the facet grid sizing /
-figure layout in the compiler.
+Prior note (kept): Decision (raw plot, unit stats): when a repetition key is set, the figure keeps
+showing the raw points, but n / error bars / the test are computed on data
+collapsed to one value per independent unit — the biology case (show technical
+replicates, infer on biological replicates), which is why it's distinct from a
+Collapse pipeline step (that would also collapse the plot). How replicates are
+combined into a unit value is left to the Collapse step's concern; the stats use
+a mean.
+
+Implementation:
+- Engine `stats._aggregate_reps` collapses to (grouping × repetition-key) means;
+  `group_comparison` + `describe_groups` take a `rep_key` and aggregate first, so
+  n, the recommended/chosen test, the summaries, and the bracket all count units.
+  `main._run` reads `spec.stats.repetition_key`, drops keys removed by the
+  reduction, and threads it in. The compiler is untouched: the dot geom still
+  draws raw rows while bars/means/error/n read the unit-level `res`, so option B
+  falls out for free. `methods_text` notes the n basis.
+- Frontend: `Plottable.repetitionKey` (round-tripped via duplicate + buildSpec →
+  `stats.repetition_key`); a new `RepetitionKey` control (shown only for group
+  comparisons, in the Encoding & layers rail) offers the identifier/categorical
+  columns as checkboxes and shows "n = unique X per group; replicates averaged".
+- Tests: `engine/tests/test_repetition_key.py` (n collapses to units, unit means
+  match manual aggregation, describe path honors it, /analyze threads it). 171
+  engine tests pass; frontend tsc/build clean.
+
+### 11. Stale plots when data/stats should be removed — FIXED 2026-06-16
+Traced to the render-invalidation path. The engine raises HTTP 422 for a config
+that can't render (reduction error, blocking guard, or a stats error like "needs
+exactly 2 groups"), so `engine.analyze` throws into App's catch block — which set
+`renderError`/`status="error"` but never cleared the stored analysis, so the old
+figure/stats stayed in the atom. Compounding it, `FigurePane`'s SVG-injection
+effect early-returned on a null analysis without clearing `host.innerHTML`, and
+the error/empty overlay is a `position: static` block (not a cover), so a
+leftover SVG would render beside the error. Two fixes: (1) App clears the target
+plottable's analysis (`setAnalysisById({id, res:null})`) on a genuine error
+(cache-miss 409 still just retries); (2) `FigurePane` clears the host SVG and
+resets state whenever there's no analysis. Now an invalidating config change
+drops the old figure/stats and shows the error (or the "map Y" placeholder)
+instead of a stale plot.
+
+### 12. Facets cannot be plotted — PARTIALLY FIXED / REOPENED (facet ROW) 2026-06-16
+
+REOPENED for facet ROW: still doesn't work in the running app. What I could
+verify headlessly all passes, so the remaining bug is app/browser-side and not
+reproducible in this sandbox (no Chromium):
+- Engine renders facet row in isolation (`build_comparison_figure`, 2 axes,
+  tall figsize, no warnings) and via `POST /analyze` (200, both level labels in
+  the SVG), for box/dot/scatter/tile. `tests/test_facets.py` exercises
+  `facet_row="site"` across grid-shape, per-cell data, unique gids, scatter and
+  tile — all green.
+- Frontend wiring is symmetric with facet col (`EncodingsCard` FACET_KEY
+  facet_row→facetRow; `state.buildSpec` facet.row = p.facetRow).
+Likely candidates to check WITH a browser: (a) the per-cell sizing below makes a
+facet-row figure very tall (height_mm × n_rows) — it may overflow/clip the
+figure pane or render as an unusable sliver, so the *display* (not the data) is
+the failure; (b) a console error when the facet-row select changes. NEXT: repro
+in the app, capture the console + the produced figure height, and decide whether
+to cap total figure size (see the sizing trade-off noted below) and/or fix the
+figure-pane display of very tall figures. The col-facet sizing fix below stands.
+
+Original (facet sizing, col path verified):
+Root cause: `_build_grid` passed a *fixed total* `figsize=(width_mm, height_mm)`
+to `plt.subplots` no matter how many facet cells, so every cell shrank as the
+grid grew (8 cols → ~45 px wide) until constrained_layout couldn't fit the
+fixed-size chrome (ticks, per-facet titles, shared legend) and collapsed the
+axes to zero — the "axes sizes collapsed to zero" warning + a blank figure.
+Fixed by treating width_mm/height_mm as the *per-cell* size: `figsize =
+(width_mm·n_cols, height_mm·n_rows)`, so the figure grows with the grid
+(small-multiples convention) and the 1×1 unfaceted path is unchanged. Verified:
+cell width stays ~360–427 px for 1/2/4/8 cols (was 45 px at 8) and the collapse
+warning is gone. Also guarded the `style["y_min"]/["y_max"]` apply against a
+degenerate `y_min == y_max` (the "identical low and high ylims … singular"
+warning). All 167 engine tests pass.
 
 ## No Phase 3 (Data-First Encodings) e2e coverage
 
-### 13. No Phase 3 e2e coverage
+### 13. No Phase 3 e2e coverage — TESTS ADDED 2026-06-16 (execution pending)
 
-Phase 2 (Aesthetics) got `aesthetics_test.mjs`; Phase 3's three new render
-paths — continuous color (numeric color → colorbar), horizontal orientation
-(numeric x + categorical y), and the contingency tile (categorical x ×
-categorical y) — only have engine/unit tests
-(`engine/tests/test_aesthetics.py`, `test_horizontal.py`, `test_tile.py`,
-`src/channels.test.ts`), no UI wiring test. Worth adding once the existing
-suite (above) is fixed, since `111243b`'s `TEST_BY_FAMILY` contingency-key
-crash shows this class of bug only surfaces through the UI.
+Added three UI-wiring e2e tests mirroring the verified `aesthetics_test.mjs`
+pattern (explicit import via the ImportWizard hidden file input → switch to
+Analyses → map X/Y → `.add-layer-btn` flow):
+- `e2e/continuous_color_test.mjs` — categorical X + numeric Y + numeric Color on
+  a Dots layer draws a colorbar (label = column) and NO discrete legend.
+- `e2e/horizontal_test.mjs` — numeric X + categorical Y offers + renders a
+  horizontal Box with the categorical levels as y tick labels.
+- `e2e/tile_test.mjs` — categorical X × categorical Y offers only the Tile geom
+  and renders the contingency figure (the `TEST_BY_FAMILY` contingency-key crash
+  class from `111243b` that only surfaces through the UI).
+They also exercise the item-6 add-menu filtering (each adds a geom the menu
+offers for that encoding). All three pass `node --check`.
+
+NOTE: not executed here — this sandbox has no Chromium binary and no network to
+download one (`playwright install chromium` fails), the same constraint item 3
+called out. Run on a machine with Chromium: start the engine (8765) + vite
+(5173), then `node e2e/continuous_color_test.mjs` (and `horizontal_test.mjs`,
+`tile_test.mjs`); each exits 0 on success.

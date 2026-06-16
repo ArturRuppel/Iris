@@ -180,6 +180,10 @@ export interface AnalysisSpec {
     assumption_checks: { check: string; per: string }[];
     alpha: number;
     report: string[];
+    /* item 10: column(s) that define an independent repetition. When set, the
+       engine collapses technical replicates to one value per unit before
+       computing n and the test (the figure still plots the raw rows). */
+    repetition_key?: string[];
   };
   annotations: { significance_brackets: "auto"; show_n: boolean };
   style: { preset: string; overrides: StyleOverrides };
