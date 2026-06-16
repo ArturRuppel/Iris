@@ -1,4 +1,10 @@
-"""Document format: a ZIP of human-readable parts (manifest, CSV, JSON)."""
+"""Document format (`.iris`): a ZIP of a Parquet table plus human-readable JSON
+parts (manifest, schema, analyses, provenance).
+
+The table is Parquet, not CSV: it round-trips dtypes/nulls/floats exactly (no
+re-inference on load) and reads ~an order of magnitude faster than parsing text
+for the multi-million-cell tables this app handles. The sidecars stay JSON so a
+document is still inspectable and git-diffable."""
 from __future__ import annotations
 
 import io
@@ -16,6 +22,8 @@ FORMAT_VERSION = "1.0"
 def save_document(schema: dict, rows: list[dict], analyses: list[dict],
                   provenance: dict, engine_snapshot: dict) -> bytes:
     df = pd.DataFrame(rows)
+    table = io.BytesIO()
+    df.to_parquet(table, index=False, engine="pyarrow", compression="zstd")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps({
@@ -23,7 +31,10 @@ def save_document(schema: dict, rows: list[dict], analyses: list[dict],
             "modified": datetime.now(timezone.utc).isoformat(),
             "engine_snapshot": engine_snapshot,
         }, indent=2))
-        z.writestr("data/table.csv", df.to_csv(index=False))
+        # Parquet is already zstd-compressed; store it raw rather than waste CPU
+        # re-deflating incompressible bytes.
+        z.writestr("data/table.parquet", table.getvalue(),
+                   compress_type=zipfile.ZIP_STORED)
         z.writestr("data/schema.json", json.dumps(schema, indent=2))
         for i, an in enumerate(analyses, 1):
             z.writestr(f"analyses/{i:02d}-{an.get('id', 'analysis')}.json",
@@ -38,8 +49,8 @@ def load_document(data: bytes) -> dict:
         if manifest.get("format_version", "0") > FORMAT_VERSION:
             raise ValueError("document was saved by a newer version")
         schema = json.loads(z.read("data/schema.json"))
-        df = pd.read_csv(io.TextIOWrapper(z.open("data/table.csv")))
-        # restore proper missing values and types
+        df = pd.read_parquet(io.BytesIO(z.read("data/table.parquet")),
+                             engine="pyarrow")
         rows = json.loads(df.to_json(orient="records"))
         analyses = [json.loads(z.read(n)) for n in sorted(z.namelist())
                     if n.startswith("analyses/")]

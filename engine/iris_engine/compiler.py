@@ -988,21 +988,129 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
     return fig, point_groups
 
 
+_SINH_SHARPNESS = 3.0
+
+
+def _sinh_bin_edges(lo: float, hi: float, bins: int,
+                    sharpness: float = _SINH_SHARPNESS) -> np.ndarray:
+    """`bins + 1` histogram edges over `[lo, hi]`, spaced tighter near x=0.
+
+    Edges are uniform in `asinh(k·x)` space and mapped back through `sinh` (with
+    `k = sharpness / max(|lo|, |hi|)`); since `d/dx asinh(k·x)` peaks at x=0, the
+    narrowest value-bins land at zero and widen toward the extremes — resolution
+    where signed data crosses its null point. `sharpness → 0` (or a degenerate /
+    non-bracketing range) reduces to uniform edges. The real `[lo, hi]` is
+    preserved, so an asymmetric span wastes no bins."""
+    bins = max(int(bins), 1)
+    if not (hi > lo):
+        return np.linspace(lo, lo + 1.0, bins + 1)
+    scale = max(abs(lo), abs(hi))
+    k = (sharpness / scale) if (scale > 0 and sharpness > 0) else 0.0
+    if k <= 0.0:
+        return np.linspace(lo, hi, bins + 1)
+    edges = np.sinh(np.linspace(np.arcsinh(k * lo), np.arcsinh(k * hi), bins + 1)) / k
+    # Pin the ends exactly (the asinh/sinh round-trip can drift by a float ulp),
+    # so np.histogram never drops a sample sitting on the boundary.
+    edges[0], edges[-1] = lo, hi
+    return edges
+
+
+def _resolve_dist_bins(params: dict, style: dict, vals):
+    """The bins= argument for np.histogram: a numpy strategy name
+    (fd/scott/sturges/sqrt/auto), an int when bin_method is "fixed", or an explicit
+    edge array when "sinh" (sinh-spaced over *vals*' range, tighter near zero). A
+    legacy fixed hist_bins (set before bin_method existed, via a layer param or the
+    old style override) still applies when no explicit method is chosen."""
+    method = params.get("bin_method")
+    fixed = _param(params, "hist_bins", style, "hist_bins")
+    if method == "sinh":
+        count = int(fixed) if fixed else 30
+        sharpness = params.get("bin_sharpness")
+        if sharpness is None:
+            sharpness = _SINH_SHARPNESS
+        return _sinh_bin_edges(float(np.min(vals)), float(np.max(vals)), count, sharpness)
+    if method == "fixed" or (method in (None, "auto") and fixed):
+        return int(fixed) if fixed else "auto"
+    return method or "auto"
+
+
+def _kde_curve(ax, vals, scale: float, color: str, style: dict, zorder: int):
+    """A gaussian KDE of vals, scaled to the count axis (scale = N·binwidth so
+    the curve overlays the bars at comparable height)."""
+    from scipy.stats import gaussian_kde
+    grid = np.linspace(vals.min(), vals.max(), 200)
+    kde = gaussian_kde(vals)(grid)
+    ax.plot(grid, kde * scale, color=color,
+            linewidth=style["line_width"] * 0.93, zorder=zorder)
+
+
+def _draw_distribution(ax, vals, params: dict, style: dict):
+    """Draw one cell's distribution per the layer's `dist_render`:
+    bars/step/line/points are binned views (counts per bin); "smooth" is a KDE
+    curve only; "potential" Boltzmann-inverts the histogram to U(x) = −ln P (the
+    log-density, empty bins dropped). `overlay_smooth` adds a KDE on top of a
+    binned render. Mutates ax; aggregates rows, so there are no per-point click
+    targets."""
+    render = params.get("dist_render", "bars")
+    color = _group_color(style, 0)
+    counts, edges = np.histogram(vals, bins=_resolve_dist_bins(params, style, vals))
+    centers = (edges[:-1] + edges[1:]) / 2
+    binwidth = edges[1] - edges[0]
+    smooth_ok = len(vals) > 2 and np.ptp(vals) > 0
+
+    if render == "potential":
+        # U(x) = −ln P over occupied bins only — P=0 ⇒ U=∞, so empty bins are
+        # dropped (no −ln(0)). U≥0 always; let the axis autoscale rather than
+        # ground at 0, so the well minimum (the feature of interest) shows.
+        occ = counts > 0
+        u = -np.log(counts[occ] / counts.sum())
+        ax.plot(centers[occ], u, color=color, marker="o", markersize=4,
+                linewidth=style["line_width"], zorder=2)
+        return
+
+    if render == "smooth":
+        if smooth_ok:
+            _kde_curve(ax, vals, len(vals) * binwidth, color, style, zorder=2)
+        else:  # too few / degenerate points for a KDE — fall back to bars
+            render = "bars"
+
+    if render == "bars":
+        ax.hist(vals, bins=edges, color=color, alpha=0.65,
+                edgecolor="white", linewidth=0.5, zorder=2)
+    elif render == "step":
+        ax.hist(vals, bins=edges, color=color, histtype="step",
+                linewidth=style["line_width"], zorder=2)
+    elif render == "line":
+        ax.plot(centers, counts, color=color,
+                linewidth=style["line_width"], zorder=2)
+    elif render == "points":
+        ax.plot(centers, counts, color=color, marker="o", linestyle="none",
+                markersize=4, zorder=2)
+
+    if render in ("line", "points", "smooth"):
+        ax.set_ylim(bottom=0)  # ground the count axis as bars would
+    if params.get("overlay_smooth") and render != "smooth" and smooth_ok:
+        _kde_curve(ax, vals, len(vals) * binwidth, INK, style, zorder=3)
+
+
 def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
-    """Histogram of one numeric column (mapped on y); the `density` layer
-    overlays a KDE curve scaled to the count axis. Bars aggregate rows, so
-    there are no per-point click targets.
+    """Distribution of one numeric column (mapped on y). The `distribution`
+    layer's render mode picks bars/step/line/points or a "smooth" KDE; an
+    `overlay_smooth` param adds a KDE curve over a binned render. Aggregates
+    rows, so there are no per-point click targets.
 
     Phase 4: when faceted, draws one cell per (row level × col level), each
-    with its own bars/KDE/median recomputed from that cell's own values."""
+    with its own marks/KDE/median recomputed from that cell's own values."""
     y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     alpha = stats.get("alpha", 0.05)
     layers = spec.get("layers", [])
-    marks = {layer["geom"] for layer in layers} or {"histogram"}
-    hist_params = next((l.get("params", {}) for l in layers
-                        if l["geom"] == "histogram"), {})
+    dist_params = next((l.get("params", {}) for l in layers
+                        if l["geom"] == "distribution"), {})
+    # The potential render swaps the count axis for U(x) = −ln P; every other
+    # render is a count view.
+    count_label = "−ln P" if dist_params.get("dist_render") == "potential" else "Count"
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
@@ -1018,19 +1126,8 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                 ax = axes[ri][ci]
                 cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
                 vals = cell_df[y].dropna().to_numpy(dtype=float)
-                bins_val = _param(hist_params, "hist_bins", style, "hist_bins")
-                bins = int(bins_val) if bins_val else "auto"
-                counts, edges, _ = ax.hist(
-                    vals, bins=bins, color=_group_color(style, 0),
-                    alpha=0.65, edgecolor="white", linewidth=0.5, zorder=2)
-
-                if "density" in marks and len(vals) > 2 and np.ptp(vals) > 0:
-                    from scipy.stats import gaussian_kde
-                    grid = np.linspace(vals.min(), vals.max(), 200)
-                    kde = gaussian_kde(vals)(grid)
-                    binwidth = edges[1] - edges[0]
-                    ax.plot(grid, kde * len(vals) * binwidth, color=INK,
-                            linewidth=style["line_width"] * 0.93, zorder=3)
+                if len(vals):
+                    _draw_distribution(ax, vals, dist_params, style)
 
                 cell_result = (stats_mod.descriptive(cell_df, y, alpha=alpha)
                               if faceted else stats)
@@ -1047,7 +1144,7 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
 
                 if not faceted:
                     ax.set_xlabel(_axis_label(cols, y))
-                    ax.set_ylabel("Count")
+                    ax.set_ylabel(count_label)
                 _apply_axes(ax, style, x_numeric=True,
                             grid_x_default=False, grid_y_default=True)
                 if faceted:
@@ -1058,7 +1155,7 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
 
         if faceted:
             style["x_label"] = style["x_label"] or _axis_label(cols, y)
-            style["y_label"] = style["y_label"] or "Count"
+            style["y_label"] = style["y_label"] or count_label
         _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
     return fig, []
 

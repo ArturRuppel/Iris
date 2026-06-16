@@ -1,6 +1,7 @@
 fastapi>=0.110
 uvicorn>=0.29
 pandas>=2.0
+pyarrow>=15        # .iris document table (Parquet)
 numpy>=1.26
 scipy>=1.11
 pingouin>=0.5.4

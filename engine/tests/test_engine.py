@@ -251,6 +251,7 @@ def test_scatter_endpoint_keeps_click_contract():
 def test_histogram_and_descriptives():
     table = make_scatter_table()
     spec = make_scatter_spec()
+    # legacy histogram+density marks still normalize and render (back-compat)
     spec["layers"] = [{"mark": "histogram", "options": {}},
                       {"mark": "density", "options": {}}]
     spec["stats"]["family"] = "descriptive"
@@ -265,6 +266,133 @@ def test_histogram_and_descriptives():
     assert res["sd"] == pytest.approx(vals.std(ddof=1), abs=1e-6)
     assert body["figure"]["point_groups"] == []
     assert "<svg" in body["figure"]["svg"]
+
+
+def _distribution_fig(params):
+    """Render a single descriptive `distribution` layer and hand back the figure
+    so a test can inspect the artists each render mode draws. Annotations off so
+    the median axvline doesn't pollute the Line2D count."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from iris_engine import specnorm
+    table = make_scatter_table()
+    df = pd.DataFrame(table["rows"])
+    spec = make_scatter_spec()
+    spec["stats"]["family"] = "descriptive"
+    spec["mappings"] = {"x": None, "y": {"column": "response"},
+                        "color": None, "pair_by": None, "facet": None}
+    spec["layers"] = [{"mark": "distribution", "options": params}]
+    spec.setdefault("style", {}).setdefault("overrides", {})["show_annotation"] = False
+    spec = specnorm.normalize(spec)
+    st = stats.descriptive(df, "response", alpha=0.05)
+    fig, _ = compiler.build_histogram_figure(df, table["schema"], spec, st)
+    return fig.axes[0]
+
+
+def test_distribution_fixed_bins_control_bar_count():
+    assert len(_distribution_fig({"bin_method": "fixed", "hist_bins": 5}).patches) == 5
+    assert len(_distribution_fig({"bin_method": "fixed", "hist_bins": 23}).patches) == 23
+
+
+def test_distribution_adaptive_bin_methods_render():
+    # each numpy strategy yields *some* bars and they need not match each other
+    counts = {m: len(_distribution_fig({"bin_method": m}).patches)
+              for m in ("auto", "fd", "scott", "sturges", "sqrt")}
+    assert all(c > 0 for c in counts.values())
+
+
+def test_distribution_render_modes_draw_the_right_artists():
+    bars = _distribution_fig({"dist_render": "bars"})
+    assert bars.patches and not bars.lines          # rectangles, no curve
+
+    line = _distribution_fig({"dist_render": "line"})
+    assert line.lines and not line.patches          # a polyline, no bars
+
+    points = _distribution_fig({"dist_render": "points"})
+    assert points.lines and not points.patches
+
+    smooth = _distribution_fig({"dist_render": "smooth"})
+    assert smooth.lines and not smooth.patches       # KDE only — no bars (the fix)
+
+
+def test_distribution_overlay_smooth_adds_a_curve_over_bars():
+    ax = _distribution_fig({"dist_render": "bars", "overlay_smooth": True})
+    assert ax.patches      # bars present
+    assert ax.lines        # plus a KDE overlay
+
+
+def test_distribution_potential_draws_a_curve_not_bars():
+    ax = _distribution_fig({"dist_render": "potential"})
+    assert ax.lines and not ax.patches       # a U(x) polyline, no histogram bars
+    assert ax.get_ylabel() == "−ln P"
+
+
+def _potential_xy(vals, bin_method="fixed", hist_bins=10):
+    """The (x, U) the potential render draws over *vals*, plus the ground-truth
+    −ln P computed straight from the same histogram — for an exact comparison."""
+    import matplotlib
+    matplotlib.use("Agg")
+    ax = _draw_into_potential(vals, {"bin_method": bin_method, "hist_bins": hist_bins})
+    line = ax.lines[0]
+    counts, _ = np.histogram(vals, bins=hist_bins)
+    occ = counts > 0
+    expected_u = -np.log(counts[occ] / counts.sum())
+    return line.get_ydata(), expected_u, occ
+
+
+def _draw_into_potential(vals, params):
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    style = compiler.resolve_style({})
+    fig, ax = plt.subplots()
+    compiler._draw_distribution(
+        ax, np.asarray(vals, dtype=float), {**params, "dist_render": "potential"}, style)
+    return ax
+
+
+def test_potential_is_neg_log_density():
+    rng = np.random.default_rng(0)
+    vals = rng.normal(size=400)
+    drawn_u, expected_u, _ = _potential_xy(vals)
+    assert np.allclose(np.sort(drawn_u), np.sort(expected_u))
+
+
+def test_potential_drops_empty_bins():
+    # a gap in the middle leaves empty bins, which must not become −ln(0)=inf
+    vals = np.concatenate([np.zeros(50), np.full(50, 10.0)])
+    ax = _draw_into_potential(vals, {"bin_method": "fixed", "hist_bins": 10})
+    u = ax.lines[0].get_ydata()
+    assert len(u) < 10                  # fewer drawn points than bins (gap dropped)
+    assert np.all(np.isfinite(u))       # no infinities from empty bins
+
+
+def test_sinh_bin_edges_concentrate_near_zero():
+    edges = compiler._sinh_bin_edges(-10.0, 10.0, 20, sharpness=3.0)
+    assert len(edges) == 21
+    assert edges[0] == -10.0 and edges[-1] == 10.0    # real range preserved
+    widths = np.diff(edges)
+    mid = len(widths) // 2
+    assert widths.argmin() in (mid - 1, mid)          # narrowest bin straddles 0
+    assert widths[mid] < widths[0] and widths[mid] < widths[-1]   # widen outward
+
+
+def test_sinh_bin_edges_fall_back_to_uniform():
+    uni = compiler._sinh_bin_edges(-5.0, 5.0, 10, sharpness=0.0)
+    assert np.allclose(np.diff(uni), 1.0)             # sharpness 0 → uniform
+    deg = compiler._sinh_bin_edges(3.0, 3.0, 8)       # degenerate range, no crash
+    assert len(deg) == 9 and np.all(np.isfinite(deg))
+
+
+def test_distribution_sinh_renders_requested_bin_count():
+    assert len(_distribution_fig({"bin_method": "sinh", "hist_bins": 16}).patches) == 16
+
+
+def test_potential_with_sinh_bins_composes():
+    rng = np.random.default_rng(2)
+    vals = np.concatenate([rng.normal(-2, 0.5, 200), rng.normal(2, 0.5, 200)])
+    u = _draw_into_potential(vals, {"bin_method": "sinh", "hist_bins": 21}).lines[0].get_ydata()
+    assert len(u) > 0 and np.all(np.isfinite(u))
 
 
 # ---------------- tier-2: import ----------------

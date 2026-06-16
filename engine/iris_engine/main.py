@@ -496,7 +496,7 @@ def doc_save(req: SaveRequest):
     data = document.save_document(req.table["schema"], req.table["rows"],
                                   req.analyses, req.provenance,
                                   engine_snapshot())
-    return {"filename": "document.viz",
+    return {"filename": "document.iris",
             "data_base64": base64.b64encode(data).decode()}
 
 

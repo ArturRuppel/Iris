@@ -98,7 +98,7 @@ def main() -> None:
                                        "provenance": {"exclusions": []}})
         loaded = req("/document/load", {"data_base64": saved["data_base64"]})
         assert len(loaded["rows"]) == 40
-        ok(".viz save/load roundtrip")
+        ok(".iris save/load roundtrip")
 
         # port collision: a second instance on the same port must exit nonzero
         clash = subprocess.run([str(BINARY)], env=env,

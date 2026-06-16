@@ -47,7 +47,13 @@ export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
 
-export type Geom = Mark; // geom name == existing mark string (dot, box, …)
+/* the live geom vocabulary: histogram/density were folded into a single
+   `distribution` geom (see migrateDistLayers). The legacy names remain in `Mark`
+   only so an older .viz still type-checks while it is migrated on load. */
+export type Geom =
+  | "dot" | "summary" | "box" | "violin" | "bar"
+  | "scatter" | "regression" | "distribution" | "tile"
+  | "histogram" | "density";
 
 /* Data-hierarchy redesign: a layer draws from a data *level* of the hierarchy
    (a spine column name, or "" = the raw/finest reduced rows). A dot at "" is the
@@ -81,7 +87,7 @@ export interface HierarchyInfo {
 
 export interface ParamSpec {
   key: string; label: string;
-  type: "number" | "select";
+  type: "number" | "select" | "bool";
   min?: number; max?: number; step?: number; options?: string[];
 }
 export interface GeomMeta {

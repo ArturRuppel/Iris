@@ -17,6 +17,7 @@ from __future__ import annotations
 def normalize(spec: dict) -> dict:
     if spec.get("spec_version") == "2.0":
         out = dict(spec)
+        out["layers"] = _migrate_dist_layers(out.get("layers", []))
         out.setdefault("_override", _override_of(spec))
         out.setdefault("_describe_only", _describe_only_of(spec))
         return out
@@ -38,17 +39,55 @@ def normalize(spec: dict) -> dict:
     out.pop("mappings", None)
     out["facet"] = {"row": None, "col": None, "share_x": True, "share_y": True}
 
-    out["layers"] = [
+    out["layers"] = _migrate_dist_layers([
         {"geom": layer["mark"], "params": dict(layer.get("options") or {}),
          "level": ""}
         for layer in spec.get("layers", [])
-    ]
+    ])
     # Data hierarchy (redesign): legacy specs carry no spine, so every layer draws
     # the raw reduced rows — today's behaviour. A legacy reduce.collapse still
     # works destructively for old documents; the new flow uses the hierarchy.
     out["hierarchy"] = {"spine": [], "fn": {}}
     out["_override"] = _override_of(spec)
     out["_describe_only"] = _describe_only_of(spec)
+    return out
+
+
+def _migrate_dist_layers(layers: list[dict]) -> list[dict]:
+    """Fold the retired `histogram`/`density` geoms into the unified
+    `distribution` geom. A lone histogram → bars; a lone density → smooth (KDE,
+    no bars); both together → one bars layer with a KDE overlay. Other geoms
+    pass through untouched and in place. Idempotent: a spec already on
+    `distribution` is returned unchanged.
+
+    Accepts both shapes — `geom` (2.0) and `mark` (legacy) — so it can run in
+    either normalize branch."""
+    def kind(layer):
+        return layer.get("geom") or layer.get("mark")
+
+    if not any(kind(l) in ("histogram", "density") for l in layers):
+        return layers
+
+    hist = next((l for l in layers if kind(l) == "histogram"), None)
+    dens = next((l for l in layers if kind(l) == "density"), None)
+    base = hist or dens
+    params = dict(base.get("params") or base.get("options") or {})
+    if hist is not None and dens is not None:
+        params.setdefault("dist_render", "bars")
+        params["overlay_smooth"] = True
+    else:
+        params.setdefault("dist_render", "bars" if hist is not None else "smooth")
+    merged = {"geom": "distribution", "params": params,
+              "level": base.get("level", "")}
+
+    out, placed = [], False
+    for l in layers:
+        if kind(l) in ("histogram", "density"):
+            if not placed:  # keep the distribution where the first one sat
+                out.append(merged)
+                placed = True
+        else:
+            out.append(l)
     return out
 
 

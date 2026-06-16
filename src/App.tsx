@@ -286,10 +286,10 @@ export default function App() {
           <button onClick={() => doExport("svg")}>SVG</button>
           <button onClick={() => doExport("pdf")}>PDF</button>
           <button onClick={() => doExport("png")}>PNG</button>
-          <button onClick={() => loadFileRef.current?.click()}>Load .viz</button>
-          <input ref={loadFileRef} type="file" hidden accept=".viz"
+          <button onClick={() => loadFileRef.current?.click()}>Load .iris</button>
+          <input ref={loadFileRef} type="file" hidden accept=".iris"
             onChange={(e) => e.target.files?.[0] && void doLoad(e.target.files[0])} />
-          <button className="primary" onClick={doSave}>Save .viz</button>
+          <button className="primary" onClick={doSave}>Save .iris</button>
         </div>
       </header>
       {error ? <div className="error-bar">{error}</div>

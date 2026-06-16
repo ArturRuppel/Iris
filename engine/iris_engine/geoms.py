@@ -56,6 +56,24 @@ def _err_select(key="error_type", label="Error bars"):
             "options": ["ci95", "sem", "sd"]}
 
 
+def _sel(key, label, options):
+    return {"key": key, "label": label, "type": "select", "options": list(options)}
+
+
+def _bool(key, label):
+    return {"key": key, "label": label, "type": "bool"}
+
+
+# the distribution geom's render mode (how the single numeric column is drawn)
+# and binning method (a numpy histogram_bin_edges strategy, or "fixed" → N bins).
+DIST_RENDERS = ["bars", "step", "line", "points", "smooth", "potential"]
+# "auto"/fd/scott/sturges/sqrt are numpy histogram_bin_edges strategies; "fixed"
+# takes `hist_bins` bins; "sinh" places `hist_bins` bins tighter near x=0 (the
+# null point of signed data — differences, log-ratios, contrasts), `bin_sharpness`
+# controlling the concentration.
+BIN_METHODS = ["auto", "fd", "scott", "sturges", "sqrt", "fixed", "sinh"]
+
+
 GEOMS: dict[str, GeomDef] = {
     "dot": GeomDef(
         "Dots", "group_comparison", False, ["x", "y"],
@@ -97,19 +115,26 @@ GEOMS: dict[str, GeomDef] = {
         "Regression", "correlation", True, ["x", "y"],
         x_type="numeric", y_type="numeric",
         params={}, param_specs=[], aes=["color"]),
+    # one geom for the distribution of a single numeric column. `dist_render`
+    # picks the representation (bars/step/line/points, or "smooth" = a KDE curve
+    # with no bars — the old `density` geom). `overlay_smooth` adds a KDE on top
+    # of a binned render; it is ignored when the render is already "smooth".
+    # Binning: `bin_method` is a numpy strategy (fd/scott/sturges/sqrt/auto) or
+    # "fixed", in which case `hist_bins` sets the count.
+    #
     # descriptive geoms accept no aesthetic channels in Phase 2: a colored,
-    # per-level histogram/density overlay tangles with the single-series KDE and
-    # median annotations, so it is deferred to a follow-up. Keeping aes empty
-    # means the frontend never offers a channel the descriptive builder ignores.
-    "histogram": GeomDef(
-        "Histogram", "descriptive", True, ["y"],
+    # per-level overlay tangles with the single-series KDE and median
+    # annotations, so it is deferred to a follow-up. Keeping aes empty means the
+    # frontend never offers a channel the descriptive builder ignores.
+    "distribution": GeomDef(
+        "Distribution", "descriptive", True, ["y"],
         x_type="none", y_type="numeric",
-        params={},
-        param_specs=[_num("hist_bins", "Bins", lo=0, hi=200, step=1)]),
-    "density": GeomDef(
-        "Density", "descriptive", True, ["y"],
-        x_type="none", y_type="numeric",
-        params={}, param_specs=[]),
+        params={"dist_render": "bars", "bin_method": "auto"},
+        param_specs=[_sel("dist_render", "Render", DIST_RENDERS),
+                     _sel("bin_method", "Bins", BIN_METHODS),
+                     _num("hist_bins", "Bin count (fixed/sinh)", lo=2, hi=200, step=1),
+                     _num("bin_sharpness", "Sinh sharpness", lo=0.0, hi=8.0, step=0.5),
+                     _bool("overlay_smooth", "Overlay smooth (KDE)")]),
     # Phase 3d: tile/heatmap geom — categorical x × categorical y → fill = count.
     # The one geom that makes categorical-vs-categorical worth offering; no
     # inferential test in 3d (chi-square is the natural follow-up in Tier 2).

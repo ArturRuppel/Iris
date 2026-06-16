@@ -4,8 +4,8 @@ from iris_engine import geoms
 
 def test_every_known_geom_is_registered():
     expected = {"dot", "summary", "box", "violin", "bar",
-                "scatter", "regression", "histogram", "density",
-                "tile"}  # Phase 3d
+                "scatter", "regression", "distribution",
+                "tile"}  # Phase 3d; distribution = histogram+density unified
     assert set(geoms.GEOMS) == expected
 
 
@@ -22,9 +22,9 @@ def test_per_row_geoms_carry_the_point_cap():
 def test_geoms_declare_their_family_and_needs():
     assert geoms.GEOMS["dot"].family == "group_comparison"
     assert geoms.GEOMS["scatter"].family == "correlation"
-    assert geoms.GEOMS["histogram"].family == "descriptive"
+    assert geoms.GEOMS["distribution"].family == "descriptive"
     assert geoms.GEOMS["dot"].needs == ["x", "y"]
-    assert geoms.GEOMS["histogram"].needs == ["y"]
+    assert geoms.GEOMS["distribution"].needs == ["y"]
 
 
 def test_geoms_declare_accepted_aesthetic_channels():
@@ -40,8 +40,7 @@ def test_geoms_declare_accepted_aesthetic_channels():
     assert geoms.GEOMS["regression"].aes == ["color"]
     assert geoms.GEOMS["summary"].aes == ["color"]
     # descriptive geoms accept no channels in Phase 2 (colored overlay deferred)
-    assert geoms.GEOMS["histogram"].aes == []
-    assert geoms.GEOMS["density"].aes == []
+    assert geoms.GEOMS["distribution"].aes == []
 
 
 def test_geoms_declare_axis_column_types():
@@ -55,10 +54,9 @@ def test_geoms_declare_axis_column_types():
     for g in ("scatter", "regression"):
         assert geoms.GEOMS[g].x_type == "numeric", g
         assert geoms.GEOMS[g].y_type == "numeric", g
-    # descriptive geoms: no x ("none" = the axis must be absent), numeric y
-    for g in ("histogram", "density"):
-        assert geoms.GEOMS[g].x_type == "none", g
-        assert geoms.GEOMS[g].y_type == "numeric", g
+    # descriptive geom: no x ("none" = the axis must be absent), numeric y
+    assert geoms.GEOMS["distribution"].x_type == "none"
+    assert geoms.GEOMS["distribution"].y_type == "numeric"
 
 
 def test_registry_payload_carries_axis_types():
@@ -66,7 +64,7 @@ def test_registry_payload_carries_axis_types():
     assert payload["geoms"]["dot"]["x_type"] == "categorical"
     assert payload["geoms"]["dot"]["y_type"] == "numeric"
     assert payload["geoms"]["scatter"]["x_type"] == "numeric"
-    assert payload["geoms"]["histogram"]["x_type"] == "none"
+    assert payload["geoms"]["distribution"]["x_type"] == "none"
     # every geom exposes both fields with a legal value
     for name, g in payload["geoms"].items():
         assert g["x_type"] in ("categorical", "numeric", "none"), name
@@ -95,3 +93,18 @@ def test_registry_payload_is_json_safe_and_complete():
     bar_specs = {p["key"]: p for p in payload["geoms"]["bar"]["param_specs"]}
     assert bar_specs["error_type"]["type"] == "select"
     assert "ci95" in bar_specs["error_type"]["options"]
+
+
+def test_distribution_exposes_render_bins_and_overlay_editors():
+    specs = {p["key"]: p for p in geoms.GEOMS["distribution"].param_specs}
+    # render mode is a select over bars/step/line/points/smooth
+    assert specs["dist_render"]["type"] == "select"
+    assert specs["dist_render"]["options"] == geoms.DIST_RENDERS
+    assert "smooth" in specs["dist_render"]["options"]
+    # binning method is a select including the adaptive numpy strategies
+    assert specs["bin_method"]["type"] == "select"
+    for m in ("auto", "fd", "scott", "sturges", "sqrt", "fixed"):
+        assert m in specs["bin_method"]["options"]
+    # a fixed bin count and a KDE-overlay toggle
+    assert specs["hist_bins"]["type"] == "number"
+    assert specs["overlay_smooth"]["type"] == "bool"

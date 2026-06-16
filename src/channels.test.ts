@@ -21,8 +21,7 @@ const REG: Registry = { point_cap: 3000, facet_cell_cap: 20, geoms: {
   bar: geom("categorical", "numeric"),
   scatter: geom("numeric", "numeric"),
   regression: geom("numeric", "numeric"),
-  histogram: geom("none", "numeric"),
-  density: geom("none", "numeric"),
+  distribution: geom("none", "numeric"),
 } };
 
 /* registry as shipped in 3d: includes the tile geom */
@@ -161,9 +160,8 @@ describe("primitive gating — geom enabled iff (x_type, y_type) satisfied", () 
       expect(geomGateReason(REG.geoms[g], "numeric", "numeric")).toMatch(/categorical X/);
     }
   });
-  it("empty x + numeric y: descriptive geoms enabled, axis geoms need an X", () => {
-    expect(enabled("histogram", null, "numeric")).toBe(true);
-    expect(enabled("density", null, "numeric")).toBe(true);
+  it("empty x + numeric y: descriptive geom enabled, axis geoms need an X", () => {
+    expect(enabled("distribution", null, "numeric")).toBe(true);
     expect(geomGateReason(REG.geoms.dot, null, "numeric")).toMatch(/categorical X/);
   });
   it("Phase 3c: numeric x + categorical y enables h_orient group geoms", () => {
@@ -172,8 +170,8 @@ describe("primitive gating — geom enabled iff (x_type, y_type) satisfied", () 
     // scatter/regression have no h_orient — still disabled
     expect(enabled3c("scatter", "numeric", "categorical")).toBe(false);
     expect(enabled3c("regression", "numeric", "categorical")).toBe(false);
-    // descriptive geoms also disabled (need x absent)
-    expect(enabled3c("histogram", "numeric", "categorical")).toBe(false);
+    // descriptive geom also disabled (needs x absent)
+    expect(enabled3c("distribution", "numeric", "categorical")).toBe(false);
   });
   it("Phase 3c: h_orient geoms still work for vertical (categorical x + numeric y)", () => {
     for (const g of ["dot", "box"])
@@ -225,7 +223,7 @@ describe("back-compat — derived family matches the pre-3a stored family", () =
     expect(familyForMappings({ x: "grp", y: "val" }, SCHEMA)).toBe("group_comparison");
     // scatter: numeric x + numeric y
     expect(familyForMappings({ x: "val", y: "val" }, SCHEMA)).toBe("correlation");
-    // histogram: empty x + numeric y
+    // distribution: empty x + numeric y
     expect(familyForMappings({ x: "", y: "val" }, SCHEMA)).toBe("descriptive");
     // Phase 3d: categorical × categorical → contingency (no longer falls back to descriptive)
     expect(familyForMappings({ x: "grp", y: "grp" }, SCHEMA)).toBe("contingency");

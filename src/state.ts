@@ -215,6 +215,29 @@ export const loadTableAtom = atom(null, (get, set,
   set(activePlottableIdAtom, first.id);
 });
 
+/* Fold the retired histogram/density geoms of an older .viz into the unified
+   `distribution` geom (bars / smooth, or bars+overlay when both were present),
+   mirroring the engine's specnorm so a loaded document edits like a fresh one.
+   Idempotent for documents already on `distribution`. */
+export function migrateDistLayers(layers: Layer[]): Layer[] {
+  const legacy = (g: string) => g === "histogram" || g === "density";
+  if (!layers.some((l) => legacy(l.geom))) return layers;
+  const hist = layers.find((l) => l.geom === "histogram");
+  const dens = layers.find((l) => l.geom === "density");
+  const base = hist ?? dens!;
+  const params: Record<string, unknown> = { ...base.params };
+  if (hist && dens) { params.dist_render ??= "bars"; params.overlay_smooth = true; }
+  else params.dist_render ??= hist ? "bars" : "smooth";
+  const merged: Layer = { geom: "distribution", params, level: base.level };
+  let placed = false;
+  const out: Layer[] = [];
+  for (const l of layers) {
+    if (!legacy(l.geom)) out.push(l);
+    else if (!placed) { out.push(merged); placed = true; }
+  }
+  return out;
+}
+
 /* Inverse of buildSpec: reconstruct the editable Plottable from a saved analysis
    spec so a loaded .viz comes back fully editable, not just renderable. The spec
    carries everything the Plottable needs except previewLevel (a transient UI
@@ -232,7 +255,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     facetCol: spec.facet?.col?.column ?? "",
     shareX: spec.facet?.share_x ?? true,
     shareY: spec.facet?.share_y ?? true,
-    layers: spec.layers ?? [],
+    layers: migrateDistLayers(spec.layers ?? []),
     override: s?.chosen_by === "user_override" ? s.test : null,
     describeOnly: s?.chosen_by === "describe_only",
     previewLevel: RAW_LEVEL,

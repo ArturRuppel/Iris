@@ -71,7 +71,7 @@ def make_horiz_spec(*geom_names):
 def test_h_orient_flag_on_group_comparison_geoms():
     for g in ("dot", "summary", "box", "violin", "bar"):
         assert geoms.GEOMS[g].h_orient is True, g
-    for g in ("scatter", "regression", "histogram", "density"):
+    for g in ("scatter", "regression", "distribution"):
         assert geoms.GEOMS[g].h_orient is False, g
 
 
@@ -80,13 +80,14 @@ def test_registry_payload_carries_h_orient():
     for g in ("dot", "summary", "box", "violin", "bar"):
         assert payload["geoms"][g]["h_orient"] is True, g
     assert payload["geoms"]["scatter"]["h_orient"] is False
-    assert payload["geoms"]["histogram"]["h_orient"] is False
+    assert payload["geoms"]["distribution"]["h_orient"] is False
 
 
 def test_existing_geom_keys_present():
-    # h_orient is additive — the original 9 keys must all still be present
+    # the core geom keys must all still be present (histogram + density were
+    # folded into the unified `distribution` geom)
     original = {"dot", "summary", "box", "violin", "bar",
-                "scatter", "regression", "histogram", "density"}
+                "scatter", "regression", "distribution"}
     assert original.issubset(set(geoms.GEOMS))
 
 

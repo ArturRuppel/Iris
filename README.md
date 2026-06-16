@@ -30,7 +30,7 @@ npm run dev                          # http://localhost:5173
 
 The app loads a sample dataset. Edit cells, click points to exclude them,
 override the recommended test, switch to a journal size preset, export
-SVG/PDF/PNG, save a `.viz` document.
+SVG/PDF/PNG, save a `.iris` document.
 
 ## Desktop shell (Tauri)
 
@@ -84,7 +84,7 @@ Validated end-to-end in CI-like conditions (see `engine/tests/`, 8 tests):
   (the contract the frontend's click-to-exclude relies on)
 - Exclusions propagate into n, summaries, and the generated methods text
 - PDF export MediaBox measures exactly 89 × 70 mm for `nature_single_column`
-- `.viz` document save/load roundtrip
+- `.iris` document save/load roundtrip
 - Frontend compiles under strict TypeScript and builds with Vite
 
 Scaffolded, needs a real machine: Tauri shell compile, sidecar lifecycle
@@ -102,7 +102,7 @@ packaging half is the remaining work.
 ```
 engine/iris_engine/    stats.py (pingouin orchestration + recommendation)
                        compiler.py (spec → matplotlib, gid tagging, mm presets)
-                       document.py (.viz ZIP format + sample data)
+                       document.py (.iris ZIP format + sample data)
                        main.py (FastAPI protocol surface)
 engine/tests/          validation suite (pytest)
 src/                   React frontend: state.ts (Jotai atoms, derived spec),

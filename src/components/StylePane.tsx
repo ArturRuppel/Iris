@@ -261,7 +261,7 @@ export function StylePane() {
         </fieldset>
 
         {(marks.has("box") || marks.has("violin") || marks.has("bar")
-          || marks.has("summary") || marks.has("histogram")) && (
+          || marks.has("summary")) && (
           <fieldset>
             <legend>Mark options</legend>
             {marks.has("box") && (
@@ -314,13 +314,6 @@ export function StylePane() {
                   <span className="dim">{(style.capsize ?? D.capsize).toFixed(1)}</span>
                 </label>
               </>
-            )}
-            {marks.has("histogram") && (
-              <label>Bins
-                <input type="number" min={2} max={200} placeholder="auto"
-                  value={style.hist_bins ?? ""}
-                  onChange={(e) => set({ hist_bins: num(e.target.value) || undefined })} />
-              </label>
             )}
           </fieldset>
         )}

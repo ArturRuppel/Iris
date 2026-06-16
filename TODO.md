@@ -288,8 +288,34 @@ vite build clean; engine save/load round-trip (incl. exclusions/provenance)
 verified via TestClient. NOTE: the browser file-open gesture isn't click-tested
 here (no Chromium — same as items 3/13).
 
-### 16. Add the fourth data type (bool for stochastic-event counts)
+### 16. Add the fourth data type (bool for stochastic-event counts) — FIXED 2026-06-16
 We need to add the fourth data type — a bool, for counts of stochastic events.
+
+FIXED. A `bool` is a first-class schema type at the **import-detection** and
+**presentation** layers, and collapses to **numeric 1/0** for every compute path
+— so a summary/bar of a bool reads as the *fraction of trues* (the count of
+stochastic events). This kept the compiler/stats/guards/hierarchy/reduce code
+untouched: the single normalization site is `main._load_frame`, which coerces a
+`bool` column to numeric and rewrites a *copy* of the schema to `numeric` before
+anything downstream sees it.
+- Engine `importer`: `_infer_type` detects bool *before* numeric when a column's
+  non-null values are a subset of an unambiguous true/false vocabulary
+  (`true/false/yes/no/t/f`, case-insensitive — deliberately NOT `0/1`, so a real
+  numeric 0/1 measure isn't hijacked; a user can still retype one to bool).
+  `_typed_columns` emits JSON booleans (`_parse_bool`); `_column_report` reports
+  `n_unparsed` for a manually-retyped non-bool column.
+- Frontend: `ColumnDef.type` gains `"bool"`; `channels.colType`/`offeredColumns`
+  map bool→numeric so every channel offers it and the value axis derives the
+  numeric family; `DataTable` colour-codes it (`type-bool`, rust, configurable
+  via `DEFAULT_TYPE_COLORS` per item 21) and renders/edits true/false via a
+  select; `ImportWizard` lists "bool (T/F)" and a type-aware unparsed warning;
+  `HierarchyPanel`/`StepCards` count bool among the numeric measures (so it's
+  aggregatable: mean → fraction true). `index.css` adds the three `.type-bool`
+  rules item 21 anticipated.
+Tests: `test_import_bool_type_plots_as_fraction` (detect → commit booleans →
+group means equal the per-group fraction of trues); a frontend channels case
+(bool offered on Y, derives `group_comparison`). 213 engine tests + 30 frontend
+tests pass; tsc + vite build clean.
 
 ### 17. Draggable plot legends — FIXED 2026-06-16
 The legend was already gid-tagged `legend` and the frontend label-drag writes
@@ -395,3 +421,13 @@ disabled until the full pass lands. Test: `test_import_headers_first_then_full`.
 210 engine tests pass; tsc + vite build clean. NOTE: backend verified via
 TestClient and frontend via tsc/build, but not click-tested in a live browser
 (no Chromium in this sandbox — same constraint as items 3/13).
+
+## Geom-first workflow
+
+### 23. Allow selecting a geom before selecting data — TODO
+It should be possible to pick a geom *before* loading/selecting data. The chosen
+geom should then restrict what data can be loaded — i.e. the geom's encoding
+requirements (its `(x_type, y_type)` expectations) constrain the columns/types
+that are offered or accepted on import, the inverse of item 6 (which filters the
+add-layer menu by the current encoding). Effectively: encoding-first and
+geom-first should both be valid entry points, each narrowing the other.
