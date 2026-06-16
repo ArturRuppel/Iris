@@ -102,9 +102,14 @@ td select { border: none; background: transparent; padding: 0; }
 .style-groups input.narrow { width: 44px; }
 .style-groups select { font-size: 11px; padding: 2px 4px; }
 .style-groups input[type="range"] { flex: 1; min-width: 60px; }
-.style-groups input[type="color"] { width: 36px; height: 22px; padding: 1px;
-  border: 1px solid #cbd5e1; border-radius: 5px; background: white; }
 .style-groups span.dim { min-width: 28px; text-align: right; font-size: 10px; }
+.color-swatch-btn { width: 28px; height: 22px; padding: 0; border: 1px solid #cbd5e1;
+  border-radius: 5px; cursor: pointer; }
+.color-popover { padding: 8px; gap: 6px; }
+.color-popover .color-hex { font-size: 11px; border: 1px solid #cbd5e1;
+  border-radius: 5px; padding: 3px 6px; }
+.color-swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.color-swatch-grid .color-swatch-btn { width: 22px; height: 22px; }
 .style-foot { margin-top: 8px; }
 .style-foot button { font-size: 11px; padding: 3px 9px; }
 .style-foot button:disabled { opacity: 0.45; cursor: default; }

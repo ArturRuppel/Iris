@@ -67,7 +67,11 @@ export function DataTable() {
     return defs;
   }, [schema]);
 
-  if (!schema) return null;
+  if (!schema) return (
+    <div className="analyses-empty">
+      <span>Import or enter data to start.</span>
+    </div>
+  );
 
   /* readOnlyEdit: the grid never mutates; edits arrive here and go through
      the store, so exclusions keep their provenance log entry */

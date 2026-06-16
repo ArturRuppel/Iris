@@ -1,7 +1,16 @@
+import { useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom } from "../state";
 import { familyForMappings } from "../channels";
 import type { StyleOverrides } from "../types";
+
+/* a custom popover (not the native <input type="color">) so positioning stays
+   under our control — the native OS color panel clips when the browser/window
+   is fullscreen */
+const PRESET_SWATCHES = [
+  "#0e7490", "#c2410c", "#4d7c0f", "#7c3aed", "#be123c", "#0369a1",
+  "#a16207", "#15803d", "#9333ea", "#b91c1c", "#0891b2", "#475569",
+];
 
 /* engine defaults; shown when no override is set so the controls never jump */
 const D = {
@@ -20,6 +29,7 @@ const OUTLIER_LABELS = {
  *  owns the defaults, and mark options only appear for the active plot. */
 export function StylePane() {
   const [active, setActive] = useAtom(activePlottableAtom);
+  const [colorMenu, setColorMenu] = useState<{ x: number; y: number; index: number } | null>(null);
   const style = active?.style ?? {};
   const analysis = useAtomValue(analysisAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
@@ -323,8 +333,12 @@ export function StylePane() {
           <legend>Colors</legend>
           {seriesNames.map((name, i) => (
             <label key={name}>{name}
-              <input type="color" value={colorOf(i)}
-                onChange={(e) => setColor(i, e.target.value)} />
+              <button type="button" className="color-swatch-btn"
+                style={{ background: colorOf(i) }}
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setColorMenu({ x: r.left, y: r.bottom + 4, index: i });
+                }} />
             </label>
           ))}
         </fieldset>
@@ -354,6 +368,24 @@ export function StylePane() {
         </button>
         <button onClick={() => active && setActive({ ...active, style: {} })} disabled={!dirty}>Reset all</button>
       </div>
+
+      {colorMenu && (
+        <>
+          <div className="menu-backdrop" onClick={() => setColorMenu(null)} />
+          <div className="context-menu color-popover" style={{ left: colorMenu.x, top: colorMenu.y }}>
+            <input type="text" className="color-hex" value={colorOf(colorMenu.index)}
+              onChange={(e) => setColor(colorMenu.index, e.target.value)} />
+            <div className="color-swatch-grid">
+              {PRESET_SWATCHES.map((c) => (
+                <button key={c} type="button" className="color-swatch-btn"
+                  style={{ background: c }}
+                  onClick={() => { setColor(colorMenu.index, c); setColorMenu(null); }} />
+              ))}
+            </div>
+            <button onClick={() => setColorMenu(null)}>Done</button>
+          </div>
+        </>
+      )}
     </details>
   );
 }
