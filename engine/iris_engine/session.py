@@ -64,6 +64,10 @@ class SessionTable:
         vals = self._df[column].dropna().astype(str).unique().tolist()
         return sorted(vals)[: self._DISTINCT_CAP]
 
+    def counts(self) -> dict:
+        excluded = int(self._df["excluded"].fillna(False).astype(bool).sum())
+        return {"total": self.n, "excluded": excluded}
+
 
 class SessionStore:
     """Process-global, thread-safe map of id -> SessionTable. Bounded LRU so a

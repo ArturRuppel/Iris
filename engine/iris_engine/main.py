@@ -406,7 +406,8 @@ def sample():
                            frame_from_table(data))
     t = _SESSIONS.get(tid)
     return {"id": tid, "n": t.n, "version": t.version,
-            "schema": data["schema"], "rows": t.window(0, 200)}
+            "schema": data["schema"], "rows": t.window(0, 200),
+            "counts": t.counts()}
 
 
 @app.post("/table")
@@ -429,7 +430,8 @@ def table_create(req: CreateSessionRequest):
         df["excluded"] = False
     tid = _SESSIONS.create(schema, df)
     t = _SESSIONS.get(tid)
-    return {"id": tid, "n": t.n, "version": t.version, "schema": schema}
+    return {"id": tid, "n": t.n, "version": t.version, "schema": schema,
+            "counts": t.counts()}
 
 
 @app.post("/table/{tid}/rows")
@@ -446,7 +448,7 @@ def table_edit(tid: str, req: EditRequest):
         t.edit_cell(req.row_id, req.column, req.value)
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
-    return {"version": t.version}
+    return {"version": t.version, "counts": t.counts()}
 
 
 @app.post("/table/{tid}/exclude")
@@ -456,7 +458,7 @@ def table_exclude(tid: str, req: ExcludeRequest):
         excluded = t.toggle_exclusion(req.row_id)
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
-    return {"excluded": excluded, "version": t.version}
+    return {"excluded": excluded, "version": t.version, "counts": t.counts()}
 
 
 @app.post("/table/{tid}/distinct")

@@ -74,3 +74,11 @@ def test_distinct_levels_sorted_strings_capped():
     df["g"] = ["b", "a", "c", "a", "b", "a"]
     t = store.get(store.create(SCHEMA, df))
     assert t.distinct("g") == ["a", "b", "c"]
+
+
+def test_counts_reflect_exclusions():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df(4)))
+    assert t.counts() == {"total": 4, "excluded": 0}
+    t.toggle_exclusion("1")
+    assert t.counts() == {"total": 4, "excluded": 1}
