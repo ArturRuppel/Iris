@@ -27,8 +27,15 @@ MM = 1 / 25.4
 # the common forms of colour blindness. Default for every aesthetic series and
 # group palette, so figures are colourblind-safe out of the box. Black sits last
 # so a single-series plot leads with a coloured (not black) mark.
+# Leading 8 are Okabe–Ito (colourblind-safe); a plot with ≤8 series stays on
+# them. Beyond that we extend with Paul Tol's qualitative hues (also
+# colourblind-friendly) rather than wrapping back to colour 0, so 9+ series stay
+# distinct. Black stays at index 7 so a single-series plot still leads with a
+# coloured mark and the canonical 8-series look is unchanged.
 PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
-           "#0072B2", "#D55E00", "#CC79A7", "#000000"]
+           "#0072B2", "#D55E00", "#CC79A7", "#000000",
+           "#332288", "#117733", "#88CCEE", "#882255",
+           "#999933", "#AA4499", "#44AA99", "#661100"]
 INK = "#0f172a"
 
 STYLE_PRESETS = {

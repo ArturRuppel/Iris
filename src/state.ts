@@ -53,7 +53,9 @@ function reconcileSpine(order: string[], ids: string[]): string[] {
    panel for an unset palette are the exact colors the engine draws; the style
    panel edits copies of it */
 export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
-  "#0072B2", "#D55E00", "#CC79A7", "#000000"];
+  "#0072B2", "#D55E00", "#CC79A7", "#000000",
+  "#332288", "#117733", "#88CCEE", "#882255",
+  "#999933", "#AA4499", "#44AA99", "#661100"];
 
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);

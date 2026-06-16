@@ -49,7 +49,10 @@ def _sniff(text: str) -> dict:
 def _sanitize_names(labels: list[str]) -> list[str]:
     names, seen = [], set()
     for i, label in enumerate(labels, 1):
-        name = re.sub(r"\W+", "_", str(label).strip().lower()).strip("_") or f"col_{i}"
+        # Keep '.' — it's the family separator the column picker groups on
+        # (cell_shape.area, cell_shape.perimeter → "cell_shape"). Everything
+        # else non-word collapses to '_'; trim stray leading/trailing separators.
+        name = re.sub(r"[^\w.]+", "_", str(label).strip().lower()).strip("_.") or f"col_{i}"
         if name in RESERVED_NAMES:
             name += "_col"
         base, k = name, 2

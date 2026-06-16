@@ -342,6 +342,17 @@ def test_import_reserved_and_duplicate_names():
     assert body["rows"][0]["id"] == "r1"  # bookkeeping id untouched
 
 
+def test_import_preserves_dotted_family_names():
+    # the '.' family separator must survive sanitization so the column picker
+    # can group cell_shape.area / cell_shape.perimeter under "cell_shape"
+    csv_data = (b"cell_shape.area,cell_shape.perimeter,Nucleus Count\n"
+                b"1.2,3.4,5\n2.1,4.3,6\n")
+    body = client.post("/import/preview", json={
+        "filename": "t.csv", "data_base64": _b64(csv_data)}).json()
+    names = [c["name"] for c in body["columns"]]
+    assert names == ["cell_shape.area", "cell_shape.perimeter", "nucleus_count"]
+
+
 # ---------------- tier-2: style overrides + draggable labels ----------------
 
 def test_style_overrides_reach_the_svg():

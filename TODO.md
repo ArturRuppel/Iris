@@ -257,9 +257,17 @@ called out. Run on a machine with Chromium: start the engine (8765) + vite
 
 ## Bugs & UX issues reported 2026-06-16 (batch 2)
 
-### 14. Column grouping by `.` separator is broken
-Grouping of columns when separated by a `.` doesn't work anymore. (Regression —
-worked before.)
+### 14. Column grouping by `.` separator is broken — FIXED 2026-06-16
+Root cause: `importer._sanitize_names` cleaned labels with `re.sub(r"\W+", "_",
+…)`, and `\W` matches `.`, so `cell_shape.area` was imported as
+`cell_shape_area`. The column picker's `groupByPrefix` (`src/components/
+ColumnPicker.tsx`) groups on the `.` separator, but no imported name ever
+carried one — so every column fell under "(other)" and grouping appeared dead.
+Fixed by preserving `.` in the sanitizer (`re.sub(r"[^\w.]+", "_", …)`, trim
+stray leading/trailing `_`/`.`); `_looks_like_identifier` already split on
+`[._]`, and nothing downstream uses `df.query`/`df.eval` (which would choke on
+dotted names), so the change is safe. Regression test:
+`test_import_preserves_dotted_family_names`.
 
 ### 15. No "load .viz" option yet
 We don't have a load `.viz` option yet (save/load of a project/figure file).
@@ -270,8 +278,15 @@ We need to add the fourth data type — a bool, for counts of stochastic events.
 ### 17. Draggable plot legends
 The legends in the plot should be draggable.
 
-### 18. More colors
-There should be more colors (palette is too small).
+### 18. More colors — FIXED 2026-06-16
+The group palette was the 8-color Okabe–Ito set, and `_group_color` wraps with
+`i % len(palette)`, so a 9th+ series repeated colour 0. Extended both the engine
+`compiler.PALETTE` and the frontend `DEFAULT_PALETTE` (kept in sync per item 4)
+to 16 colours: the original Okabe–Ito 8 lead unchanged (so ≤8-series plots and
+the style swatches look identical and stay colourblind-safe), followed by 8 of
+Paul Tol's qualitative hues for 9–16 series. The style panel renders one swatch
+per *series* (not per palette entry), so it's unaffected; users can still
+override any colour. 209 engine tests pass; tsc clean.
 
 ### 19. "Pipeline" rail is over-claiming screen space
 The "pipeline" now is just filter and select. That's not enough to justify so
