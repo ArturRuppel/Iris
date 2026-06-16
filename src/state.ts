@@ -2,13 +2,17 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
-  StatsFamily, StyleOverrides, Table, TestName, ReduceSpec, ReduceStep,
+  StatsFamily, StyleOverrides, Table, TableHandle, TestName, ReduceSpec, ReduceStep,
   ReduceStepKind, ReducePreview,
 } from "./types";
-import { RAW_LEVEL } from "./types";
+import { RAW_LEVEL, engine } from "./types";
 import { familyForMappings } from "./channels";
 
 export const schemaAtom = atom<Schema | null>(null);
+/* The browser no longer owns the dataset: the engine does, behind this handle
+   (id + version + schema + row count). `rowsAtom` holds only a preview window
+   (the figure's excluded-count until Phase C; retired in Phase D). */
+export const tableHandleAtom = atom<TableHandle | null>(null);
 export const rowsAtom = atom<Row[]>([]);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
@@ -191,16 +195,21 @@ export const setAnalysisByIdAtom = atom(
 
 /* swap in a freshly imported (or loaded) table and reset everything that
    referred to the old one: plottables, analysis, exclusion log */
-export const loadTableAtom = atom(null, (get, set,
-                                         table: Table & { token?: string }) => {
+export const loadTableAtom = atom(null, async (get, set,
+    table: Table & { id?: string; n?: number; version?: number; token?: string }) => {
   set(schemaAtom, table.schema);
-  set(rowsAtom, table.rows);
-  // When the loader (import/commit) already cached this table and handed back a
-  // token, record it against the row array we just stored so the upload effect
-  // can skip re-sending the whole table to obtain a token it already has. Any
-  // later edit replaces rowsAtom with a new array, so the seed no longer matches
-  // and a fresh upload runs — keeping the cache honest.
-  set(seededTokenAtom, table.token ? { token: table.token, rows: table.rows } : null);
+  // The engine owns the table behind a session handle. A loader that already
+  // created the session (e.g. a future /import that returns one) hands back its
+  // id/n/version; otherwise we create it here from the rows we received. Either
+  // way the browser keeps the handle, not the dataset.
+  const handle: TableHandle = table.id != null
+    ? { id: table.id, n: table.n!, version: table.version!, schema: table.schema }
+    : await (async () => {
+        const s = await engine.createSession({ schema: table.schema, rows: table.rows });
+        return { id: s.id, n: s.n, version: s.version, schema: s.schema };
+      })();
+  set(tableHandleAtom, handle);
+  set(rowsAtom, table.rows ?? []);           // preview window only
   // seed the hierarchy spine from the imported identifier columns (coarsest →
   // finest by schema order); the user refines it in the Data tab.
   set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
@@ -270,15 +279,24 @@ export interface LoadedDoc {
   rows: Row[];
   analyses: AnalysisSpec[];                 // already migrated to the current spec
   exclusions: ExclusionEvent[];
+  id?: string;                              // session handle, when the loader made one
+  n?: number;
+  version?: number;
 }
 
 /* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
    (rebuilt as editable plottables), the shared hierarchy, and the exclusion log
    instead of starting blank. */
-export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
+export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   set(schemaAtom, doc.schema);
-  set(rowsAtom, doc.rows);
-  set(seededTokenAtom, null);
+  const handle: TableHandle = doc.id != null
+    ? { id: doc.id, n: doc.n!, version: doc.version!, schema: doc.schema }
+    : await (async () => {
+        const s = await engine.createSession({ schema: doc.schema, rows: doc.rows });
+        return { id: s.id, n: s.n, version: s.version, schema: s.schema };
+      })();
+  set(tableHandleAtom, handle);
+  set(rowsAtom, doc.rows ?? []);             // preview window only
   // the hierarchy is table-level (shared by every analysis); take it off the
   // first saved spec, falling back to the identifier columns for older files.
   const saved = doc.analyses[0]?.hierarchy;

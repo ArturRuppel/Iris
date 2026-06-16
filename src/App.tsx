@@ -14,7 +14,7 @@ import {
   analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
   engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadDocumentAtom, loadTableAtom,
   registryAtom, renderErrorAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom,
-  setReducePreviewByIdAtom, seededTokenAtom, specAtom, tableTokenAtom, viewModeAtom,
+  setReducePreviewByIdAtom, specAtom, tableHandleAtom, tableTokenAtom, viewModeAtom,
 } from "./state";
 import { downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
 
@@ -59,7 +59,7 @@ export default function App() {
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
   const [tableToken, setTableToken] = useAtom(tableTokenAtom);
-  const [seededToken, setSeededToken] = useAtom(seededTokenAtom);
+  const handle = useAtomValue(tableHandleAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
@@ -121,36 +121,14 @@ export default function App() {
         + `Aggregate it in the Collapse step, or pick a column the pipeline keeps.`
     : null;
 
-  /* upload the master table once per data change and remember its content
-     token; subsequent pipeline/mapping edits then ride as a small token instead
-     of re-sending the whole (potentially hundreds of MB) table each round trip.
-     The token is cleared the moment the data changes so the analyze/preview
-     loops wait for the fresh upload rather than referencing a stale table. */
+  /* The engine owns the table behind a session handle now (created by the load
+     paths). Compute references it by id; mirror the handle id into tableToken so
+     the existing analyze/reduce/export effects keep resolving it. (Task C3 points
+     _resolve_table at the session store so the id resolves.) */
   useEffect(() => {
-    if (!schema || rows.length === 0) { setTableToken(null); setDataLoading(false); return; }
-    // import/commit already cached this exact table server-side and gave us its
-    // token — adopt it and skip re-uploading a table we just received.
-    if (seededToken && seededToken.rows === rows) {
-      setSeededToken(null);
-      setTableToken(seededToken.token);
-      setDataLoading(false);
-      return;
-    }
-    setTableToken(null);
-    setDataLoading(true);
-    let cancelled = false;
-    const t = window.setTimeout(async () => {
-      try {
-        const { token } = await engine.putTable({ schema, rows });
-        if (!cancelled) setTableToken(token);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setDataLoading(false);
-      }
-    }, 150);
-    return () => { cancelled = true; window.clearTimeout(t); };
-  }, [rows, schema, tableEpoch]);
+    setTableToken(handle?.id ?? null);
+    setDataLoading(false);
+  }, [handle?.id]);
 
   /* the reactive loop: figure + stats for the active plottable. Depends on the
      table token (a data edit re-runs it) and a stable spec string (a pipeline or
