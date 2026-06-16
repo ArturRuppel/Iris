@@ -298,6 +298,32 @@ def test_import_preview_sniffs_european_csv():
     assert body["rows"][0]["response"] == pytest.approx(82.3)
 
 
+def test_import_headers_first_then_full(monkeypatch):
+    # headers pass: columns + a provisional type guess, no full-data stats/rows
+    from iris_engine import importer
+    monkeypatch.setattr(importer, "HEADER_SAMPLE", 2)  # parse only 2 rows
+    up = client.post("/import/upload", json={
+        "filename": "data.csv", "data_base64": _b64(SEMICOLON_CSV)}).json()
+    heads = client.post("/import/headers", json={
+        "filename": "data.csv", "file_token": up["token"]}).json()
+    assert heads["provisional"] is True
+    assert heads["n_rows"] is None and heads["rows"] == []
+    hcols = {c["name"]: c for c in heads["columns"]}
+    assert hcols["treatment"]["type"] == "categorical"   # inferred from sample
+    assert "n_distinct" not in hcols["treatment"]        # stats deferred
+
+    # full pass over the same token fills in the deferred stats + rows
+    full = client.post("/import/preview", json={
+        "filename": "data.csv", "file_token": up["token"]}).json()
+    assert full.get("provisional") is None
+    fcols = {c["name"]: c for c in full["columns"]}
+    assert fcols["response"]["n_missing"] == 1
+    assert isinstance(full["n_rows"], int) and full["n_rows"] >= len(full["rows"])
+    # the headers guess and the full inference agree on type
+    assert {n: c["type"] for n, c in hcols.items()} == \
+           {n: c["type"] for n, c in fcols.items()}
+
+
 def test_import_commit_feeds_analyze():
     rng = np.random.default_rng(3)
     lines = ["subject,group,value"]

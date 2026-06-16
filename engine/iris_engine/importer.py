@@ -22,6 +22,7 @@ EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls")
 
 PREVIEW_ROWS = 30
 MAX_LEVELS = 40  # above this a column is too granular to be categorical
+HEADER_SAMPLE = 200  # rows parsed for the fast headers-first pass (type guess)
 
 
 def _decode(data: bytes) -> tuple[str, str]:
@@ -63,15 +64,18 @@ def _sanitize_names(labels: list[str]) -> list[str]:
     return names
 
 
-def _read_raw(data: bytes, filename: str, options: dict) -> tuple[pd.DataFrame, dict]:
-    """Read everything as strings; returns (df, resolved options)."""
+def _read_raw(data: bytes, filename: str, options: dict,
+              nrows: int | None = None) -> tuple[pd.DataFrame, dict]:
+    """Read everything as strings; returns (df, resolved options). `nrows` caps
+    the parse to a head sample (the headers-first pass: column names + a quick
+    type guess without parsing a multi-million-row file)."""
     header = options.get("header", True)
     if filename.lower().endswith(EXCEL_SUFFIXES):
         xl = pd.ExcelFile(io.BytesIO(data))
         sheet = options.get("sheet")
         if sheet not in xl.sheet_names:
             sheet = xl.sheet_names[0]
-        df = xl.parse(sheet, header=0 if header else None, dtype=str)
+        df = xl.parse(sheet, header=0 if header else None, dtype=str, nrows=nrows)
         resolved = {"kind": "excel", "sheet": sheet, "sheets": xl.sheet_names,
                     "header": header, "decimal": ".", "delimiter": None,
                     "encoding": None}
@@ -84,7 +88,7 @@ def _read_raw(data: bytes, filename: str, options: dict) -> tuple[pd.DataFrame, 
         # single-character delimiter we offer. Fall back to the lenient Python
         # parser only if C trips on something (e.g. ragged quoting).
         read_kw = dict(sep=delimiter, dtype=str, header=0 if header else None,
-                       skipinitialspace=True, keep_default_na=False)
+                       skipinitialspace=True, keep_default_na=False, nrows=nrows)
         try:
             df = pd.read_csv(io.StringIO(text), engine="c", **read_kw)
         except (pd.errors.ParserError, ValueError):
@@ -196,20 +200,26 @@ def _levels_in_order(s: pd.Series) -> list[str]:
 
 
 def _column_report(df: pd.DataFrame, labels: list[str], decimal: str,
-                   types: dict[str, str] | None = None) -> list[dict]:
+                   types: dict[str, str] | None = None,
+                   counts: bool = True) -> list[dict]:
+    """Per-column report for the wizard. With `counts=False` (the headers-first
+    pass) only name/label/inferred-type/examples are computed from a head sample
+    — the full-data stats (n_missing/n_distinct/n_unparsed/levels) are filled in
+    by the later full preview, so the user can start typing/mapping immediately."""
     cols = []
     for name, label in zip(df.columns, labels):
         s = df[name]
         ctype = (types or {}).get(name) or _infer_type(s, decimal)
         non_na = s.dropna()
         col = {"name": name, "label": label, "type": ctype,
-               "n_missing": int(s.isna().sum()),
-               "n_distinct": int(non_na.nunique()),
                "examples": non_na.head(3).tolist()}
-        if ctype == "numeric":
-            col["n_unparsed"] = int((_as_numeric(non_na, decimal).isna()).sum())
-        elif ctype == "categorical":
-            col["levels"] = _levels_in_order(s)[:MAX_LEVELS]
+        if counts:
+            col["n_missing"] = int(s.isna().sum())
+            col["n_distinct"] = int(non_na.nunique())
+            if ctype == "numeric":
+                col["n_unparsed"] = int((_as_numeric(non_na, decimal).isna()).sum())
+            elif ctype == "categorical":
+                col["levels"] = _levels_in_order(s)[:MAX_LEVELS]
         cols.append(col)
     return cols
 
@@ -245,6 +255,26 @@ def read_frame(data: bytes, filename: str, options: dict | None = None
     expensive step (decode + parse + clean); the caller caches the result so
     re-previews that only change per-column *types* don't re-parse the file."""
     return _read_raw(data, filename, options or {})
+
+
+def read_header_frame(data: bytes, filename: str, options: dict | None = None
+                      ) -> tuple[pd.DataFrame, dict]:
+    """Like `read_frame` but parses only a head sample — fast even on a huge
+    file, enough to learn the columns and guess their types."""
+    return _read_raw(data, filename, options or {}, nrows=HEADER_SAMPLE)
+
+
+def preview_headers_from_frame(df: pd.DataFrame, resolved: dict,
+                               options: dict) -> dict:
+    """Headers-first payload: columns + a provisional type guess from the
+    sample, no full-data stats or preview rows (those arrive via the full
+    preview). `n_rows: None` flags the count as not-yet-known."""
+    resolved = dict(resolved)  # don't mutate the cached read result
+    labels = resolved.pop("labels")
+    columns = _column_report(df, labels, resolved["decimal"],
+                             types=options.get("types"), counts=False)
+    return {"options": resolved, "columns": columns, "n_rows": None,
+            "rows": [], "provisional": True}
 
 
 def preview_from_frame(df: pd.DataFrame, resolved: dict, options: dict) -> dict:

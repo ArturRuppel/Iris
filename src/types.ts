@@ -376,8 +376,10 @@ export interface ImportColumn {
   name: string;
   label: string;
   type: ColumnDef["type"];
-  n_missing: number;
-  n_distinct: number;
+  /* full-data stats are absent on the headers-first (provisional) pass and
+     filled in by the subsequent full preview */
+  n_missing?: number;
+  n_distinct?: number;
   n_unparsed?: number;
   levels?: string[];
   examples: string[];
@@ -395,7 +397,10 @@ export interface ImportPreview {
   };
   columns: ImportColumn[];
   rows: Row[];
-  n_rows: number;
+  /* null until the full parse completes (headers-first pass doesn't count rows) */
+  n_rows: number | null;
+  /* true on the fast headers-first pass: columns/types known, stats still loading */
+  provisional?: boolean;
 }
 
 /* ---------------- protocol client ---------------- */
@@ -475,6 +480,10 @@ export const engine = {
      wizard edits don't re-ship the whole file (see ImportSource) */
   importUpload: (filename: string, dataBase64: string) =>
     post<{ token: string }>("/import/upload", { filename, data_base64: dataBase64 }),
+  /* fast first pass: column names + a provisional type guess from a head
+     sample, so the wizard paints before the whole file is parsed */
+  importHeaders: (src: ImportSource, options: ImportOptions = {}) =>
+    post<ImportPreview>("/import/headers", { ...src, options }),
   importPreview: (src: ImportSource, options: ImportOptions = {}) =>
     post<ImportPreview>("/import/preview", { ...src, options }),
   importCommit: (src: ImportSource, options: ImportOptions,

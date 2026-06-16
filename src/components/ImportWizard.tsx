@@ -31,19 +31,37 @@ export function ImportWizard() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const runPreview = async (name: string, token: string, o: ImportOptions) => {
+  /* guards against a slow earlier request landing after a newer one */
+  const seq = useRef(0);
+
+  /* Headers-first: paint the columns (+ a provisional type guess) from a quick
+     sample, then fill in the full-data stats and preview rows once the whole
+     file is parsed — so the user can start typing/mapping immediately. A type
+     change doesn't re-parse, so `reparse=false` skips the provisional flash and
+     just refreshes the full preview. */
+  const runPreview = async (name: string, token: string, o: ImportOptions,
+                            reparse = true) => {
+    const my = ++seq.current;
+    const src = { filename: name, file_token: token };
     setBusy(true); setError(null);
     try {
-      setPreview(await engine.importPreview({ filename: name, file_token: token }, o));
+      if (reparse) {
+        const heads = await engine.importHeaders(src, o);
+        if (my !== seq.current) return;
+        setPreview(heads);
+      }
+      const full = await engine.importPreview(src, o);
+      if (my !== seq.current) return;
+      setPreview(full);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (my === seq.current) setError(e instanceof Error ? e.message : String(e));
     } finally {
-      setBusy(false);
+      if (my === seq.current) setBusy(false);
     }
   };
 
   const onPick = async (f: File) => {
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setPreview(null);
     try {
       /* upload the bytes once; every re-preview below rides as a small token */
       const { token } = await engine.importUpload(
@@ -57,15 +75,15 @@ export function ImportWizard() {
     }
   };
 
-  const updateOptions = (partial: ImportOptions) => {
+  const updateOptions = (partial: ImportOptions, reparse = true) => {
     if (!file) return;
     const merged = { ...opts, ...partial };
     setOpts(merged);
-    void runPreview(file.name, file.token, merged);
+    void runPreview(file.name, file.token, merged, reparse);
   };
 
   const setColType = (name: string, type: ColumnDef["type"]) =>
-    updateOptions({ types: { ...opts.types, [name]: type } });
+    updateOptions({ types: { ...opts.types, [name]: type } }, false);
 
   /* wide → long: column names change, so per-column type overrides reset */
   const applyStack = () =>
@@ -113,7 +131,8 @@ export function ImportWizard() {
             <div className="modal-head">
               <h2>Import {file.name}</h2>
               {preview && <span className="provenance">
-                {preview.n_rows} rows · {preview.columns.length} columns
+                {preview.n_rows == null ? "counting rows…" : `${preview.n_rows} rows`}
+                {" · "}{preview.columns.length} columns
               </span>}
             </div>
 
@@ -157,7 +176,9 @@ export function ImportWizard() {
 
             {preview && (
               <>
-                <h3>Columns</h3>
+                <h3>Columns {preview.provisional && (
+                  <span className="dim">· computing stats…</span>
+                )}</h3>
                 <div className="wizard-columns">
                   {preview.columns.map((c) => (
                     <div className="wizard-col" key={c.name}>
@@ -169,8 +190,9 @@ export function ImportWizard() {
                         ))}
                       </select>
                       <span className="dim">
-                        {c.n_distinct} distinct
-                        {c.n_missing > 0 && ` · ${c.n_missing} missing`}
+                        {c.n_distinct == null
+                          ? "…"
+                          : `${c.n_distinct} distinct${c.n_missing ? ` · ${c.n_missing} missing` : ""}`}
                       </span>
                       {(c.n_unparsed ?? 0) > 0 && (
                         <span className="warn">
@@ -208,33 +230,38 @@ export function ImportWizard() {
                 )}
 
                 <h3>Preview</h3>
-                <div className="table-scroll wizard-preview">
-                  <table>
-                    <thead>
-                      <tr>{preview.columns.map((c) => <th key={c.name}>{c.label}</th>)}</tr>
-                    </thead>
-                    <tbody>
-                      {preview.rows.slice(0, 8).map((r) => (
-                        <tr key={r.id}>
-                          {preview.columns.map((c) => (
-                            <td key={c.name}
-                              className={(c.type === "numeric" ? "mono " : "")
-                                + (r[c.name] == null ? "missing-cell" : "")}>
-                              {r[c.name] == null ? "NA" : String(r[c.name])}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {preview.provisional ? (
+                  <p className="reason">Loading preview…</p>
+                ) : (
+                  <div className="table-scroll wizard-preview">
+                    <table>
+                      <thead>
+                        <tr>{preview.columns.map((c) => <th key={c.name}>{c.label}</th>)}</tr>
+                      </thead>
+                      <tbody>
+                        {preview.rows.slice(0, 8).map((r) => (
+                          <tr key={r.id}>
+                            {preview.columns.map((c) => (
+                              <td key={c.name}
+                                className={(c.type === "numeric" ? "mono " : "")
+                                  + (r[c.name] == null ? "missing-cell" : "")}>
+                                {r[c.name] == null ? "NA" : String(r[c.name])}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </>
             )}
 
             {error && <p className="warn">{error}</p>}
             <div className="modal-foot">
               <button onClick={close}>Cancel</button>
-              <button className="primary" disabled={busy || !preview}
+              <button className="primary"
+                disabled={busy || !preview || preview.provisional}
                 onClick={() => void doImport()}>
                 {busy ? "Working…" : `Import ${preview?.n_rows ?? ""} rows`}
               </button>

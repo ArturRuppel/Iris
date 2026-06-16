@@ -332,7 +332,20 @@ swatch is a `<input type="color">` — clicking it recolours that type everywher
 and survives reloads. tsc + vite build clean. When the bool type lands (item
 16) it just needs an entry in `DEFAULT_TYPE_COLORS` + the three CSS rules.
 
-### 22. Progressive import: headers first, stats after
-The import wizard should load only the headers first and show them, then compute
-the per-column stats and show those once ready — so the user can start taking
-action (mapping/typing columns) while the stats are still loading.
+### 22. Progressive import: headers first, stats after — FIXED 2026-06-16
+Two-phase preview. Engine: a new `/import/headers` parses only a head sample
+(`importer.read_header_frame`, `HEADER_SAMPLE=200` rows) and returns
+`preview_headers_from_frame` — columns + a provisional type guess (`_column_report
+(counts=False)`), `n_rows: None`, `rows: []`, `provisional: True` — fast even on
+a multi-million-row file. The existing `/import/preview` (full parse) then fills
+in n_distinct/n_missing/n_unparsed/levels + preview rows. Both passes share the
+byte/frame caches; the sample parse is cached under a separate `sample` key so it
+can't collide with the full parse. Frontend: `ImportWizard.runPreview` fetches
+headers → paints columns + enabled type dropdowns immediately (stats show "…",
+heading shows "computing stats…"), then fetches the full preview to fill stats +
+the preview table; a seq guard drops stale responses, a type change skips the
+provisional flash (`reparse=false`, types don't affect the parse), and Import is
+disabled until the full pass lands. Test: `test_import_headers_first_then_full`.
+210 engine tests pass; tsc + vite build clean. NOTE: backend verified via
+TestClient and frontend via tsc/build, but not click-tested in a live browser
+(no Chromium in this sandbox — same constraint as items 3/13).

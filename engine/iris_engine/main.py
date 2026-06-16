@@ -170,16 +170,21 @@ def _resolve_import_bytes(token: str | None, b64: str | None) -> tuple[bytes, st
     raise HTTPException(409, "file not uploaded; resend file")
 
 
-def _import_frame(token: str, filename: str, options: dict) -> tuple:
+def _import_frame(token: str, filename: str, options: dict,
+                  sample: bool = False) -> tuple:
     """Parse (and cache) the frame for these bytes + read options. Per-column
-    `types` are excluded from the key — they don't affect the parse."""
+    `types` are excluded from the key — they don't affect the parse. `sample`
+    parses only a head sample for the headers-first pass and is cached
+    separately (a sample and a full parse of the same inputs must not collide)."""
     read_opts = {k: options.get(k) for k in
                  ("delimiter", "decimal", "header", "sheet", "reshape")}
-    key = (token + filename + json.dumps(read_opts, sort_keys=True, default=str))
+    key = (token + filename + json.dumps(read_opts, sort_keys=True, default=str)
+           + ("sample" if sample else "full"))
     key = hashlib.sha1(key.encode()).hexdigest()
     hit = _IMPORT_FRAMES.get(key)
     if hit is None:
-        hit = importer.read_frame(_IMPORT_BYTES[token], filename, options)
+        reader = importer.read_header_frame if sample else importer.read_frame
+        hit = reader(_IMPORT_BYTES[token], filename, options)
         _lru_put(_IMPORT_FRAMES, _IMPORT_FRAMES_ORDER, key, hit, _IMPORT_CACHE_MAX)
     return hit
 
@@ -427,6 +432,21 @@ def import_upload(req: ImportUploadRequest):
     """Cache an import file's bytes once; preview/commit then reference it by
     token so wizard edits don't re-transfer the whole file."""
     return {"token": _import_bytes_token(base64.b64decode(req.data_base64))}
+
+
+@app.post("/import/headers")
+def import_headers(req: ImportPreviewRequest):
+    """Fast first pass: parse only a head sample so the wizard can show the
+    columns (and a provisional type guess) immediately; the client then calls
+    /import/preview for the full-data stats + preview rows."""
+    try:
+        _, token = _resolve_import_bytes(req.file_token, req.data_base64)
+        df, resolved = _import_frame(token, req.filename, req.options, sample=True)
+        return importer.preview_headers_from_frame(df, resolved, req.options)
+    except HTTPException:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not read file: {e}") from e
 
 
 @app.post("/import/preview")
