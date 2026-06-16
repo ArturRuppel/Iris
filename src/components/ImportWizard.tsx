@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { loadTableAtom } from "../state";
-import { engine, fileToBase64 } from "../types";
+import { engine, fileToBase64, tableFromColumnar } from "../types";
 import type { ColumnDef, ImportOptions, ImportPreview } from "../types";
 
 const RESHAPE_DEFAULTS = { var_name: "Condition", value_name: "Value" };
@@ -18,7 +18,7 @@ const TYPE_LABELS: Record<ColumnDef["type"], string> = {
 export function ImportWizard() {
   const loadTable = useSetAtom(loadTableAtom);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [file, setFile] = useState<{ name: string; b64: string } | null>(null);
+  const [file, setFile] = useState<{ name: string; token: string } | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [opts, setOpts] = useState<ImportOptions>({});
   const [error, setError] = useState<string | null>(null);
@@ -31,10 +31,10 @@ export function ImportWizard() {
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const runPreview = async (name: string, b64: string, o: ImportOptions) => {
+  const runPreview = async (name: string, token: string, o: ImportOptions) => {
     setBusy(true); setError(null);
     try {
-      setPreview(await engine.importPreview(name, b64, o));
+      setPreview(await engine.importPreview({ filename: name, file_token: token }, o));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -43,17 +43,25 @@ export function ImportWizard() {
   };
 
   const onPick = async (f: File) => {
-    const b64 = fileToBase64(await f.arrayBuffer());
-    setFile({ name: f.name, b64 });
-    setOpts({});
-    await runPreview(f.name, b64, {});
+    setBusy(true); setError(null);
+    try {
+      /* upload the bytes once; every re-preview below rides as a small token */
+      const { token } = await engine.importUpload(
+        f.name, fileToBase64(await f.arrayBuffer()));
+      setFile({ name: f.name, token });
+      setOpts({});
+      await runPreview(f.name, token, {});
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
   };
 
   const updateOptions = (partial: ImportOptions) => {
     if (!file) return;
     const merged = { ...opts, ...partial };
     setOpts(merged);
-    void runPreview(file.name, file.b64, merged);
+    void runPreview(file.name, file.token, merged);
   };
 
   const setColType = (name: string, type: ColumnDef["type"]) =>
@@ -81,9 +89,10 @@ export function ImportWizard() {
     if (!file || !preview) return;
     setBusy(true); setError(null);
     try {
-      const table = await engine.importCommit(file.name, file.b64, opts,
+      const ct = await engine.importCommit(
+        { filename: file.name, file_token: file.token }, opts,
         preview.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
-      loadTable(table);
+      loadTable({ ...tableFromColumnar(ct), token: ct.token });
       close();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

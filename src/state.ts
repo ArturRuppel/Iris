@@ -175,9 +175,16 @@ export const setAnalysisByIdAtom = atom(
 
 /* swap in a freshly imported (or loaded) table and reset everything that
    referred to the old one: plottables, analysis, exclusion log */
-export const loadTableAtom = atom(null, (get, set, table: Table) => {
+export const loadTableAtom = atom(null, (get, set,
+                                         table: Table & { token?: string }) => {
   set(schemaAtom, table.schema);
   set(rowsAtom, table.rows);
+  // When the loader (import/commit) already cached this table and handed back a
+  // token, record it against the row array we just stored so the upload effect
+  // can skip re-sending the whole table to obtain a token it already has. Any
+  // later edit replaces rowsAtom with a new array, so the seed no longer matches
+  // and a fresh upload runs — keeping the cache honest.
+  set(seededTokenAtom, table.token ? { token: table.token, rows: table.rows } : null);
   // seed the hierarchy spine from the imported identifier columns (coarsest →
   // finest by schema order); the user refines it in the Data tab.
   set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
@@ -364,6 +371,11 @@ export const moveStepAtom = atom(null,
    /table) and ride as a token on analyze/reduce/export instead of re-sending
    ~hundreds of MB on every pipeline edit */
 export const tableTokenAtom = atom<string | null>(null);
+
+/* a content token handed to us by import/commit together with the table it
+   refers to, tagged with that exact row array. The upload effect consumes it to
+   avoid re-uploading a table the engine already cached (see loadTableAtom). */
+export const seededTokenAtom = atom<{ token: string; rows: Row[] } | null>(null);
 
 /* the active plottable's reduced-table preview, keyed per plottable so a
    late-resolving fetch lands in the plottable it was computed for */

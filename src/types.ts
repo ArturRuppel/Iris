@@ -16,6 +16,28 @@ export interface Row {
 }
 export interface Table { schema: Schema; rows: Row[] }
 
+/* the compact wire form of a full table: one array per column instead of one
+   object per row, so a wide table doesn't repeat every column name on every
+   row. /import/commit returns this; the frontend decodes it to Row[] (which the
+   grid and figure code consume) via tableFromColumnar. */
+export interface ColumnarTable {
+  schema: Schema;
+  columns: Record<string, (string | number | boolean | null)[]>;
+  n: number;
+}
+
+export function tableFromColumnar(ct: ColumnarTable): Table {
+  const names = Object.keys(ct.columns);
+  const cols = names.map((name) => ct.columns[name]);
+  const rows: Row[] = new Array(ct.n);
+  for (let i = 0; i < ct.n; i++) {
+    const r: Record<string, string | number | boolean | null> = {};
+    for (let c = 0; c < names.length; c++) r[names[c]] = cols[c][i];
+    rows[i] = r as Row;
+  }
+  return { schema: ct.schema, rows };
+}
+
 export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency";
 export type TestName =
   | "welch_t" | "mann_whitney" | "paired_t" | "wilcoxon"
@@ -449,12 +471,22 @@ export const engine = {
       "/export", { ...tableField(t), spec, format, dpi: 300 }),
   saveDocument: (table: Table, analyses: AnalysisSpec[], provenance: unknown) =>
     post<{ filename: string; data_base64: string }>("/document/save", { table, analyses, provenance }),
-  importPreview: (filename: string, dataBase64: string, options: ImportOptions = {}) =>
-    post<ImportPreview>("/import/preview", { filename, data_base64: dataBase64, options }),
-  importCommit: (filename: string, dataBase64: string, options: ImportOptions,
+  /* upload a file's bytes once; preview/commit then reference it by token so
+     wizard edits don't re-ship the whole file (see ImportSource) */
+  importUpload: (filename: string, dataBase64: string) =>
+    post<{ token: string }>("/import/upload", { filename, data_base64: dataBase64 }),
+  importPreview: (src: ImportSource, options: ImportOptions = {}) =>
+    post<ImportPreview>("/import/preview", { ...src, options }),
+  importCommit: (src: ImportSource, options: ImportOptions,
                  columns: { name: string; label: string; type: ColumnDef["type"] }[]) =>
-    post<Table>("/import/commit", { filename, data_base64: dataBase64, options, columns }),
+    post<ColumnarTable & { token: string }>("/import/commit", { ...src, options, columns }),
 };
+
+/* an import file is referenced either inline (small typed entries) or, once
+   uploaded, by its content token (large picked files) */
+export type ImportSource =
+  | { filename: string; data_base64: string }
+  | { filename: string; file_token: string };
 
 export function fileToBase64(buf: ArrayBuffer): string {
   const bytes = new Uint8Array(buf);

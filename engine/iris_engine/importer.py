@@ -77,9 +77,15 @@ def _read_raw(data: bytes, filename: str, options: dict) -> tuple[pd.DataFrame, 
         sniffed = _sniff(text)
         delimiter = options.get("delimiter") or sniffed["delimiter"]
         decimal = options.get("decimal") or sniffed["decimal"]
-        df = pd.read_csv(io.StringIO(text), sep=delimiter, dtype=str,
-                         header=0 if header else None, engine="python",
-                         skipinitialspace=True, keep_default_na=False)
+        # The C parser is ~2x faster on large files; it handles every
+        # single-character delimiter we offer. Fall back to the lenient Python
+        # parser only if C trips on something (e.g. ragged quoting).
+        read_kw = dict(sep=delimiter, dtype=str, header=0 if header else None,
+                       skipinitialspace=True, keep_default_na=False)
+        try:
+            df = pd.read_csv(io.StringIO(text), engine="c", **read_kw)
+        except (pd.errors.ParserError, ValueError):
+            df = pd.read_csv(io.StringIO(text), engine="python", **read_kw)
         resolved = {"kind": "csv", "delimiter": delimiter, "decimal": decimal,
                     "encoding": encoding, "header": header, "sheet": None,
                     "sheets": None}
@@ -87,12 +93,28 @@ def _read_raw(data: bytes, filename: str, options: dict) -> tuple[pd.DataFrame, 
     labels = ([str(c) for c in df.columns] if header
               else [f"Column {i}" for i in range(1, len(df.columns) + 1)])
     df.columns = _sanitize_names(labels)
-    df = df.map(lambda v: v.strip() if isinstance(v, str) else v)
-    df = df.mask(df.map(lambda v: not isinstance(v, str)
-                        or v.lower() in MISSING_TOKENS))
+    _clean(df)
     df, labels = _reshape(df, labels, options.get("reshape"))
     return df, {**resolved, "labels": labels,
                 "reshape": options.get("reshape")}
+
+
+def _clean(df: pd.DataFrame) -> None:
+    """Strip whitespace and blank out missing tokens, in place. Vectorized per
+    column (a handful of str ops) rather than per cell, which on a wide/long
+    table is millions of Python calls."""
+    for c in df.columns:
+        s = df[c]
+        # Both readers use dtype=str, but the C parser may hand back a pandas
+        # StringDtype rather than object — accept either. A genuinely non-string
+        # column (e.g. an all-empty Excel column inferred as float) has nothing to
+        # strip or match, so leave it untouched.
+        if not pd.api.types.is_string_dtype(s):
+            continue
+        s = s.str.strip()
+        # NaN where the cell is already missing (Excel blanks) or matches a
+        # missing token case-insensitively; isin never yields NaN, so OR is safe.
+        df[c] = s.mask(s.isna() | s.str.lower().isin(MISSING_TOKENS))
 
 
 def _reshape(df: pd.DataFrame, labels: list[str],
@@ -189,10 +211,13 @@ def _column_report(df: pd.DataFrame, labels: list[str], decimal: str,
     return cols
 
 
-def _typed_rows(df: pd.DataFrame, columns: list[dict], decimal: str,
-                limit: int | None = None) -> list[dict]:
+def _typed_columns(df: pd.DataFrame, columns: list[dict], decimal: str,
+                   limit: int | None = None) -> dict[str, list]:
+    """Per-column value lists with the confirmed types applied and NaN → None.
+    The columnar building block shared by the row and columnar emitters."""
     out = df if limit is None else df.head(limit)
-    converted = {}
+    converted = {"id": [f"r{i + 1}" for i in range(len(out))],
+                 "excluded": [False] * len(out)}
     for col in columns:
         s = out[col["name"]]
         if col["type"] == "numeric":
@@ -200,22 +225,28 @@ def _typed_rows(df: pd.DataFrame, columns: list[dict], decimal: str,
             converted[col["name"]] = [None if pd.isna(v) else float(v) for v in nums]
         else:
             converted[col["name"]] = [None if pd.isna(v) else str(v) for v in s]
-    rows = []
-    for i in range(len(out)):
-        row = {"id": f"r{i + 1}", "excluded": False}
-        for name, vals in converted.items():
-            row[name] = vals[i]
-        rows.append(row)
-    return rows
+    return converted
 
 
-def preview(data: bytes, filename: str, options: dict | None = None) -> dict:
-    """Sniff, infer, and return enough for the wizard to render a preview.
+def _typed_rows(df: pd.DataFrame, columns: list[dict], decimal: str,
+                limit: int | None = None) -> list[dict]:
+    cols = _typed_columns(df, columns, decimal, limit)
+    names = list(cols)
+    n = len(cols["id"])
+    return [{name: cols[name][i] for name in names} for i in range(n)]
 
-    `options` carries user overrides on a re-preview (delimiter, decimal,
-    header, sheet, and per-column `types` as {name: type})."""
-    options = options or {}
-    df, resolved = _read_raw(data, filename, options)
+
+def read_frame(data: bytes, filename: str, options: dict | None = None
+               ) -> tuple[pd.DataFrame, dict]:
+    """Parse to a cleaned string frame plus resolved read options. This is the
+    expensive step (decode + parse + clean); the caller caches the result so
+    re-previews that only change per-column *types* don't re-parse the file."""
+    return _read_raw(data, filename, options or {})
+
+
+def preview_from_frame(df: pd.DataFrame, resolved: dict, options: dict) -> dict:
+    """Render a preview from an already-parsed frame (see `read_frame`)."""
+    resolved = dict(resolved)  # don't mutate the cached read result
     labels = resolved.pop("labels")
     columns = _column_report(df, labels, resolved["decimal"],
                              types=options.get("types"))
@@ -224,10 +255,25 @@ def preview(data: bytes, filename: str, options: dict | None = None) -> dict:
                                 limit=PREVIEW_ROWS)}
 
 
-def commit(data: bytes, filename: str, options: dict,
-           columns: list[dict]) -> dict:
-    """Produce the full table (schema + rows) with user-confirmed types."""
-    df, resolved = _read_raw(data, filename, options)
+def preview(data: bytes, filename: str, options: dict | None = None) -> dict:
+    """Sniff, infer, and return enough for the wizard to render a preview.
+
+    `options` carries user overrides on a re-preview (delimiter, decimal,
+    header, sheet, and per-column `types` as {name: type})."""
+    options = options or {}
+    df, resolved = read_frame(data, filename, options)
+    return preview_from_frame(df, resolved, options)
+
+
+def commit_from_frame(df: pd.DataFrame, resolved: dict,
+                      columns: list[dict], columnar: bool = False) -> dict:
+    """Produce the full table from an already-parsed frame (see `read_frame`).
+
+    `columnar=True` emits `{schema, columns: {name: [...]}, n}` instead of
+    `{schema, rows: [...]}`. The columnar form omits the per-row repetition of
+    every column name, roughly halving the payload for a wide table — see the
+    /import/commit endpoint, which sends it to the browser."""
+    resolved = dict(resolved)  # don't mutate the cached read result
     labels = dict(zip(df.columns, resolved.pop("labels")))
     decimal = resolved["decimal"]
     schema_cols = []
@@ -241,4 +287,14 @@ def commit(data: bytes, filename: str, options: dict,
             entry["levels"] = _levels_in_order(df[name])[:MAX_LEVELS]
         schema_cols.append(entry)
     schema = {"schema_version": "1.0", "columns": schema_cols}
+    if columnar:
+        return {"schema": schema, "columns": _typed_columns(df, columns, decimal),
+                "n": len(df)}
     return {"schema": schema, "rows": _typed_rows(df, columns, decimal)}
+
+
+def commit(data: bytes, filename: str, options: dict,
+           columns: list[dict]) -> dict:
+    """Produce the full table (schema + rows) with user-confirmed types."""
+    df, resolved = read_frame(data, filename, options)
+    return commit_from_frame(df, resolved, columns)

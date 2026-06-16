@@ -133,6 +133,30 @@ def test_pairing_partial():
     assert p["n_complete"] == 2 and p["n_units"] == 3
 
 
+def test_pairing_nested_partition_is_unpaired():
+    """A qualifier that *partitions* a sub-identity (each unit's children belong
+    to one level each, never the same child under both) is a nested batch design,
+    not a pairing — e.g. a field of view holding both `+` and `-` cells where no
+    cell is ever both. Containment of both levels in the coarser unit must not be
+    mistaken for pairing (the class_label-per-cell false-positive)."""
+    rows, rid = [], 0
+    for fov in ("f1", "f2"):                 # coarser unit (e.g. field of view)
+        for cell in range(4):                # sub-identity (home); each is one label
+            label = "pos" if cell < 2 else "neg"
+            for r in range(3):               # finest grain (e.g. frame)
+                rows.append({"id": f"r{rid}", "excluded": False, "label": label,
+                             "fov": fov, "cell": f"{fov}c{cell}", "rep": r,
+                             "y": float(rid)})
+                rid += 1
+    df = pd.DataFrame(rows)
+    spine = ["fov", "cell", "rep"]
+    # every fov contains both labels (containment) but via *different* cells —
+    # no cell is seen under both, so it is unpaired, not paired.
+    p = hierarchy.pairing(df, spine, "label")
+    assert p["verdict"] == "unpaired"
+    assert p["n_complete"] == 0 and p["n_units"] == 2
+
+
 def test_pairing_none_for_spine_column():
     # a spine column is not a horizontal qualifier → no pairing verdict
     assert hierarchy.pairing(_unpaired_df(), SPINE, "subject") is None

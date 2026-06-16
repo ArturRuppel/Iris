@@ -319,7 +319,10 @@ def test_import_commit_feeds_analyze():
         "options": prev["options"], "columns": prev["columns"]})
     assert commit.status_code == 200
     table = commit.json()
-    assert len(table["rows"]) == 40
+    # /import/commit returns the compact columnar form (+ a cache token)
+    assert table["n"] == 40
+    assert len(table["columns"]["value"]) == 40
+    assert "token" in table
 
     spec = make_spec()
     spec["mappings"]["x"] = {"column": "group"}
@@ -425,10 +428,10 @@ def test_import_reshape_wide_to_long():
     table = client.post("/import/commit", json={
         "filename": "wide.csv", "data_base64": _b64(WIDE_CSV),
         "options": opts, "columns": prev2["columns"]}).json()
-    assert len(table["rows"]) == 11
+    assert table["n"] == 11
     by_level = {}
-    for row in table["rows"]:
-        by_level.setdefault(row["dose"], []).append(row["response"])
+    for dose, resp in zip(table["columns"]["dose"], table["columns"]["response"]):
+        by_level.setdefault(dose, []).append(resp)
     assert by_level["Control"] == pytest.approx([5.1, 4.8, 5.5, 5.0])
     assert by_level["10 µM"] == pytest.approx([7.2, 6.9, 7.8])
 

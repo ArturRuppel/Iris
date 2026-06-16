@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSetAtom } from "jotai";
 import { loadTableAtom } from "../state";
-import { engine, fileToBase64 } from "../types";
+import { engine, fileToBase64, tableFromColumnar } from "../types";
 
 interface Cond { name: string; text: string }
 
@@ -43,7 +43,8 @@ export function DataEntry() {
 
       /* first preview learns the sanitized column names, second applies the
          wide→long reshape, commit loads the long table */
-      const wide = await engine.importPreview("entered.csv", b64, { delimiter: ";" });
+      const src = { filename: "entered.csv", data_base64: b64 };
+      const wide = await engine.importPreview(src, { delimiter: ";" });
       const opts = {
         delimiter: ";",
         reshape: {
@@ -52,10 +53,10 @@ export function DataEntry() {
           value_name: valueName.trim() || "Value",
         },
       };
-      const long = await engine.importPreview("entered.csv", b64, opts);
-      const table = await engine.importCommit("entered.csv", b64, opts,
+      const long = await engine.importPreview(src, opts);
+      const ct = await engine.importCommit(src, opts,
         long.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
-      loadTable(table);
+      loadTable({ ...tableFromColumnar(ct), token: ct.token });
       setConds(FRESH);
       close();
     } catch (e) {

@@ -144,10 +144,16 @@ def pairing(df: pd.DataFrame, spine: list[str], qualifier: str | None) -> dict |
     """Verdict for comparing `qualifier`'s levels, derived from the spine.
 
     Paired over the spine levels *coarser than* the qualifier's home (the units
-    that can contain more than one of its values); the verdict is three-valued
-    because real data has holes:
-      - "paired"            every such unit carries every level of the qualifier
-      - "partially_paired"  some but not all do (drop-outs)
+    that can contain more than one of its values). Pairing requires the qualifier
+    to *cross* a within-unit sub-identity — the same `home`-level entity observed
+    under every level — not merely a unit that *contains* the levels via different
+    sub-units. Containment alone is a nested design (independent observations
+    grouped by a coarser batch), not a pairing: a field of view holding both
+    `positive` and `negative` cells is unpaired (different cells), whereas the
+    same cell seen as both is paired. The verdict is three-valued because real
+    data has holes:
+      - "paired"            every such unit has a sub-identity crossing all levels
+      - "partially_paired"  some but not all units do (drop-outs)
       - "unpaired"          none do, or there is no coarser unit
     `across` names the unit level the pairing runs over. Stats consume this later
     (paired vs. unpaired test); here we only detect and surface it.
@@ -165,10 +171,16 @@ def pairing(df: pd.DataFrame, spine: list[str], qualifier: str | None) -> dict |
 
     unit_cols = spine[:home_idx]
     across = spine[home_idx - 1]
+    home_col = spine[home_idx]            # sub-identity the qualifier sits on
     qlevels = set(df[qualifier].dropna().unique())
-    g = df.groupby(unit_cols, observed=True)
-    complete = g[qualifier].apply(lambda s: qlevels.issubset(set(s.dropna().unique())))
-    n_units, n_complete = int(len(complete)), int(complete.sum())
+    sub = df[[*unit_cols, home_col, qualifier]].dropna(subset=[qualifier])
+    # A (unit, sub-identity) "crosses" when that one home entity is seen under
+    # every level; a unit is paired-complete when it has at least one such entity.
+    crosses = (sub.groupby([*unit_cols, home_col], observed=True)[qualifier]
+                  .agg(lambda s: qlevels.issubset(set(s))))
+    n_units = int(sub.groupby(unit_cols, observed=True).ngroups)
+    n_complete = int(crosses[crosses].reset_index()
+                     .groupby(unit_cols, observed=True).ngroups) if crosses.any() else 0
     verdict = ("paired" if n_units and n_complete == n_units
                else "partially_paired" if n_complete else "unpaired")
     return {"qualifier": qualifier, "verdict": verdict, "across": across,

@@ -254,3 +254,64 @@ download one (`playwright install chromium` fails), the same constraint item 3
 called out. Run on a machine with Chromium: start the engine (8765) + vite
 (5173), then `node e2e/continuous_color_test.mjs` (and `horizontal_test.mjs`,
 `tile_test.mjs`); each exits 0 on success.
+
+## Bugs & UX issues reported 2026-06-16 (batch 2)
+
+### 14. Column grouping by `.` separator is broken
+Grouping of columns when separated by a `.` doesn't work anymore. (Regression —
+worked before.)
+
+### 15. No "load .viz" option yet
+We don't have a load `.viz` option yet (save/load of a project/figure file).
+
+### 16. Add the fourth data type (bool for stochastic-event counts)
+We need to add the fourth data type — a bool, for counts of stochastic events.
+
+### 17. Draggable plot legends
+The legends in the plot should be draggable.
+
+### 18. More colors
+There should be more colors (palette is too small).
+
+### 19. "Pipeline" rail is over-claiming screen space
+The "pipeline" now is just filter and select. That's not enough to justify so
+much screen space — needs to be reconsidered.
+
+### 20. "Paired" detector false-positive — FIXED 2026-06-16
+Symptom: comparing `class_label` (positive/negative) was reported as *paired*
+even though no cell carries both labels (verified on `cells_by_frame.csv`: 0/1726
+cells span both labels).
+
+Root cause (`hierarchy.pairing`): `class_label` is single-valued per cell, so its
+`home_level` is `cell_id`; `unit_cols = spine[:home_idx]` then drops `cell_id` and
+pairs across the *parent* (`position_id`). The completeness test only asked
+whether each unit *contained* both labels (`qlevels.issubset(...)`) — and every
+field of view holds both positive and negative cells — so all 27 positions read
+"complete" ⇒ `verdict: paired`. Containment ≠ pairing: those are *different*
+cells; `class_label` partitions the cells, it doesn't cross them.
+
+Fix: pairing now requires the qualifier to *cross* a within-unit sub-identity —
+the same `home`-level entity (here a `cell_id`) observed under every level — not
+mere containment via different sub-units. A unit is paired-complete only if it
+has ≥1 such crossing sub-identity. The genuinely-paired fixtures still pass
+(`rep=0` recurs under both A and B within a subject ⇒ crosses), and the user's
+data now reports `unpaired` (`n_units=27, n_complete=0`). Regression test:
+`test_pairing_nested_partition_is_unpaired`. All 207 engine tests pass.
+
+KNOWN TRADE-OFF (folds into Phase 5 `pair_by`, see item 10): a designed pairing
+where each unit has exactly *one* matched sub-unit per level (e.g. one treated +
+one untreated sample per subject, the sample nested in treatment) is now read as
+*unpaired*, since no sample is seen under both levels — structurally identical to
+the cell/label case and only separable by count/balance (the deferred option-2
+heuristic). Acceptable default: prefer a false "independent" (conservative) over a
+false "paired"; the user can still override to a paired test when one applies.
+
+### 21. Color-code data types in the table overview
+The different data types (numerical, categorical, etc.) should be encoded in the
+table overview with color. The type→color mapping should be configurable at the
+application level.
+
+### 22. Progressive import: headers first, stats after
+The import wizard should load only the headers first and show them, then compute
+the per-column stats and show those once ready — so the user can start taking
+action (mapping/typing columns) while the stats are still loading.

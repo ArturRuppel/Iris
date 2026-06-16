@@ -15,7 +15,7 @@ import {
   analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
   engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadTableAtom, registryAtom,
   renderErrorAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom, setReducePreviewByIdAtom,
-  specAtom, tableTokenAtom, viewModeAtom,
+  seededTokenAtom, specAtom, tableTokenAtom, viewModeAtom,
 } from "./state";
 import { downloadBase64, engine } from "./types";
 
@@ -59,6 +59,7 @@ export default function App() {
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
   const [tableToken, setTableToken] = useAtom(tableTokenAtom);
+  const [seededToken, setSeededToken] = useAtom(seededTokenAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const exclusionLog = useAtomValue(exclusionLogAtom);
@@ -126,6 +127,14 @@ export default function App() {
      loops wait for the fresh upload rather than referencing a stale table. */
   useEffect(() => {
     if (!schema || rows.length === 0) { setTableToken(null); setDataLoading(false); return; }
+    // import/commit already cached this exact table server-side and gave us its
+    // token — adopt it and skip re-uploading a table we just received.
+    if (seededToken && seededToken.rows === rows) {
+      setSeededToken(null);
+      setTableToken(seededToken.token);
+      setDataLoading(false);
+      return;
+    }
     setTableToken(null);
     setDataLoading(true);
     let cancelled = false;

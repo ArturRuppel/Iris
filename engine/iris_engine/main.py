@@ -14,6 +14,7 @@ import sys
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from . import (compiler, document, geoms, guards, hierarchy, importer,
@@ -89,15 +90,19 @@ _TABLE_CACHE_ORDER: list[str] = []
 _TABLE_CACHE_MAX = 4
 
 
-def _cache_table(table: dict) -> str:
-    raw = json.dumps(table, separators=(",", ":")).encode()
-    token = hashlib.sha1(raw).hexdigest()
+def _store_table(token: str, table: dict) -> str:
     if token not in _TABLE_CACHE:
         _TABLE_CACHE[token] = table
         _TABLE_CACHE_ORDER.append(token)
         while len(_TABLE_CACHE_ORDER) > _TABLE_CACHE_MAX:
             _TABLE_CACHE.pop(_TABLE_CACHE_ORDER.pop(0), None)
     return token
+
+
+def _cache_table(table: dict) -> str:
+    # content hash so an identical re-upload hits the same cache entry
+    raw = json.dumps(table, separators=(",", ":")).encode()
+    return _store_table(hashlib.sha1(raw).hexdigest(), table)
 
 
 def _resolve_table(table: dict | None, token: str | None) -> dict:
@@ -112,9 +117,18 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
     raise HTTPException(409, "table not cached; resend full table")
 
 
-class ImportPreviewRequest(BaseModel):
+class ImportUploadRequest(BaseModel):
     filename: str
     data_base64: str
+
+
+class ImportPreviewRequest(BaseModel):
+    # the file rides inline (data_base64) for small entries, or as a token once
+    # the wizard has uploaded it via /import/upload — so re-previews on every
+    # option toggle don't re-ship tens of MB of base64.
+    filename: str
+    data_base64: str | None = None
+    file_token: str | None = None
     options: dict = {}
 
 
@@ -122,9 +136,66 @@ class ImportCommitRequest(ImportPreviewRequest):
     columns: list[dict]
 
 
+# Uploaded import files (raw bytes) and their parsed frames, both keyed by a
+# content hash. The frame cache means changing a column's *type* in the wizard
+# re-renders the preview without re-parsing the file (types don't affect the
+# parse), and commit reuses the frame the last preview already built.
+_IMPORT_BYTES: dict[str, bytes] = {}
+_IMPORT_BYTES_ORDER: list[str] = []
+_IMPORT_FRAMES: dict[str, tuple] = {}
+_IMPORT_FRAMES_ORDER: list[str] = []
+_IMPORT_CACHE_MAX = 4
+
+
+def _lru_put(store: dict, order: list, key, value, cap: int) -> None:
+    if key not in store:
+        store[key] = value
+        order.append(key)
+        while len(order) > cap:
+            store.pop(order.pop(0), None)
+
+
+def _import_bytes_token(data: bytes) -> str:
+    token = hashlib.sha1(data).hexdigest()
+    _lru_put(_IMPORT_BYTES, _IMPORT_BYTES_ORDER, token, data, _IMPORT_CACHE_MAX)
+    return token
+
+
+def _resolve_import_bytes(token: str | None, b64: str | None) -> tuple[bytes, str]:
+    if b64 is not None:
+        data = base64.b64decode(b64)
+        return data, _import_bytes_token(data)
+    if token and token in _IMPORT_BYTES:
+        return _IMPORT_BYTES[token], token
+    raise HTTPException(409, "file not uploaded; resend file")
+
+
+def _import_frame(token: str, filename: str, options: dict) -> tuple:
+    """Parse (and cache) the frame for these bytes + read options. Per-column
+    `types` are excluded from the key — they don't affect the parse."""
+    read_opts = {k: options.get(k) for k in
+                 ("delimiter", "decimal", "header", "sheet", "reshape")}
+    key = (token + filename + json.dumps(read_opts, sort_keys=True, default=str))
+    key = hashlib.sha1(key.encode()).hexdigest()
+    hit = _IMPORT_FRAMES.get(key)
+    if hit is None:
+        hit = importer.read_frame(_IMPORT_BYTES[token], filename, options)
+        _lru_put(_IMPORT_FRAMES, _IMPORT_FRAMES_ORDER, key, hit, _IMPORT_CACHE_MAX)
+    return hit
+
+
+def frame_from_table(table: dict) -> pd.DataFrame:
+    """Build a DataFrame from either table wire format: columnar
+    (`{columns: {name: [...]}}`, the compact form sent by /import/commit) or the
+    legacy row form (`{rows: [{...}]}`, still used by edits/saves/sample)."""
+    if "columns" in table:
+        return pd.DataFrame(table["columns"])
+    return pd.DataFrame(table.get("rows", []))
+
+
 def _load_frame(table: dict, respect_exclusions: bool) -> tuple[pd.DataFrame, dict]:
     schema = table["schema"]
-    df = pd.DataFrame(table["rows"])
+    df = frame_from_table(table)
     n_before = len(df)
     if respect_exclusions and "excluded" in df:
         df = df[~df["excluded"].fillna(False)]
@@ -142,6 +213,14 @@ def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
 
 def _to_table(df: pd.DataFrame, schema: dict) -> dict:
     return {"schema": schema, "rows": json.loads(df.to_json(orient="records"))}
+
+
+def fast_json(payload: dict) -> JSONResponse:
+    """Serialize a payload that's already JSON-native (plain str/num/bool/None,
+    as our table rows are) and return it as a Response. Returning a Response
+    directly makes FastAPI skip `jsonable_encoder`, whose deep re-walk of a
+    multi-million-cell table costs more than the json.dumps itself."""
+    return JSONResponse(payload)
 
 
 def _column_summary(df: pd.DataFrame, schema: dict) -> list[dict]:
@@ -343,11 +422,21 @@ def export(req: ExportRequest):
             "data_base64": base64.b64encode(data).decode()}
 
 
+@app.post("/import/upload")
+def import_upload(req: ImportUploadRequest):
+    """Cache an import file's bytes once; preview/commit then reference it by
+    token so wizard edits don't re-transfer the whole file."""
+    return {"token": _import_bytes_token(base64.b64decode(req.data_base64))}
+
+
 @app.post("/import/preview")
 def import_preview(req: ImportPreviewRequest):
     try:
-        return importer.preview(base64.b64decode(req.data_base64),
-                                req.filename, req.options)
+        _, token = _resolve_import_bytes(req.file_token, req.data_base64)
+        df, resolved = _import_frame(token, req.filename, req.options)
+        return importer.preview_from_frame(df, resolved, req.options)
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not read file: {e}") from e
 
@@ -355,8 +444,20 @@ def import_preview(req: ImportPreviewRequest):
 @app.post("/import/commit")
 def import_commit(req: ImportCommitRequest):
     try:
-        return importer.commit(base64.b64decode(req.data_base64),
-                               req.filename, req.options, req.columns)
+        _, token = _resolve_import_bytes(req.file_token, req.data_base64)
+        df, resolved = _import_frame(token, req.filename, req.options)
+        table = importer.commit_from_frame(df, resolved, req.columns, columnar=True)
+        # Cache the committed table and hand back its token so the client can
+        # skip the immediate re-upload (/table) it would otherwise do to obtain
+        # one — a second ~hundreds-of-MB transfer of the table we just sent. The
+        # token is derived from the inputs (file + read options + column types),
+        # which fully determine the table, so it's cheap (no re-serialization).
+        key = (token + json.dumps(req.options, sort_keys=True, default=str)
+               + json.dumps(req.columns, sort_keys=True))
+        ttok = _store_table(hashlib.sha1(key.encode()).hexdigest(), table)
+        return fast_json({**table, "token": ttok})
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not import file: {e}") from e
 
