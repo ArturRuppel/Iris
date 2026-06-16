@@ -1,0 +1,26 @@
+# Egress allowlist for the Iris sandbox (POSIX extended regex, one per line).
+# Matched against the destination host of every request, including HTTPS CONNECT.
+# Anything not matched here is blocked. Edit, then: docker restart iris-proxy
+#
+# Anthropic / Claude Code — API, auth/login (platform.claude.com), and
+# server-side WebSearch/WebFetch.
+(^|\.)anthropic\.com$
+(^|\.)claude\.ai$
+(^|\.)claude\.com$
+# Python packaging — pip (PyPI + its file CDN).
+(^|\.)pypi\.org$
+(^|\.)pythonhosted\.org$
+# Node packaging — npm registry.
+(^|\.)npmjs\.org$
+(^|\.)npmjs\.com$
+# Rust packaging — cargo (crates.io API/index + the crate CDN) and rustup
+# component/toolchain fetches (static.rust-lang.org).
+(^|\.)crates\.io$
+(^|\.)rust-lang\.org$
+# Playwright browser downloads (the e2e suite installs headless chromium). If a
+# download is refused, add the host name Playwright prints to this list.
+(^|\.)playwright\.dev$
+# GitHub — read-only fetch/clone, release assets, raw content. NOTE: no git
+# credentials are mounted, so this permits reads only; the agent cannot push.
+(^|\.)github\.com$
+(^|\.)githubusercontent\.com$
