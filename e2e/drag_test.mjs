@@ -1,17 +1,39 @@
 import { chromium } from "playwright";
 
+/* Drag a label on a rendered figure and confirm the offset bakes in after
+   re-render. No fixture CSV exists on disk, so the table is imported via an
+   in-memory buffer through the ImportWizard's hidden file input — the
+   `.template-pick` dropdown and auto-seeded layers/mappings were removed in
+   111243b (see TODO.md), so this follows the documented fix pattern: explicit
+   import, explicit mapping, explicit `.add-layer-btn` flow. A Histogram layer
+   (aggregates, needs only Y) always renders regardless of sample size. */
+
+const csv = [
+  "value",
+  "1", "2", "2", "3", "3", "3", "4", "4", "5", "6", "7", "8",
+].join("\n");
+
 const b = await chromium.launch();
 const page = await b.newPage({ viewport: { width: 1500, height: 1000 } });
 page.on("console", (m) => console.log("[console]", m.type(), m.text()));
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.goto(process.env.APP_URL ?? "http://localhost:5173");
+await page.waitForSelector(".app", { timeout: 30000 });
+
+await page.click("button:has-text('Import data…')");
+await page.setInputFiles("input[type=file]", {
+  name: "drag_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
+});
+await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
+await page.click(".modal-foot button.primary");
+await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
+
 await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".layer-rail", { timeout: 60000 });
-/* the default per-row geom is point-capped on the large sample (no figure);
-   switch to a template that renders on the full table so there's a figure to
-   drag. Harmless on the small synthetic sample (still renders). */
-await page.selectOption(".layer-rail .template-pick", { label: "Histogram + density" })
-  .catch(() => {});
+
+await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+await page.click(".add-layer-btn");
+await page.click(".add-layer-menu button:has-text('Histogram')");
 await page.waitForSelector(".figure-host svg", { timeout: 30000 });
 await page.waitForTimeout(800);
 

@@ -2,13 +2,24 @@ import { chromium } from "playwright";
 
 /* Smoke test for the reduction-pipeline UI: Data/Analyses modes, the pipeline
    rail (add a step, prefix-grouped column picker), the live reduced-table
-   preview, and plottable CRUD. Dataset-agnostic so it works against either the
-   wide cells_by_frame sample or the small synthetic fallback. Needs the engine
-   (port 8765) and the vite dev server (port 5173) running.
+   preview, and plottable CRUD. No fixture CSV exists on disk, so the table is
+   imported via an in-memory buffer through the ImportWizard's hidden file
+   input — the `.template-pick` dropdown and auto-fetched sample dataset were
+   removed in 111243b (see TODO.md), so this follows the documented fix
+   pattern: explicit import before touching `.pipeline-rail`. Needs the
+   engine (port 8765) and the vite dev server (port 5173) running.
 
    AG Grid virtualizes rows, so we assert on the column count via the reduced
    note and on the pipeline wiring (a blank Select projects all columns away;
    toggling a prefix group brings columns back), not on exact row counts. */
+
+const csv = [
+  "group,site,value",
+  "a,north,1", "a,north,2", "a,north,3",
+  "b,north,4", "b,north,5", "b,north,6",
+  "a,south,7", "a,south,8", "a,south,9",
+  "b,south,10", "b,south,11", "b,south,12",
+].join("\n");
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
 const browser = await chromium.launch();
@@ -20,16 +31,20 @@ const fail = (msg) => { console.error(msg); process.exit(1); };
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-// Switch to Analyses mode; the pipeline rail and reduced preview appear. On the
-// large cells_by_frame sample the table fetch + parse can take many seconds (the
-// UI shows a "Loading data…" screen until the first plottable is ready), so the
-// rails are gated behind that load — allow generous time, like the reduced-note.
+await page.click("button:has-text('Import data…')");
+await page.setInputFiles("input[type=file]", {
+  name: "plottables_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
+});
+await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
+await page.click(".modal-foot button.primary");
+await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
+
+// Switch to Analyses mode; the pipeline rail and reduced preview appear.
 await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".analyses-mode", { timeout: 60000 });
 await page.waitForSelector(".pipeline-rail", { timeout: 60000 });
 
-// The reduced-table preview loads (table upload + /reduce round trip). The wide
-// sample is large, so allow generous time.
+// The reduced-table preview loads (table upload + /reduce round trip).
 await page.waitForSelector(".reduced-note", { timeout: 60000 });
 const noteFull = await page.locator(".reduced-note").innerText();
 if (!/\d+ column/.test(noteFull)) fail("reduced note missing column count: " + noteFull);
@@ -49,11 +64,10 @@ await page.click(".cp-group-label input >> nth=0");
 await page.waitForFunction(
   () => !/(^|\D)0 columns?/.test(document.querySelector(".reduced-note")?.innerText ?? ""),
   null, { timeout: 15000 });
-// Toggling one prefix group back is a partial projection: on the wide sample it
-// keeps rows (so the per-row geom may still be point-capped) and may not include
-// the mapped Y column (so the axis-dropped-by-pipeline guidance may show). Both
-// are expected, actionable guidance — not a reduction failure. Fail only on a
-// genuinely unexpected error bar.
+// Toggling one prefix group back is a partial projection: it may not include the
+// mapped Y column (so the axis-dropped-by-pipeline guidance may show) or may
+// leave too many rows for a point-capped geom. Both are expected, actionable
+// guidance — not a reduction failure. Fail only on a genuinely unexpected error bar.
 if (await page.locator(".error-bar").count() > 0) {
   const msg = await page.locator(".error-bar").innerText();
   const expected = /too many to draw individually|point|removed by this analysis/i;

@@ -1,11 +1,18 @@
 import { chromium } from "playwright";
 
-/* Smoke for the composable layer rail: the rail seeds layers from the default
-   template, and add/remove mutate the stack. Dataset-agnostic: on the large
-   cells_by_frame sample the default per-row dot geom is correctly point-capped
-   (a red bar with an actionable message) rather than drawing 82k points, so we
-   assert the app responds gracefully — a figure OR an informative bar, never a
-   blank crash. Needs the engine (8765) and the vite dev server (5173). */
+/* Smoke for the composable layer rail: add/remove mutate the stack. No
+   fixture CSV exists on disk, so the table is imported via an in-memory
+   buffer through the ImportWizard's hidden file input — the `.template-pick`
+   dropdown and auto-seeded layers/mappings were removed in 111243b (see
+   TODO.md): a fresh plottable now starts with zero layers, so this test adds
+   one explicitly via the `.add-layer-btn` flow rather than assuming one is
+   seeded. Needs the engine (8765) and the vite dev server (5173). */
+
+const csv = [
+  "group,value",
+  "a,1", "a,2", "a,3", "a,4",
+  "b,5", "b,6", "b,7", "b,8",
+].join("\n");
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
 const browser = await chromium.launch();
@@ -19,16 +26,30 @@ await page.waitForSelector(".app", { timeout: 30000 });
 if (await page.locator(".engine-down").count() > 0)
   fail("engine not reachable — start the engine on 8765");
 
+await page.click("button:has-text('Import data…')");
+await page.setInputFiles("input[type=file]", {
+  name: "layers_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
+});
+await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
+await page.click(".modal-foot button.primary");
+await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
+
 await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 
-// The default template seeds at least one layer card.
-await page.waitForSelector(".layer-card", { timeout: 15000 });
+// A fresh plottable starts with zero layers — map X/Y, then add the first one.
+await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
+await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+const initial = await page.locator(".layer-card").count();
+if (initial !== 0) fail(`expected a fresh plottable to start with 0 layers, got ${initial}`);
+
+await page.click(".add-layer-btn");
+await page.locator(".add-layer-menu button:not(.cancel)").first().click();
 const seeded = await page.locator(".layer-card").count();
-if (seeded < 1) fail(`expected seeded layers, got ${seeded}`);
+if (seeded !== 1) fail(`expected 1 layer after the first add, got ${seeded}`);
 console.log("seeded layers:", seeded);
 
-// Add a layer via the add menu (if any geom is still addable).
+// Add a second layer via the add menu (if any geom is still addable).
 await page.click(".add-layer-btn");
 const addable = await page.locator(".add-layer-menu button:not(.cancel)").count();
 if (addable > 0) {
@@ -48,7 +69,7 @@ if (removed !== before - 1) fail(`remove layer: expected ${before - 1}, got ${re
 console.log("removed a layer:", removed);
 
 // The app responds gracefully: either a rendered figure, or an informative
-// bar (e.g. the point-cap guard on the large sample) — never a blank crash.
+// bar (e.g. the point-cap guard on a large sample) — never a blank crash.
 await page.waitForTimeout(1500);
 const figure = await page.locator(".iris svg").count();
 const bar = await page.locator(".error-bar").count();
