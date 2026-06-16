@@ -16,6 +16,15 @@ export interface Row {
 }
 export interface Table { schema: Schema; rows: Row[] }
 
+/* a handle to the server-owned session table: the browser holds this (id +
+   version + schema + row count), not the N rows themselves. */
+export interface TableHandle {
+  id: string;
+  n: number;
+  version: number;
+  schema: Schema;
+}
+
 /* the compact wire form of a full table: one array per column instead of one
    object per row, so a wide table doesn't repeat every column name on every
    row. /import/commit returns this; the frontend decodes it to Row[] (which the
@@ -481,6 +490,20 @@ export const engine = {
     }
   },
   sample: (): Promise<Table> => get<Table>("/sample"),
+  createSession: (table: Table) =>
+    post<{ id: string; n: number; version: number; schema: Schema }>(
+      "/table/create", { table }),
+  rowsWindow: (id: string, start: number, end: number) =>
+    post<{ rows: Row[]; n: number; version: number }>(
+      `/table/${id}/rows`, { start, end }),
+  editCell: (id: string, rowId: string, column: string, value: unknown) =>
+    post<{ version: number }>(`/table/${id}/edit`,
+      { row_id: rowId, column, value }),
+  toggleExclude: (id: string, rowId: string) =>
+    post<{ excluded: boolean; version: number }>(`/table/${id}/exclude`,
+      { row_id: rowId }),
+  distinct: (id: string, column: string) =>
+    post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
   analyze: (t: TableRef, spec: AnalysisSpec) =>
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
   reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string) =>
