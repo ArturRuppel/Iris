@@ -603,9 +603,13 @@ def doc_save(req: SaveRequest):
 @app.post("/document/load")
 def doc_load(req: LoadRequest):
     try:
-        return document.load_document(base64.b64decode(req.data_base64))
+        doc = document.load_document(base64.b64decode(req.data_base64))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not read document: {e}") from e
+    tid = _SESSIONS.create(doc["schema"], frame_from_table(doc))
+    t = _SESSIONS.get(tid)
+    return {**doc, "id": tid, "n": t.n, "version": t.version,
+            "rows": t.window(0, 200), "counts": t.counts()}     # first window only
 
 
 def _exit_when_stdin_closes():

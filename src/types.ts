@@ -380,9 +380,13 @@ interface CollapseStepLegacy { group_by: string[]; aggregate?: Record<string, Ag
 export interface LoadedDocument {
   manifest: unknown;
   schema: Schema;
-  rows: Row[];
+  rows: Row[];                         // first window only; the engine owns the rest
   analyses: Record<string, unknown>[];
   provenance: { exclusions?: { row_id: string; excluded: boolean; at: string }[] } | null;
+  id: string;                          // session handle for the loaded table
+  n: number;
+  version: number;
+  counts: TableCounts;
 }
 
 /* ---------------- import wizard ---------------- */
@@ -480,7 +484,6 @@ const tableField = (t: TableRef) =>
 
 export const engine = {
   health: () => get<{ engine_snapshot: Record<string, string>; registry: Registry }>("/health"),
-  putTable: (table: Table) => post<{ token: string }>("/table", { table }),
   /* a frozen sidecar takes a few seconds to boot; poll instead of giving up */
   waitForHealth: async (attempts = 30, delayMs = 500) => {
     for (let i = 0; ; i++) {

@@ -13,8 +13,8 @@ import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
   engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadDocumentAtom, loadTableAtom,
-  registryAtom, renderErrorAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom,
-  setReducePreviewByIdAtom, specAtom, tableHandleAtom, tableTokenAtom, viewModeAtom,
+  registryAtom, renderErrorAtom, schemaAtom, setAnalysisByIdAtom,
+  setReducePreviewByIdAtom, specAtom, tableHandleAtom, viewModeAtom,
 } from "./state";
 import { downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
 
@@ -48,7 +48,6 @@ function RenderIndicator({ dataLoading }: { dataLoading: boolean }) {
 
 export default function App() {
   const [schema] = useAtom(schemaAtom);
-  const [rows] = useAtom(rowsAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
   const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
@@ -58,7 +57,6 @@ export default function App() {
   const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
-  const [tableToken, setTableToken] = useAtom(tableTokenAtom);
   const handle = useAtomValue(tableHandleAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
@@ -68,13 +66,12 @@ export default function App() {
   const setStatus = useSetAtom(analyzeStatusAtom);
   const setRenderError = useSetAtom(renderErrorAtom);
   const renderError = useAtomValue(renderErrorAtom);
-  const [dataLoading, setDataLoading] = useAtom(dataLoadingAtom);
+  const dataLoading = useAtomValue(dataLoadingAtom);
   const warnIssue = (useAtomValue(analysisAtom)?.issues ?? [])
     .find((i) => i.level === "warning");
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
-  const [tableEpoch, setTableEpoch] = useState(0);
   const timer = useRef<number>();
   const previewTimer = useRef<number>();
   const didInit = useRef(false);
@@ -121,23 +118,15 @@ export default function App() {
         + `Aggregate it in the Collapse step, or pick a column the pipeline keeps.`
     : null;
 
-  /* The engine owns the table behind a session handle now (created by the load
-     paths). Compute references it by id; mirror the handle id into tableToken so
-     the existing analyze/reduce/export effects keep resolving it. (Task C3 points
-     _resolve_table at the session store so the id resolves.) */
-  useEffect(() => {
-    setTableToken(handle?.id ?? null);
-    setDataLoading(false);
-  }, [handle?.id]);
-
-  /* the reactive loop: figure + stats for the active plottable. Depends on the
-     table token (a data edit re-runs it) and a stable spec string (a pipeline or
-     mapping edit re-runs it). `spec` is rebuilt every recompute, so depending on
-     it directly would never converge; the string key settles once the
-     recommendation does. A stale-cache 409 bumps the epoch to re-upload. */
+  /* the reactive loop: figure + stats for the active plottable. The engine owns
+     the table behind a session handle; compute references it by id. Depends on
+     the handle (id + version, so a data edit re-runs it) and a stable spec string
+     (a pipeline or mapping edit re-runs it). `spec` is rebuilt every recompute, so
+     depending on it directly would never converge; the string key settles once
+     the recommendation does. */
   const specKey = spec ? JSON.stringify(spec) : null;
   useEffect(() => {
-    if (!schema || !spec || !tableToken) return;
+    if (!schema || !spec || !handle) return;
     /* nothing to render yet (no Y mapped, no layer added), or a mapped column
        the pipeline drops — show no render error (the mapping/empty state
        speaks for itself), clear any stale figure from a removed layer, and go
@@ -156,12 +145,11 @@ export default function App() {
     const targetId = spec.id;
     timer.current = window.setTimeout(async () => {
       try {
-        const res = await engine.analyze({ token: tableToken }, spec);
+        const res = await engine.analyze({ token: handle.id }, spec);
         setAnalysisById({ id: targetId, res }); setRenderError(null);
         setStatus("ok");
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
-        if (/not cached/i.test(m)) { setTableEpoch((x) => x + 1); return; }
         /* a config change invalidated the plot and the recompute failed: drop
            the now-stale figure/stats for this plottable so the error shows
            instead of a figure that no longer matches the config (item 11). */
@@ -171,7 +159,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [tableToken, handle?.version, specKey, schemaKey, mappingError]);
+  }, [handle?.id, handle?.version, specKey, schemaKey, mappingError]);
 
   /* live reduced-table preview for the active plottable, recomputed as the
      pipeline changes. Independent of the analyze loop and valid before any
@@ -181,23 +169,21 @@ export default function App() {
     ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel])
     : null;
   useEffect(() => {
-    if (!tableToken || !active) return;
+    if (!handle || !active) return;
     window.clearTimeout(previewTimer.current);
     const targetId = active.id;
     const steps = active.reduce.steps;
     const level = active.previewLevel;
     previewTimer.current = window.setTimeout(async () => {
       try {
-        const preview = await engine.reduce({ token: tableToken }, steps, hierarchy, level);
+        const preview = await engine.reduce({ token: handle.id }, steps, hierarchy, level);
         setReducePreviewById({ id: targetId, preview }); setError(null);
       } catch (e) {
-        const m = e instanceof Error ? e.message : String(e);
-        if (/not cached/i.test(m)) { setTableEpoch((x) => x + 1); return; }
-        setError(m);
+        setError(e instanceof Error ? e.message : String(e));
       }
     }, 200);
     return () => window.clearTimeout(previewTimer.current);
-  }, [tableToken, handle?.version, stepsKey, activeId]);
+  }, [handle?.id, handle?.version, stepsKey, activeId]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec || !handle) return;
@@ -217,6 +203,7 @@ export default function App() {
         schema: doc.schema, rows: doc.rows,
         analyses: doc.analyses.map(migrateSpec),   // tolerate older .viz specs
         exclusions: doc.provenance?.exclusions ?? [],
+        id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
       });
       setViewMode(doc.analyses.length ? "analyses" : "data");
     } catch (e) {

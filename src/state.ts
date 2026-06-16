@@ -2,7 +2,7 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
-  StatsFamily, StyleOverrides, Table, TableHandle, TestName, ReduceSpec, ReduceStep,
+  StatsFamily, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec, ReduceStep,
   ReduceStepKind, ReducePreview,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
@@ -10,10 +10,9 @@ import { familyForMappings } from "./channels";
 
 export const schemaAtom = atom<Schema | null>(null);
 /* The browser no longer owns the dataset: the engine does, behind this handle
-   (id + version + schema + row count). `rowsAtom` holds only a preview window
-   (the figure's excluded-count until Phase C; retired in Phase D). */
+   (id + version + schema + row count + included/excluded split). The grid pulls
+   row windows by id; nothing in the browser holds all N rows. */
 export const tableHandleAtom = atom<TableHandle | null>(null);
-export const rowsAtom = atom<Row[]>([]);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
 
@@ -203,12 +202,17 @@ export const loadTableAtom = atom(null, async (get, set,
   set(schemaAtom, table.schema);
   // The engine owns the table behind a session handle, created here from the
   // rows the importer handed us. The browser keeps the handle, not the dataset.
-  const s = await engine.createSession({ schema: table.schema, rows: table.rows });
+  set(dataLoadingAtom, true);
+  let s;
+  try {
+    s = await engine.createSession({ schema: table.schema, rows: table.rows });
+  } finally {
+    set(dataLoadingAtom, false);
+  }
   const handle: TableHandle = {
     id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts,
   };
   set(tableHandleAtom, handle);
-  set(rowsAtom, table.rows ?? []);           // preview window only
   // seed the hierarchy spine from the imported identifier columns (coarsest →
   // finest by schema order); the user refines it in the Data tab.
   set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
@@ -217,7 +221,6 @@ export const loadTableAtom = atom(null, async (get, set,
   set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
   set(reducePreviewByIdAtom, {});
-  set(tableTokenAtom, null);
   const first = makeDefaultPlottable(table.schema);
   set(plottablesAtom, [first]);
   set(activePlottableIdAtom, first.id);
@@ -275,25 +278,24 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
 
 export interface LoadedDoc {
   schema: Schema;
-  rows: Row[];
+  rows: Row[];                              // first window only (preview)
   analyses: AnalysisSpec[];                 // already migrated to the current spec
   exclusions: ExclusionEvent[];
-  id?: string;                              // session handle, when the loader made one
-  n?: number;
-  version?: number;
+  id: string;                              // session handle the loader created
+  n: number;
+  version: number;
+  counts: TableCounts;
 }
 
 /* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
    (rebuilt as editable plottables), the shared hierarchy, and the exclusion log
    instead of starting blank. */
-export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
+export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   set(schemaAtom, doc.schema);
-  const s = await engine.createSession({ schema: doc.schema, rows: doc.rows });
-  const handle: TableHandle = {
-    id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts,
-  };
-  set(tableHandleAtom, handle);
-  set(rowsAtom, doc.rows ?? []);             // preview window only
+  // the engine created the session as it read the .iris; adopt its handle.
+  set(tableHandleAtom, {
+    id: doc.id, n: doc.n, version: doc.version, schema: doc.schema, counts: doc.counts,
+  });
   // the hierarchy is table-level (shared by every analysis); take it off the
   // first saved spec, falling back to the identifier columns for older files.
   const saved = doc.analyses[0]?.hierarchy;
@@ -305,7 +307,6 @@ export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
   set(reducePreviewByIdAtom, {});
-  set(tableTokenAtom, null);
   const plottables = doc.analyses.length
     ? doc.analyses.map(plottableFromSpec)
     : [makeDefaultPlottable(doc.schema)];
@@ -479,17 +480,7 @@ export const moveStepAtom = atom(null,
     set(activePlottableAtom, { ...p, reduce: { steps } });
   });
 
-/* ---- live /reduce preview + master-table content token ---- */
-
-/* content token for the master table; lets a large table upload once (via
-   /table) and ride as a token on analyze/reduce/export instead of re-sending
-   ~hundreds of MB on every pipeline edit */
-export const tableTokenAtom = atom<string | null>(null);
-
-/* a content token handed to us by import/commit together with the table it
-   refers to, tagged with that exact row array. The upload effect consumes it to
-   avoid re-uploading a table the engine already cached (see loadTableAtom). */
-export const seededTokenAtom = atom<{ token: string; rows: Row[] } | null>(null);
+/* ---- live /reduce preview ---- */
 
 /* the active plottable's reduced-table preview, keyed per plottable so a
    late-resolving fetch lands in the plottable it was computed for */

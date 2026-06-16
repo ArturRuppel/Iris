@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
   hierarchyAtom, moveSpineAtom, schemaAtom, setColumnRoleAtom, setLevelFnAtom,
-  tableTokenAtom,
+  tableHandleAtom,
 } from "../state";
 import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
 
@@ -15,7 +15,7 @@ import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
 export function HierarchyPanel() {
   const schema = useAtomValue(schemaAtom);
   const hierarchy = useAtomValue(hierarchyAtom);
-  const token = useAtomValue(tableTokenAtom);
+  const handle = useAtomValue(tableHandleAtom);
   const setRole = useSetAtom(setColumnRoleAtom);
   const moveSpine = useSetAtom(moveSpineAtom);
   const setLevelFn = useSetAtom(setLevelFnAtom);
@@ -28,19 +28,19 @@ export function HierarchyPanel() {
   const spine = hierarchy.spine;
 
   /* fetch home levels + grain cardinalities whenever the spine or the set of
-     classifiers changes (debounced). Uses the cached table token. */
+     classifiers changes (debounced). Resolves the table by its session id. */
   const key = JSON.stringify([spine, classifiers.map((c) => c.name)]);
   useEffect(() => {
-    if (!token) return;
+    if (!handle) return;
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
       try {
-        setInfo(await engine.hierarchy({ token }, spine, classifiers.map((c) => c.name)));
+        setInfo(await engine.hierarchy({ token: handle.id }, spine, classifiers.map((c) => c.name)));
       } catch { /* preview only; ignore transient errors */ }
     }, 200);
     return () => window.clearTimeout(timer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, key]);
+  }, [handle?.id, handle?.version, key]);
 
   if (!schema) return null;
   const labelFor = (name: string) =>
