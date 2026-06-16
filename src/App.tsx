@@ -2,6 +2,7 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import { DataEntry } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
+import { HierarchyPanel } from "./components/HierarchyPanel";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
 import { PipelineRail } from "./components/PipelineRail";
@@ -12,9 +13,9 @@ import { StatsPanel } from "./components/StatsPanel";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
-  engineSnapshotAtom, exclusionLogAtom, loadTableAtom, registryAtom, renderErrorAtom,
-  rowsAtom, schemaAtom, setAnalysisByIdAtom, setReducePreviewByIdAtom, specAtom,
-  tableTokenAtom, viewModeAtom,
+  engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadTableAtom, registryAtom,
+  renderErrorAtom, rowsAtom, schemaAtom, setAnalysisByIdAtom, setReducePreviewByIdAtom,
+  specAtom, tableTokenAtom, viewModeAtom,
 } from "./state";
 import { downloadBase64, engine } from "./types";
 
@@ -187,15 +188,19 @@ export default function App() {
   /* live reduced-table preview for the active plottable, recomputed as the
      pipeline changes. Independent of the analyze loop and valid before any
      mapping is set, so the Reduced-table section updates while you build steps. */
-  const stepsKey = active ? JSON.stringify(active.reduce.steps) : null;
+  const hierarchy = useAtomValue(hierarchyAtom);
+  const stepsKey = active
+    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel])
+    : null;
   useEffect(() => {
     if (!tableToken || !active) return;
     window.clearTimeout(previewTimer.current);
     const targetId = active.id;
     const steps = active.reduce.steps;
+    const level = active.previewLevel;
     previewTimer.current = window.setTimeout(async () => {
       try {
-        const preview = await engine.reduce({ token: tableToken }, steps);
+        const preview = await engine.reduce({ token: tableToken }, steps, hierarchy, level);
         setReducePreviewById({ id: targetId, preview }); setError(null);
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
@@ -266,7 +271,7 @@ export default function App() {
         : null}
       <main>
         {viewMode === "data" ? (
-          <div className="data-mode"><DataTable /></div>
+          <div className="data-mode"><HierarchyPanel /><DataTable /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />

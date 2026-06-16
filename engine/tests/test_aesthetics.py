@@ -103,10 +103,17 @@ def _cmp_stats():
             "result": {}, "alpha": 0.05}
 
 
+def _cmp_ctx(df, schema, spec):
+    """Redesign: the per-x-level/colour groups now come from `_groups` over a
+    level table (here the raw frame) on top of the shared `_layout`."""
+    layout = compiler._layout(df, schema, spec)
+    layout["groups"] = compiler._groups(df, layout)
+    return layout
+
+
 def test_color_second_factor_builds_dodged_cells():
     df = _cmp_df()
-    ctx = compiler._comparison_context(
-        df, CMP_SCHEMA, _cmp_spec("box", color="geno"), _cmp_stats())
+    ctx = _cmp_ctx(df, CMP_SCHEMA, _cmp_spec("box", color="geno"))
     assert ctx["dodged"] is True
     assert len(ctx["groups"]) == 4               # 2 conditions × 2 genotypes
     # within an x-level the two genotype cells sit at offset, mirrored positions
@@ -125,7 +132,7 @@ def test_color_second_factor_builds_dodged_cells():
 def test_color_equal_to_x_is_not_dodged():
     df = _cmp_df()
     spec = _cmp_spec("dot", color="cond")        # color == x → today's behaviour
-    ctx = compiler._comparison_context(df, CMP_SCHEMA, spec, _cmp_stats())
+    ctx = _cmp_ctx(df, CMP_SCHEMA, spec)
     assert ctx["dodged"] is False
     assert len(ctx["groups"]) == 2               # one cell per x-level
     _, pg = compiler.build_comparison_figure(df, CMP_SCHEMA, spec, _cmp_stats())
@@ -137,7 +144,8 @@ def test_dodged_dots_split_points_per_cell():
     _, pg = compiler.build_comparison_figure(
         df, CMP_SCHEMA, _cmp_spec("dot", color="geno"), _cmp_stats())
     assert len(pg) == 4                          # cond × geno cells
-    rows = sorted(r for g in pg for r in g["row_ids"])
+    # each point's row_ids is now a chained list of raw ids (one id at raw level)
+    rows = sorted(i for g in pg for ids in g["row_ids"] for i in ids)
     assert rows == sorted(df["id"].tolist())     # every row drawn once
 
 
@@ -215,7 +223,7 @@ def _num_color_cmp():
 def test_comparison_dots_numeric_color_per_point_not_dodged():
     df, schema = _num_color_cmp()
     spec = _cmp_spec("dot", color="age")               # numeric color in a group cmp
-    ctx = compiler._comparison_context(df, schema, spec, _cmp_stats())
+    ctx = _cmp_ctx(df, schema, spec)
     assert ctx["dodged"] is False                      # numeric color never dodges
     assert ctx["scales"].color_numeric is True
     fig, pg = compiler.build_comparison_figure(df, schema, spec, _cmp_stats())

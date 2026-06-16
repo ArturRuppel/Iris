@@ -114,6 +114,18 @@ def _facet_issues(df: pd.DataFrame, spec: dict) -> list[dict]:
     return []
 
 
+def _level_point_count(df: pd.DataFrame, spine: list[str], level: str | None,
+                       x: str | None, y: str | None) -> int:
+    """How many marks a per-row geom draws at `level`: raw rows (level "" or a
+    level not on the spine) or the grain cardinality at a spine level."""
+    cols = [c for c in (x, y) if c and c in df]
+    if not level or level not in spine:
+        return int(len(df[cols].dropna())) if cols else int(len(df))
+    grain = spine[: spine.index(level) + 1]
+    sub = df.dropna(subset=cols) if cols else df
+    return int(sub.groupby(grain, observed=True).ngroups)
+
+
 def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dict]:
     # stat_model is unused in Phase 1 — it's the deliberate seam for model-level
     # guards (facet multiplicity, etc.) that land in Phases 2-3.
@@ -122,6 +134,8 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     # and they don't also trip the "channel ignored" / "palette exhausted" checks
     issues: list[dict] = drop_unrenderable_channels(schema, spec)
     issues.extend(_facet_issues(df, spec))
+    hier = spec.get("hierarchy") or {}
+    spine = [s for s in (hier.get("spine") or []) if s in df.columns]
     for layer in spec.get("layers", []):
         name = layer["geom"]
         g = geoms.GEOMS.get(name)
@@ -129,14 +143,17 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
             continue
 
         if g.point_cap is not None:
-            cols = [c for c in (x, y) if c and c in df]
-            n = int(len(df[cols].dropna())) if cols else int(len(df))
+            # a per-row geom draws one mark per row of the LEVEL it is bound to:
+            # the raw rows at level "", or the grain cardinality at a spine level.
+            # So a dot at a coarse level (e.g. one per date) never trips the cap.
+            n = _level_point_count(df, spine, layer.get("level"), x, y)
             if n > g.point_cap:
                 issues.append(_issue(
                     "blocking", "point_cap",
                     f"{n:,} points is too many to draw individually "
-                    f"(limit {g.point_cap:,}). Add a Collapse step to "
-                    f"aggregate, or use a summarizing geom (bar, box, violin).",
+                    f"(limit {g.point_cap:,}). Bind this layer to a coarser "
+                    f"hierarchy level, or use a summarizing geom (bar, box, "
+                    f"violin).",
                     geom=name))
 
         if name in ("box", "violin"):

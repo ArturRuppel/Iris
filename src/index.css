@@ -181,7 +181,55 @@ dd.strong { font-weight: 600; }
 /* ---- two-mode workspace ---- */
 .mode-toggle { display: inline-flex; gap: 4px; margin-left: 12px; }
 .mode-toggle button.active { font-weight: 600; }
-.data-mode { height: 100%; }
+.data-mode { height: 100%; display: flex; gap: 12px; min-height: 0; }
+.data-mode .table-pane { flex: 1; min-width: 0; }
+
+/* Data-tab hierarchy panel */
+.hierarchy-panel { width: 290px; flex: 0 0 auto; overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.hierarchy-panel h3 { margin: 0; font-size: 13px; color: #334155; }
+.hp-hint { font-size: 11px; line-height: 1.4; margin: 0; }
+.hp-roles { display: flex; flex-direction: column; gap: 3px; }
+.hp-role-row { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; }
+.hp-col { font-size: 12px; color: var(--ink); overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.seg { display: inline-flex; flex: none; border: 1px solid var(--line);
+  border-radius: 6px; overflow: hidden; }
+.seg button { font-size: 10px; padding: 2px 7px; background: #fff; border: none;
+  cursor: pointer; color: #64748b; }
+.seg button.on { background: #0e7490; color: #fff; }
+
+.hp-viz { background: #f8fafc; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px; }
+.hp-viz-head { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: #94a3b8; margin-bottom: 6px; }
+.hp-tree { list-style: none; margin: 0; padding: 0; }
+.hp-node { display: flex; align-items: center; gap: 6px; min-height: 26px; }
+.hp-rail { position: relative; width: 12px; align-self: stretch; flex: none; }
+.hp-rail::before { content: ""; position: absolute; left: 5px; top: 0; bottom: 0;
+  border-left: 2px solid #cbd5e1; }
+.hp-node:first-child .hp-rail::before { top: 50%; }
+.hp-node:last-child .hp-rail::before { bottom: 50%; }
+.hp-dot { position: absolute; left: 1px; top: 50%; width: 9px; height: 9px;
+  margin-top: -4px; border-radius: 50%; background: #0e7490;
+  border: 2px solid #f8fafc; }
+.hp-level { display: inline-flex; align-items: center; gap: 6px; }
+.hp-level-name { font-size: 12px; color: var(--ink); font-weight: 500; }
+.hp-count { font-size: 10px; color: #64748b; background: #e2e8f0;
+  border-radius: 10px; padding: 0 6px; }
+.hp-move { display: inline-flex; gap: 1px; }
+.hp-branches { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.hp-branch { font-size: 11px; color: #0369a1; background: #e0f2fe;
+  border: 1px solid #bae6fd; border-radius: 6px; padding: 1px 6px;
+  white-space: nowrap; }
+.hp-floating { font-size: 11px; color: #854d0e; margin-top: 6px; }
+.hp-measures { font-size: 11px; margin: 0; }
+
+/* read-only hierarchy summary in the analyses tab */
+.spine-mini { display: flex; flex-wrap: wrap; gap: 4px; }
+.spine-chip { font-size: 11px; color: #475569; }
 .analyses-mode { display: flex; gap: 12px; height: 100%; min-height: 0; }
 .plottable-sidebar { width: 200px; flex: 0 0 auto; overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -358,6 +406,36 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .rep-key-opts label { display: flex; align-items: center; gap: 4px;
   font-size: 12px; color: var(--ink); }
 .rep-key-note { font-size: 11px; }
+
+/* data hierarchy (nesting spine) */
+.hierarchy-card { display: flex; flex-direction: column; gap: 6px;
+  background: #f8fafc; border: 1px solid var(--line); border-radius: 8px;
+  padding: 8px; }
+.spine-list { list-style: none; margin: 0; padding: 0; display: flex;
+  flex-direction: column; gap: 3px; }
+.spine-level { display: flex; align-items: center; gap: 6px; font-size: 12px;
+  background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 3px 6px; }
+.spine-depth { width: 16px; height: 16px; flex: none; border-radius: 50%;
+  background: #e0f2fe; color: #0369a1; font-size: 10px; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; }
+.spine-name { flex: 1; color: var(--ink); }
+.spine-actions { display: flex; gap: 2px; }
+.spine-add { display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  font-size: 11px; }
+.chip-btn { font-size: 11px; color: #0e7490; background: #ecfeff;
+  border: 1px solid #a5f3fc; border-radius: 6px; padding: 2px 7px; cursor: pointer; }
+.chip-btn:hover { background: #cffafe; }
+
+/* pairing verdict, derived from the spine */
+.pairing-badge { font-size: 11px; border-radius: 6px; padding: 3px 7px;
+  cursor: help; align-self: flex-start; }
+.pairing-badge.paired { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+.pairing-badge.partial { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
+.pairing-badge.unpaired { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+
+.layer-level { font-weight: 500; }
+.reduced-level select { font-size: 11px; }
 
 .analyses-loading { display: flex; flex-direction: column; align-items: center;
   justify-content: center; gap: 12px; height: 100%; color: var(--dim);

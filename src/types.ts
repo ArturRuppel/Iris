@@ -25,7 +25,29 @@ export type Mark =
 
 export type Geom = Mark; // geom name == existing mark string (dot, box, …)
 
-export interface Layer { geom: Geom; params: Record<string, unknown> }
+/* Data-hierarchy redesign: a layer draws from a data *level* of the hierarchy
+   (a spine column name, or "" = the raw/finest reduced rows). A dot at "" is the
+   faint replicate cloud; a dot at a coarse level is one bold mark per grain; a
+   summary at a coarse level shows mean ± error of that level's spread — composing
+   a superplot with no preset. The unit columns live on the plottable's
+   `hierarchy`, shared by every consumer. */
+export interface Layer { geom: Geom; params: Record<string, unknown>; level: string }
+
+/* The nesting spine (coarsest → finest, e.g. date › position › cell › frame) and
+   the per-level aggregate function (default mean). Defined once per plottable;
+   each layer and the reduced-table preview pick a level from it. */
+export interface Hierarchy { spine: string[]; fn: Record<string, AggFn> }
+export const EMPTY_HIERARCHY: Hierarchy = { spine: [], fn: {} };
+export const RAW_LEVEL = "";
+
+/* /hierarchy describe response: per-level grain cardinalities and where each
+   classifier attaches (its home level), for the Data-tab editor + visualization. */
+export interface HierarchyInfo {
+  spine: string[];
+  levels: { name: string; n_groups: number }[];
+  classifiers: { name: string; home: string | null; n_levels: number }[];
+  n_raw: number;
+}
 
 export interface ParamSpec {
   key: string; label: string;
@@ -57,7 +79,23 @@ export interface StatModel {
   test: TestName | null;
   facet_handling: { per_facet: boolean; correction: "holm" | "bonferroni" | null } | null;
   chosen_by: "inferred" | "user_override" | "describe_only";
+  /* Hierarchy redesign: the spine present after reduction, and the pairing
+     verdict for the comparison qualifier (derived from the spine, surfaced for
+     the deferred stats pass). Both absent for non-comparison families. */
+  spine?: string[];
+  pairing?: Pairing | null;
   issues: unknown[];
+}
+
+/* Paired/partially-paired/unpaired follows from the spine: a comparison
+   qualifier is paired over the spine levels coarser than its home level. */
+export interface Pairing {
+  qualifier: string;
+  verdict: "paired" | "partially_paired" | "unpaired";
+  across: string | null;
+  n_units: number;
+  n_complete: number;
+  levels?: string[];
 }
 export interface Issue {
   level: "blocking" | "warning";
@@ -171,6 +209,9 @@ export interface AnalysisSpec {
     col: { column: string } | null;
     share_x: boolean; share_y: boolean;
   };
+  /* the data hierarchy (nesting spine + per-level aggregate); each layer's
+     `level` selects a grain from it. */
+  hierarchy: Hierarchy;
   layers: Layer[];
   stats: {
     family: StatsFamily;
@@ -180,10 +221,6 @@ export interface AnalysisSpec {
     assumption_checks: { check: string; per: string }[];
     alpha: number;
     report: string[];
-    /* item 10: column(s) that define an independent repetition. When set, the
-       engine collapses technical replicates to one value per unit before
-       computing n and the test (the figure still plots the raw rows). */
-    repetition_key?: string[];
   };
   annotations: { significance_brackets: "auto"; show_n: boolean };
   style: { preset: string; overrides: StyleOverrides };
@@ -212,8 +249,12 @@ export interface StatsResult {
   alpha: number;
   methods_text: string;
 }
+/* A point group's k-th drawn mark maps to row_ids[k]. Hierarchy redesign:
+   an entry is the chained list of raw row-ids behind that mark (a coarse mark
+   aggregates many rows); a bare string is shorthand for a single raw row. */
+export type PointRowIds = (string | string[])[];
 export interface AnalyzeResponse {
-  figure: { svg: string; point_groups: { gid: string; row_ids: string[] }[] };
+  figure: { svg: string; point_groups: { gid: string; row_ids: PointRowIds }[] };
   stats: StatsResult;
   stat_model: StatModel;
   issues: Issue[];
@@ -255,7 +296,7 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
   const legacyLayers = (base.layers ?? []) as
     { mark: Geom; options?: Record<string, unknown>; stat?: unknown }[];
   const layers: Layer[] = legacyLayers.map((l) => ({
-    geom: l.mark, params: { ...(l.options ?? {}) },
+    geom: l.mark, params: { ...(l.options ?? {}) }, level: RAW_LEVEL,
   }));
 
   const st = (base.stats ?? {}) as AnalysisSpec["stats"];
@@ -266,6 +307,7 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
     spec_version: "2.0",
     reduce, encodings, layers,
     facet: { row: null, col: null, share_x: true, share_y: true },
+    hierarchy: { ...EMPTY_HIERARCHY },
     stats: st,
   } as AnalysisSpec;
 }
@@ -376,8 +418,10 @@ export const engine = {
   sample: (): Promise<Table> => get<Table>("/sample"),
   analyze: (t: TableRef, spec: AnalysisSpec) =>
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
-  reduce: (t: TableRef, steps: ReduceStep[]) =>
-    post<ReducePreview>("/reduce", { ...tableField(t), steps }),
+  reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string) =>
+    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level }),
+  hierarchy: (t: TableRef, spine: string[], classifiers: string[]) =>
+    post<HierarchyInfo>("/hierarchy", { ...tableField(t), spine, classifiers }),
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
     post<{ filename: string; data_base64: string }>(
       "/export", { ...tableField(t), spec, format, dpi: 300 }),

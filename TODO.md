@@ -106,7 +106,37 @@ splits stay unique across facet cells and the gid→row-ids click/exclude contra
 holds. The existing size/shape legend entries now render automatically. Verified:
 size spans 10→120 pt², shape yields distinct markers, row-ids stay complete.
 
-### 10. Define the independent-repetition key (n for stats) — REOPENED 2026-06-16
+### 10. Define the independent-repetition key (n for stats) — RESOLVED 2026-06-16 via Phase 5 (Superplots)
+
+RESOLVED: Phase 5 shipped the visible half. A layer-level per-unit stat
+(`Layer.stat = {per_unit}`) draws one mark per independent unit over the raw
+replicates; a per-unit `summary`/`bar` reports the mean of unit means with
+unit-level error; a one-click "Build superplot" lays down the canonical raw +
+per-unit + summary stack. The unit columns still come from `stats.repetition_key`
+(this item's stats plumbing, unchanged), so the visible marks and the test's n
+share one declaration. The three open design questions below are settled: (1)
+box/violin/dot **keep** raw marks + a composable per-unit overlay (option B); (2)
+the template carries a summary so n/error are visible there, not forced globally;
+(3) mean of unit means, unit-level error. Engine: `compiler._layer_units` /
+`_unit_summary` / `_draw_unit_dots`, `geoms.accepts_stat`, `statmodel` unit echo;
+tests in `engine/tests/test_superplot.py` (177 engine tests green) +
+`e2e/superplot_test.mjs` (unverified — no Chromium). Design:
+`docs/superpowers/specs/2026-06-16-superplots-design.md`. The paired-design gap
+(rep-key units spanning both groups ⇒ paired test) still folds into the later
+`pair_by` / single-inferential-unit work. History below kept for context.
+
+DEFERRED: the stats plumbing is correct and stays, but the reopened complaint
+(the *visible* effect is too weak on box/violin/dot) cannot be settled in
+isolation — the conclusive fix is the **superplot** rendering pattern (Lord et
+al. 2020): de-emphasized raw replicates + a prominent per-unit overlay (one mark
+per independent unit, error/test bound to it), always-on across geoms, so n
+becomes "count the big marks." That is a layer-level summary stat, which is
+exactly **Phase 5 (Superplots)** in `ROADMAP.md` (search "Phase 5 — Superplots").
+Resolve the three open design questions there, as part of that work; the paired-
+design gap (rep-key units spanning both groups ⇒ the test should be paired, not
+Welch/Mann–Whitney) is folded into Phase 5's `pair_by` / single inferential-unit
+concept. Until then the engine keeps option B (raw plot, unit-level stats); the
+plumbing below stays as the foundation Phase 5 builds on.
 
 REOPENED: the wiring works but the *visible* effect is too weak/under-specified.
 Verified end-to-end that with a repetition key the engine collapses to units and

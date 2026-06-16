@@ -44,7 +44,7 @@ export function FigurePane() {
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<HTMLDivElement>(null);
   const useByRow = useRef<Map<string, SVGElement>>(new Map());
-  const [menu, setMenu] = useState<{ x: number; y: number; rowId: string } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; rowIds: string[] } | null>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [resizing, setResizing] = useState<string | null>(null);
 
@@ -89,24 +89,30 @@ export function FigurePane() {
     const ro = new ResizeObserver(placeHandle);
     ro.observe(el);
 
-    /* points: click = select, right-click = context menu */
+    /* points: click = select, right-click = context menu. Hierarchy redesign:
+       a mark's row_ids entry may be a LIST of raw rows it aggregates (a coarse
+       per-grain mark), so selecting/excluding a mark acts on all of them; a bare
+       string is a single raw row. */
     for (const group of analysis.figure.point_groups) {
       const g = el.querySelector(`g#${CSS.escape(group.gid)}`);
       if (!g) continue;
       g.querySelectorAll("use").forEach((use, k) => {
-        const rowId = group.row_ids[k];
-        if (!rowId) return;
-        useByRow.current.set(rowId, use as SVGElement);
+        const entry = group.row_ids[k];
+        if (!entry) return;
+        const ids = Array.isArray(entry) ? entry : [entry];
+        if (ids.length === 0) return;
+        const lead = ids[0];                       // representative for selection
+        ids.forEach((id) => useByRow.current.set(id, use as SVGElement));
         (use as SVGElement).style.cursor = "pointer";
         use.addEventListener("click", () =>
-          setSelected((cur) => (cur === rowId ? null : rowId)));
+          setSelected((cur) => (cur === lead ? null : lead)));
         use.addEventListener("contextmenu", (e) => {
           e.preventDefault();
-          setSelected(rowId);
-          setMenu({ x: e.clientX, y: e.clientY, rowId });
+          setSelected(lead);
+          setMenu({ x: e.clientX, y: e.clientY, rowIds: ids });
         });
         const title = document.createElementNS(SVGNS, "title");
-        title.textContent = rowId;
+        title.textContent = ids.length > 1 ? `${ids.length} rows` : lead;
         use.appendChild(title);
       });
     }
@@ -208,8 +214,8 @@ export function FigurePane() {
     window.addEventListener("pointerup", up);
   };
 
-  const exclude = (rowId: string) => {
-    toggle(rowId);
+  const exclude = (rowIds: string[]) => {
+    rowIds.forEach((id) => toggle(id));   // a coarse mark excludes its whole unit
     setMenu(null);
     setSelected(null);
   };
@@ -255,8 +261,9 @@ export function FigurePane() {
           <div className="menu-backdrop" onClick={() => setMenu(null)}
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
           <div className="context-menu" style={{ left: menu.x, top: menu.y }}>
-            <button onClick={() => exclude(menu.rowId)}>
-              Exclude {menu.rowId} from analysis
+            <button onClick={() => exclude(menu.rowIds)}>
+              Exclude {menu.rowIds.length > 1
+                ? `${menu.rowIds.length} rows` : menu.rowIds[0]} from analysis
             </button>
             <button onClick={() => setMenu(null)}>Cancel</button>
           </div>

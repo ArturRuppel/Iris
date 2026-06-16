@@ -24,12 +24,18 @@ def _col(enc: dict, key: str) -> str | None:
 
 
 def infer(encodings: dict, schema: dict, override: str | None,
-          facet: dict | None = None) -> dict:
+          facet: dict | None = None, unit: list[str] | None = None) -> dict:
     """encodings + schema -> StatModel. `override` is the user-chosen test
     name carried from the spec when chosen_by == user_override, else None.
     `facet` is the spec's facet block; Phase 4 v1 runs no inferential test
     once either axis is faceted — multiple-comparisons correction is
-    deferred, so describe-only is the only safe default."""
+    deferred, so describe-only is the only safe default.
+
+    `unit` is the declared independent-repetition key (Phase 5 / item 10):
+    the test counts these units, not raw rows, and a per-unit overlay layer can
+    draw them. It is echoed on the model (`unit`) and named in the design
+    sentence so the inference basis is explicit."""
+    unit = unit or []
     x = _col(encodings, "x")
     y = _col(encodings, "y")
     color = _col(encodings, "color")
@@ -65,7 +71,13 @@ def infer(encodings: dict, schema: dict, override: str | None,
         return {"design": "no statistical model — pick X / Y to analyze",
                 "family": "none", "factors": [], "test": None,
                 "facet_handling": None, "chosen_by": "describe_only",
-                "issues": []}
+                "unit": unit, "issues": []}
+
+    # Phase 5: a declared independent unit makes n explicit — the test counts
+    # units (replicates averaged within each), and the figure can overlay one
+    # mark per unit. State it in the design so the inference basis is unmistakable.
+    if unit and family == "group_comparison":
+        design += f"; n counts independent units ({' × '.join(unit)})"
 
     # Phase 2: a categorical color distinct from the grouping factor *could* be a
     # second factor. We surface it but do NOT run a two-way test (Tier-3 work).
@@ -89,9 +101,9 @@ def infer(encodings: dict, schema: dict, override: str | None,
         design += " — describe-only per facet (Phase 4 v1 runs no per-facet test)"
         return {"design": design, "family": family, "factors": factors,
                 "test": None, "facet_handling": None,
-                "chosen_by": "describe_only", "issues": issues}
+                "chosen_by": "describe_only", "unit": unit, "issues": issues}
 
     chosen_by = "user_override" if override else "inferred"
     return {"design": design, "family": family, "factors": factors,
             "test": override, "facet_handling": None,
-            "chosen_by": chosen_by, "issues": issues}
+            "chosen_by": chosen_by, "unit": unit, "issues": issues}

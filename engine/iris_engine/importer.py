@@ -125,16 +125,44 @@ def _as_numeric(s: pd.Series, decimal: str) -> pd.Series:
     return pd.to_numeric(s, errors="coerce")
 
 
+# Column names that denote a *nesting key* (an identifier), not a measurement
+# or a free classifier — the spine columns of an experiment. Pure value
+# inspection can't separate an integer index (frame, cell_id) from an integer
+# measure, nor a low-cardinality grouping string (date, well) from a classifier,
+# so the name carries the domain hint. Matched as whole underscore-/dot-delimited
+# tokens, plus the common `*_id` / `*_index` suffixes. Tune freely.
+_ID_TOKENS = frozenset({
+    "id", "index", "idx", "frame", "date", "time", "timepoint", "well",
+    "position", "replicate", "rep", "subject", "track", "plate", "batch",
+    "field", "roi", "slice", "fov",
+})
+_ID_SUFFIXES = ("_id", "_ids", "_index", "_idx")
+
+
+def _looks_like_identifier(name: object) -> bool:
+    n = str(name).lower()
+    if n.endswith(_ID_SUFFIXES):
+        return True
+    tokens = re.split(r"[._]", n)
+    return any(t in _ID_TOKENS for t in tokens)
+
+
 def _infer_type(s: pd.Series, decimal: str) -> str:
     non_na = s.dropna()
     if non_na.empty:
         return "categorical"
-    numeric_frac = _as_numeric(non_na, decimal).notna().mean()
-    if numeric_frac >= 0.95:
-        return "numeric"
+    name_id = _looks_like_identifier(s.name)
+    nums = _as_numeric(non_na, decimal)
+    if nums.notna().mean() >= 0.95:
+        # an integer-valued column named like a key is a grouping index, not a
+        # measure; a float-valued one (e.g. time in seconds) stays a measure.
+        intlike = bool((nums.dropna() % 1 == 0).all())
+        return "identifier" if name_id and intlike else "numeric"
     n_distinct = non_na.nunique()
     if n_distinct == len(non_na) and len(non_na) > 10:
         return "identifier"  # every value unique: a label, not a grouping
+    if name_id:
+        return "identifier"  # named like a key (date, position_id, well, ...)
     return "categorical" if n_distinct <= MAX_LEVELS else "identifier"
 
 

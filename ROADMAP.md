@@ -55,10 +55,16 @@ test or multiple-comparisons correction — that is later work), guarded at 20
 facet cells. **Phase 3 shipped complete 16 June 2026** (3a type-driven core, 3b
 continuous color, 3c horizontal orientation, 3d the contingency tile, plus a
 same-day fix pass for a contingency-family crash and blank-startup/ghost-figure
-cleanup); a known e2e-suite regression from that fix pass is tracked in
-`TODO.md`, not blocking Phase 4 — Phase 4's own e2e smoke (`e2e/facets_test.mjs`)
-is written but unverified in this sandbox for the same Chromium-unavailability
-reason. Project is under git as of 13 June 2026. Last updated 16 June 2026.*
+cleanup). **Phase 5 (*Superplots*) shipped 16 June 2026**: a layer-level per-unit
+stat (`stat: {per_unit}`, sourced from the existing `repetition_key` so the
+visible marks and the inferential n share one unit declaration) overlays one mark
+per independent unit on the raw replicates, with a one-click "Build superplot"
+template — making n visible ("count the big marks") and closing `TODO.md` item
+10's "n does nothing" gap. A known e2e-suite regression from the Phase 3 fix pass
+is tracked in `TODO.md`; Phase 4's (`e2e/facets_test.mjs`) and Phase 5's
+(`e2e/superplot_test.mjs`) own e2e smokes are written but unverified in this
+sandbox for the same Chromium-unavailability reason. Project is under git as of
+13 June 2026. Last updated 16 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -263,24 +269,44 @@ explicit mapping, explicit `.add-layer-btn` flow) but — like the rest of
 `e2e/` — unverified in this sandbox; no Chromium is installable here. Design in
 `docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`.
 
-**Composable grammar of graphics (Phase 5 — Superplots, planned).** A single
-plot can display the same measurement at several collapse levels at once — raw
-replicates, one mark per experimental unit (e.g. per-subject means), and the
-group summary — the *superplot* pattern (Lord et al. 2020) that defeats
-pseudoreplication by making the real n visible. The mechanism is a
-**layer-level summary stat** (`{group, fn}` on a `Layer`, the grammar's
-`stat_summary` / seaborn `so.Agg`), **not** another `reduce.collapse` step: it
-is a visual transform that leaves the data model, n, and provenance untouched,
+**Composable grammar of graphics (Phase 5 — Superplots, shipped 16 June 2026).**
+A single plot now displays the same measurement at several collapse levels at
+once — raw replicates (faint), one prominent mark per experimental unit (e.g.
+per-subject means), and the group summary — the *superplot* pattern (Lord et al.
+2020) that defeats pseudoreplication by making the real n visible. The mechanism
+is a **layer-level summary stat** (`stat: {per_unit}` on a `Layer`, the grammar's
+`stat_summary` / seaborn `so.Agg`), **not** another `reduce.collapse` step: it is
+a visual transform that leaves the data model, n, and provenance untouched,
 whereas `reduce.collapse` changes what a row *is* (and is logged as such). The
-careful half is statistical, not visual: the figure may show three levels but
-the `stat_model` binds to exactly **one** declared inferential unit (the
-independent experimental unit), tests on it (n = units), and *describes* the
-lower levels in plain language — the Phase 2 *describe-don't-test* discipline
-extended to nesting depth. Depends on the `pair_by` nesting concept (Tier 2/3)
-and is the conceptual lead-in to mixed models (Tier 4). Spec impact stays
-within the 2.0 seams: a new optional `stat` param on a layer plus an explicit
-inferential-`unit` on `stat_model` — new params, no major bump, absent = today's
-behaviour. Follows Phase 4 (*Facets*).
+unit columns are **not** redeclared on the layer — they come from the existing
+`stats.repetition_key`, so the visible per-unit marks and the inferential n share
+one declaration and can never disagree. A per-unit `dot` draws one click-to-
+exclude mark per unit (its `row_ids` span the unit's replicates); a per-unit
+`summary`/`bar` reports the mean of unit means with unit-level error. The careful
+half is statistical, not visual: the figure may show three levels but the
+`stat_model` binds to exactly **one** declared inferential unit, tests on it
+(n = units, unchanged from item 10), and *describes* the lower levels — the
+Phase 2 *describe-don't-test* discipline extended to nesting depth. A one-click
+"Build superplot" lays down the canonical raw + per-unit + summary stack (all
+editable). Spec stayed within the 2.0 seams: an optional `stat` on a layer, an
+echoed inferential-`unit` on `stat_model`, and `accepts_stat`/`dot` size+alpha in
+the registry — absent = today's behaviour, no major bump. Design in
+`docs/superpowers/specs/2026-06-16-superplots-design.md`. Depends conceptually on
+the `pair_by` nesting concept (Tier 2/3) and is the lead-in to mixed models
+(Tier 4).
+
+*Absorbs `TODO.md` item 10 (independent-repetition key).* That feature already
+shipped the stats half — setting a rep key collapses technical replicates to one
+value per independent unit so n, the test, and the error bars count units — but
+on box/violin/dot the inference basis stayed invisible (only a tiny `n` label
+changed), the superplot problem by another name. Phase 5 makes that basis visible
+via the per-unit overlay and settles the three deferred design questions:
+box/violin/dot **keep** the raw marks while a composable per-unit overlay shows
+the basis (option B, not auto-collapse); the canonical template carries a summary
+so n/error are visible there (not forced globally, preserving composition); and
+the semantics are mean of unit means with unit-level error. The rep key's
+paired-design gap (units spanning both groups) still resolves later through the
+single inferential-`unit` + `pair_by` mechanism.
 
 **Test matrix.** One-sample, two-sample (Welch), and paired t-tests;
 Mann–Whitney and Wilcoxon signed-rank; one-way ANOVA with Tukey post-hocs;
@@ -351,8 +377,8 @@ checked, what it found, what it implies, in plain language. **Phase 4
 (*Facets*)** of the composable grammar of graphics — the `facet` block going
 live as a describe-only subplot grid — shipped early, in Tier 2 (see above),
 rather than waiting for Tier 3. **Phase 5 (*Superplots* — nested collapse
-levels on one plot, tested on a single honest inferential unit)** follows it
-(see Tier 2's grammar phases). Per-facet inferential testing with
+levels on one plot, tested on a single honest inferential unit)** also shipped
+early in Tier 2 (see above). Per-facet inferential testing with
 multiple-comparisons correction, deliberately deferred by Phase 4, would land
 here once a real need for it shows up. n and exclusion annotations become
 standard figure furniture.
@@ -430,16 +456,19 @@ excludes; the provenance log is unchanged). 16 June 2026 closed out the
 composable-grammar Phase 3 (data-first encodings: type-driven core, continuous
 color, horizontal orientation, contingency tile) plus a same-day bug-fix pass,
 then **Phase 4 (Facets)**: small multiples via Facet Row/Col, describe-only
-per cell, gid-uniqueness and singular figure chrome across the grid. Remaining
-for Tier 2: the multi-group path — one-way ANOVA with Tukey post-hocs and
-Kruskal–Wallis, plus the bracket annotation work it drives; paired plots and
-tests (`pair_by`); undo/redo; methods/statistics-table export. Next up on the
-grammar track is **Phase 5 (Superplots)**. A known e2e-suite regression (stale
+per cell, gid-uniqueness and singular figure chrome across the grid, and
+**Phase 5 (Superplots)**: a layer-level per-unit stat + one-click superplot
+template that makes the inferential n visible (closing item 10's gap). That
+completes the composable-grammar track through Phase 5. Remaining for Tier 2:
+the multi-group path — one-way ANOVA with Tukey post-hocs and Kruskal–Wallis,
+plus the bracket annotation work it drives; paired plots and tests (`pair_by`);
+undo/redo; methods/statistics-table export. A known e2e-suite regression (stale
 selectors and assumptions left over from the Phase 3 fix pass, plus no
 UI-level coverage yet for Phase 3's three new render paths) is tracked in
-`TODO.md` — fix before trusting `e2e/` results again; Phase 4 adds its own
-smoke test (`facets_test.mjs`) following the same documented fix pattern but
-is equally unverified in this sandbox. (The jamovi/JASP teardown was dropped
+`TODO.md` — fix before trusting `e2e/` results again; Phase 4 and Phase 5 add
+their own smoke tests (`facets_test.mjs`, `superplot_test.mjs`) following the
+same documented fix pattern but equally unverified in this sandbox. (The
+jamovi/JASP teardown was dropped
 with the purpose restatement:
 there is no positioning to defend, only features to get right. macOS/Windows
 packaging waits until the end, alongside Tier 3 signing.)

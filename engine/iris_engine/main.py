@@ -16,7 +16,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from . import (compiler, document, geoms, guards, importer,
+from . import (compiler, document, geoms, guards, hierarchy, importer,
                reduce as reduce_mod, specnorm, stats, statmodel)
 
 app = FastAPI(title="iris-engine")
@@ -63,10 +63,21 @@ class ReduceRequest(BaseModel):
     table: dict | None = None
     table_token: str | None = None
     steps: list[dict] = []
+    # data hierarchy: when a non-raw level is requested, the preview shows that
+    # level's grain (e.g. one row per cell) instead of the raw reduced rows.
+    hierarchy: dict | None = None
+    level: str | None = None
 
 
 class TablePutRequest(BaseModel):
     table: dict
+
+
+class HierarchyRequest(BaseModel):
+    table: dict | None = None
+    table_token: str | None = None
+    spine: list[str] = []
+    classifiers: list[str] = []
 
 
 PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
@@ -158,6 +169,9 @@ def _run(table: dict, spec: dict):
     describe_only = bool(spec.get("_describe_only"))
     model = statmodel.infer(spec["encodings"], schema, spec.get("_override"),
                             spec.get("facet"))
+    # Data hierarchy (redesign): per-level tables for the group-comparison path,
+    # filled in below once the grouping column is known. None elsewhere.
+    level_tables = None
     if describe_only and model["family"] != "none":
         # the user asked to render the figure but run no inferential test
         model["chosen_by"] = "describe_only"
@@ -177,13 +191,6 @@ def _run(table: dict, spec: dict):
     alpha = spec.get("stats", {}).get("alpha", 0.05)
     override = spec.get("_override")
     family = model["family"]
-    # Phase / item 10: the independent-repetition key(s) that define n. Keep only
-    # those that survived the reduction so a stale/dropped column is ignored
-    # rather than raising; the figure still draws raw rows, only the stats count
-    # units (see stats._aggregate_reps).
-    present_cols = {c["name"] for c in schema["columns"]}
-    rep_key = [k for k in (spec.get("stats", {}).get("repetition_key") or [])
-               if k in present_cols]
     if family == "group_comparison":
         enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
         enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
@@ -200,15 +207,32 @@ def _run(table: dict, spec: dict):
         if cat_schema is None:
             raise HTTPException(
                 422, f"grouping column {cat_col!r} not found in schema")
+        # Materialize one table per hierarchy level. The grain always retains the
+        # columns this figure splits by (x grouping, colour, facets) so a coarse
+        # level can still be compared/coloured rather than averaging them away.
+        hier = spec.get("hierarchy") or {}
+        spine = hierarchy.spine_present(df, hier.get("spine") or [])
+        color = enc.get("color")
+        color_col = color["column"] if color and color.get("column") else None
+        facet = spec.get("facet") or {}
+        frow = facet.get("row") or {}
+        fcol = facet.get("col") or {}
+        split_cols = [c for c in (cat_col, color_col, frow.get("column"),
+                                  fcol.get("column")) if c and c in df.columns]
+        level_tables, present_spine = hierarchy.materialize_levels(
+            df, schema, spine, hier.get("fn"), split_cols)
+        # Pairing follows from the spine (paired/partially/unpaired across the
+        # qualifier's coarser-than-home units); surfaced for the deferred stats.
+        model["spine"] = present_spine
+        model["pairing"] = hierarchy.pairing(df, present_spine, cat_col)
         res = (stats.describe_groups(
                    df, cat_col, val_col,
-                   levels=cat_schema.get("levels", []), alpha=alpha,
-                   rep_key=rep_key)
+                   levels=cat_schema.get("levels", []), alpha=alpha)
                if describe_only else
                stats.group_comparison(
                    df, cat_col, val_col,
                    levels=cat_schema.get("levels", []), alpha=alpha,
-                   override=override, rep_key=rep_key))
+                   override=override))
     elif family == "correlation":
         res = (stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
@@ -232,7 +256,7 @@ def _run(table: dict, spec: dict):
         raise HTTPException(422, "no statistical model — map X / Y to analyze")
     if "error" in res:
         raise HTTPException(422, res["error"])
-    fig, point_groups = compiler.build_figure(df, schema, spec, res)
+    fig, point_groups = compiler.build_figure(df, schema, spec, res, level_tables)
     return fig, point_groups, res, df, schema, model, issues
 
 
@@ -276,10 +300,28 @@ def reduce_preview(req: ReduceRequest):
         out, sch, trace = reduce_mod.reduce_with_trace(df, schema, req.steps)
     except reduce_mod.ReduceError as e:
         raise HTTPException(422, f"reduction failed: {e}") from e
+    # collapse to the requested hierarchy level (RAW = the reduced rows as-is)
+    spine = hierarchy.spine_present(out, (req.hierarchy or {}).get("spine") or [])
+    if req.level and req.level != hierarchy.RAW and spine:
+        levels, _ = hierarchy.materialize_levels(
+            out, sch, spine, (req.hierarchy or {}).get("fn"), [])
+        out, sch = hierarchy.resolve_level(levels, req.level)
+    out = out.drop(columns=["row_ids"], errors="ignore")
     return {"preview": _to_table(out.head(PREVIEW_CAP), sch),
             "n_total": int(len(out)),
             "trace": trace,
             "summary": _column_summary(out, sch)}
+
+
+@app.post("/hierarchy")
+def hierarchy_describe(req: HierarchyRequest):
+    """Describe the data hierarchy for the Data-tab editor: per-level grain
+    cardinalities and where each classifier attaches (its home level). Reuses the
+    same home-level logic that drives pairing, so the visualization and the
+    inference basis can't disagree."""
+    table = _resolve_table(req.table, req.table_token)
+    df, schema = _load_frame(table, respect_exclusions=True)
+    return hierarchy.describe_hierarchy(df, req.spine, req.classifiers)
 
 
 @app.post("/export")

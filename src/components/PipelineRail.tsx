@@ -119,7 +119,9 @@ export function PipelineRail() {
       <div className="add-step">
         {adding ? (
           <div className="add-step-menu">
-            {(["select", "filter", "collapse"] as ReduceStepKind[]).map((k) => (
+            {/* collapse is superseded by the data hierarchy (pick a level);
+                select/filter remain. Legacy collapse steps still render/run. */}
+            {(["select", "filter"] as ReduceStepKind[]).map((k) => (
               <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
                 {KIND_LABEL[k]}
               </button>

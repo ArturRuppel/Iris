@@ -1,9 +1,13 @@
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef,
 } from "ag-grid-community";
-import { reducePreviewAtom } from "../state";
+import {
+  activePlottableAtom, effectiveSchemaAtom, hierarchyAtom, reducePreviewAtom,
+  setPreviewLevelAtom,
+} from "../state";
+import { levelOptions } from "../levels";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -21,6 +25,11 @@ const theme = themeQuartz.withParams({
 
 export function ReducedTable() {
   const preview = useAtomValue(reducePreviewAtom);
+  const active = useAtomValue(activePlottableAtom);
+  const schemaFull = useAtomValue(effectiveSchemaAtom);
+  const hierarchy = useAtomValue(hierarchyAtom);
+  const setPreviewLevel = useSetAtom(setPreviewLevelAtom);
+  const levels = active ? levelOptions(hierarchy, schemaFull) : [];
   if (!preview) return <div className="reduced-empty">Building preview…</div>;
   const { schema, rows } = preview.preview;
   const shown = rows.length;
@@ -44,6 +53,15 @@ export function ReducedTable() {
           ? `showing ${shown.toLocaleString()} of ${total.toLocaleString()} rows`
           : `${total.toLocaleString()} row${total === 1 ? "" : "s"}`}
         {" · "}{schema.columns.length} column{schema.columns.length === 1 ? "" : "s"}
+        {levels.length > 1 && active && (
+          <label className="reduced-level" title="Collapse the table to a hierarchy level (averages away everything finer).">
+            {" · "}level{" "}
+            <select value={active.previewLevel}
+              onChange={(e) => setPreviewLevel(e.target.value)}>
+              {levels.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
+            </select>
+          </label>
+        )}
       </div>
       <div className="grid-host reduced-table">
         <AgGridReact

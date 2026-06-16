@@ -39,9 +39,14 @@ def normalize(spec: dict) -> dict:
     out["facet"] = {"row": None, "col": None, "share_x": True, "share_y": True}
 
     out["layers"] = [
-        {"geom": layer["mark"], "params": dict(layer.get("options") or {})}
+        {"geom": layer["mark"], "params": dict(layer.get("options") or {}),
+         "level": ""}
         for layer in spec.get("layers", [])
     ]
+    # Data hierarchy (redesign): legacy specs carry no spine, so every layer draws
+    # the raw reduced rows — today's behaviour. A legacy reduce.collapse still
+    # works destructively for old documents; the new flow uses the hierarchy.
+    out["hierarchy"] = {"spine": [], "fn": {}}
     out["_override"] = _override_of(spec)
     out["_describe_only"] = _describe_only_of(spec)
     return out

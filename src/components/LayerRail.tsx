@@ -1,30 +1,33 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import {
-  activePlottableAtom, addLayerAtom, effectiveSchemaAtom, moveLayerAtom,
-  registryAtom, removeLayerAtom, updateLayerAtom,
+  activePlottableAtom, addLayerAtom, effectiveSchemaAtom, hierarchyAtom,
+  moveLayerAtom, registryAtom, removeLayerAtom, updateLayerAtom,
 } from "../state";
 import { axisTypes, geomGateReason } from "../channels";
 import type { Geom, Layer, Registry } from "../types";
+import { levelOptions } from "../levels";
 import { LayerCard } from "./LayerCards";
 import { EncodingsCard } from "./EncodingsCard";
-import { RepetitionKey } from "./RepetitionKey";
+import { HierarchyCard } from "./HierarchyCard";
 
 /* one geom layer, independently collapsible so a tall stack stays scannable.
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
    violin) without removing and re-adding it. Geoms incompatible with the current
    encoding types appear disabled-with-reason rather than hidden. */
-function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, onMove, onRemove, onChange }: {
+function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, onMove, onRemove, onChange }: {
   layer: Layer; registry: Registry; i: number; last: boolean; retypeGeoms: Geom[];
   gateReason: (g: Geom) => string | null;
+  levels: { value: string; label: string }[];
   onMove: (dir: -1 | 1) => void; onRemove: () => void;
   onChange: (l: Layer) => void;
 }) {
   const [open, setOpen] = useState(true);
-  /* switching geom resets params to that geom's defaults — same result as
-     removing the layer and adding the new one, just in place. */
+  /* switching geom resets params to that geom's defaults but keeps the data
+     level — same result as removing the layer and adding the new one in place. */
   const retype = (geom: Geom) =>
-    onChange({ geom, params: { ...(registry.geoms[geom]?.params ?? {}) } });
+    onChange({ geom, params: { ...(registry.geoms[geom]?.params ?? {}) },
+               level: layer.level });
   return (
     <li className="layer-card">
       <div className="layer-head">
@@ -51,7 +54,8 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, onMove, 
           <button className="icon" title="Remove layer" onClick={onRemove}>✕</button>
         </span>
       </div>
-      {open && <LayerCard layer={layer} registry={registry} onChange={onChange} />}
+      {open && <LayerCard layer={layer} registry={registry}
+        levels={levels} onChange={onChange} />}
     </li>
   );
 }
@@ -60,6 +64,7 @@ export function LayerRail() {
   const active = useAtomValue(activePlottableAtom);
   const registry = useAtomValue(registryAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
+  const hierarchy = useAtomValue(hierarchyAtom);
   const addLayer = useSetAtom(addLayerAtom);
   const updateLayer = useSetAtom(updateLayerAtom);
   const removeLayer = useSetAtom(removeLayerAtom);
@@ -112,7 +117,7 @@ export function LayerRail() {
 
       <EncodingsCard />
 
-      <RepetitionKey />
+      <HierarchyCard />
 
       {layers.length === 0 && (
         <p className="rail-empty">No layers — add a geom.</p>
@@ -122,7 +127,7 @@ export function LayerRail() {
         {layers.map((layer, i) => (
           <LayerItem key={i} layer={layer} registry={registry} i={i}
             last={i === layers.length - 1} retypeGeoms={retypeOptions(layer.geom)}
-            gateReason={gateReason}
+            gateReason={gateReason} levels={levelOptions(hierarchy, schema)}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}
             onChange={(l) => updateLayer({ index: i, layer: l })} />

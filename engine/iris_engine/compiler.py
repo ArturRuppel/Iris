@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sps
 
+from . import hierarchy as hierarchy_mod
 from . import scales as scales_mod
 from . import stats as stats_mod
 
@@ -149,13 +150,19 @@ def _aes_arrays(rows, sc, num_color_col) -> dict:
     """Per-row aesthetic values a dot layer varies *within* a group: numeric
     color (Phase 3b), size (marker area), and shape (categorical marker). Spread
     into the group dict; aggregate geoms (bar/box/violin/summary) ignore them."""
+    # size/shape/numeric-colour are per-row channels that only exist at the raw
+    # level; coarser level tables aggregate those columns away, so guard on
+    # presence and fall back to None (group colour, default size) for a coarse
+    # mark — exactly the "a unit mark is an aggregate" rule from the spec.
+    def _has(col):
+        return col and col in rows.columns
     return {
         "cvals": (rows[num_color_col].to_numpy(dtype=float)
-                  if num_color_col else None),
+                  if _has(num_color_col) else None),
         "svals": (rows[sc.size_col].to_numpy(dtype=float)
-                  if sc.size_col else None),
+                  if _has(sc.size_col) else None),
         "shvals": (rows[sc.shape_col].astype(str).to_numpy()
-                   if sc.shape_col else None),
+                   if _has(sc.shape_col) else None),
     }
 
 
@@ -379,10 +386,14 @@ def _build_grid(width_mm: float, height_mm: float, n_rows: int, n_cols: int,
                         squeeze=False)
 
 
-def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
+def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
+                 level_tables: dict | None = None):
     """Dispatch on the inferred stat_model family. Returns (fig, point_groups);
     point_groups maps SVG gids to row ids in draw order, so the frontend can
-    wire click-to-exclude per point (empty for aggregate-only figures)."""
+    wire click-to-exclude per point (empty for aggregate-only figures).
+
+    `level_tables` (the data hierarchy's per-level tables) is consumed only by
+    the group-comparison path, where each layer draws from its bound level."""
     family = spec["stat_model"]["family"]
     if family == "correlation":
         return build_scatter_figure(df, schema, spec, stats)
@@ -390,7 +401,7 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
         return build_histogram_figure(df, schema, spec, stats)
     if family == "contingency":
         return build_tile_figure(df, schema, spec, stats)
-    return build_comparison_figure(df, schema, spec, stats)
+    return build_comparison_figure(df, schema, spec, stats, level_tables)
 
 
 def _param(params: dict, key: str, style: dict, style_key: str):
@@ -427,76 +438,103 @@ def _resolve_cat_val(schema, enc):
     return (enc_y, enc_x, True) if h_orient else (enc_x, enc_y, False)
 
 
-def _comparison_context(df, schema, spec, stats, *, gid_start: int = 0, scales=None):
+def _cat_levels(df, schema, cat_col):
+    """Ordered category levels for the grouping axis: the schema's declared
+    levels (restricted to those present in the data), else the sorted distinct
+    values. Replaces stats["levels"] now that the figure is stats-independent."""
+    if not cat_col or cat_col not in df.columns:
+        return []
+    sch = next((c for c in schema["columns"] if c["name"] == cat_col), None)
+    present = set(df[cat_col].dropna().astype(str).unique())
+    declared = [lv for lv in ((sch.get("levels") if sch else None) or []) if lv in present]
+    return declared or sorted(present)
+
+
+def _layout(df, schema, spec, *, scales=None):
+    """Level-independent figure geometry shared by every layer: the grouping
+    (categorical) vs. value axis, orientation, ordered x levels, the colour/dodge
+    split, slot widths, and the resolved aesthetic scales. Per-layer data (group
+    ys + point ids) is built separately by `_groups` from that layer's level
+    table, so every layer shares one x axis regardless of the level it draws."""
     enc = spec["encodings"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
-    levels = stats["levels"]
-    has_dots = any(l["geom"] == "dot" for l in spec.get("layers", []))
-
     cat_col, val_col, h_orient = _resolve_cat_val(schema, enc)
+    levels = _cat_levels(df, schema, cat_col)
 
-    # a categorical color distinct from the grouping factor becomes a second
-    # factor: marks dodge within each group slot, one sub-series per color level.
     color = enc.get("color")
     color_col = color["column"] if color and color.get("column") else None
     dodged = (color_col is not None and color_col != cat_col
               and _is_categorical(schema, color_col))
-    # Phase 4: a caller faceting across cells passes in scales resolved ONCE
-    # from the whole (unfiltered) df, so color/size/shape scales stay
-    # consistent across cells instead of each cell rescaling to its own data.
     sc = scales if scales is not None else scales_mod.resolve_scales(
-        enc, df[df[val_col].notna()], schema, style)
-    # Phase 3b: a numeric color colours each raw dot by its value (per-point,
-    # via the colormap) rather than by group; aggregate geoms keep group colour.
-    num_color_col = color_col if sc.color_numeric else None
+        enc, df[df[val_col].notna()] if val_col in df else df, schema, style)
 
-    groups, gi = [], gid_start
     if dodged:
-        clevels = sc.color_levels
-        k = max(1, len(clevels))
-        slot = 0.8 / k
+        clevels = list(sc.color_levels)
+        slot = 0.8 / max(1, len(clevels))
         wscale = slot
-        for li, lv in enumerate(levels):
-            for cj, clv in enumerate(clevels):
-                rows = df[(df[cat_col] == lv) & (df[color_col].astype(str) == clv)
-                          & df[val_col].notna()]
-                ys = rows[val_col].to_numpy(dtype=float)
-                s = _summary_of(f"{lv}/{clv}", ys)
-                pos = li + (cj - (k - 1) / 2) * slot
-                groups.append({"gi": gi, "pos": pos, "lv": lv, "ys": ys,
-                               "row_ids": rows["id"].tolist(),
-                               "color": sc.color_for(clv), "summary": s,
-                               **_aes_arrays(rows, sc, num_color_col)})
-                gi += 1
     else:
-        wscale = 1.0
-        for li, lv in enumerate(levels):
-            rows = df[(df[cat_col] == lv) & df[val_col].notna()]
-            ys = rows[val_col].to_numpy(dtype=float)
-            s = next(s for s in stats["summaries"] if s["group"] == lv)
-            groups.append({"gi": gid_start + li, "pos": li, "lv": lv, "ys": ys,
-                           "row_ids": rows["id"].tolist(),
-                           "color": _group_color(style, li), "summary": s,
-                           **_aes_arrays(rows, sc, num_color_col)})
+        clevels, slot, wscale = [None], 0.8, 1.0
 
-    p = stats["result"].get("p")  # absent in the describe-only path → no bracket
-    return {"cat_col": cat_col, "val_col": val_col,
-            # keep "x"/"y" as aliases so any callers that already use ctx["x"]
-            # still work; for vertical these equal enc_x/enc_y as before.
-            "x": cat_col, "y": val_col,
-            "h_orient": h_orient,
-            "cols": cols, "style": style, "levels": levels,
-            "groups": groups, "has_dots": has_dots, "lw": style["line_width"],
-            "dodged": dodged, "wscale": wscale, "scales": sc,
-            "summary_dx": 0.0 if dodged else 0.28,
-            "cbar_mappable": None,  # set by the dot geom when color is numeric
-            "gid_start": gid_start,  # dot numbers its point series from here
-            "p_sig": (not dodged) and p is not None
-                     and p < stats.get("alpha", 0.05)}
+    has_dots = any(l["geom"] == "dot" for l in spec.get("layers", []))
+    return {"cat_col": cat_col, "val_col": val_col, "x": cat_col, "y": val_col,
+            "h_orient": h_orient, "cols": cols, "style": style, "levels": levels,
+            "color_col": color_col, "dodged": dodged, "clevels": clevels,
+            "slot": slot, "wscale": wscale, "scales": sc, "has_dots": has_dots,
+            "lw": style["line_width"], "summary_dx": 0.0 if dodged else 0.28,
+            "cbar_mappable": None, "gid_start": 0}
 
 
-def _geom_violin(ax, ctx, params):
+def _group(rows, lv, pos, color, layout):
+    """One (x-level [× colour]) cell of a layer's level table → a group dict.
+    `point_ids[k]` is the chained list of raw row-ids behind the k-th point
+    (the row's own id at the raw level), so excluding any mark — raw point or
+    coarse aggregate — drops every underlying raw row uniformly."""
+    val_col, sc = layout["val_col"], layout["scales"]
+    num_color_col = layout["color_col"] if sc.color_numeric else None
+    ys = rows[val_col].to_numpy(dtype=float) if val_col in rows else np.array([])
+    if "row_ids" in rows:
+        point_ids = [list(r) for r in rows["row_ids"].tolist()]
+    else:
+        point_ids = [[i] for i in rows["id"].tolist()]
+    return {"pos": pos, "lv": lv, "ys": ys, "color": color,
+            "point_ids": point_ids,
+            "keys": rows["id"].tolist() if "id" in rows else list(range(len(ys))),
+            "summary": _summary_of(lv, ys),
+            **_aes_arrays(rows, sc, num_color_col)}
+
+
+def _groups(level_df, layout):
+    """The per-(x-level × colour) groups for one layer's level table. The only
+    thing that differs between layers is which level table is passed here; the
+    geometry (positions, colours, dodge) comes from the shared `layout`."""
+    cat_col, val_col = layout["cat_col"], layout["val_col"]
+    has = val_col in level_df.columns
+
+    def _rows_for(mask):
+        rows = level_df[mask]
+        return rows[rows[val_col].notna()] if has else rows
+
+    groups = []
+    if layout["dodged"]:
+        color_col, clevels, slot = layout["color_col"], layout["clevels"], layout["slot"]
+        for li, lv in enumerate(layout["levels"]):
+            for cj, clv in enumerate(clevels):
+                rows = _rows_for((level_df[cat_col].astype(str) == lv)
+                                 & (level_df[color_col].astype(str) == clv))
+                pos = li + (cj - (len(clevels) - 1) / 2) * slot
+                groups.append(_group(rows, lv, pos, layout["scales"].color_for(clv),
+                                     layout))
+    else:
+        for li, lv in enumerate(layout["levels"]):
+            rows = _rows_for(level_df[cat_col].astype(str) == lv)
+            groups.append(_group(rows, lv, li,
+                                 _group_color(layout["style"], li), layout))
+    return groups
+
+
+def _geom_violin(ax, ctx, layer):
+    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
     h = ctx["h_orient"]
     width = (_param(params, "mark_width", style, "mark_width") or 0.7) * ctx["wscale"]
@@ -514,7 +552,8 @@ def _geom_violin(ax, ctx, params):
     return None
 
 
-def _geom_box(ax, ctx, params):
+def _geom_box(ax, ctx, layer):
+    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
     h = ctx["h_orient"]
     width = (_param(params, "mark_width", style, "mark_width") or 0.42) * ctx["wscale"]
@@ -539,7 +578,8 @@ def _geom_box(ax, ctx, params):
     return None
 
 
-def _geom_bar(ax, ctx, params):
+def _geom_bar(ax, ctx, layer):
+    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
     h = ctx["h_orient"]
     error_type = _param(params, "error_type", style, "error_type")
@@ -560,22 +600,33 @@ def _geom_bar(ax, ctx, params):
     return None
 
 
-def _geom_dot(ax, ctx, params):
-    """Raw dots per group. Beyond color, a dot layer also honours the size
-    (per-point marker area) and shape (per-point marker) channels: matplotlib's
-    scatter takes one marker per call, so a mapped shape splits each group's rows
-    into one scatter call per shape level, each emitting its own point-group so
-    the gid → row-ids click/exclude contract survives (TODO item 9)."""
+def _geom_dot(ax, ctx, layer):
+    """Dots for one layer's level table — one mark per row of that level. At the
+    raw level this is one mark per observation, honouring the per-point color
+    (numeric via colormap), size, and shape channels (a mapped shape splits a
+    group into one scatter call per marker, each its own point-group so the
+    gid → row-ids click/exclude contract survives). At a coarser level it is one
+    prominent mark per grain (e.g. one per date) — the superplot's "big marks"
+    that make n visible — coloured by group, with the per-row channels bypassed
+    (a coarse mark is an aggregate). Each mark carries the chained raw row-ids of
+    everything it aggregates, so excluding it drops the whole unit.
+
+    Per-layer `marker_size` and `alpha` params let a raw layer be faint/small and
+    an aggregate layer bold/large within one composed figure."""
+    params = layer.get("params") or {}
     style = ctx["style"]
     scales = ctx["scales"]
     h = ctx["h_orient"]
     jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
+    msize = _param(params, "marker_size", style, "marker_size")
+    malpha = _param(params, "alpha", style, "marker_alpha")
     point_group, idx = [], ctx["gid_start"]
     for grp in ctx["groups"]:
-        # jitter runs along the categorical axis; in horizontal mode that is y
-        cat_pos = grp["pos"] + np.array([_stable_jitter(rid, jitter)
-                                         for rid in grp["row_ids"]])
-        ys, row_ids = grp["ys"], grp["row_ids"]
+        ys, point_ids, keys = grp["ys"], grp["point_ids"], grp["keys"]
+        # jitter runs along the categorical axis (y in horizontal mode), keyed by
+        # each mark's stable level-row id so a redraw keeps points put.
+        cat_pos = grp["pos"] + np.array([_stable_jitter(k, jitter) for k in keys]) \
+            if len(ys) else np.array([])
         cvals, svals, shvals = grp.get("cvals"), grp.get("svals"), grp.get("shvals")
         # one sub-series per shape level (each a distinct marker); no shape → one
         sub_series = ([(scales.marker_for(lv), np.flatnonzero(shvals == lv))
@@ -586,8 +637,8 @@ def _geom_dot(ax, ctx, params):
             if not len(sel):
                 continue
             size = (np.array([scales.size_for(v) for v in svals[sel]])
-                    if svals is not None else style["marker_size"])
-            common = dict(s=size, marker=marker, alpha=style["marker_alpha"],
+                    if svals is not None else msize)
+            common = dict(s=size, marker=marker, alpha=malpha,
                           linewidths=0.6, edgecolors="white", zorder=3)
             px, py = (ys[sel], cat_pos[sel]) if h else (cat_pos[sel], ys[sel])
             if scales.color_numeric and cvals is not None:
@@ -601,13 +652,15 @@ def _geom_dot(ax, ctx, params):
                 coll = ax.scatter(px, py, color=grp["color"], **common)
             gid = f"pts-{idx}"
             coll.set_gid(gid)
+            # row_ids[k] is the chained raw-id list behind the k-th drawn point
             point_group.append({"gid": gid,
-                                "row_ids": [row_ids[k] for k in sel]})
+                                "row_ids": [point_ids[k] for k in sel]})
             idx += 1
     return point_group
 
 
-def _geom_summary(ax, ctx, params):
+def _geom_summary(ax, ctx, layer):
+    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
     h = ctx["h_orient"]
     error_type = _param(params, "error_type", style, "error_type")
@@ -631,27 +684,34 @@ _COMPARISON_GEOMS = {"violin": _geom_violin, "box": _geom_box, "bar": _geom_bar,
                      "dot": _geom_dot, "summary": _geom_summary}
 
 
-def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
-    """Group comparison rendered as ordered geom layers; each layer draws with
-    its own params (falling back to the global style). Phase 3c: the h_orient
-    flag in ctx switches all axis assignments for horizontal orientation.
+def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
+                            level_tables: dict | None = None):
+    """Group comparison as ordered geom layers, each drawing from the data
+    *level* it is bound to (`layer.level`). The shared `_layout` fixes the x axis
+    once; per layer, that layer's level table (from `level_tables`, keyed by
+    level name) is filtered to the facet cell and turned into groups by
+    `_groups`. A dot at the raw level is the faint replicate cloud; a dot at a
+    coarse level is one bold mark per grain; a summary at a coarse level shows
+    mean ± error of that level's spread — composing a superplot with no preset.
 
-    Phase 4: when facet.row/col is mapped, draws one cell per (row level ×
-    col level) into a shared grid. Color/size/shape scales are resolved ONCE
-    from the whole dataframe (sc_global) so they stay consistent across
-    cells; per-cell stats are recomputed from that cell's own rows (the
-    pooled `stats` passed in is whole-dataset and would otherwise show
-    identical summaries in every panel). Singular legend/colorbar/sup-labels
-    are drawn once after the loop. The unfaceted path (a 1×1 grid) is
-    byte-identical to the pre-Phase-4 single-axes render."""
-    enc = spec["encodings"]
+    Stats are deferred (the redesign), so no significance bracket or n label is
+    drawn here; the figure no longer depends on the inferential `stats` result.
+
+    Phase 4 facets: one cell per (row × col) level into a shared grid, with the
+    colour/size/shape scales resolved ONCE so they stay consistent across cells.
+    `level_tables` defaults to a single raw level (the plain reduced frame)."""
     style = resolve_style(spec)
-    alpha = stats.get("alpha", 0.05)
-    cat_col, val_col, h_orient = _resolve_cat_val(schema, enc)
-    sc_global = scales_mod.resolve_scales(enc, df[df[val_col].notna()], schema, style)
+    if not level_tables:
+        level_tables = {hierarchy_mod.RAW: (df, schema)}
+    cat_col, val_col, h_orient = _resolve_cat_val(schema, spec["encodings"])
+    sc_global = scales_mod.resolve_scales(
+        spec["encodings"], df[df[val_col].notna()] if val_col in df else df,
+        schema, style)
+    layout = _layout(df, schema, spec, scales=sc_global)
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
+    layers = spec.get("layers", [])
 
     with plt.rc_context(_rc(style)):
         fig, axes = _build_grid(style["width_mm"], style["height_mm"],
@@ -659,101 +719,59 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                                 sharex=facet_cfg.get("share_x", True),
                                 sharey=facet_cfg.get("share_y", True))
         point_groups, gid_next = [], 0
-        cbar_mappable, last_ctx, last_ax = None, None, None
+        cbar_mappable, last_ax = None, None
+        levels, h = layout["levels"], layout["h_orient"]
         for ri, rlevel in enumerate(row_levels):
             for ci, clevel in enumerate(col_levels):
                 ax = axes[ri][ci]
-                cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
-                cell_stats = (stats_mod.describe_groups(
-                                  cell_df, cat_col, val_col,
-                                  levels=stats["levels"], alpha=alpha)
-                              if faceted else stats)
-                ctx = _comparison_context(cell_df, schema, spec, cell_stats,
-                                          gid_start=gid_next, scales=sc_global)
-                levels = ctx["levels"]
-                h = ctx["h_orient"]
-
-                for layer in spec.get("layers", []):
+                ctx = {**layout, "cbar_mappable": None}
+                for layer in layers:
                     render = _COMPARISON_GEOMS.get(layer["geom"])
                     if render is None:
                         continue
-                    pg = render(ax, ctx, layer.get("params") or {})
+                    ldf, _ = hierarchy_mod.resolve_level(level_tables, layer.get("level"))
+                    cell_df = _facet_cell_df(ldf, row_col, col_col, rlevel, clevel)
+                    ctx["groups"] = _groups(cell_df, layout)
+                    # point-emitting geoms number their series from gid_start;
+                    # advance per layer so stacked dot layers (raw + aggregate)
+                    # never reuse pts-N — gids stay unique across layers AND cells.
+                    ctx["gid_start"] = gid_next
+                    pg = render(ax, ctx, layer)
                     if pg:
                         point_groups.extend(pg)
-                        # advance by the series actually drawn (shape splits a
-                        # group into several) so gids stay unique across cells
                         gid_next += len(pg)
 
-                if ctx["p_sig"] and style["show_significance"]:
-                    p = cell_stats["result"]["p"]
-                    label = "***" if p < 0.001 else "**" if p < 0.01 else "*"
-                    if h:
-                        xr = ax.get_xlim()
-                        hv = _drawn_value_max(ax, True) + (xr[1] - xr[0]) * 0.08
-                        tick = (xr[1] - xr[0]) * 0.02
-                        ax.plot([hv, hv + tick, hv + tick, hv], [0, 0, 1, 1],
-                                color=INK, lw=1.1, zorder=5)
-                        ax.text(hv + tick * 1.4, 0.5, label, ha="left", va="center",
-                                color=INK)
-                        ax.set_xlim(xr[0], max(xr[1], hv + tick * 5))
-                    else:
-                        yr = ax.get_ylim()
-                        hv = _drawn_value_max(ax, False) + (yr[1] - yr[0]) * 0.08
-                        tick = (yr[1] - yr[0]) * 0.02
-                        ax.plot([0, 0, 1, 1], [hv, hv + tick, hv + tick, hv],
-                                color=INK, lw=1.1, zorder=5)
-                        ax.text(0.5, hv + tick * 1.4, label, ha="center", va="bottom",
-                                color=INK)
-                        ax.set_ylim(yr[0], max(yr[1], hv + tick * 5))
-
-                cat_labels = ctx["cols"].get(ctx["cat_col"], {}).get("labels", {}) or {}
+                cat_labels = layout["cols"].get(cat_col, {}).get("labels", {}) or {}
                 lv_labels = [cat_labels.get(lv, lv) for lv in levels]
                 if h:
                     ax.set_yticks(range(len(levels)))
                     ax.set_yticklabels(lv_labels)
                     ax.set_ylim(-0.55, len(levels) - 0.45)
                     if not faceted:
-                        ax.set_xlabel(ctx["cols"].get(ctx["val_col"], {}).get(
-                            "label", ctx["val_col"]))
+                        ax.set_xlabel(layout["cols"].get(val_col, {}).get("label", val_col))
                 else:
                     ax.set_xticks(range(len(levels)))
                     ax.set_xticklabels(lv_labels)
                     ax.set_xlim(-0.55, len(levels) - 0.45)
                     if not faceted:
-                        ax.set_ylabel(ctx["cols"].get(ctx["val_col"], {}).get(
-                            "label", ctx["val_col"]))
+                        ax.set_ylabel(layout["cols"].get(val_col, {}).get("label", val_col))
 
                 # for horizontal the value axis is X (numeric); grids follow accordingly
                 _apply_axes(ax, style, x_numeric=h,
                             grid_x_default=h, grid_y_default=not h)
-                if style["show_n"]:
-                    for s, lv in zip(cell_stats["summaries"], levels):
-                        if h:
-                            ax.annotate(f"n = {s['n']}", (0, levels.index(lv)),
-                                        xycoords=("axes fraction", "data"),
-                                        xytext=(-4, 0), textcoords="offset points",
-                                        ha="right", va="center",
-                                        fontsize=style["font_pt"] - 2,
-                                        color="#94a3b8", annotation_clip=False)
-                        else:
-                            ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
-                                        xycoords=("data", "axes fraction"),
-                                        xytext=(0, -26), textcoords="offset points",
-                                        ha="center", fontsize=style["font_pt"] - 2,
-                                        color="#94a3b8", annotation_clip=False)
                 if faceted:
                     title = _facet_title(row_col, col_col, rlevel, clevel)
                     if title:
                         ax.set_title(title, fontsize=style["font_pt"] - 1)
                 cbar_mappable = ctx.get("cbar_mappable") or cbar_mappable
-                last_ctx, last_ax = ctx, ax
+                last_ax = ax
 
         cbar = sc_global.colorbar_spec()
         if cbar:
             cbar_ax = axes.ravel().tolist() if faceted else last_ax
             _draw_colorbar(fig, cbar_ax, cbar_mappable, style, cbar["label"])
         if faceted:
-            val_label = last_ctx["cols"].get(val_col, {}).get("label", val_col)
+            val_label = layout["cols"].get(val_col, {}).get("label", val_col)
             if h:
                 style["x_label"] = style["x_label"] or val_label
             else:

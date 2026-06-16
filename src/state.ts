@@ -1,9 +1,10 @@
 import { atom } from "jotai";
 import type {
-  AnalysisSpec, AnalyzeResponse, Layer, Registry, Schema, Row, StatsFamily,
-  StyleOverrides, Table, TestName, ReduceSpec, ReduceStep, ReduceStepKind,
-  ReducePreview,
+  AnalysisSpec, AnalyzeResponse, Hierarchy, Layer, Registry, Schema, Row,
+  StatsFamily, StyleOverrides, Table, TestName, ReduceSpec, ReduceStep,
+  ReduceStepKind, ReducePreview,
 } from "./types";
+import { RAW_LEVEL } from "./types";
 import { familyForMappings } from "./channels";
 
 export const schemaAtom = atom<Schema | null>(null);
@@ -28,6 +29,25 @@ export const dataLoadingAtom = atom<boolean>(false);
 
 /* the geom registry, fetched once from /health at startup; drives the rail */
 export const registryAtom = atom<Registry | null>(null);
+
+/* the data hierarchy is a property of the TABLE (defined in the Data tab), shared
+   by every analysis: identifier columns form the ordered nesting spine, classifier
+   (categorical) columns attach at their home levels. Layers/preview pick a level
+   from it. Spine order is stored here; membership mirrors which columns are typed
+   `identifier`. */
+export const hierarchyAtom = atom<Hierarchy>({ spine: [], fn: {} });
+
+/* identifier columns of the current (master) schema, in schema order — the
+   canonical spine membership the stored order is reconciled against. */
+function identifierCols(schema: Schema | null): string[] {
+  return schema ? schema.columns.filter((c) => c.type === "identifier").map((c) => c.name) : [];
+}
+/* keep the stored spine order but drop columns no longer identifiers and append
+   newly-identifier columns at the end (finest). */
+function reconcileSpine(order: string[], ids: string[]): string[] {
+  const set = new Set(ids);
+  return [...order.filter((s) => set.has(s)), ...ids.filter((c) => !order.includes(c))];
+}
 
 /* must match compiler.PALETTE (Okabe–Ito) so the swatches shown in the style
    panel for an unset palette are the exact colors the engine draws; the style
@@ -85,10 +105,9 @@ export interface Plottable {
   layers: Layer[];          // the editable, ordered geom stack
   override: TestName | null;
   describeOnly: boolean;    // user asked to render without a test
-  /* item 10: column(s) defining an independent repetition; empty = n counts raw
-     rows. When set, the engine averages technical replicates per unit before
-     computing n and the test (the figure keeps the raw points). */
-  repetitionKey: string[];
+  /* which level the reduced-table preview shows ("" = raw reduced rows). The
+     hierarchy itself is table-level (hierarchyAtom), shared by all analyses. */
+  previewLevel: string;
   preset: string;
   style: StyleOverrides;
   reduce: ReduceSpec;
@@ -107,7 +126,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     facetRow: "", facetCol: "", shareX: true, shareY: true,
     layers: [],
     override: null, describeOnly: false,
-    repetitionKey: [],
+    previewLevel: RAW_LEVEL,
     preset: "demo_default", style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
        so an in-place mutation could never alias across plottables.
@@ -154,6 +173,9 @@ export const setAnalysisByIdAtom = atom(
 export const loadTableAtom = atom(null, (get, set, table: Table) => {
   set(schemaAtom, table.schema);
   set(rowsAtom, table.rows);
+  // seed the hierarchy spine from the imported identifier columns (coarsest →
+  // finest by schema order); the user refines it in the Data tab.
+  set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
   set(exclusionLogAtom, []);
   set(engineErrorAtom, null);
   set(selectedRowIdAtom, null);
@@ -172,7 +194,8 @@ export const loadTableAtom = atom(null, (get, set, table: Table) => {
    the save path (every plottable), so the two can never drift. */
 export function buildSpec(p: Plottable, family: StatsFamily,
                           rec: TestName | undefined,
-                          snapshot: Record<string, string>): AnalysisSpec {
+                          snapshot: Record<string, string>,
+                          hierarchy: Hierarchy): AnalysisSpec {
   const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
@@ -201,6 +224,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       col: p.facetCol ? { column: p.facetCol } : null,
       share_x: p.shareX, share_y: p.shareY,
     },
+    hierarchy,
     layers: p.layers,
     stats: {
       family, test, chosen_by,
@@ -209,7 +233,6 @@ export function buildSpec(p: Plottable, family: StatsFamily,
                             per: family === "group_comparison" ? "group" : "variable" }],
       alpha: 0.05,
       report: ["effect_size", "ci", "n_per_group"],
-      repetition_key: p.repetitionKey,
     },
     annotations: { significance_brackets: "auto", show_n: true },
     style: { preset: p.preset, overrides: p.style },
@@ -228,7 +251,7 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const tests = TEST_BY_FAMILY[family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {});
+  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {}, get(hierarchyAtom));
 });
 
 /* every plottable's spec, each carrying its own recommended test — the save
@@ -237,13 +260,14 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
   const schema = get(schemaAtom);
   if (!schema) return [];
   const snap = get(engineSnapshotAtom) ?? {};
+  const hierarchy = get(hierarchyAtom);
   const byId = get(analysisByIdAtom);
   return get(plottablesAtom).map((p) => {
     const family = familyForMappings(p.mappings, schema);
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-    return buildSpec(p, family, rec, snap);
+    return buildSpec(p, family, rec, snap, hierarchy);
   });
 });
 
@@ -264,8 +288,8 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     mappings: { ...src.mappings },
-    repetitionKey: [...src.repetitionKey],
-    layers: src.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    layers: src.layers.map((l) => ({ geom: l.geom, params: { ...l.params },
+                                     level: l.level })),
     style: structuredClone(src.style),
     reduce: { steps: structuredClone(src.reduce.steps) },
   };
@@ -365,7 +389,55 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
   const p = get(activePlottableAtom); if (!p) return;
   const reg = get(registryAtom);
   const params = { ...(reg?.geoms[geom]?.params ?? {}) };
-  set(activePlottableAtom, { ...p, layers: [...p.layers, { geom, params }] });
+  // a new layer draws the raw reduced rows by default; the user binds it to a
+  // coarser level (one mark per grain) to build the superplot's bold marks.
+  set(activePlottableAtom,
+    { ...p, layers: [...p.layers, { geom, params, level: RAW_LEVEL }] });
+});
+
+/* ---- table-level hierarchy: column roles + spine order (Data tab) ---- */
+
+/* Assign a column a role: "identifier" (a nesting/spine level) or "classifier"
+   (a categorical qualifier). Changes the column TYPE on the master schema and
+   reconciles the spine membership, so the hierarchy stays fully defined — every
+   non-numeric column is one or the other. A schema change re-uploads the table,
+   so the engine sees the new types on the next analyze/preview. */
+export const setColumnRoleAtom = atom(null,
+  (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
+    const schema = get(schemaAtom); if (!schema) return;
+    const rows = get(rowsAtom);
+    const newType: "identifier" | "categorical" =
+      arg.role === "identifier" ? "identifier" : "categorical";
+    const columns = schema.columns.map((c) => {
+      if (c.name !== arg.name) return c;
+      // a column becoming a classifier needs levels for the editor / ordering;
+      // derive them from the data if not already present.
+      const levels = newType === "categorical" && !c.levels
+        ? [...new Set(rows.map((r) => r[arg.name]).filter((v) => v != null)
+            .map((v) => String(v)))].sort()
+        : c.levels;
+      return { ...c, type: newType, levels };
+    });
+    const nextSchema = { ...schema, columns };
+    set(schemaAtom, nextSchema);
+    const h = get(hierarchyAtom);
+    set(hierarchyAtom, { ...h, spine: reconcileSpine(h.spine, identifierCols(nextSchema)) });
+  });
+
+/* reorder the spine (coarsest → finest). Table-level: shared by all analyses. */
+export const moveSpineAtom = atom(null,
+  (get, set, arg: { index: number; dir: -1 | 1 }) => {
+    const h = get(hierarchyAtom);
+    const spine = [...h.spine];
+    const j = arg.index + arg.dir;
+    if (j < 0 || j >= spine.length) return;
+    [spine[arg.index], spine[j]] = [spine[j], spine[arg.index]];
+    set(hierarchyAtom, { ...h, spine });
+  });
+
+export const setPreviewLevelAtom = atom(null, (get, set, level: string) => {
+  const p = get(activePlottableAtom); if (!p) return;
+  set(activePlottableAtom, { ...p, previewLevel: level });
 });
 
 export const updateLayerAtom = atom(null,
