@@ -39,3 +39,38 @@ def test_window_clamps_and_handles_nan_as_none():
     win = t.window(1, 99)             # end past the tail clamps
     assert win[0]["y"] is None        # NaN -> JSON null
     assert len(win) == 2
+
+
+def test_edit_cell_bumps_version_and_persists():
+    store = session.SessionStore()
+    tid = store.create(SCHEMA, _df())
+    t = store.get(tid)
+    t.edit_cell("2", "y", 99.0)
+    assert t.version == 1
+    assert t.window(1, 2)[0]["y"] == 99.0
+
+
+def test_edit_unknown_row_or_column_raises():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    with pytest.raises(KeyError):
+        t.edit_cell("nope", "y", 1.0)
+    with pytest.raises(KeyError):
+        t.edit_cell("1", "nope", 1.0)
+
+
+def test_toggle_exclusion_returns_new_state():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    assert t.toggle_exclusion("1") is True
+    assert t.window(0, 1)[0]["excluded"] is True
+    assert t.toggle_exclusion("1") is False
+    assert t.version == 2
+
+
+def test_distinct_levels_sorted_strings_capped():
+    store = session.SessionStore()
+    df = _df(6)
+    df["g"] = ["b", "a", "c", "a", "b", "a"]
+    t = store.get(store.create(SCHEMA, df))
+    assert t.distinct("g") == ["a", "b", "c"]

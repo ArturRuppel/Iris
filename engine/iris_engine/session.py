@@ -19,6 +19,8 @@ def _records(df: pd.DataFrame) -> list[dict]:
 
 
 class SessionTable:
+    _DISTINCT_CAP = 1000  # the editor only needs a bounded level list
+
     def __init__(self, schema: dict, df: pd.DataFrame):
         self.schema = schema
         self._df = df.reset_index(drop=True)
@@ -35,6 +37,32 @@ class SessionTable:
         start = max(0, start)
         end = min(self.n, max(start, end))
         return _records(self._df.iloc[start:end])
+
+    def _row_pos(self, row_id: str) -> int:
+        hits = self._df.index[self._df["id"].astype(str) == str(row_id)]
+        if len(hits) == 0:
+            raise KeyError(f"unknown row id {row_id!r}")
+        return int(hits[0])
+
+    def edit_cell(self, row_id: str, column: str, value) -> None:
+        if column not in self._df.columns:
+            raise KeyError(f"unknown column {column!r}")
+        pos = self._row_pos(row_id)
+        self._df.at[pos, column] = value
+        self.version += 1
+
+    def toggle_exclusion(self, row_id: str) -> bool:
+        pos = self._row_pos(row_id)
+        new = not bool(self._df.at[pos, "excluded"])
+        self._df.at[pos, "excluded"] = new
+        self.version += 1
+        return new
+
+    def distinct(self, column: str) -> list[str]:
+        if column not in self._df.columns:
+            raise KeyError(f"unknown column {column!r}")
+        vals = self._df[column].dropna().astype(str).unique().tolist()
+        return sorted(vals)[: self._DISTINCT_CAP]
 
 
 class SessionStore:
