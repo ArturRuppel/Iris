@@ -46,14 +46,16 @@ export interface GeomMeta {
   param_specs: ParamSpec[]; point_cap: number | null;
   aes: string[];   // accepted aesthetic channels: "color" | "size" | "shape"
 }
-export interface Registry { point_cap: number; geoms: Record<string, GeomMeta> }
+export interface Registry {
+  point_cap: number; facet_cell_cap: number; geoms: Record<string, GeomMeta>;
+}
 
 export interface StatModel {
   design: string;
   family: StatsFamily | "none";
   factors: { column: string; role: string }[];
   test: TestName | null;
-  facet_handling: null;
+  facet_handling: { per_facet: boolean; correction: "holm" | "bonferroni" | null } | null;
   chosen_by: "inferred" | "user_override" | "describe_only";
   issues: unknown[];
 }
@@ -162,7 +164,13 @@ export interface AnalysisSpec {
     size: { column: string } | null;   // Phase 2
     shape: { column: string } | null;  // Phase 2
   };
-  facet: { row: null; col: null; share_x: boolean; share_y: boolean }; // Phase 3
+  /* Phase 4: row/col map to categorical columns for small-multiples; mapping
+     either forces describe-only (no per-facet inferential test, v1). */
+  facet: {
+    row: { column: string } | null;
+    col: { column: string } | null;
+    share_x: boolean; share_y: boolean;
+  };
   layers: Layer[];
   stats: {
     family: StatsFamily;

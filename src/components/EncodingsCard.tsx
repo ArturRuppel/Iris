@@ -37,7 +37,15 @@ const ROWS: { key: Channel; label: string }[] = [
   { key: "color", label: "Color" },
   { key: "size", label: "Size" },
   { key: "shape", label: "Shape" },
+  { key: "facet_row", label: "Facet Row" },
+  { key: "facet_col", label: "Facet Col" },
 ];
+
+/* Plottable stores facets as camelCase (facetRow/facetCol) while Channel
+   strings are snake_case (facet_row/facet_col, matching the engine spec) —
+   this bridges the two for just these two channels; x/y/color/size/shape
+   already match their Plottable property name directly. */
+const FACET_KEY = { facet_row: "facetRow", facet_col: "facetCol" } as const;
 
 export function EncodingsCard() {
   const active = useAtomValue(activePlottableAtom);
@@ -49,8 +57,11 @@ export function EncodingsCard() {
   const mappings = active.mappings;
   const columns = schema?.columns ?? [];
 
-  const valueOf = (ch: Channel): string =>
-    ch === "x" || ch === "y" ? mappings[ch] : active[ch];
+  const valueOf = (ch: Channel): string => {
+    if (ch === "x" || ch === "y") return mappings[ch];
+    if (ch === "facet_row" || ch === "facet_col") return active[FACET_KEY[ch]];
+    return active[ch];
+  };
 
   /* color follows x while it tracks x (the default), so changing the group
      column doesn't strand color on the old one; an explicit color is left be. */
@@ -61,6 +72,8 @@ export function EncodingsCard() {
                   color: colorTracksX ? col : active.color });
     } else if (ch === "y") {
       setActive({ ...active, mappings: { ...mappings, y: col } });
+    } else if (ch === "facet_row" || ch === "facet_col") {
+      setActive({ ...active, [FACET_KEY[ch]]: col });
     } else {
       setActive({ ...active, [ch]: col });
     }

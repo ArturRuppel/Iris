@@ -13,7 +13,8 @@ import type { ColumnDef, GeomMeta, Registry, Schema, StatsFamily } from "./types
 /* the two column types a channel can carry; "identifier" columns are never
    mapped to a visual channel, so they don't appear here */
 export type ColType = "categorical" | "numeric";
-export type Channel = "x" | "y" | "color" | "size" | "shape";
+export type Channel = "x" | "y" | "color" | "size" | "shape"
+                     | "facet_row" | "facet_col";
 
 /* What the engine RENDERS today, per channel × column type. `true` = drawn;
    `{reason}` = a mapping we let the user express but can't draw yet (shown
@@ -30,6 +31,9 @@ export const RENDERABLE: Record<Channel, Partial<Record<ColType, Support>>> = {
   size: { numeric: true }, // categorical size is not offered at all
   shape: { categorical: true,
            numeric: { reason: "shape can't be continuous" } },
+  // Phase 4: small multiples — categorical-only, no numeric faceting in v1
+  facet_row: { categorical: true },
+  facet_col: { categorical: true },
 };
 
 /* the type of a column in a schema, or null when the column is absent/unmapped

@@ -70,6 +70,12 @@ export interface Plottable {
   color: string;
   size: string;
   shape: string;
+  /* Phase 4: small multiples. "" = unmapped; mapping either forces
+     describe-only server-side (no per-facet inferential test, v1). */
+  facetRow: string;
+  facetCol: string;
+  shareX: boolean;
+  shareY: boolean;
   /* `family` is no longer stored — it is derived from the encoding column types
      (see channels.familyForMappings). The stats engine still re-derives its own
      model server-side from the encodings. */
@@ -91,6 +97,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     id: nextId(), name: "Analysis 1",
     mappings: { x: "", y: "" },
     color: "", size: "", shape: "",
+    facetRow: "", facetCol: "", shareX: true, shareY: true,
     layers: [],
     override: null, describeOnly: false,
     preset: "demo_default", style: {},
@@ -181,7 +188,11 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       size: p.size ? { column: p.size } : null,
       shape: p.shape ? { column: p.shape } : null,
     },
-    facet: { row: null, col: null, share_x: true, share_y: true },
+    facet: {
+      row: p.facetRow ? { column: p.facetRow } : null,
+      col: p.facetCol ? { column: p.facetCol } : null,
+      share_x: p.shareX, share_y: p.shareY,
+    },
     layers: p.layers,
     stats: {
       family, test, chosen_by,

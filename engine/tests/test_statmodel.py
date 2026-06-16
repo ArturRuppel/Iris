@@ -72,3 +72,33 @@ def test_color_equal_to_x_raises_no_second_factor_issue():
     m = statmodel.infer(enc_color("treatment", "response", "treatment"),
                         SCHEMA2, override=None)
     assert [i for i in m["issues"] if i["code"] == "color_second_factor"] == []
+
+
+def test_faceted_row_forces_describe_only():
+    m = statmodel.infer(enc("treatment", "response"), SCHEMA, override=None,
+                        facet={"row": {"column": "genotype"}, "col": None})
+    assert m["family"] == "group_comparison"  # family is still inferred
+    assert m["chosen_by"] == "describe_only"
+    assert m["test"] is None
+
+
+def test_faceted_col_forces_describe_only():
+    m = statmodel.infer(enc("dose", "response"), SCHEMA, override=None,
+                        facet={"row": None, "col": {"column": "treatment"}})
+    assert m["family"] == "correlation"
+    assert m["chosen_by"] == "describe_only"
+    assert m["test"] is None
+
+
+def test_faceted_overrides_user_override():
+    m = statmodel.infer(enc("treatment", "response"), SCHEMA,
+                        override="mann_whitney",
+                        facet={"row": {"column": "genotype"}, "col": None})
+    assert m["chosen_by"] == "describe_only"
+    assert m["test"] is None
+
+
+def test_unfaceted_is_unaffected_by_empty_facet_block():
+    m = statmodel.infer(enc("treatment", "response"), SCHEMA, override=None,
+                        facet={"row": None, "col": None})
+    assert m["chosen_by"] == "inferred"

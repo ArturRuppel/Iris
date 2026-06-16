@@ -48,7 +48,17 @@ follow-up (`docs/superpowers/specs/2026-06-16-data-first-encodings-design.md`).
 **Phase 4 (*Facets*)** — small multiples via the `facet` block, already designed
 into the schema
 (`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`) —
-follows it. Project is under git as of 13 June 2026. Last updated 16 June 2026.*
+**shipped 16 June 2026**: mapping a categorical column to Facet Row/Col splits
+the figure into a 2D subplot grid (one shared legend/colorbar/sup-axis-labels,
+per-cell strip titles), describe-only per cell in v1 (no per-facet inferential
+test or multiple-comparisons correction — that is later work), guarded at 20
+facet cells. **Phase 3 shipped complete 16 June 2026** (3a type-driven core, 3b
+continuous color, 3c horizontal orientation, 3d the contingency tile, plus a
+same-day fix pass for a contingency-family crash and blank-startup/ghost-figure
+cleanup); a known e2e-suite regression from that fix pass is tracked in
+`TODO.md`, not blocking Phase 4 — Phase 4's own e2e smoke (`e2e/facets_test.mjs`)
+is written but unverified in this sandbox for the same Chromium-unavailability
+reason. Project is under git as of 13 June 2026. Last updated 16 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -193,8 +203,8 @@ mis-tests. No `spec_version` bump — the 2.0 schema already carried these slots
 The Phase 2 plan is in
 `docs/superpowers/plans/2026-06-15-composable-grammar-plots-phase2-aesthetics.md`.
 
-**Composable grammar of graphics (Phase 3 — Data-First Encodings, planned).**
-Phases 1–2 inverted *statistics* from plot-type to encodings; Phase 3 finishes
+**Composable grammar of graphics (Phase 3 — Data-First Encodings, shipped 16
+June 2026).** Phases 1–2 inverted *statistics* from plot-type to encodings; Phase 3 finishes
 the job for *the figure itself*, and lands before Facets so faceting rides the
 cleaner encoding model rather than the reverse. Today a hidden `family`, chosen
 with the plot type, still dictates what the x-axis may hold and which primitives
@@ -216,15 +226,41 @@ rework. The vision spans the new render capability the inversion unlocks: a
 box/bar/violin/dot), and a **heatmap/tile geom with a count stat** (categorical x
 × categorical y → a contingency tile, the one encoding that makes
 categorical-vs-categorical worth offering and the geom that unlocks
-categorical-y). Delivered as independent chunks — **3a** the type-driven core
-(the inversion, the unified encoding card, type-gated primitives, derived family;
-today's renderers only), then **3b** continuous color, **3c** horizontal
-orientation, **3d** the tile geom + count stat — each shippable, each flipping
-one `⛔`/`—` in the channel×type matrix to `✅`. No `spec_version` bump expected
-(the 2.0 encoding slots already exist; the tile geom is a new enum value plus an
-`orient` param). Full design in
-`docs/superpowers/specs/2026-06-16-data-first-encodings-design.md`. **Phase 4
-(*Facets*)** follows; its design is in
+categorical-y). Delivered as independent chunks, all shipped 16 June 2026 —
+**3a** the type-driven core (the inversion, the unified encoding card,
+type-gated primitives, derived family), **3b** continuous color, **3c**
+horizontal orientation, **3d** the tile geom + count stat — each flipping one
+`⛔`/`—` in the channel×type matrix to `✅`. No `spec_version` bump (the 2.0
+encoding slots already existed; the tile geom is a new enum value plus an
+`orient` param). A same-day fix pass closed a crash the tile geom exposed
+(`TEST_BY_FAMILY` had no `"contingency"` key) and removed auto-seeding (a
+fresh analysis now starts fully blank rather than guessing a template/mapping);
+that fix left the e2e suite referencing removed UI and assumptions — tracked in
+`TODO.md`. Full design in
+`docs/superpowers/specs/2026-06-16-data-first-encodings-design.md`.
+
+**Composable grammar of graphics (Phase 4 — Facets, shipped 16 June 2026).**
+Mapping a categorical column to the new `facet_row`/`facet_col` channels (in
+the same Encodings card, offered categorical-only — no numeric faceting in v1)
+splits the figure into a 2D grid of subplots, one per combination of facet
+levels present in the data, instead of pooling everything into one axes; row
+and col compose into a single grid rather than two independent strips. Chrome
+stays singular — one shared legend/colorbar and `fig.suptitle`/`supxlabel`/
+`supylabel` for the whole grid, with plain (non-draggable) per-cell strip
+titles — while point-group gids stay unique across cells via a counter offset
+threaded through the drawing helpers rather than encoded into the gid string,
+so the click-to-exclude wiring in `FigurePane.tsx` needed no changes at all.
+**v1 is describe-only when faceted, across all four families** (group
+comparison, correlation, descriptive, contingency): no per-facet inferential
+test runs and no multiple-comparisons correction is applied — the same
+deliberate deferral Phase 2 made for the two-way ANOVA, revisited once a real
+need for per-facet testing shows up. A facet-cell-count guard blocks above 20
+cells (`registry.facet_cell_cap`), mirroring the existing point-cap guard's
+shape. No `spec_version` bump (`facet` was already a typed 2.0 field; only its
+TS type and runtime behavior changed from an inert stub). `e2e/facets_test.mjs`
+is written following the fix pattern logged in `TODO.md` (explicit CSV import,
+explicit mapping, explicit `.add-layer-btn` flow) but — like the rest of
+`e2e/` — unverified in this sandbox; no Chromium is installable here. Design in
 `docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`.
 
 **Composable grammar of graphics (Phase 5 — Superplots, planned).** A single
@@ -311,14 +347,14 @@ sitting next to them.
 Statistical depth: two-way ANOVA with proper sums-of-squares options (via
 statsmodels), simple linear regression with diagnostic plots (residuals, QQ),
 and assumption-check transparency threaded through every analysis — what was
-checked, what it found, what it implies, in plain language. Faceting enters
-the plot grammar — **Phase 4 (*Facets*)** of the composable grammar of graphics
-(the `facet` block, already present in the 2.0 spec, goes live as a subplot
-grid; see the composable-grammar design spec). Phases 2 (*Aesthetics*:
-color/size/shape encodings) and 3 (*Data-First Encodings*) precede it, and
-**Phase 5 (*Superplots* — nested collapse levels on one plot, tested on a single
-honest inferential unit)** follows it (see Tier 2's grammar phases). n and
-exclusion annotations become
+checked, what it found, what it implies, in plain language. **Phase 4
+(*Facets*)** of the composable grammar of graphics — the `facet` block going
+live as a describe-only subplot grid — shipped early, in Tier 2 (see above),
+rather than waiting for Tier 3. **Phase 5 (*Superplots* — nested collapse
+levels on one plot, tested on a single honest inferential unit)** follows it
+(see Tier 2's grammar phases). Per-facet inferential testing with
+multiple-comparisons correction, deliberately deferred by Phase 4, would land
+here once a real need for it shows up. n and exclusion annotations become
 standard figure furniture.
 
 Product hardening: autosave and crash recovery (continuous local snapshots
@@ -390,10 +426,20 @@ same spec rails), and the AG Grid table swap. 13 June 2026 added the style
 panel + draggable figure labels, the one-column-per-condition data-entry
 wizard with engine-side wide→long stacking (also offered in the import
 wizard), and the deliberate exclusion flow (click selects, right-click
-excludes; the provenance log is unchanged). Remaining for Tier 2: the
-multi-group path — one-way ANOVA with Tukey post-hocs and Kruskal–Wallis,
-plus the bracket annotation work it drives; paired plots and tests
-(`pair_by`); undo/redo; methods/statistics-table export. (The jamovi/JASP
-teardown was dropped with the purpose restatement: there is no positioning
-to defend, only features to get right. macOS/Windows packaging waits until
-the end, alongside Tier 3 signing.)
+excludes; the provenance log is unchanged). 16 June 2026 closed out the
+composable-grammar Phase 3 (data-first encodings: type-driven core, continuous
+color, horizontal orientation, contingency tile) plus a same-day bug-fix pass,
+then **Phase 4 (Facets)**: small multiples via Facet Row/Col, describe-only
+per cell, gid-uniqueness and singular figure chrome across the grid. Remaining
+for Tier 2: the multi-group path — one-way ANOVA with Tukey post-hocs and
+Kruskal–Wallis, plus the bracket annotation work it drives; paired plots and
+tests (`pair_by`); undo/redo; methods/statistics-table export. Next up on the
+grammar track is **Phase 5 (Superplots)**. A known e2e-suite regression (stale
+selectors and assumptions left over from the Phase 3 fix pass, plus no
+UI-level coverage yet for Phase 3's three new render paths) is tracked in
+`TODO.md` — fix before trusting `e2e/` results again; Phase 4 adds its own
+smoke test (`facets_test.mjs`) following the same documented fix pattern but
+is equally unverified in this sandbox. (The jamovi/JASP teardown was dropped
+with the purpose restatement:
+there is no positioning to defend, only features to get right. macOS/Windows
+packaging waits until the end, alongside Tier 3 signing.)

@@ -87,6 +87,33 @@ def _cat_val_cols(spec: dict, schema: dict):
     return enc_x, enc_y       # vertical
 
 
+def _facet_cols(spec: dict) -> tuple[str | None, str | None]:
+    facet = spec.get("facet") or {}
+    row, col = facet.get("row"), facet.get("col")
+    row_col = row["column"] if row and row.get("column") else None
+    col_col = col["column"] if col and col.get("column") else None
+    return row_col, col_col
+
+
+def _facet_issues(df: pd.DataFrame, spec: dict) -> list[dict]:
+    """Phase 4: block before render if the facet grid (row levels × col levels,
+    counting only combinations present in the data) is too large to be
+    readable or cheap to draw."""
+    row_col, col_col = _facet_cols(spec)
+    if not row_col and not col_col:
+        return []
+    n_row = int(df[row_col].dropna().astype(str).nunique()) if row_col and row_col in df else 1
+    n_col = int(df[col_col].dropna().astype(str).nunique()) if col_col and col_col in df else 1
+    cells = n_row * n_col
+    if cells > geoms.FACET_CELL_CAP:
+        return [_issue(
+            "blocking", "facet_cell_cap",
+            f"{cells} facet cells ({n_row} row × {n_col} col) is too many to "
+            f"render (limit {geoms.FACET_CELL_CAP}). Pick a facet column with "
+            f"fewer levels, or remove one facet axis.")]
+    return []
+
+
 def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dict]:
     # stat_model is unused in Phase 1 — it's the deliberate seam for model-level
     # guards (facet multiplicity, etc.) that land in Phases 2-3.
@@ -94,6 +121,7 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     # drop unrenderable aesthetic channels first, so the compiler never sees them
     # and they don't also trip the "channel ignored" / "palette exhausted" checks
     issues: list[dict] = drop_unrenderable_channels(schema, spec)
+    issues.extend(_facet_issues(df, spec))
     for layer in spec.get("layers", []):
         name = layer["geom"]
         g = geoms.GEOMS.get(name)

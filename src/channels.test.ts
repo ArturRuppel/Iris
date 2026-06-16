@@ -13,7 +13,7 @@ const geom = (x_type: string, y_type: string): GeomMeta => ({
 });
 
 /* today's registry: the axis types that ship in 3a (no h_orient, no tile) */
-const REG: Registry = { point_cap: 3000, geoms: {
+const REG: Registry = { point_cap: 3000, facet_cell_cap: 20, geoms: {
   dot: geom("categorical", "numeric"),
   summary: geom("categorical", "numeric"),
   box: geom("categorical", "numeric"),
@@ -86,6 +86,12 @@ describe("offer rule (§4) — derived from the registry for x/y, the matrix for
     const reg: Registry = { ...REG,
       geoms: { ...REG.geoms, tile: geom("categorical", "categorical") } };
     expect(isOfferable(reg, "y", "categorical")).toBe(true);
+  });
+  it("Phase 4: facet_row/facet_col offer categoricals only, no numeric faceting in v1", () => {
+    expect(renderStatus(REG, "facet_row", "categorical")).toBe("ok");
+    expect(renderStatus(REG, "facet_row", "numeric")).toBeNull();
+    expect(renderStatus(REG, "facet_col", "categorical")).toBe("ok");
+    expect(renderStatus(REG, "facet_col", "numeric")).toBeNull();
   });
 });
 

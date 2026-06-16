@@ -79,6 +79,11 @@ def test_registry_payload_carries_aes():
     assert payload["geoms"]["box"]["aes"] == ["color"]
 
 
+def test_registry_payload_carries_facet_cell_cap():
+    payload = geoms.registry_payload()
+    assert payload["facet_cell_cap"] == geoms.FACET_CELL_CAP == 20
+
+
 def test_registry_payload_is_json_safe_and_complete():
     payload = geoms.registry_payload()
     assert payload["point_cap"] == geoms.POINT_CAP

@@ -156,11 +156,16 @@ def _run(table: dict, spec: dict):
         raise HTTPException(422, f"reduction failed: {e}") from e
 
     describe_only = bool(spec.get("_describe_only"))
-    model = statmodel.infer(spec["encodings"], schema, spec.get("_override"))
+    model = statmodel.infer(spec["encodings"], schema, spec.get("_override"),
+                            spec.get("facet"))
     if describe_only and model["family"] != "none":
         # the user asked to render the figure but run no inferential test
         model["chosen_by"] = "describe_only"
         model["test"] = None
+    # Phase 4: statmodel.infer already forces chosen_by == "describe_only" when
+    # faceted; fold that back into the local flag so the stats dispatch below
+    # (which branches on `describe_only`, not on the model) skips the real test.
+    describe_only = describe_only or model["chosen_by"] == "describe_only"
     spec["stat_model"] = model
 
     issues = guards.evaluate(df, schema, spec, model)

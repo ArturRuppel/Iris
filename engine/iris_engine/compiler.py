@@ -19,6 +19,7 @@ import pandas as pd
 from scipy import stats as sps
 
 from . import scales as scales_mod
+from . import stats as stats_mod
 
 MM = 1 / 25.4
 # Okabe–Ito: an 8-colour qualitative palette that stays distinguishable under
@@ -198,18 +199,31 @@ def _apply_axes(ax, style: dict, *, x_numeric: bool,
     ax.set_axisbelow(True)
 
 
-def _decorate(fig, ax, style: dict, extra: dict | None = None):
+def _decorate(fig, ax, style: dict, extra: dict | None = None, *, faceted: bool = False):
     """Title/label text overrides, gid tags for draggable labels, and the
     drag offsets the frontend wrote back into the style (SVG px, y down —
-    matplotlib points run y up, hence the sign flip)."""
-    if style["title"]:
-        ax.set_title(style["title"])
-    if style["x_label"]:
-        ax.set_xlabel(style["x_label"])
-    if style["y_label"]:
-        ax.set_ylabel(style["y_label"])
-    artists = {"lbl-title": ax.title, "lbl-x": ax.xaxis.label,
-               "lbl-y": ax.yaxis.label, **(extra or {})}
+    matplotlib points run y up, hence the sign flip).
+
+    Phase 4: when faceted, title/x/y are figure-level (one shared
+    suptitle/supxlabel/supylabel instead of per-cell axis text) — singular
+    chrome for the whole grid, per the "one legend, one colorbar, one set of
+    labels" decision. Per-cell strip titles are drawn separately and are not
+    draggable."""
+    if faceted:
+        sup_title = fig.suptitle(style["title"]) if style["title"] else None
+        sup_x = fig.supxlabel(style["x_label"]) if style["x_label"] else None
+        sup_y = fig.supylabel(style["y_label"]) if style["y_label"] else None
+        artists = {"lbl-title": sup_title, "lbl-x": sup_x, "lbl-y": sup_y,
+                   **(extra or {})}
+    else:
+        if style["title"]:
+            ax.set_title(style["title"])
+        if style["x_label"]:
+            ax.set_xlabel(style["x_label"])
+        if style["y_label"]:
+            ax.set_ylabel(style["y_label"])
+        artists = {"lbl-title": ax.title, "lbl-x": ax.xaxis.label,
+                   "lbl-y": ax.yaxis.label, **(extra or {})}
     for key, art in artists.items():
         if art is None or not art.get_text():
             continue
@@ -220,12 +234,16 @@ def _decorate(fig, ax, style: dict, extra: dict | None = None):
                 off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
 
 
-def _draw_legend(fig, ax, sc, style, x_col):
+def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
     """Legend for the mapped aesthetic channels. Color is omitted when it just
     re-encodes x (the axis already names those groups, decision #3). Honors an
     explicit show_legend override; otherwise auto-shows iff there is something
     to explain. The legend is a real artist (editable SVG text) tagged gid
-    'legend' and nudgeable via offsets['legend'], like the draggable labels."""
+    'legend' and nudgeable via offsets['legend'], like the draggable labels.
+
+    Phase 4: when faceted, the legend is drawn on the figure (one shared
+    legend outside the grid) rather than inside whichever cell's `ax` is
+    passed in."""
     entries = [e for e in sc.legend_entries()
                if not (e["channel"] == "color" and e["label"] == x_col)]
     pref = style.get("show_legend")
@@ -247,8 +265,11 @@ def _draw_legend(fig, ax, sc, style, x_col):
             labels.append(f"{sw['value']:g}" if isinstance(sw["value"], float)
                           else str(sw["value"]))
     title = entries[0]["label"] if len(entries) == 1 else None
-    leg = ax.legend(handles, labels, loc="best", frameon=False, title=title,
-                    fontsize=style["font_pt"] - 1)
+    leg = (fig.legend(handles, labels, loc="outside right upper", frameon=False,
+                      title=title, fontsize=style["font_pt"] - 1)
+           if faceted else
+           ax.legend(handles, labels, loc="best", frameon=False, title=title,
+                     fontsize=style["font_pt"] - 1))
     leg.set_gid("legend")
     off = (style["offsets"] or {}).get("legend")
     if off and (off[0] or off[1]):
@@ -269,6 +290,52 @@ def _draw_colorbar(fig, ax, mappable, style, label):
     cb.ax.tick_params(labelsize=style["font_pt"] - 1)
     cb.outline.set_visible(False)
     return cb
+
+
+def _facet_levels(df: pd.DataFrame, spec: dict):
+    """Phase 4: resolve (row_col, col_col, row_levels, col_levels) for the
+    facet grid, restricted to levels actually present in the data. An
+    unfaceted axis returns [None] so callers can loop uniformly with a single
+    iteration — the unfaceted path is then just a 1×1 grid."""
+    facet = spec.get("facet") or {}
+    row = facet.get("row")
+    col = facet.get("col")
+    row_col = row["column"] if row and row.get("column") else None
+    col_col = col["column"] if col and col.get("column") else None
+    row_levels = (sorted(df[row_col].dropna().astype(str).unique().tolist())
+                  if row_col and row_col in df else [None])
+    col_levels = (sorted(df[col_col].dropna().astype(str).unique().tolist())
+                  if col_col and col_col in df else [None])
+    return row_col, col_col, row_levels, col_levels
+
+
+def _facet_cell_df(df: pd.DataFrame, row_col, col_col, rlevel, clevel) -> pd.DataFrame:
+    out = df
+    if row_col is not None and rlevel is not None:
+        out = out[out[row_col].astype(str) == rlevel]
+    if col_col is not None and clevel is not None:
+        out = out[out[col_col].astype(str) == clevel]
+    return out
+
+
+def _facet_title(row_col, col_col, rlevel, clevel) -> str:
+    parts = []
+    if row_col is not None and rlevel is not None:
+        parts.append(f"{row_col} = {rlevel}")
+    if col_col is not None and clevel is not None:
+        parts.append(f"{col_col} = {clevel}")
+    return "  |  ".join(parts)
+
+
+def _build_grid(width_mm: float, height_mm: float, n_rows: int, n_cols: int,
+                sharex: bool, sharey: bool):
+    """plt.subplots wrapper for the facet grid; squeeze=False keeps `axes`
+    a uniform 2D array even for a 1×1 (unfaceted) or 1×N grid, so callers
+    never need a special case for "no facets"."""
+    return plt.subplots(n_rows, n_cols,
+                        figsize=(width_mm * MM, height_mm * MM),
+                        layout="constrained", sharex=sharex, sharey=sharey,
+                        squeeze=False)
 
 
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
@@ -308,24 +375,25 @@ def _summary_of(label, ys):
             "ci95_half": ci}
 
 
-def _comparison_context(df, schema, spec, stats):
-    enc = spec["encodings"]
+def _resolve_cat_val(schema, enc):
+    """Phase 3c: detect horizontal orientation (categorical y + numeric x).
+    Returns (cat_col, val_col, h_orient) — cat_col is the categorical column
+    (groups), val_col the numeric column (values). The stats result always
+    groups by cat_col regardless of which encoding axis it sits on."""
     enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
     enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
+    h_orient = _is_categorical(schema, enc_y) and enc_x is not None
+    return (enc_y, enc_x, True) if h_orient else (enc_x, enc_y, False)
+
+
+def _comparison_context(df, schema, spec, stats, *, gid_start: int = 0, scales=None):
+    enc = spec["encodings"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     levels = stats["levels"]
     has_dots = any(l["geom"] == "dot" for l in spec.get("layers", []))
 
-    # Phase 3c: detect horizontal orientation (categorical y + numeric x).
-    # cat_col = the categorical column (groups); val_col = the numeric column
-    # (values). The stats result always groups by cat_col regardless of which
-    # encoding axis it sits on.
-    h_orient = _is_categorical(schema, enc_y) and enc_x is not None
-    if h_orient:
-        cat_col, val_col = enc_y, enc_x
-    else:
-        cat_col, val_col = enc_x, enc_y
+    cat_col, val_col, h_orient = _resolve_cat_val(schema, enc)
 
     # a categorical color distinct from the grouping factor becomes a second
     # factor: marks dodge within each group slot, one sub-series per color level.
@@ -333,12 +401,16 @@ def _comparison_context(df, schema, spec, stats):
     color_col = color["column"] if color and color.get("column") else None
     dodged = (color_col is not None and color_col != cat_col
               and _is_categorical(schema, color_col))
-    sc = scales_mod.resolve_scales(enc, df[df[val_col].notna()], schema, style)
+    # Phase 4: a caller faceting across cells passes in scales resolved ONCE
+    # from the whole (unfiltered) df, so color/size/shape scales stay
+    # consistent across cells instead of each cell rescaling to its own data.
+    sc = scales if scales is not None else scales_mod.resolve_scales(
+        enc, df[df[val_col].notna()], schema, style)
     # Phase 3b: a numeric color colours each raw dot by its value (per-point,
     # via the colormap) rather than by group; aggregate geoms keep group colour.
     num_color_col = color_col if sc.color_numeric else None
 
-    groups, top, gi = [], -np.inf, 0
+    groups, top, gi = [], -np.inf, gid_start
     if dodged:
         clevels = sc.color_levels
         k = max(1, len(clevels))
@@ -369,7 +441,7 @@ def _comparison_context(df, schema, spec, stats):
                 top = max(top, ys.max(), s["mean"] + err)
             cvals = (rows[num_color_col].to_numpy(dtype=float)
                      if num_color_col else None)
-            groups.append({"gi": li, "pos": li, "lv": lv, "ys": ys,
+            groups.append({"gi": gid_start + li, "pos": li, "lv": lv, "ys": ys,
                            "row_ids": rows["id"].tolist(),
                            "color": _group_color(style, li), "cvals": cvals,
                            "summary": s})
@@ -385,6 +457,7 @@ def _comparison_context(df, schema, spec, stats):
             "top": top, "dodged": dodged, "wscale": wscale, "scales": sc,
             "summary_dx": 0.0 if dodged else 0.28,
             "cbar_mappable": None,  # set by the dot geom when color is numeric
+            "next_gid_start": gid_start + len(groups),
             "p_sig": (not dodged) and p is not None
                      and p < stats.get("alpha", 0.05)}
 
@@ -516,84 +589,130 @@ _COMPARISON_GEOMS = {"violin": _geom_violin, "box": _geom_box, "bar": _geom_bar,
 def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Group comparison rendered as ordered geom layers; each layer draws with
     its own params (falling back to the global style). Phase 3c: the h_orient
-    flag in ctx switches all axis assignments for horizontal orientation."""
-    ctx = _comparison_context(df, schema, spec, stats)
-    style, levels = ctx["style"], ctx["levels"]
-    h = ctx["h_orient"]
+    flag in ctx switches all axis assignments for horizontal orientation.
+
+    Phase 4: when facet.row/col is mapped, draws one cell per (row level ×
+    col level) into a shared grid. Color/size/shape scales are resolved ONCE
+    from the whole dataframe (sc_global) so they stay consistent across
+    cells; per-cell stats are recomputed from that cell's own rows (the
+    pooled `stats` passed in is whole-dataset and would otherwise show
+    identical summaries in every panel). Singular legend/colorbar/sup-labels
+    are drawn once after the loop. The unfaceted path (a 1×1 grid) is
+    byte-identical to the pre-Phase-4 single-axes render."""
+    enc = spec["encodings"]
+    style = resolve_style(spec)
+    alpha = stats.get("alpha", 0.05)
+    cat_col, val_col, h_orient = _resolve_cat_val(schema, enc)
+    sc_global = scales_mod.resolve_scales(enc, df[df[val_col].notna()], schema, style)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    faceted = row_col is not None or col_col is not None
+    facet_cfg = spec.get("facet") or {}
 
     with plt.rc_context(_rc(style)):
-        fig, ax = plt.subplots(
-            figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
-            layout="constrained")
-        point_groups = []
-        for layer in spec.get("layers", []):
-            render = _COMPARISON_GEOMS.get(layer["geom"])
-            if render is None:
-                continue
-            pg = render(ax, ctx, layer.get("params") or {})
-            if pg:
-                point_groups.extend(pg)
+        fig, axes = _build_grid(style["width_mm"], style["height_mm"],
+                                len(row_levels), len(col_levels),
+                                sharex=facet_cfg.get("share_x", True),
+                                sharey=facet_cfg.get("share_y", True))
+        point_groups, gid_next = [], 0
+        cbar_mappable, last_ctx, last_ax = None, None, None
+        for ri, rlevel in enumerate(row_levels):
+            for ci, clevel in enumerate(col_levels):
+                ax = axes[ri][ci]
+                cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
+                cell_stats = (stats_mod.describe_groups(
+                                  cell_df, cat_col, val_col,
+                                  levels=stats["levels"], alpha=alpha)
+                              if faceted else stats)
+                ctx = _comparison_context(cell_df, schema, spec, cell_stats,
+                                          gid_start=gid_next, scales=sc_global)
+                gid_next = ctx["next_gid_start"]
+                levels = ctx["levels"]
+                h = ctx["h_orient"]
 
-        if ctx["p_sig"] and style["show_significance"]:
-            p = stats["result"]["p"]
-            label = "***" if p < 0.001 else "**" if p < 0.01 else "*"
-            if h:
-                xr = ax.get_xlim()
-                hv = ctx["top"] + (xr[1] - xr[0]) * 0.08
-                tick = (xr[1] - xr[0]) * 0.02
-                ax.plot([hv, hv + tick, hv + tick, hv], [0, 0, 1, 1],
-                        color=INK, lw=1.1, zorder=5)
-                ax.text(hv + tick * 1.4, 0.5, label, ha="left", va="center",
-                        color=INK)
-                ax.set_xlim(xr[0], max(xr[1], hv + tick * 5))
-            else:
-                yr = ax.get_ylim()
-                hv = ctx["top"] + (yr[1] - yr[0]) * 0.08
-                tick = (yr[1] - yr[0]) * 0.02
-                ax.plot([0, 0, 1, 1], [hv, hv + tick, hv + tick, hv],
-                        color=INK, lw=1.1, zorder=5)
-                ax.text(0.5, hv + tick * 1.4, label, ha="center", va="bottom",
-                        color=INK)
-                ax.set_ylim(yr[0], max(yr[1], hv + tick * 5))
+                for layer in spec.get("layers", []):
+                    render = _COMPARISON_GEOMS.get(layer["geom"])
+                    if render is None:
+                        continue
+                    pg = render(ax, ctx, layer.get("params") or {})
+                    if pg:
+                        point_groups.extend(pg)
 
-        cat_labels = ctx["cols"].get(ctx["cat_col"], {}).get("labels", {}) or {}
-        lv_labels = [cat_labels.get(lv, lv) for lv in levels]
-        if h:
-            ax.set_yticks(range(len(levels)))
-            ax.set_yticklabels(lv_labels)
-            ax.set_ylim(-0.55, len(levels) - 0.45)
-            ax.set_xlabel(ctx["cols"].get(ctx["val_col"], {}).get("label",
-                                                                   ctx["val_col"]))
-        else:
-            ax.set_xticks(range(len(levels)))
-            ax.set_xticklabels(lv_labels)
-            ax.set_xlim(-0.55, len(levels) - 0.45)
-            ax.set_ylabel(ctx["cols"].get(ctx["val_col"], {}).get("label",
-                                                                   ctx["val_col"]))
+                if ctx["p_sig"] and style["show_significance"]:
+                    p = cell_stats["result"]["p"]
+                    label = "***" if p < 0.001 else "**" if p < 0.01 else "*"
+                    if h:
+                        xr = ax.get_xlim()
+                        hv = ctx["top"] + (xr[1] - xr[0]) * 0.08
+                        tick = (xr[1] - xr[0]) * 0.02
+                        ax.plot([hv, hv + tick, hv + tick, hv], [0, 0, 1, 1],
+                                color=INK, lw=1.1, zorder=5)
+                        ax.text(hv + tick * 1.4, 0.5, label, ha="left", va="center",
+                                color=INK)
+                        ax.set_xlim(xr[0], max(xr[1], hv + tick * 5))
+                    else:
+                        yr = ax.get_ylim()
+                        hv = ctx["top"] + (yr[1] - yr[0]) * 0.08
+                        tick = (yr[1] - yr[0]) * 0.02
+                        ax.plot([0, 0, 1, 1], [hv, hv + tick, hv + tick, hv],
+                                color=INK, lw=1.1, zorder=5)
+                        ax.text(0.5, hv + tick * 1.4, label, ha="center", va="bottom",
+                                color=INK)
+                        ax.set_ylim(yr[0], max(yr[1], hv + tick * 5))
 
-        cbar = ctx["scales"].colorbar_spec()
-        if cbar:
-            _draw_colorbar(fig, ax, ctx["cbar_mappable"], style, cbar["label"])
-        # for horizontal the value axis is X (numeric); grids follow accordingly
-        _apply_axes(ax, style, x_numeric=h,
-                    grid_x_default=h, grid_y_default=not h)
-        if style["show_n"]:
-            for s, lv in zip(stats["summaries"], levels):
+                cat_labels = ctx["cols"].get(ctx["cat_col"], {}).get("labels", {}) or {}
+                lv_labels = [cat_labels.get(lv, lv) for lv in levels]
                 if h:
-                    ax.annotate(f"n = {s['n']}", (0, levels.index(lv)),
-                                xycoords=("axes fraction", "data"),
-                                xytext=(-4, 0), textcoords="offset points",
-                                ha="right", va="center",
-                                fontsize=style["font_pt"] - 2,
-                                color="#94a3b8", annotation_clip=False)
+                    ax.set_yticks(range(len(levels)))
+                    ax.set_yticklabels(lv_labels)
+                    ax.set_ylim(-0.55, len(levels) - 0.45)
+                    if not faceted:
+                        ax.set_xlabel(ctx["cols"].get(ctx["val_col"], {}).get(
+                            "label", ctx["val_col"]))
                 else:
-                    ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
-                                xycoords=("data", "axes fraction"),
-                                xytext=(0, -26), textcoords="offset points",
-                                ha="center", fontsize=style["font_pt"] - 2,
-                                color="#94a3b8", annotation_clip=False)
-        _draw_legend(fig, ax, ctx["scales"], style, ctx["cat_col"])
-        _decorate(fig, ax, style)
+                    ax.set_xticks(range(len(levels)))
+                    ax.set_xticklabels(lv_labels)
+                    ax.set_xlim(-0.55, len(levels) - 0.45)
+                    if not faceted:
+                        ax.set_ylabel(ctx["cols"].get(ctx["val_col"], {}).get(
+                            "label", ctx["val_col"]))
+
+                # for horizontal the value axis is X (numeric); grids follow accordingly
+                _apply_axes(ax, style, x_numeric=h,
+                            grid_x_default=h, grid_y_default=not h)
+                if style["show_n"]:
+                    for s, lv in zip(cell_stats["summaries"], levels):
+                        if h:
+                            ax.annotate(f"n = {s['n']}", (0, levels.index(lv)),
+                                        xycoords=("axes fraction", "data"),
+                                        xytext=(-4, 0), textcoords="offset points",
+                                        ha="right", va="center",
+                                        fontsize=style["font_pt"] - 2,
+                                        color="#94a3b8", annotation_clip=False)
+                        else:
+                            ax.annotate(f"n = {s['n']}", (levels.index(lv), 0),
+                                        xycoords=("data", "axes fraction"),
+                                        xytext=(0, -26), textcoords="offset points",
+                                        ha="center", fontsize=style["font_pt"] - 2,
+                                        color="#94a3b8", annotation_clip=False)
+                if faceted:
+                    title = _facet_title(row_col, col_col, rlevel, clevel)
+                    if title:
+                        ax.set_title(title, fontsize=style["font_pt"] - 1)
+                cbar_mappable = ctx.get("cbar_mappable") or cbar_mappable
+                last_ctx, last_ax = ctx, ax
+
+        cbar = sc_global.colorbar_spec()
+        if cbar:
+            cbar_ax = axes.ravel().tolist() if faceted else last_ax
+            _draw_colorbar(fig, cbar_ax, cbar_mappable, style, cbar["label"])
+        if faceted:
+            val_label = last_ctx["cols"].get(val_col, {}).get("label", val_col)
+            if h:
+                style["x_label"] = style["x_label"] or val_label
+            else:
+                style["y_label"] = style["y_label"] or val_label
+        _draw_legend(fig, last_ax, sc_global, style, cat_col, faceted=faceted)
+        _decorate(fig, last_ax, style, faceted=faceted)
     return fig, point_groups
 
 
@@ -601,7 +720,7 @@ def _axis_label(cols: dict, name: str) -> str:
     return cols.get(name, {}).get("label", name)
 
 
-def _draw_points(ax, rows, x, y, sc, style):
+def _draw_points(ax, rows, x, y, sc, style, *, gid_start: int = 0):
     """Per-point scatter honoring the color/size/shape scales. Splits rows into
     one sub-series per (color level × shape level) so each carries its own color
     and marker, and emits one point_groups entry per sub-series so the
@@ -609,14 +728,16 @@ def _draw_points(ax, rows, x, y, sc, style):
     mapped this is a single 'pts-0' series identical to the pre-aesthetics path;
     size, when mapped, varies marker area per point within a series.
 
-    Returns (point_groups, colorbar_mappable). A *numeric* color (Phase 3b) is
-    not split into levels: each point is coloured by its value through the
-    colormap (c=values + cmap), and the returned mappable feeds the colorbar."""
+    Returns (point_groups, colorbar_mappable, next_gid_start). A *numeric* color
+    (Phase 3b) is not split into levels: each point is coloured by its value
+    through the colormap (c=values + cmap), and the returned mappable feeds the
+    colorbar. Phase 4: gid_start offsets the per-series counter so facet cells
+    drawn into the same figure never reuse a gid."""
     numeric_color = sc.color_col is not None and sc.color_numeric
     color_levels = sc.color_levels if (sc.color_col and not numeric_color) else [None]
     shape_levels = sc.shape_levels if sc.shape_col else [None]
     split = (sc.color_col is not None and not numeric_color) or sc.shape_col is not None
-    point_groups, idx, mappable = [], 0, None
+    point_groups, idx, mappable = [], gid_start, None
     for cl in color_levels:
         for sl in shape_levels:
             sub = rows
@@ -643,162 +764,270 @@ def _draw_points(ax, rows, x, y, sc, style):
                 coll = ax.scatter(sub[x].to_numpy(dtype=float),
                                   sub[y].to_numpy(dtype=float),
                                   color=color, **common)
-            gid = f"pts-{idx}" if split else "pts-0"
+            gid = f"pts-{idx}" if split else f"pts-{gid_start}"
             coll.set_gid(gid)
             point_groups.append({"gid": gid, "row_ids": sub["id"].tolist()})
             idx += 1
-    return point_groups, mappable
+    return point_groups, mappable, idx
 
 
 def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Scatter of two numeric columns; the `regression` layer adds the OLS
-    line and 95% CI band computed by the stats module."""
+    line and 95% CI band computed by the stats module.
+
+    Phase 4: when faceted, draws one cell per (row level × col level); the
+    regression line/CI band and r/p annotation naturally disappear in the
+    faceted (describe-only) path since describe_pairs() omits both
+    "regression" and "result.r" — no extra branching needed. Color/size/
+    shape scales are resolved once globally; singular legend/colorbar are
+    drawn once after the loop."""
     x = spec["encodings"]["x"]["column"]
     y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
+    alpha = stats.get("alpha", 0.05)
     marks = {layer["geom"] for layer in spec.get("layers", [])} or {"scatter",
                                                                     "regression"}
     rows = df[df[x].notna() & df[y].notna()]
-    sc_scales = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
+    sc_global = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
     color = _group_color(style, 0)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    faceted = row_col is not None or col_col is not None
+    facet_cfg = spec.get("facet") or {}
 
     with plt.rc_context(_rc(style)):
-        fig, ax = plt.subplots(
-            figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
-            layout="constrained")
-
-        reg = stats.get("regression")
-        if "regression" in marks and reg:
-            grid = np.asarray(reg["grid"])
-            ax.fill_between(grid, reg["lo"], reg["hi"], color=color,
-                            alpha=0.15, linewidth=0, zorder=1)
-            ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
-                    color=color, linewidth=style["line_width"], zorder=2)
-
-        point_groups, cbar_mappable = _draw_points(ax, rows, x, y, sc_scales, style)
-        cbar = sc_scales.colorbar_spec()
-        if cbar:
-            _draw_colorbar(fig, ax, cbar_mappable, style, cbar["label"])
-
+        fig, axes = _build_grid(style["width_mm"], style["height_mm"],
+                                len(row_levels), len(col_levels),
+                                sharex=facet_cfg.get("share_x", True),
+                                sharey=facet_cfg.get("share_y", True))
+        point_groups, gid_next, cbar_mappable, last_ax = [], 0, None, None
         extra = {}
-        if style["show_annotation"] and stats["result"].get("r") is not None:
-            r = stats["result"]
-            symbol = "r" if r["test"] == "pearson" else "ρ"
-            p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
-            extra["lbl-annot"] = ax.text(
-                0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
-                transform=ax.transAxes, ha="left", va="top",
-                fontsize=style["font_pt"] - 1, color=INK)
+        for ri, rlevel in enumerate(row_levels):
+            for ci, clevel in enumerate(col_levels):
+                ax = axes[ri][ci]
+                cell_rows = _facet_cell_df(rows, row_col, col_col, rlevel, clevel)
+                cell_stats = (stats_mod.describe_pairs(cell_rows, x, y, alpha=alpha)
+                              if faceted else stats)
 
-        ax.set_xlabel(_axis_label(cols, x))
-        ax.set_ylabel(_axis_label(cols, y))
-        _apply_axes(ax, style, x_numeric=True,
-                    grid_x_default=True, grid_y_default=True)
-        _draw_legend(fig, ax, sc_scales, style, x)
-        _decorate(fig, ax, style, extra=extra)
+                reg = cell_stats.get("regression")
+                if "regression" in marks and reg:
+                    grid = np.asarray(reg["grid"])
+                    ax.fill_between(grid, reg["lo"], reg["hi"], color=color,
+                                    alpha=0.15, linewidth=0, zorder=1)
+                    ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
+                            color=color, linewidth=style["line_width"], zorder=2)
+
+                pg, mappable, gid_next = _draw_points(
+                    ax, cell_rows, x, y, sc_global, style, gid_start=gid_next)
+                point_groups.extend(pg)
+                cbar_mappable = mappable or cbar_mappable
+
+                if (style["show_annotation"]
+                        and cell_stats["result"].get("r") is not None):
+                    r = cell_stats["result"]
+                    symbol = "r" if r["test"] == "pearson" else "ρ"
+                    p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
+                    txt = ax.text(
+                        0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
+                        transform=ax.transAxes, ha="left", va="top",
+                        fontsize=style["font_pt"] - 1, color=INK)
+                    if not faceted:
+                        extra["lbl-annot"] = txt
+
+                if not faceted:
+                    ax.set_xlabel(_axis_label(cols, x))
+                    ax.set_ylabel(_axis_label(cols, y))
+                _apply_axes(ax, style, x_numeric=True,
+                            grid_x_default=True, grid_y_default=True)
+                if faceted:
+                    title = _facet_title(row_col, col_col, rlevel, clevel)
+                    if title:
+                        ax.set_title(title, fontsize=style["font_pt"] - 1)
+                last_ax = ax
+
+        cbar = sc_global.colorbar_spec()
+        if cbar:
+            cbar_ax = axes.ravel().tolist() if faceted else last_ax
+            _draw_colorbar(fig, cbar_ax, cbar_mappable, style, cbar["label"])
+        if faceted:
+            style["x_label"] = style["x_label"] or _axis_label(cols, x)
+            style["y_label"] = style["y_label"] or _axis_label(cols, y)
+        _draw_legend(fig, last_ax, sc_global, style, x, faceted=faceted)
+        _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
     return fig, point_groups
 
 
 def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Histogram of one numeric column (mapped on y); the `density` layer
     overlays a KDE curve scaled to the count axis. Bars aggregate rows, so
-    there are no per-point click targets."""
+    there are no per-point click targets.
+
+    Phase 4: when faceted, draws one cell per (row level × col level), each
+    with its own bars/KDE/median recomputed from that cell's own values."""
     y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
+    alpha = stats.get("alpha", 0.05)
     layers = spec.get("layers", [])
     marks = {layer["geom"] for layer in layers} or {"histogram"}
     hist_params = next((l.get("params", {}) for l in layers
                         if l["geom"] == "histogram"), {})
-    vals = df[y].dropna().to_numpy(dtype=float)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    faceted = row_col is not None or col_col is not None
+    facet_cfg = spec.get("facet") or {}
 
     with plt.rc_context(_rc(style)):
-        fig, ax = plt.subplots(
-            figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
-            layout="constrained")
-        bins_val = _param(hist_params, "hist_bins", style, "hist_bins")
-        bins = int(bins_val) if bins_val else "auto"
-        counts, edges, _ = ax.hist(vals, bins=bins, color=_group_color(style, 0),
-                                   alpha=0.65, edgecolor="white",
-                                   linewidth=0.5, zorder=2)
+        fig, axes = _build_grid(style["width_mm"], style["height_mm"],
+                                len(row_levels), len(col_levels),
+                                sharex=facet_cfg.get("share_x", True),
+                                sharey=facet_cfg.get("share_y", True))
+        extra, last_ax = {}, None
+        for ri, rlevel in enumerate(row_levels):
+            for ci, clevel in enumerate(col_levels):
+                ax = axes[ri][ci]
+                cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
+                vals = cell_df[y].dropna().to_numpy(dtype=float)
+                bins_val = _param(hist_params, "hist_bins", style, "hist_bins")
+                bins = int(bins_val) if bins_val else "auto"
+                counts, edges, _ = ax.hist(
+                    vals, bins=bins, color=_group_color(style, 0),
+                    alpha=0.65, edgecolor="white", linewidth=0.5, zorder=2)
 
-        if "density" in marks and len(vals) > 2 and np.ptp(vals) > 0:
-            from scipy.stats import gaussian_kde
-            grid = np.linspace(vals.min(), vals.max(), 200)
-            kde = gaussian_kde(vals)(grid)
-            binwidth = edges[1] - edges[0]
-            ax.plot(grid, kde * len(vals) * binwidth, color=INK,
-                    linewidth=style["line_width"] * 0.93, zorder=3)
+                if "density" in marks and len(vals) > 2 and np.ptp(vals) > 0:
+                    from scipy.stats import gaussian_kde
+                    grid = np.linspace(vals.min(), vals.max(), 200)
+                    kde = gaussian_kde(vals)(grid)
+                    binwidth = edges[1] - edges[0]
+                    ax.plot(grid, kde * len(vals) * binwidth, color=INK,
+                            linewidth=style["line_width"] * 0.93, zorder=3)
 
-        med = stats["result"]["median"]
-        extra = {}
-        if style["show_annotation"]:
-            ax.axvline(med, color="#475569", linewidth=style["line_width"] * 0.7,
-                       linestyle=(0, (4, 2)), zorder=4)
-            extra["lbl-annot"] = ax.text(
-                med, ax.get_ylim()[1], f" median = {med:.2f}", ha="left",
-                va="top", fontsize=style["font_pt"] - 1, color="#475569")
+                cell_result = (stats_mod.descriptive(cell_df, y, alpha=alpha)
+                              if faceted else stats)
+                med = cell_result.get("result", {}).get("median")
+                if style["show_annotation"] and med is not None:
+                    ax.axvline(med, color="#475569",
+                              linewidth=style["line_width"] * 0.7,
+                              linestyle=(0, (4, 2)), zorder=4)
+                    txt = ax.text(
+                        med, ax.get_ylim()[1], f" median = {med:.2f}", ha="left",
+                        va="top", fontsize=style["font_pt"] - 1, color="#475569")
+                    if not faceted:
+                        extra["lbl-annot"] = txt
 
-        ax.set_xlabel(_axis_label(cols, y))
-        ax.set_ylabel("Count")
-        _apply_axes(ax, style, x_numeric=True,
-                    grid_x_default=False, grid_y_default=True)
-        _decorate(fig, ax, style, extra=extra)
+                if not faceted:
+                    ax.set_xlabel(_axis_label(cols, y))
+                    ax.set_ylabel("Count")
+                _apply_axes(ax, style, x_numeric=True,
+                            grid_x_default=False, grid_y_default=True)
+                if faceted:
+                    title = _facet_title(row_col, col_col, rlevel, clevel)
+                    if title:
+                        ax.set_title(title, fontsize=style["font_pt"] - 1)
+                last_ax = ax
+
+        if faceted:
+            style["x_label"] = style["x_label"] or _axis_label(cols, y)
+            style["y_label"] = style["y_label"] or "Count"
+        _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
     return fig, []
 
 
 def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Phase 3d: tile/heatmap for categorical x × categorical y. Fill = count of
-    rows in each (x_level, y_level) cell. No per-row click targets (aggregate)."""
+    rows in each (x_level, y_level) cell. No per-row click targets (aggregate).
+
+    Phase 4: when faceted, draws one cell per (row level × col level), each
+    with its own count matrix recomputed from that cell's own rows but
+    sharing the same x_levels/y_levels (and hence matrix shape) as the
+    pooled stats, so cells align. A single shared colorbar follows the max
+    count across all cells, recomputed after the loop so its scale isn't
+    biased toward whichever cell happened to render first."""
     enc = spec["encodings"]
     x = enc["x"]["column"]
     y = enc["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
+    alpha = stats.get("alpha", 0.05)
 
     x_levels = stats["x_levels"]
     y_levels = stats["y_levels"]
-    counts = np.array(stats["counts"], dtype=float)   # shape (n_y, n_x)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    faceted = row_col is not None or col_col is not None
+    facet_cfg = spec.get("facet") or {}
 
     with plt.rc_context(_rc(style)):
-        fig, ax = plt.subplots(
-            figsize=(style["width_mm"] * MM, style["height_mm"] * MM),
-            layout="constrained")
+        fig, axes = _build_grid(style["width_mm"], style["height_mm"],
+                                len(row_levels), len(col_levels),
+                                sharex=facet_cfg.get("share_x", True),
+                                sharey=facet_cfg.get("share_y", True))
+        last_ax, last_im = None, None
+        vmax = 1.0
+        cell_counts = {}
+        for rlevel in row_levels:
+            for clevel in col_levels:
+                cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
+                cell_stats = (stats_mod.contingency_counts(
+                                  cell_df, x, y, x_levels, y_levels, alpha=alpha)
+                              if faceted else stats)
+                counts = np.array(cell_stats["counts"], dtype=float)
+                cell_counts[(rlevel, clevel)] = counts
+                vmax = max(vmax, float(counts.max()) if counts.size else 0.0)
 
-        # imshow: rows = y_levels (top → bottom), cols = x_levels (left → right)
-        im = ax.imshow(counts, cmap="Blues", aspect="auto", origin="upper")
+        for ri, rlevel in enumerate(row_levels):
+            for ci, clevel in enumerate(col_levels):
+                ax = axes[ri][ci]
+                counts = cell_counts[(rlevel, clevel)]
 
-        ax.set_xticks(range(len(x_levels)))
-        x_lbl = cols.get(x, {}).get("labels", {}) or {}
-        ax.set_xticklabels([x_lbl.get(lv, lv) for lv in x_levels])
+                # imshow: rows = y_levels (top → bottom), cols = x_levels (left → right).
+                # Unfaceted keeps the original auto vmin/vmax (byte-identical to
+                # pre-Phase-4); faceted shares one vmin/vmax across cells so fill
+                # color is comparable panel-to-panel.
+                im = (ax.imshow(counts, cmap="Blues", aspect="auto",
+                                origin="upper", vmin=0, vmax=vmax)
+                      if faceted else
+                      ax.imshow(counts, cmap="Blues", aspect="auto", origin="upper"))
 
-        ax.set_yticks(range(len(y_levels)))
-        y_lbl = cols.get(y, {}).get("labels", {}) or {}
-        ax.set_yticklabels([y_lbl.get(lv, lv) for lv in y_levels])
+                ax.set_xticks(range(len(x_levels)))
+                x_lbl = cols.get(x, {}).get("labels", {}) or {}
+                ax.set_xticklabels([x_lbl.get(lv, lv) for lv in x_levels])
 
-        if style["show_annotation"]:
-            vmax = float(counts.max()) if counts.size else 1.0
-            for yi in range(len(y_levels)):
-                for xi in range(len(x_levels)):
-                    c = int(counts[yi, xi])
-                    text_col = "white" if (vmax > 0 and counts[yi, xi] / vmax > 0.6) else INK
-                    ax.text(xi, yi, str(c), ha="center", va="center",
-                            fontsize=style["font_pt"] - 1, color=text_col)
+                ax.set_yticks(range(len(y_levels)))
+                y_lbl = cols.get(y, {}).get("labels", {}) or {}
+                ax.set_yticklabels([y_lbl.get(lv, lv) for lv in y_levels])
 
-        ax.set_xlabel(_axis_label(cols, x))
-        ax.set_ylabel(_axis_label(cols, y))
+                if style["show_annotation"]:
+                    for yi in range(len(y_levels)):
+                        for xi in range(len(x_levels)):
+                            c = int(counts[yi, xi])
+                            text_col = ("white" if (vmax > 0
+                                       and counts[yi, xi] / vmax > 0.6) else INK)
+                            ax.text(xi, yi, str(c), ha="center", va="center",
+                                    fontsize=style["font_pt"] - 1, color=text_col)
+
+                if not faceted:
+                    ax.set_xlabel(_axis_label(cols, x))
+                    ax.set_ylabel(_axis_label(cols, y))
+
+                # both axes are categorical: no scale/limit style knobs apply; no grid
+                _apply_axes(ax, style, x_numeric=False,
+                            grid_x_default=False, grid_y_default=False)
+                if faceted:
+                    title = _facet_title(row_col, col_col, rlevel, clevel)
+                    if title:
+                        ax.set_title(title, fontsize=style["font_pt"] - 1)
+                last_ax, last_im = ax, im
 
         if style.get("show_legend") is not False:
-            cb = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar_ax = axes.ravel().tolist() if faceted else last_ax
+            cb = fig.colorbar(last_im, ax=cbar_ax, fraction=0.046, pad=0.04)
             cb.set_label("Count", fontsize=style["font_pt"] - 1)
             cb.ax.tick_params(labelsize=style["font_pt"] - 1)
             cb.outline.set_visible(False)
 
-        # both axes are categorical: no scale/limit style knobs apply; no grid
-        _apply_axes(ax, style, x_numeric=False,
-                    grid_x_default=False, grid_y_default=False)
-        _decorate(fig, ax, style)
+        if faceted:
+            style["x_label"] = style["x_label"] or _axis_label(cols, x)
+            style["y_label"] = style["y_label"] or _axis_label(cols, y)
+        _decorate(fig, last_ax, style, faceted=faceted)
     return fig, []   # aggregate: no per-point click targets
 
 

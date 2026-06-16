@@ -23,9 +23,13 @@ def _col(enc: dict, key: str) -> str | None:
     return e["column"] if e and e.get("column") else None
 
 
-def infer(encodings: dict, schema: dict, override: str | None) -> dict:
+def infer(encodings: dict, schema: dict, override: str | None,
+          facet: dict | None = None) -> dict:
     """encodings + schema -> StatModel. `override` is the user-chosen test
-    name carried from the spec when chosen_by == user_override, else None."""
+    name carried from the spec when chosen_by == user_override, else None.
+    `facet` is the spec's facet block; Phase 4 v1 runs no inferential test
+    once either axis is faceted — multiple-comparisons correction is
+    deferred, so describe-only is the only safe default."""
     x = _col(encodings, "x")
     y = _col(encodings, "y")
     color = _col(encodings, "color")
@@ -79,6 +83,13 @@ def infer(encodings: dict, schema: dict, override: str | None) -> dict:
                         f"in a two-way design; for now it is shown as separate "
                         f"groups and only {group_factor} is tested. A two-way test "
                         f"is planned; use the test override to change the design.")})
+
+    faceted = bool((facet or {}).get("row") or (facet or {}).get("col"))
+    if faceted:
+        design += " — describe-only per facet (Phase 4 v1 runs no per-facet test)"
+        return {"design": design, "family": family, "factors": factors,
+                "test": None, "facet_handling": None,
+                "chosen_by": "describe_only", "issues": issues}
 
     chosen_by = "user_override" if override else "inferred"
     return {"design": design, "family": family, "factors": factors,

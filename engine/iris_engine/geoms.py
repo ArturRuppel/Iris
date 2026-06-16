@@ -15,6 +15,11 @@ from dataclasses import dataclass, field
 # rendered in 0.26 MB and stayed responsive, so 3,000 is a safe blocking cap.
 POINT_CAP = 3000
 
+# Phase 4: above this many facet cells (rows × cols, counting only combinations
+# actually present in the data), the grid is unreadable and the per-cell SVG
+# overhead becomes excessive. Blocking, like POINT_CAP.
+FACET_CELL_CAP = 20
+
 
 @dataclass(frozen=True)
 class GeomDef:
@@ -117,6 +122,7 @@ def registry_payload() -> dict:
     """JSON-safe registry for the frontend rail (served on /health)."""
     return {
         "point_cap": POINT_CAP,
+        "facet_cell_cap": FACET_CELL_CAP,
         "geoms": {
             name: {"label": g.label, "family": g.family,
                    "aggregates": g.aggregates, "needs": list(g.needs),

@@ -121,3 +121,58 @@ def test_high_cardinality_color_warns_palette_exhausted():
                              stat_model=None)
     codes = {i["code"] for i in issues}
     assert "palette_exhausted" in codes
+
+
+def _facet_spec(geom, row=None, col=None):
+    s = spec(geom)
+    s["facet"] = {
+        "row": {"column": row} if row else None,
+        "col": {"column": col} if col else None,
+        "share_x": True, "share_y": True,
+    }
+    return s
+
+
+def _facet_frame(n_row_levels, n_col_levels, n_per_cell=2):
+    rows = []
+    i = 0
+    for ri in range(n_row_levels):
+        for ci in range(n_col_levels):
+            for g in ("a", "b"):
+                for _ in range(n_per_cell):
+                    i += 1
+                    rows.append({"id": f"r{i}", "grp": g, "val": float(i),
+                                "row_facet": f"r{ri}", "col_facet": f"c{ci}",
+                                "excluded": False})
+    return pd.DataFrame(rows)
+
+
+def test_no_facet_mapped_is_clean():
+    df = frame(5)
+    issues = guards.evaluate(df, SCHEMA, _facet_spec("bar"), stat_model=None)
+    assert [i for i in issues if i["code"] == "facet_cell_cap"] == []
+
+
+def test_facet_within_cap_is_clean():
+    df = _facet_frame(4, 5)  # 20 cells == cap, not over it
+    issues = guards.evaluate(df, SCHEMA, _facet_spec("bar", row="row_facet",
+                                                      col="col_facet"),
+                             stat_model=None)
+    assert [i for i in issues if i["code"] == "facet_cell_cap"] == []
+
+
+def test_facet_over_cap_is_blocking():
+    df = _facet_frame(5, 5)  # 25 cells > 20 cap
+    issues = guards.evaluate(df, SCHEMA, _facet_spec("bar", row="row_facet",
+                                                      col="col_facet"),
+                             stat_model=None)
+    blocking = [i for i in issues if i["code"] == "facet_cell_cap"]
+    assert blocking and blocking[0]["level"] == "blocking"
+    assert "25" in blocking[0]["message"]
+
+
+def test_facet_row_only_over_cap_is_blocking():
+    df = _facet_frame(25, 1)  # 25 row levels, no col facet
+    issues = guards.evaluate(df, SCHEMA, _facet_spec("bar", row="row_facet"),
+                             stat_model=None)
+    assert [i for i in issues if i["code"] == "facet_cell_cap"]
