@@ -18,7 +18,9 @@ export interface Table { schema: Schema; rows: Row[] }
 
 export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency";
 export type TestName =
-  | "welch_t" | "mann_whitney" | "pearson" | "spearman" | "descriptive";
+  | "welch_t" | "mann_whitney" | "paired_t" | "wilcoxon"
+  | "pearson" | "spearman" | "descriptive"
+  | "chi_square" | "fisher_exact";
 export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
@@ -237,15 +239,29 @@ export interface Check {
   check: string; group: string; ok: boolean;
   W?: number; p?: number; n?: number; reason?: string;
 }
+export interface StatsDecision {
+  recommended: string;
+  chosen: string;
+  chosen_by: "recommendation_accepted" | "user_override";
+  reason: string;
+  options: string[];
+}
+
 export interface StatsResult {
   levels: string[];
   checks: Check[];
   recommendation: { test: string; reason: string };
   chosen_by: string;
+  /* §5 guided picker: each question's recommendation + what was chosen. Present
+     for group comparisons; absent for the other families. */
+  decision?: {
+    structural: StatsDecision;
+    assumption: StatsDecision;
+  };
   result: {
-    test: string; p?: number; t?: number; df?: number; U?: number;
+    test: string; p?: number; t?: number; df?: number; U?: number; W?: number;
     mean_diff?: number; mean_diff_ci?: [number, number];
-    r?: number; n?: number;
+    r?: number; n?: number; chi2?: number; dof?: number; odds_ratio?: number;
     mean?: number; sd?: number; median?: number; q1?: number; q3?: number;
     min?: number; max?: number;
     effect: { name: string; value: number; ci: [number, number] | null };

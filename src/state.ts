@@ -61,12 +61,17 @@ export const selectedRowIdAtom = atom<string | null>(null);
 /* the tests each family offers, mirrored for cheap lookups when building the
    spec and filtering override choices */
 export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
-  group_comparison: ["welch_t", "mann_whitney"],
+  /* §5 two-group grid: independent (welch_t / mann_whitney) and paired
+     (paired_t / wilcoxon). The paired cells are only valid when the data has a
+     pairing structure (see model.pairing); the panel gates them on that, and the
+     engine errors if a paired test is forced without it. */
+  group_comparison: ["welch_t", "mann_whitney", "paired_t", "wilcoxon"],
   correlation: ["pearson", "spearman"],
   descriptive: ["descriptive"],
-  /* no inferential test in this phase (chi-square is the planned follow-up) —
-     an empty offer list, matching the engine's contingency_counts recommendation. */
-  contingency: [],
+  /* §5 independent contingency cell: chi-square (default) ↔ Fisher's exact (2×2).
+     The engine picks via the expected-count rule and falls back to chi-square if
+     Fisher is overridden on a non-2×2 table. */
+  contingency: ["chi_square", "fisher_exact"],
 };
 
 /* provenance: every exclusion toggle is logged, never silently applied */

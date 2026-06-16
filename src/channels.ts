@@ -60,7 +60,7 @@ export function familyFor(
   if (xType === "numeric" && yType === "categorical") return "group_comparison";
   if (xType === "numeric" && yType === "numeric") return "correlation";
   if (xType === null && yType === "numeric") return "descriptive";
-  // Phase 3d: categorical × categorical → contingency tile (no inferential test yet)
+  // categorical × categorical → contingency tile + chi-square / Fisher (§5)
   if (xType === "categorical" && yType === "categorical") return "contingency";
   return "none";
 }

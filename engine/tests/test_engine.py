@@ -80,7 +80,7 @@ def test_small_group_recommends_rank_based():
     res = stats.group_comparison(df, "treatment", "response",
                                  ["control", "drug_a"])
     assert res["recommendation"]["test"] == "mann_whitney"
-    assert "n = 12" in res["recommendation"]["reason"]
+    assert "< 12" in res["recommendation"]["reason"]  # small-n rule fired
 
 
 def test_analyze_endpoint_svg_has_clickable_point_groups():

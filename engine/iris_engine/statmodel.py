@@ -51,8 +51,8 @@ def infer(encodings: dict, schema: dict, override: str | None,
         family = "group_comparison"
         design = f"comparison of {x} between groups of {y}"
         factors = [{"column": y, "role": "group"}]
-    # Phase 3d: both axes categorical → contingency tile; no inferential test in
-    # this phase (chi-square is the natural next step, deferred to Tier 2).
+    # Both axes categorical → contingency. The figure is a count tile; the
+    # inferential cell (chi-square / Fisher's exact, §5) runs unless describe-only.
     elif xk == "categorical" and yk == "categorical":
         family = "contingency"
         design = f"count of {y} per {x}"

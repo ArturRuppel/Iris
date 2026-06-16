@@ -160,7 +160,7 @@ def pairing(df: pd.DataFrame, spine: list[str], qualifier: str | None) -> dict |
     home_idx = spine.index(home) if home in spine else len(spine)
     if home_idx == 0:  # nothing coarser than the qualifier's home → cannot pair
         return {"qualifier": qualifier, "verdict": "unpaired", "across": None,
-                "n_units": 0, "n_complete": 0,
+                "unit_cols": [], "n_units": 0, "n_complete": 0,
                 "reason": "no unit coarser than the comparison's natural level"}
 
     unit_cols = spine[:home_idx]
@@ -172,5 +172,5 @@ def pairing(df: pd.DataFrame, spine: list[str], qualifier: str | None) -> dict |
     verdict = ("paired" if n_units and n_complete == n_units
                else "partially_paired" if n_complete else "unpaired")
     return {"qualifier": qualifier, "verdict": verdict, "across": across,
-            "n_units": n_units, "n_complete": n_complete,
-            "levels": sorted(map(str, qlevels))}
+            "unit_cols": list(unit_cols), "n_units": n_units,
+            "n_complete": n_complete, "levels": sorted(map(str, qlevels))}

@@ -320,8 +320,10 @@ path, consistent with the auto-seed removal in `111243b`). Adding a test runs a
 short **guided decision**, not a silent recommendation. The family is fixed by
 the mapped column *types* — it is the encoding, never asked — and within a
 family the choice splits on at most two questions: a **structural** one
-(independent vs paired/matched, prefilled from `pair_by`) and an **assumption**
-one (the only genuine judgment call). On the assumption question the engine
+(independent vs paired/matched, prefilled from the **spine-derived pairing** —
+the data-hierarchy redesign supersedes the earlier `pair_by` idea: pairing is
+detected from the spine, not declared) and an **assumption** one (the only
+genuine judgment call). On the assumption question the engine
 **proposes an answer with a plain-language, diagnostic-backed reason, and the
 user confirms it** — the Shapiro/dispersion check *informs* the question instead
 of gating the test silently behind it; `chosen_by` records
@@ -342,9 +344,13 @@ Levene pretest, so Student's t is intentionally absent); one-sample tests (t /
 Wilcoxon vs a constant) are a separate design, not a two-group cell. Every test
 reports an **effect size + CI** (Hedges' g; rank-biserial; r/ρ/τ; Cramér's V or
 odds ratio for 2×2) — the rigor backbone. Tests come from pingouin (t / rank /
-ANOVA / correlation) and scipy (exact tests); the contingency inferential side
-(chi-square / Fisher / McNemar) is still unbuilt — `contingency_counts` returns
-counts only — and is the concrete gap to close.
+ANOVA / correlation) and scipy (exact tests). The **independent contingency
+cells shipped 16 June 2026** (`stats.contingency_test`): Pearson chi-square
+(default) ↔ Fisher's exact (2×2, recommended when an expected count < 5), with
+Cramér's V / odds-ratio (+CI) effect sizes, opt-in like the other families and
+still returning counts so the tile renders unchanged. McNemar (the *paired*
+contingency cell) remains unbuilt — it needs the structural pairing declaration
+and folds into the paired-tests work.
 
 **Counts as a stochastic outcome — the rate (Poisson) family.** A count column
 is type-indistinguishable from a continuous measurement (both `numeric`), so
@@ -526,10 +532,15 @@ per cell, gid-uniqueness and singular figure chrome across the grid, and
 template that makes the inferential n visible (closing item 10's gap). That
 completes the composable-grammar track through Phase 5. Remaining for Tier 2:
 the redesigned statistics (§5) — the opt-in, describe-by-default **guided test
-picker**, the paired and contingency-inferential cells the current engine lacks,
-the omnibus→post-hoc/correction layer (one-way ANOVA + Tukey, Kruskal–Wallis)
-and the significance brackets it drives, plus the minimal Poisson rate slice;
-paired plots and tests (`pair_by`); undo/redo; methods/statistics-table export. A known e2e-suite regression (stale
+picker** (shipped 16 June 2026: the independent contingency cell — chi-square /
+Fisher's exact — and the **two-question structural × assumption grid for the
+two-group numeric family**: paired t / Wilcoxon now join Welch / Mann–Whitney,
+with the structural axis read from the spine-derived pairing and a `decision`
+object recording each question's recommendation; still pending — McNemar, the
+paired contingency cell), the omnibus→post-hoc/correction layer (one-way ANOVA +
+Tukey, Kruskal–Wallis) and the significance brackets it drives, plus the minimal
+Poisson rate slice; paired *plots*; undo/redo; methods/statistics-table export.
+A known e2e-suite regression (stale
 selectors and assumptions left over from the Phase 3 fix pass, plus no
 UI-level coverage yet for Phase 3's three new render paths) is tracked in
 `TODO.md` — fix before trusting `e2e/` results again; Phase 4 and Phase 5 add

@@ -48,71 +48,168 @@ def shapiro_check(values: np.ndarray) -> dict:
     return {"ok": True, "W": float(W), "p": float(p), "n": n}
 
 
-def _aggregate_reps(df: pd.DataFrame, group: str, value: str,
-                    rep_key: list[str]) -> pd.DataFrame:
-    """Collapse technical replicates to one value per *independent repetition*
-    before the stats run, so n and the test reflect independent units rather than
-    raw rows (TODO item 10). A unit is (grouping column × repetition key); the
-    value within each unit is averaged. The figure still plots the raw rows, so
-    this only changes the inferential numbers (mean ± error, the test, and n).
-    The combine method is a mean here; choosing a different summary (median, …)
-    is the Collapse pipeline step's job, not this one's."""
-    keys = [group] + [k for k in rep_key if k and k not in (group, value)]
-    agg = (df[[*keys, value]].dropna(subset=[value])
-           .groupby(keys, as_index=False, observed=True)[value].mean())
-    agg.attrs["n_excluded"] = int(df.attrs.get("n_excluded", 0))
-    return agg
+def _paired_arrays(df: pd.DataFrame, group: str, value: str,
+                   levels: list[str], unit_cols: list[str]):
+    """Aligned per-unit values for a paired comparison. Each pairing unit (a
+    groupby over `unit_cols`, the spine levels coarser than the comparison's home
+    — see hierarchy.pairing) contributes its *mean* value under each of the two
+    `levels`; units missing either level are dropped (partial pairing). Returns
+    (a, b, n_complete, n_units) where a[i]/b[i] are unit i's values under
+    levels[0]/levels[1]. Mean is the within-unit combine, matching the figure's
+    per-level summary; it never changes what the raw rows plot."""
+    sub = df[[*unit_cols, group, value]].dropna(subset=[value])
+    cell = (sub.groupby([*unit_cols, group], observed=True)[value]
+               .mean().reset_index())
+    wide = cell.pivot_table(index=unit_cols, columns=group, values=value,
+                            observed=True)
+    n_units = int(len(wide))
+    if levels[0] not in wide.columns or levels[1] not in wide.columns:
+        return np.array([]), np.array([]), 0, n_units
+    both = wide.dropna(subset=list(levels))
+    return (both[levels[0]].to_numpy(dtype=float),
+            both[levels[1]].to_numpy(dtype=float), int(len(both)), n_units)
+
+
+# The §5 two-group grid: structural (independent vs paired) × assumption
+# (parametric vs robust) → one of four tests.
+_COMBINE = {("independent", "parametric"): "welch_t",
+            ("independent", "robust"): "mann_whitney",
+            ("paired", "parametric"): "paired_t",
+            ("paired", "robust"): "wilcoxon"}
+_PAIRED_TESTS = {"paired_t", "wilcoxon"}
+_PARAM_TESTS = {"welch_t", "paired_t"}
 
 
 def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
                      alpha: float = 0.05, override: str | None = None,
-                     rep_key: list[str] | None = None) -> dict:
-    """Two-group comparison matching the frozen analysis-spec semantics. When
-    rep_key is set, technical replicates are first collapsed to one value per
-    independent unit (see _aggregate_reps) so n and the test count units."""
-    if rep_key:
-        df = _aggregate_reps(df, x, y, rep_key)
+                     pairing: dict | None = None) -> dict:
+    """Two-group comparison as the §5 guided picker: the choice splits on a
+    *structural* axis (independent vs paired) and an *assumption* axis
+    (parametric vs robust). The structural axis is read from `pairing` (derived
+    from the spine — no user declaration); the assumption axis is proposed from a
+    Shapiro–Wilk check (each group when independent, the paired differences when
+    paired) and confirmable. `override` is a single test name pinning both axes.
+    The returned `decision` records each question's recommendation and what was
+    chosen (per §5); `recommendation`/`chosen_by` stay for the existing UI."""
     sub = df[[x, y]].dropna()
     found = [lv for lv in levels if lv in set(sub[x])]
-    extra = sorted(set(sub[x]) - set(levels))
-    found += extra
+    found += sorted(set(sub[x]) - set(levels))
     if len(found) != 2:
         return {"error": f"needs exactly 2 groups (found {len(found)})", "levels": found}
 
-    g = {lv: sub.loc[sub[x] == lv, y].to_numpy(dtype=float) for lv in found}
-    a, b = g[found[0]], g[found[1]]
-    if min(len(a), len(b)) < 3:
-        return {"error": "too few observations per group", "levels": found}
+    verdict = (pairing or {}).get("verdict")
+    unit_cols = (pairing or {}).get("unit_cols") or []
+    paired_possible = bool(unit_cols) and verdict in ("paired", "partially_paired")
 
-    checks = [
-        {"check": "shapiro_wilk", "group": found[0], **shapiro_check(a)},
-        {"check": "shapiro_wilk", "group": found[1], **shapiro_check(b)},
-    ]
+    if override in _PAIRED_TESTS and not paired_possible:
+        return {"error": "a paired test was requested but the data has no pairing "
+                         "structure (no shared unit spans the two groups)",
+                "levels": found}
 
-    small = min(len(a), len(b)) < MIN_N_FOR_NORMALITY_RULE
-    normal = all(c.get("ok") and c["p"] > alpha for c in checks)
-    if small:
-        recommended, reason = "mann_whitney", (
-            f"a group fell below n = {MIN_N_FOR_NORMALITY_RULE}; the normality check is "
-            "underpowered, so the rank-based test is the safe default")
-    elif normal:
-        recommended, reason = "welch_t", (
-            "Shapiro\u2013Wilk consistent with normality in both groups "
-            f"(p {_fmt_p(checks[0]['p'])}, p {_fmt_p(checks[1]['p'])})")
+    structural_rec = "paired" if paired_possible else "independent"
+    structural_chosen = (("paired" if override in _PAIRED_TESTS else "independent")
+                         if override else structural_rec)
+    if paired_possible:
+        struct_reason = (
+            f"the design is {verdict} across {pairing.get('across')} "
+            f"({pairing.get('n_complete')}/{pairing.get('n_units')} units carry "
+            f"both groups) — a paired test matches the design")
     else:
-        recommended, reason = "mann_whitney", (
-            "Shapiro\u2013Wilk indicates non-normality in at least one group")
+        struct_reason = ("the two groups share no coarser unit, so the "
+                         "observations are independent")
 
+    # Assumption axis — normality of whatever the chosen test will actually see.
+    if structural_chosen == "paired":
+        a, b, n_pairs, _ = _paired_arrays(df, x, y, found, unit_cols)
+        if n_pairs < 3:
+            return {"error": f"too few complete pairs to test (found {n_pairs})",
+                    "levels": found}
+        checks = [{"check": "shapiro_wilk",
+                   "group": f"{found[0]} − {found[1]} differences",
+                   **shapiro_check(a - b)}]
+        small = n_pairs < MIN_N_FOR_NORMALITY_RULE
+        normal = bool(checks[0].get("ok") and checks[0]["p"] > alpha)
+        n_test = n_pairs
+    else:
+        a = sub.loc[sub[x] == found[0], y].to_numpy(dtype=float)
+        b = sub.loc[sub[x] == found[1], y].to_numpy(dtype=float)
+        if min(len(a), len(b)) < 3:
+            return {"error": "too few observations per group", "levels": found}
+        checks = [{"check": "shapiro_wilk", "group": found[0], **shapiro_check(a)},
+                  {"check": "shapiro_wilk", "group": found[1], **shapiro_check(b)}]
+        small = min(len(a), len(b)) < MIN_N_FOR_NORMALITY_RULE
+        normal = all(c.get("ok") and c["p"] > alpha for c in checks)
+        n_test = min(len(a), len(b))
+
+    if small:
+        assumption_rec, assume_reason = "robust", (
+            f"n = {n_test} is small (< {MIN_N_FOR_NORMALITY_RULE}); the normality "
+            "check is underpowered, so the rank-based test is the safe default")
+    elif normal:
+        assumption_rec, assume_reason = "parametric", (
+            "Shapiro–Wilk is consistent with normality")
+    else:
+        assumption_rec, assume_reason = "robust", (
+            "Shapiro–Wilk indicates non-normality")
+    assumption_chosen = (("parametric" if override in _PARAM_TESTS else "robust")
+                         if override else assumption_rec)
+
+    recommended = _COMBINE[(structural_rec, assumption_rec)]
     test = override or recommended
+    decision = {
+        "structural": {
+            "recommended": structural_rec, "chosen": structural_chosen,
+            "chosen_by": ("user_override" if structural_chosen != structural_rec
+                          else "recommendation_accepted"),
+            "reason": struct_reason,
+            "options": ["independent", "paired"] if paired_possible else ["independent"]},
+        "assumption": {
+            "recommended": assumption_rec, "chosen": assumption_chosen,
+            "chosen_by": ("user_override" if assumption_chosen != assumption_rec
+                          else "recommendation_accepted"),
+            "reason": assume_reason, "options": ["parametric", "robust"]},
+    }
+
     nA, nB = len(a), len(b)
     n_excl = int(df.attrs.get("n_excluded", 0))
     excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
-    if rep_key:
-        excl_note += (f" n counts independent repetitions "
-                      f"({' × '.join(rep_key)}); technical replicates were "
-                      f"averaged within each before testing.")
+    if structural_chosen == "paired":
+        excl_note += (f" n counts {nA} complete pairs across "
+                      f"{pairing.get('across')}.")
 
-    if test == "welch_t":
+    if test == "paired_t":
+        tt = pg.ttest(a, b, paired=True)
+        row = tt.iloc[0]
+        gd = float(pg.compute_effsize(a, b, paired=True, eftype="hedges"))
+        ci_lo, ci_hi = (float(v) for v in _col(row, "CI95", "CI95%"))
+        md = float(np.mean(a - b))
+        result = {
+            "test": "paired_t", "t": float(_col(row, "T")),
+            "df": float(_col(row, "dof")), "p": float(_col(row, "p_val", "p-val")),
+            "n": nA, "mean_diff": md, "mean_diff_ci": [ci_lo, ci_hi],
+            "effect": {"name": "hedges_g", "value": gd, "ci": None},
+        }
+        methods = (
+            f"{y} was compared between {found[0]} and {found[1]} using a paired "
+            f"t-test on {nA} matched pairs. t({_col(row,'dof'):.0f}) = "
+            f"{_col(row,'T'):.2f}, p {_fmt_p(_col(row,'p_val','p-val'))}; "
+            f"Hedges' g = {gd:.2f}; mean difference = {md:.2f} "
+            f"(95% CI {ci_lo:.2f} to {ci_hi:.2f}).{excl_note}")
+    elif test == "wilcoxon":
+        ww = pg.wilcoxon(a, b)
+        row = ww.iloc[0]
+        W = float(_col(row, "W_val", "W-val"))
+        p = float(_col(row, "p_val", "p-val"))
+        rbc = float(_col(row, "RBC"))
+        result = {
+            "test": "wilcoxon", "W": W, "p": p, "n": nA,
+            "effect": {"name": "rank_biserial", "value": rbc, "ci": None},
+        }
+        methods = (
+            f"{y} was compared between {found[0]} and {found[1]} using the "
+            f"Wilcoxon signed-rank test on {nA} matched pairs. W = {W:.0f}, "
+            f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{excl_note}")
+    elif test == "welch_t":
         tt = pg.ttest(a, b, correction=True)
         row = tt.iloc[0]
         gd = float(pg.compute_effsize(a, b, eftype="hedges"))
@@ -133,7 +230,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             f"(95% CI {gd - 1.96 * se_g:.2f} to {gd + 1.96 * se_g:.2f}).{excl_note}")
     else:
         # scipy's asymptotic U matches pingouin's exactly but skips pingouin's
-        # O(nA\u00b7nB) CLES brute force, which alone cost ~14 s on 80k-row groups.
+        # O(nA·nB) CLES brute force, which alone cost ~14 s on 80k-row groups.
         # method="auto" mirrors pingouin's default (exact only for tiny n).
         mw = sps.mannwhitneyu(a, b, alternative="two-sided", method="auto")
         U = float(mw.statistic)
@@ -145,20 +242,23 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
         }
         methods = (
             f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
-            f"using the Mann\u2013Whitney U test. U = {U:.0f}, "
+            f"using the Mann–Whitney U test. U = {U:.0f}, "
             f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{excl_note}")
 
-    # per-group summaries for the plot (mean ± 95% CI of the mean)
+    # per-group summaries for the plot (mean ± 95% CI of the mean), on raw rows
     summaries = []
     for lv in found:
-        v = g[lv]
+        v = sub.loc[sub[x] == lv, y].to_numpy(dtype=float)
         ci_half = float(sps.t.ppf(0.975, len(v) - 1) * sps.sem(v)) if len(v) > 1 else 0.0
         summaries.append({"group": lv, "n": len(v), "mean": float(np.mean(v)),
-                          "sd": float(np.std(v, ddof=1)), "ci95_half": ci_half})
+                          "sd": float(np.std(v, ddof=1)) if len(v) > 1 else 0.0,
+                          "ci95_half": ci_half})
 
     return {
         "levels": found, "checks": checks,
-        "recommendation": {"test": recommended, "reason": reason},
+        "recommendation": {"test": recommended,
+                           "reason": f"{struct_reason}; {assume_reason}"},
+        "decision": decision,
         "chosen_by": "user_override" if override else "recommendation_accepted",
         "result": result, "summaries": summaries, "alpha": alpha,
         "methods_text": methods,
@@ -173,13 +273,10 @@ def _summary(label: str, v: np.ndarray) -> dict:
 
 
 def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
-                    alpha: float = 0.05, rep_key: list[str] | None = None) -> dict:
+                    alpha: float = 0.05) -> dict:
     """Per-group summaries for the comparison figure with NO inferential test —
     the 'describe only' path. Matches group_comparison's summaries shape so the
-    figure (dots, box, bar, mean ± error) renders, but reports no p/effect.
-    Honors rep_key so the reported n / error bars count independent units."""
-    if rep_key:
-        df = _aggregate_reps(df, x, y, rep_key)
+    figure (dots, box, bar, mean ± error) renders, but reports no p/effect."""
     sub = df[[x, y]].dropna()
     found = [lv for lv in levels if lv in set(sub[x])]
     found += sorted(set(sub[x]) - set(levels))
@@ -318,6 +415,97 @@ def contingency_counts(df: pd.DataFrame, x: str, y: str,
         "summaries": [], "alpha": alpha,
         "methods_text": (f"The contingency of {y} × {x} was displayed for "
                          f"n = {total} observations.{excl}"),
+    }
+
+
+def contingency_test(df: pd.DataFrame, x: str, y: str,
+                     x_levels: list[str], y_levels: list[str],
+                     alpha: float = 0.05, override: str | None = None) -> dict:
+    """Inferential test for a categorical x × categorical y contingency table —
+    the §5 categorical×categorical family, independent (unpaired) cell.
+
+    Pearson chi-square is the default; Fisher's exact is recommended for a 2×2
+    table when any expected cell count < 5 (the standard small-sample rule). The
+    effect size is Cramér's V (general tables) or the odds ratio with a 95% CI
+    (2×2). Counts/total/levels are still returned so the tile figure renders from
+    the same result. The paired cell (McNemar) is separate — it needs a pairing
+    declaration and is handled with the structural axis.
+
+    All inferential numbers come from scipy (chi2_contingency / fisher_exact)."""
+    base = contingency_counts(df, x, y, x_levels, y_levels, alpha)
+    full = np.array(base["counts"], dtype=float)  # rows = y_levels, cols = x_levels
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+
+    # Drop all-zero rows/cols: a schema level with no observations (e.g. after
+    # exclusions) contributes nothing and makes chi2_contingency raise. The full
+    # matrix is kept in the result for the tile; only the test sees the dense one.
+    obs = full[full.sum(axis=1) > 0][:, full.sum(axis=0) > 0]
+    if obs.shape[0] < 2 or obs.shape[1] < 2:
+        return {"error": "needs at least 2 non-empty levels in each variable for a "
+                f"contingency test (found {obs.shape[0]}×{obs.shape[1]})"}
+
+    chi2, p_chi, dof, expected = sps.chi2_contingency(obs, correction=False)
+    n = int(obs.sum())
+    k = min(obs.shape)
+    cramers_v = float(np.sqrt(chi2 / (n * (k - 1)))) if k > 1 else 0.0
+    is_2x2 = obs.shape == (2, 2)
+    small_expected = bool((expected < 5).any())
+
+    if is_2x2 and small_expected:
+        recommended, reason = "fisher_exact", (
+            "a 2×2 table with an expected count < 5; Fisher's exact test is the "
+            "safe default (chi-square is unreliable for small expected counts)")
+    elif is_2x2:
+        recommended, reason = "chi_square", (
+            "a 2×2 table with all expected counts ≥ 5; the chi-square "
+            "approximation is appropriate")
+    else:
+        recommended, reason = "chi_square", (
+            f"a {obs.shape[0]}×{obs.shape[1]} table; the chi-square test is used "
+            "(Fisher's exact is offered only for 2×2)")
+
+    test = override or recommended
+    if test == "fisher_exact" and not is_2x2:
+        test = "chi_square"  # Fisher's exact (scipy) is 2×2 only
+
+    if test == "fisher_exact":
+        odds_ratio, p = sps.fisher_exact(obs)
+        p = float(p)
+        # OR + 95% CI from the cells; Haldane–Anscombe (+0.5) only when a cell is
+        # zero, so OR and CI stay finite and mutually consistent.
+        cells = obs.reshape(-1)  # [a, b, c, d]
+        corr = 0.5 if (cells == 0).any() else 0.0
+        ac = cells + corr
+        or_val = float((ac[0] * ac[3]) / (ac[1] * ac[2]))
+        se = float(np.sqrt((1.0 / ac).sum()))
+        ci = [float(np.exp(np.log(or_val) - 1.96 * se)),
+              float(np.exp(np.log(or_val) + 1.96 * se))]
+        result = {"test": "fisher_exact", "p": p, "n": n,
+                  "odds_ratio": or_val,
+                  "effect": {"name": "odds_ratio", "value": or_val, "ci": ci}}
+        methods = (
+            f"The association between {x} and {y} was tested with Fisher's exact "
+            f"test (n = {n}). Odds ratio = {or_val:.2f} "
+            f"(95% CI {ci[0]:.2f} to {ci[1]:.2f}), p {_fmt_p(p)}.{excl}")
+    else:
+        result = {"test": "chi_square", "chi2": float(chi2), "dof": int(dof),
+                  "p": float(p_chi), "n": n,
+                  "effect": {"name": "cramers_v", "value": cramers_v, "ci": None}}
+        methods = (
+            f"The association between {x} and {y} was tested with Pearson's "
+            f"chi-square test of independence (n = {n}). "
+            f"χ²({int(dof)}) = {chi2:.2f}, p {_fmt_p(float(p_chi))}; "
+            f"Cramér's V = {cramers_v:.2f}.{excl}")
+
+    return {
+        "x_levels": base["x_levels"], "y_levels": base["y_levels"],
+        "counts": base["counts"], "total": base["total"],
+        "levels": [], "checks": [],
+        "recommendation": {"test": recommended, "reason": reason},
+        "chosen_by": "user_override" if override else "recommendation_accepted",
+        "result": result, "summaries": [], "alpha": alpha,
+        "methods_text": methods,
     }
 
 

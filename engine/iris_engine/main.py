@@ -235,7 +235,7 @@ def _run(table: dict, spec: dict):
                stats.group_comparison(
                    df, cat_col, val_col,
                    levels=cat_schema.get("levels", []), alpha=alpha,
-                   override=override))
+                   override=override, pairing=model["pairing"]))
     elif family == "correlation":
         res = (stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
@@ -254,7 +254,11 @@ def _run(table: dict, spec: dict):
             str(v) for v in df[enc_x].dropna().unique())
         y_levels = ((y_sch.get("levels") or []) if y_sch else []) or sorted(
             str(v) for v in df[enc_y].dropna().unique())
-        res = stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels, alpha=alpha)
+        res = (stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels,
+                                        alpha=alpha)
+               if describe_only else
+               stats.contingency_test(df, enc_x, enc_y, x_levels, y_levels,
+                                      alpha=alpha, override=override))
     else:
         raise HTTPException(422, "no statistical model — map X / Y to analyze")
     if "error" in res:
