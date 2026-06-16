@@ -883,3 +883,15 @@ def test_session_create_window_and_ops():
 def test_session_missing_id_is_409():
     r = client.post("/table/deadbeef/rows", json={"start": 0, "end": 5})
     assert r.status_code == 409
+
+
+def test_analyze_by_session_id():
+    rows = [{"id": str(i + 1), "excluded": False,
+             "treatment": "control" if i < 20 else "drug_a",
+             "dose": float(i % 10), "response": float(i)} for i in range(40)]
+    table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
+    tid = client.post("/table/create", json={"table": table}).json()["id"]
+    spec = make_spec()                       # existing helper
+    r = client.post("/analyze", json={"table_token": tid, "spec": spec})
+    assert r.status_code == 200
+    assert "figure" in r.json()

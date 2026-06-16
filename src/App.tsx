@@ -171,7 +171,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
-  }, [tableToken, specKey, schemaKey, mappingError]);
+  }, [tableToken, handle?.version, specKey, schemaKey, mappingError]);
 
   /* live reduced-table preview for the active plottable, recomputed as the
      pipeline changes. Independent of the analyze loop and valid before any
@@ -197,7 +197,7 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(previewTimer.current);
-  }, [tableToken, stepsKey, activeId]);
+  }, [tableToken, handle?.version, stepsKey, activeId]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec) return;

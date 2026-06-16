@@ -132,12 +132,18 @@ def _cache_table(table: dict) -> str:
 
 
 def _resolve_table(table: dict | None, token: str | None) -> dict:
-    """A request may inline the table or reference a cached one by token.
-    Inlining also refreshes the cache so a follow-up token request hits."""
+    """A request may inline the table, reference the session table by its id, or
+    reference a content-cached one by token. Inlining also refreshes the cache so
+    a follow-up token request hits."""
     if table is not None:
         if token:
             _TABLE_CACHE.setdefault(token, table)
         return table
+    sess = _SESSIONS.get(token)
+    if sess is not None:
+        # the full row list for compute; pandas already holds it, so this is an
+        # in-process slice, not a transfer.
+        return {"schema": sess.schema, "rows": sess.window(0, sess.n)}
     if token and token in _TABLE_CACHE:
         return _TABLE_CACHE[token]
     raise HTTPException(409, "table not cached; resend full table")
