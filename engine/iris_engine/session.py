@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 
 
-def _records(df: pd.DataFrame) -> list[dict]:
+def records(df: pd.DataFrame) -> list[dict]:
     # object dtype so NaN/NaT survive the replace; then -> None for JSON null.
     return df.astype(object).where(pd.notnull(df), None).to_dict(orient="records")
 
@@ -37,11 +37,19 @@ class SessionTable:
     def frame(self) -> pd.DataFrame:
         return self._df
 
+    def snapshot(self) -> pd.DataFrame:
+        """A consistent, caller-owned copy of the whole frame, taken under the
+        lock so it can't tear against a concurrent edit/exclusion. Compute reads
+        this directly instead of round-tripping the frame through a row list — a
+        vectorized copy, not the per-cell boxing `records` pays."""
+        with self._lock:
+            return self._df.copy()
+
     def window(self, start: int, end: int) -> list[dict]:
         with self._lock:
             start = max(0, start)
             end = min(self.n, max(start, end))
-            return _records(self._df.iloc[start:end])
+            return records(self._df.iloc[start:end])
 
     def _row_pos(self, row_id: str) -> int:
         hits = self._df.index[self._df["id"].astype(str) == str(row_id)]

@@ -36,6 +36,8 @@ fi
 IMAGE="iris-sandbox"
 PROXY_IMAGE="iris-egress-proxy"
 PROXY_NAME="iris-proxy"
+HEADROOM_IMAGE="iris-headroom-proxy"
+HEADROOM_NAME="iris-headroom"
 EXT_NET="iris-egress"      # normal bridge: proxy's path to the internet
 INT_NET="iris-internal"    # --internal: sandbox lives here, no direct egress
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -57,6 +59,10 @@ if [ "$REBUILD" = "1" ] || ! docker image inspect "$PROXY_IMAGE" >/dev/null 2>&1
     echo ">>> Building $PROXY_IMAGE..."
     docker build -t "$PROXY_IMAGE" "$DC_DIR/proxy"
 fi
+if [ "$REBUILD" = "1" ] || ! docker image inspect "$HEADROOM_IMAGE" >/dev/null 2>&1; then
+    echo ">>> Building $HEADROOM_IMAGE..."
+    docker build -t "$HEADROOM_IMAGE" "$DC_DIR/headroom"
+fi
 
 # Egress networks: EXT has internet, INT is isolated (--internal). The sandbox
 # attaches only to INT; the proxy bridges INT -> EXT -> internet.
@@ -74,6 +80,24 @@ docker run -d --name "$PROXY_NAME" --hostname "$PROXY_NAME" \
     "$PROXY_IMAGE" >/dev/null
 docker network connect "$INT_NET" "$PROXY_NAME"
 
+PROXY_URL="http://${PROXY_NAME}:8888"
+HEADROOM_URL="http://${HEADROOM_NAME}:8787"
+
+# (Re)start the Headroom optimization proxy. Lives on the internal network only;
+# the sandbox routes its Anthropic API traffic here (ANTHROPIC_BASE_URL) for
+# token compression/caching, and Headroom forwards upstream to api.anthropic.com
+# through the SAME filtering egress proxy (iris-proxy via HTTPS_PROXY) — so the
+# egress allowlist still governs all outbound traffic. Recreated each launch so
+# image/flag changes always take effect.
+docker rm -f "$HEADROOM_NAME" >/dev/null 2>&1 || true
+docker run -d --name "$HEADROOM_NAME" --hostname "$HEADROOM_NAME" \
+    --restart unless-stopped \
+    --network "$INT_NET" \
+    -e HTTP_PROXY="$PROXY_URL" -e HTTPS_PROXY="$PROXY_URL" \
+    -e http_proxy="$PROXY_URL" -e https_proxy="$PROXY_URL" \
+    -e NO_PROXY="localhost,127.0.0.1" -e no_proxy="localhost,127.0.0.1" \
+    "$HEADROOM_IMAGE" >/dev/null
+
 # Named volumes keep the container's deps and caches off both the host filesystem
 # and the host-built artifacts in the project tree:
 #   iris-node-modules  -> /workspace/node_modules (NOT the host's, which is host-built)
@@ -88,8 +112,7 @@ for vol in iris-node-modules iris-cargo-target iris-cargo-registry \
     docker volume create "$vol" >/dev/null
 done
 
-PROXY_URL="http://${PROXY_NAME}:8888"
-echo ">>> Starting sandbox (egress via ${PROXY_NAME}; project at /workspace)..."
+echo ">>> Starting sandbox (egress via ${PROXY_NAME}; Anthropic via ${HEADROOM_NAME}; project at /workspace)..."
 # Heads-up: rootless Docker 29.5.x prints a bogus 'WARNING: IPv4 forwarding is
 # disabled. Networking will not work.' It checks ip_forward in the host netns
 # instead of the daemon's detached netns, where it is in fact enabled. Egress
@@ -103,7 +126,10 @@ exec docker run -it --rm \
     --network "$INT_NET" \
     -e HTTP_PROXY="$PROXY_URL" -e HTTPS_PROXY="$PROXY_URL" \
     -e http_proxy="$PROXY_URL" -e https_proxy="$PROXY_URL" \
-    -e NO_PROXY="localhost,127.0.0.1" -e no_proxy="localhost,127.0.0.1" \
+    -e NO_PROXY="localhost,127.0.0.1,${HEADROOM_NAME}" \
+    -e no_proxy="localhost,127.0.0.1,${HEADROOM_NAME}" \
+    -e ANTHROPIC_BASE_URL="$HEADROOM_URL" \
+    -e ENABLE_TOOL_SEARCH=true \
     -v "$PROJECT_DIR":/workspace \
     -v iris-node-modules:/workspace/node_modules \
     -v iris-cargo-target:/opt/iris-target \

@@ -6,10 +6,12 @@ Tauri mode: spawned by the shell at startup.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import json
 import os
 import sys
+from collections import OrderedDict
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -120,6 +122,114 @@ _TABLE_CACHE_MAX = 4
 
 _SESSIONS = session_mod.SessionStore()
 
+# Stats memoization. The statistical result depends only on the data and the
+# spec's analysis fields — never on presentation — so a style-only edit (moving
+# a legend, recolouring, fonts) can reuse the computed stats and re-render in
+# figure-build time (~300 ms) instead of rerunning the whole pipeline, which is
+# seconds for a many-group comparison. Keyed on a stable data identity plus the
+# spec with presentation/derived blocks stripped; a small LRU of result dicts.
+_STATS_CACHE: "OrderedDict[str, dict]" = OrderedDict()
+_STATS_CACHE_MAX = 64
+# Blocks the stats dispatch in `_run` provably never reads: pure figure furniture
+# (`style`) and engine-derived outputs (`stat_model`, `engine_snapshot`). Stripping
+# is a denylist on purpose — everything else stays in the key, so a future
+# analysis field can never be silently served stale. The conservative direction
+# for a correctness-critical tool: an over-broad key only costs a recompute.
+_STATS_IRRELEVANT = frozenset({"style", "stat_model", "engine_snapshot"})
+
+
+def _table_identity(table: dict | None, token: str | None) -> str | None:
+    """A cheap, stable id for the resolved data, used as the stats-cache data key.
+    The live app references the session table by id, whose `version` bumps on
+    every edit/exclusion — equal ids therefore mean identical data. Returns None
+    (caching disabled) for an inline-only table we won't pay to hash."""
+    if token:
+        sess = _SESSIONS.get(token)
+        if sess is not None:
+            return f"sess:{token}:{sess.version}"
+        if token in _TABLE_CACHE:
+            return f"tok:{token}"          # token is itself a content hash
+    return None
+
+
+def _stats_cache_key(data_id: str | None, spec: dict) -> str | None:
+    if not data_id:
+        return None
+    relevant = {k: v for k, v in spec.items() if k not in _STATS_IRRELEVANT}
+    blob = json.dumps(relevant, sort_keys=True, separators=(",", ":"), default=str)
+    return data_id + "\x00" + hashlib.sha1(blob.encode()).hexdigest()
+
+
+def _memo_stats(key: str | None, compute):
+    """Return the cached stats for `key`, else compute, store, and return. The
+    uncacheable (key is None) and error results always recompute. Copies on the
+    way in and out so neither the cache nor a caller can mutate the other's dict."""
+    if key is None:
+        return compute()
+    hit = _STATS_CACHE.get(key)
+    if hit is not None:
+        _STATS_CACHE.move_to_end(key)
+        return copy.deepcopy(hit)
+    res = compute()
+    if isinstance(res, dict) and "error" not in res:
+        _STATS_CACHE[key] = copy.deepcopy(res)
+        _STATS_CACHE.move_to_end(key)
+        while len(_STATS_CACHE) > _STATS_CACHE_MAX:
+            _STATS_CACHE.popitem(last=False)
+    return res
+
+
+# Render-pipeline memoization. Everything from the reduced frame through the
+# materialized hierarchy levels and the stats result is a pure function of the
+# data identity and the analysis spec — never of presentation. Profiling the
+# deep-spine superplots showed the cost is the hierarchy materialization (~1 s
+# for 80k rows over a 4-level spine), not the stats call, so memoizing stats
+# alone left a style-only edit (moving a legend, recolouring, fonts) re-running
+# the whole pipeline. This cache keeps the entire style-independent result so
+# such an edit only re-runs build_figure (~100 ms). Keyed identically to the
+# stats cache (style stripped); bounded by an approximate byte budget because
+# each entry holds the reduced frame plus its per-level tables. build_figure
+# treats these frames as read-only (it slices/filters into new frames), so
+# entries are shared by reference rather than copied.
+_PIPELINE_CACHE: "OrderedDict[str, tuple[tuple, int]]" = OrderedDict()
+_PIPELINE_CACHE_BUDGET = 300 * 1024 * 1024   # ~300 MB, matching the frontend LRU
+_PIPELINE_CACHE_BYTES = 0
+
+
+def _frame_bytes(df) -> int:
+    try:
+        return int(df.memory_usage(deep=True).sum())
+    except Exception:
+        return 0
+
+
+def _pipeline_get(key: str | None):
+    if key is None:
+        return None
+    hit = _PIPELINE_CACHE.get(key)
+    if hit is None:
+        return None
+    _PIPELINE_CACHE.move_to_end(key)
+    return hit[0]
+
+
+def _pipeline_put(key: str | None, payload: tuple, level_tables: dict) -> None:
+    if key is None:
+        return
+    global _PIPELINE_CACHE_BYTES
+    nbytes = _frame_bytes(payload[0])           # the reduced frame
+    for ldf, _schema in (level_tables or {}).values():
+        nbytes += _frame_bytes(ldf)
+    old = _PIPELINE_CACHE.pop(key, None)
+    if old is not None:
+        _PIPELINE_CACHE_BYTES -= old[1]
+    _PIPELINE_CACHE[key] = (payload, nbytes)
+    _PIPELINE_CACHE_BYTES += nbytes
+    # evict oldest until under budget, but never the entry we just stored
+    while _PIPELINE_CACHE_BYTES > _PIPELINE_CACHE_BUDGET and len(_PIPELINE_CACHE) > 1:
+        _, (_old_payload, old_bytes) = _PIPELINE_CACHE.popitem(last=False)
+        _PIPELINE_CACHE_BYTES -= old_bytes
+
 
 def _store_table(token: str, table: dict) -> str:
     if token not in _TABLE_CACHE:
@@ -146,9 +256,10 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
         return table
     sess = _SESSIONS.get(token)
     if sess is not None:
-        # the full row list for compute; pandas already holds it, so this is an
-        # in-process slice, not a transfer.
-        return {"schema": sess.schema, "rows": sess.window(0, sess.n)}
+        # Hand compute the frame directly. Serializing it to a row list here only
+        # to rebuild a DataFrame in `frame_from_table` was ~0.6 s of per-cell
+        # boxing for an 80k-row table on every request; the `frame` key skips it.
+        return {"schema": sess.schema, "frame": sess.snapshot()}
     if token and token in _TABLE_CACHE:
         return _TABLE_CACHE[token]
     raise HTTPException(409, "table not cached; resend full table")
@@ -234,9 +345,13 @@ def _import_frame(token: str, filename: str, options: dict,
 
 
 def frame_from_table(table: dict) -> pd.DataFrame:
-    """Build a DataFrame from either table wire format: columnar
-    (`{columns: {name: [...]}}`, the compact form sent by /import/commit) or the
-    legacy row form (`{rows: [{...}]}`, still used by edits/saves/sample)."""
+    """Build a DataFrame from a resolved table. A session resolves to a ready
+    `frame` (a caller-owned snapshot) and is returned as-is; otherwise it's one
+    of the wire formats: columnar (`{columns: {name: [...]}}`, the compact form
+    sent by /import/commit) or the row form (`{rows: [{...}]}`, used by
+    edits/saves/sample)."""
+    if "frame" in table:
+        return table["frame"]
     if "columns" in table:
         return pd.DataFrame(table["columns"])
     return pd.DataFrame(table.get("rows", []))
@@ -294,8 +409,25 @@ def _column_summary(df: pd.DataFrame, schema: dict) -> list[dict]:
     return out
 
 
-def _run(table: dict, spec: dict):
+def _run(table, spec: dict, data_id: str | None = None):
+    # `table` is the resolved table dict, or a zero-arg callable returning one.
+    # Resolving the session table serializes the whole frame to rows (~0.6 s for
+    # an 80k-row table), so it's deferred behind the pipeline-cache check: a
+    # style-only edit hits the cache and returns from build_figure without ever
+    # paying for it.
     spec = specnorm.normalize(spec)
+    # Built before any spec mutation below. The whole style-independent pipeline
+    # (reduction, hierarchy materialization, stats) is memoized on this key, so a
+    # style-only edit skips straight to build_figure; the terminal stats call is
+    # additionally memoized on the same key for the pipeline-cache miss path.
+    stats_key = _stats_cache_key(data_id, spec)
+    cached = _pipeline_get(stats_key)
+    if cached is not None:
+        df, schema, model, res, issues, level_tables = cached
+        spec["stat_model"] = model
+        fig = compiler.build_figure(df, schema, spec, res, level_tables)
+        return fig, res, df, schema, model, issues
+    table = table() if callable(table) else table
     df, schema = _prepare(table, spec)
     steps = (spec.get("reduce") or {}).get("steps") or []
     try:
@@ -376,29 +508,32 @@ def _run(table: dict, spec: dict):
         inf_level = hierarchy.coarsest_level(present_spine, layer_levels)
         model["inferential_level"] = inf_level
         stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
-        res = (stats.describe_groups(
+        res = _memo_stats(stats_key, lambda: (
+               stats.describe_groups(
                    stat_df, cat_col, val_col,
                    levels=cat_schema.get("levels", []), alpha=alpha)
                if describe_only else
                stats.group_comparison(
                    stat_df, cat_col, val_col,
                    levels=cat_schema.get("levels", []), alpha=alpha,
-                   override=override, pairing=model["pairing"]))
+                   override=override, pairing=model["pairing"])))
     elif family == "correlation":
-        res = (stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
+        res = _memo_stats(stats_key, lambda: (
+               stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
                if describe_only else
                stats.correlation(df, enc["x"]["column"], enc["y"]["column"],
-                                 alpha=alpha, override=override))
+                                 alpha=alpha, override=override)))
     elif family == "timeseries":
         # Describe-only in the first cut (no inferential test on time courses).
         # The figure (build_timeseries_figure) computes its own per-timepoint
         # means/bands and per-unit curves internally from the raw rows, so the
         # stats result is a legible describe-only summary, not a test.
-        res = stats.timeseries(df, enc["x"]["column"], enc["y"]["column"],
-                               alpha=alpha)
+        res = _memo_stats(stats_key, lambda: stats.timeseries(
+                   df, enc["x"]["column"], enc["y"]["column"], alpha=alpha))
     elif family == "descriptive":
-        res = stats.descriptive(df, enc["y"]["column"], alpha=alpha)
+        res = _memo_stats(stats_key, lambda: stats.descriptive(
+                   df, enc["y"]["column"], alpha=alpha))
     elif family == "contingency":
         # Phase 3d: tile/heatmap — count rows per (x_level, y_level) cell.
         enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
@@ -409,15 +544,18 @@ def _run(table: dict, spec: dict):
             str(v) for v in df[enc_x].dropna().unique())
         y_levels = ((y_sch.get("levels") or []) if y_sch else []) or sorted(
             str(v) for v in df[enc_y].dropna().unique())
-        res = (stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels,
+        res = _memo_stats(stats_key, lambda: (
+               stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels,
                                         alpha=alpha)
                if describe_only else
                stats.contingency_test(df, enc_x, enc_y, x_levels, y_levels,
-                                      alpha=alpha, override=override))
+                                      alpha=alpha, override=override)))
     else:
         raise HTTPException(422, "no statistical model — map X / Y to analyze")
     if "error" in res:
         raise HTTPException(422, res["error"])
+    _pipeline_put(stats_key, (df, schema, model, res, issues, level_tables),
+                  level_tables or {})
     fig = compiler.build_figure(df, schema, spec, res, level_tables)
     return fig, res, df, schema, model, issues
 
@@ -502,8 +640,9 @@ def table_distinct(tid: str, req: DistinctRequest):
 
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
-    table = _resolve_table(req.table, req.table_token)
-    fig, res, df, schema, model, issues = _run(table, req.spec)
+    data_id = _table_identity(req.table, req.table_token)
+    fig, res, df, schema, model, issues = _run(
+        lambda: _resolve_table(req.table, req.table_token), req.spec, data_id)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     return {"figure": {"svg": svg},
@@ -550,8 +689,9 @@ def hierarchy_describe(req: HierarchyRequest):
 def export(req: ExportRequest):
     if req.format not in ("svg", "pdf", "png"):
         raise HTTPException(400, "format must be svg, pdf, or png")
-    table = _resolve_table(req.table, req.table_token)
-    fig, _, _, _, _, _ = _run(table, req.spec)
+    data_id = _table_identity(req.table, req.table_token)
+    fig, _, _, _, _, _ = _run(
+        lambda: _resolve_table(req.table, req.table_token), req.spec, data_id)
     data = compiler.figure_to_bytes(fig, req.format, dpi=req.dpi)
     compiler.close(fig)
     return {"filename": f"figure.{req.format}",
@@ -616,7 +756,11 @@ def import_commit(req: ImportCommitRequest):
 @app.post("/document/save")
 def doc_save(req: SaveRequest):
     table = _resolve_table(req.table, req.table_id)
-    data = document.save_document(table["schema"], table["rows"],
+    # A session resolves to a `frame`; an inline request carries `rows`. Save is
+    # rare, so paying the frame->rows serialization here (rather than on every
+    # analyze) is fine.
+    rows = table["rows"] if "rows" in table else session_mod.records(table["frame"])
+    data = document.save_document(table["schema"], rows,
                                   req.analyses, req.provenance,
                                   engine_snapshot())
     return {"filename": "document.iris",

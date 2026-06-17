@@ -59,6 +59,29 @@ non-listed hosts are blocked**. Claude's built-in WebSearch is server-side (via
 `api.anthropic.com`), so search still works; fetching an arbitrary URL does not
 unless you add its host.
 
+## Headroom proxy (token compression)
+
+The sandbox's Claude routes its Anthropic API traffic through **Headroom**
+(token compression/caching) without anything being installed in the sandbox
+image. `run-sandbox.sh` starts a separate `iris-headroom` container (built from
+`headroom/Dockerfile`, which `pip install`s `headroom-ai`) on the internal
+network and points the sandbox's `ANTHROPIC_BASE_URL` at it. Headroom forwards
+upstream to `api.anthropic.com` through the **same** `iris-proxy` egress filter
+(via `HTTPS_PROXY`), so the allowlist still governs all outbound traffic.
+
+Unlike `headroom wrap claude` on the host, no `headroom_retrieve` **MCP** tool is
+registered in the sandbox's Claude (that would mean installing headroom in the
+sandbox). Instead the proxy uses Headroom's **CCR tool-injection**: it injects
+`headroom_retrieve` into the request and resolves the tool-call server-side, so
+compressed content stays re-expandable without a client-side MCP. (Do **not**
+add `--no-ccr-inject-tool`/`--no-ccr-marker`: in headroom 0.26.0 that path
+500s on an `UnboundLocalError`, which surfaces inside the sandbox as "API not
+reachable".) `ENABLE_TOOL_SEARCH=true` is set so Claude
+Code keeps on-demand tool loading active despite the custom base URL
+(headroom issue #746). The container is recreated on every
+launch; pin the version via `--build-arg HEADROOM_VERSION=…` in
+`headroom/Dockerfile`.
+
 ## First-time setup (host)
 
 Migrate to rootless Docker (installs `uidmap`/`slirp4netns`, sets up the rootless
