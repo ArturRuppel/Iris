@@ -11,3 +11,6 @@ __pycache__/
 
 # local data corpus — too large to track
 cells_by_frame.csv
+
+# working reference notes — not project documentation
+docs/digital-cell-takeaways.md
