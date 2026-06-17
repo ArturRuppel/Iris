@@ -1,7 +1,7 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { activePlottableAtom, effectiveSchemaAtom, registryAtom } from "../state";
 import type { Channel } from "../channels";
-import { colType, offeredColumns, renderStatus } from "../channels";
+import { colType, geomAxisColTypes, offeredColumns, renderStatus } from "../channels";
 import type { ColumnDef } from "../types";
 import { groupByPrefix } from "./ColumnPicker";
 
@@ -86,14 +86,26 @@ export function EncodingsCard() {
   return (
     <div className="encodings-card">
       {ROWS.map(({ key, label }) => {
+        const value = valueOf(key);
         /* the column the *other* axis holds is excluded so X and Y can't collide */
         const otherAxis = key === "x" ? mappings.y : key === "y" ? mappings.x : "";
-        const offered = offeredColumns(
-          registry, key, columns.filter((c) => c.name !== otherAxis), activeGeoms);
+        let candidates = columns.filter((c) => c.name !== otherAxis);
+        /* geom-first narrowing: once geoms are chosen, X/Y offer only the column
+           types those geoms accept (the inverse of the add-menu gating). The
+           currently-mapped column is always kept so a mapping is never silently
+           dropped. No geoms → registry-wide offer (encoding-first, unchanged). */
+        if ((key === "x" || key === "y") && activeGeoms.length) {
+          const allowed = geomAxisColTypes(activeGeoms, key);
+          if (allowed.size) candidates = candidates.filter((c) => {
+            if (c.name === value) return true;
+            const ct = colType(schema, c.name);
+            return ct !== null && allowed.has(ct);
+          });
+        }
+        const offered = offeredColumns(registry, key, candidates, activeGeoms);
         /* nothing this channel can carry (and nothing stale mapped) → hide row */
         if (offered.selectable.length === 0 && offered.disabled.length === 0
-            && !valueOf(key)) return null;
-        const value = valueOf(key);
+            && !value) return null;
         /* a still-mapped column whose type the engine can't render yet: surface
            the reason inline (it also rides the amber warn-bar after render). */
         const t = colType(schema, value);

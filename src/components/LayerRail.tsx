@@ -4,7 +4,7 @@ import {
   activePlottableAtom, addLayerAtom, effectiveSchemaAtom, hierarchyAtom,
   moveLayerAtom, registryAtom, removeLayerAtom, updateLayerAtom,
 } from "../state";
-import { axisTypes, geomGateReason } from "../channels";
+import { axisTypes, geomAddable, geomGateReason } from "../channels";
 import type { Geom, Layer, Registry } from "../types";
 import { levelOptions } from "../levels";
 import { LayerCard } from "./LayerCards";
@@ -95,14 +95,18 @@ export function LayerRail() {
 
   const allGeoms = Object.keys(registry.geoms) as Geom[];
   const used = new Set(layers.map((l) => l.geom));
-  /* the add menu offers only geoms compatible with the current encoding (item
-     6): an incompatible geom can't be drawn, so adding it just produces a broken
-     layer. Already-used geoms are excluded too. Incompatible ones are hidden
-     here (not disabled-with-reason as in the retype dropdown, where seeing why a
-     switch is blocked is useful); a count tells the user some were hidden. */
+  /* the add menu offers every geom the current encoding doesn't *rule out* —
+     a geom whose mapped axis is the wrong type is hidden (item 6), but an
+     UNMAPPED axis no longer hides it (geom-first: pick a geom before any column,
+     then it narrows the encoding). Already-used geoms are excluded; a count
+     tells the user some were hidden as incompatible. */
   const notUsed = allGeoms.filter((g) => !used.has(g));
-  const addable = notUsed.filter((g) => !gateReason(g));
+  const addable = notUsed.filter((g) => {
+    const meta = registry.geoms[g];
+    return meta ? geomAddable(meta, xType, yType) : false;
+  });
   const hiddenCount = notUsed.length - addable.length;
+  const noEncoding = xType === null && yType === null;
   /* retype options: all geoms minus those used by *other* layers, but always
      keeping this layer's own current geom. */
   const retypeOptions = (geom: Geom) =>
@@ -141,8 +145,11 @@ export function LayerRail() {
             {addable.length === 0 && (
               <em className="rail-empty">
                 {notUsed.length === 0 ? "all geoms added"
-                  : "No layer fits the current encoding — map X / Y to enable layers."}
+                  : "No layer fits the current encoding — change X / Y to enable layers."}
               </em>
+            )}
+            {addable.length > 0 && noEncoding && (
+              <em className="rail-hint">Pick a geom — it will narrow what X / Y can map.</em>
             )}
             {addable.map((g) => (
               <button key={g} onClick={() => { addLayer(g); setAdding(false); }}>

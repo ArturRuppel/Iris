@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { ColType } from "./channels";
 import {
-  familyFor, familyForMappings, geomGateReason, isOfferable, offeredColumns,
-  renderStatus,
+  familyFor, familyForMappings, geomAddable, geomAxisColTypes, geomGateReason,
+  isOfferable, offeredColumns, renderStatus,
 } from "./channels";
 import type { ColumnDef, GeomMeta, Registry, Schema } from "./types";
 
@@ -254,5 +254,49 @@ describe("back-compat — derived family matches the pre-3a stored family", () =
     expect(familyForMappings({ x: "", y: "val" }, SCHEMA)).toBe("descriptive");
     // Phase 3d: categorical × categorical → contingency (no longer falls back to descriptive)
     expect(familyForMappings({ x: "grp", y: "grp" }, SCHEMA)).toBe("contingency");
+  });
+});
+
+describe("geomAddable — geom-first entry (unmapped axis doesn't block)", () => {
+  const box = REG.geoms["box"];          // categorical x, numeric y, no h_orient here
+  const scatter = REG.geoms["scatter"];  // numeric x, numeric y
+  const hbox = REG_3C.geoms["box"];      // h_orient
+
+  it("offers every geom when nothing is mapped (the geom-first start)", () => {
+    for (const g of Object.values(REG.geoms))
+      expect(geomAddable(g, null, null)).toBe(true);
+  });
+  it("keeps a geom addable when only the matching axis is mapped", () => {
+    expect(geomAddable(box, "categorical", null)).toBe(true);   // y still open
+    expect(geomAddable(scatter, "numeric", null)).toBe(true);
+  });
+  it("rules a geom out only when a mapped axis is the wrong type", () => {
+    expect(geomAddable(scatter, "categorical", null)).toBe(false); // x must be numeric
+    expect(geomAddable(box, "numeric", "numeric")).toBe(false);    // x must be categorical
+  });
+  it("h_orient geoms are addable for either orientation's mapped axis", () => {
+    expect(geomAddable(hbox, "numeric", null)).toBe(true);      // horizontal x
+    expect(geomAddable(hbox, "categorical", null)).toBe(true);  // vertical x
+    expect(geomAddable(hbox, null, "categorical")).toBe(true);  // horizontal y
+  });
+});
+
+describe("geomAxisColTypes — geom→encoding narrowing", () => {
+  it("a scatter narrows both axes to numeric", () => {
+    expect([...geomAxisColTypes([REG.geoms["scatter"]], "x")]).toEqual(["numeric"]);
+    expect([...geomAxisColTypes([REG.geoms["scatter"]], "y")]).toEqual(["numeric"]);
+  });
+  it("a vertical box narrows X to categorical, Y to numeric", () => {
+    expect([...geomAxisColTypes([REG.geoms["box"]], "x")]).toEqual(["categorical"]);
+    expect([...geomAxisColTypes([REG.geoms["box"]], "y")]).toEqual(["numeric"]);
+  });
+  it("an h_orient box accepts categorical OR numeric on each axis", () => {
+    expect(new Set(geomAxisColTypes([REG_3C.geoms["box"]], "x")))
+      .toEqual(new Set(["categorical", "numeric"]));
+    expect(new Set(geomAxisColTypes([REG_3C.geoms["box"]], "y")))
+      .toEqual(new Set(["numeric", "categorical"]));
+  });
+  it("no geoms → empty set (caller falls back to the registry-wide offer)", () => {
+    expect(geomAxisColTypes([], "x").size).toBe(0);
   });
 });

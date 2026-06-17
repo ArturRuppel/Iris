@@ -167,6 +167,49 @@ export function geomGateReason(
   return null;
 }
 
+/* --- geom-first entry point: a geom can be chosen *before* its axes are mapped,
+   then it narrows what the encoding offers (the inverse of geomGateReason /
+   the add-menu filter). The two helpers below power that direction. --- */
+
+/* an axis requirement is satisfiable when the axis is still UNMAPPED (null — the
+   geom will constrain it) or already matches; only a *mapped* wrong type fails. */
+function axisSatisfiable(required: string, actual: ColType | null): boolean {
+  return actual === null || typeSatisfied(required, actual);
+}
+
+/* Whether a geom can be ADDED given the (possibly empty) current encoding. Unlike
+   geomGateReason, an unmapped axis doesn't block — so a fresh plottable with no
+   columns mapped still offers every geom, and the user can pick a geom first.
+   A geom is ruled out only when a mapped axis is the wrong type for every
+   orientation the geom supports. */
+export function geomAddable(
+  meta: GeomMeta, xType: ColType | null, yType: ColType | null,
+): boolean {
+  const vertical = axisSatisfiable(meta.x_type, xType)
+                && axisSatisfiable(meta.y_type, yType);
+  if (!meta.h_orient) return vertical;
+  // h_orient geoms also draw horizontally (numeric x, categorical y)
+  const horizontal = axisSatisfiable("numeric", xType)
+                  && axisSatisfiable("categorical", yType);
+  return vertical || horizontal;
+}
+
+/* The column types an axis should offer once geoms are chosen — the geom→encoding
+   narrowing. Union over the active geoms (an h_orient geom accepts categorical OR
+   numeric on each axis). Empty when no geoms are present, so the caller falls
+   back to the registry-wide offer rule (encoding-first, unchanged). */
+export function geomAxisColTypes(
+  activeGeoms: GeomMeta[], axis: "x" | "y",
+): Set<ColType> {
+  const out = new Set<ColType>();
+  for (const g of activeGeoms) {
+    const primary = axis === "x" ? g.x_type : g.y_type;
+    if (primary === "categorical" || primary === "numeric") out.add(primary);
+    if (g.h_orient) out.add(axis === "x" ? "numeric" : "categorical");
+  }
+  return out;
+}
+
 /* channels that treat a spine identifier (a replicate id like `date`) as a
    discrete categorical: color draws it as a palette (the superplot idiom of
    coloring per-grain marks by grain), and the facets split a small-multiples
