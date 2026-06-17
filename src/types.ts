@@ -208,6 +208,7 @@ export interface StyleOverrides {
   font_size_pt?: number;
   marker_size?: number;
   marker_alpha?: number;
+  layout?: "swarm" | "jitter";
   jitter?: number;
   axis_linewidth?: number;
   line_width?: number;

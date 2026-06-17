@@ -7,6 +7,7 @@ same size; PNG only adds rasterization DPI.
 from __future__ import annotations
 
 import io
+import warnings
 import zlib
 
 import matplotlib
@@ -50,6 +51,7 @@ STYLE_PRESETS = {
 STYLE_DEFAULTS = {
     "marker_size": 22.0,     # scatter/dot area in pt²
     "marker_alpha": 0.55,
+    "layout": "swarm",       # dot layout: "swarm" (no-overlap pack) or "jitter"
     "jitter": 0.18,          # half-width of dot jitter in group units
     "axis_linewidth": 0.8,   # spines + ticks
     "line_width": 1.4,       # stat lines: regression, summary CI, density
@@ -399,20 +401,108 @@ def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
 
 def _apply_legend_offset(fig) -> None:
     """Re-anchor a dragged legend (offsets['legend']) by its stored pixel offset.
-    Must run after all artists are placed: draw once to resolve the auto
-    ('best'/'outside') position, shift its lower-left by the offset (points → px,
-    y flipped to the SVG/label convention), express that as an anchor fraction,
-    then freeze the layout engine so the final save doesn't relayout it away.
-    Pops the stash so it stays a no-op (and idempotent) on a second save."""
+    Assumes the canvas has already been drawn (by `_finalize_deferred`) so the
+    auto ('best'/'outside') position is resolved: shift its lower-left by the
+    offset (points → px, y flipped to the SVG/label convention) and express that
+    as an anchor fraction. Pops the stash so it stays a no-op (and idempotent) on
+    a second save."""
     nudge = fig.__dict__.pop("_iris_legend_nudge", None)
     if not nudge:
         return
     leg, anchor_trans, off = nudge
-    fig.canvas.draw()
     bb = leg.get_window_extent()
     dx, dy = off[0] * fig.dpi / 72.0, -off[1] * fig.dpi / 72.0  # y up in display
     fx, fy = anchor_trans.inverted().transform((bb.x0 + dx, bb.y0 + dy))
     leg._loc = (float(fx), float(fy))     # 2-tuple loc = lower-left in the anchor
+
+
+def _apply_beeswarm(fig) -> None:
+    """Pack each registered dot lane so its marks no longer overlap (the swarm
+    layout). Deferred to here because seaborn's `Beeswarm` solver works in pixel
+    space and needs the final axis transform; assumes the canvas has already been
+    drawn (by `_finalize_deferred`). Mirrors `_apply_legend_offset`: pops its
+    stash so a second save is a no-op.
+
+    A lane's sub-series collections (the split by shape marker × discrete colour)
+    are packed *jointly* — concatenated into one solve — so the silhouette
+    reflects the whole group, not each sub-series in isolation. We replicate the
+    transform → solve → writeback wrapper `Beeswarm.__call__` does for one
+    collection, extended across a lane's collections, and reuse the solver's
+    maintained core (`beeswarm`, `add_gutters`). Only the categorical coordinate
+    is rewritten; point counts and ordering are untouched, so every gid still maps
+    to the same row_ids (click-to-exclude survives)."""
+    lanes = fig.__dict__.pop("_iris_beeswarm", None)
+    if not lanes:
+        return
+    from seaborn.categorical import Beeswarm, _get_transform_functions
+    dpi = fig.dpi
+    for lane in lanes:
+        ax, orient, center = lane["ax"], lane["orient"], lane["center"]
+        colls = lane["collections"]
+        cat_idx = 1 if orient == "y" else 0
+        # Gather every sub-series point into one array, recording each
+        # collection's slice so the solved positions can be sliced back. Per-point
+        # radii are computed per collection so the size channel is honoured.
+        slices, offsets, radii, start = [], [], [], 0
+        for coll in colls:
+            xy = np.asarray(coll.get_offsets(), dtype=float).copy()
+            n = xy.shape[0]
+            slices.append((start, start + n))
+            if n:
+                xy[:, cat_idx] = center           # reset to the lane centre
+                sizes = coll.get_sizes()
+                if sizes.size == 1:
+                    sizes = np.repeat(sizes, n)
+                edge = coll.get_linewidth().item()
+                offsets.append(xy)
+                radii.append((np.sqrt(sizes) + edge) / 2 * (dpi / 72))
+                start += n
+        if start <= 1:                            # empty / single-point lane: no-op
+            continue
+        orig_xy_data = np.concatenate(offsets, axis=0)
+        radii = np.concatenate(radii)
+        # To pixel space with the categorical axis first (seaborn's convention),
+        # then sort by the value axis, solve, and unsort.
+        orig_xy = ax.transData.transform(orig_xy_data)
+        if orient == "y":
+            orig_xy = orig_xy[:, [1, 0]]
+        orig_xy = np.c_[orig_xy, radii]
+        sorter = np.argsort(orig_xy[:, 1])
+        bee = Beeswarm(orient=orient, width=lane["width"])
+        new_xyr = np.empty_like(orig_xy)
+        new_xyr[sorter] = bee.beeswarm(orig_xy[sorter])
+        new_xy = new_xyr[:, [1, 0]] if orient == "y" else new_xyr[:, :2]
+        cat_solved = ax.transData.inverted().transform(new_xy)[:, cat_idx].copy()
+        # Clamp a dense lane to its gutter so it stops at the lane edge rather than
+        # bleeding into the neighbour. Iris has no notices channel, so suppress the
+        # solver's overflow warning and clamp silently (flat-edged dense lane).
+        t_fwd, t_inv = _get_transform_functions(ax, orient)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            bee.add_gutters(cat_solved, center, t_fwd, t_inv)
+        # Write the solved categorical coordinate back per collection, keeping the
+        # value coordinate exactly as drawn.
+        for coll, (s, e) in zip(colls, slices):
+            if e <= s:
+                continue
+            xy = np.asarray(coll.get_offsets(), dtype=float).copy()
+            xy[:, cat_idx] = cat_solved[s:e]
+            coll.set_offsets(xy)
+
+
+def _finalize_deferred(fig) -> None:
+    """Resolve all draw-time-deferred layout work in one pass before a save. The
+    beeswarm solve and the legend re-anchor both need final transforms, so draw
+    the canvas once, run both, then freeze the layout engine so the save doesn't
+    relayout the result away. Each pass pops its own stash, so this is a no-op on
+    a second save."""
+    pending = (getattr(fig, "_iris_beeswarm", None)
+               or "_iris_legend_nudge" in fig.__dict__)
+    if not pending:
+        return
+    fig.canvas.draw()
+    _apply_beeswarm(fig)
+    _apply_legend_offset(fig)
     fig.set_layout_engine("none")
 
 
@@ -739,16 +829,23 @@ def _geom_dot(ax, ctx, layer):
     style = ctx["style"]
     scales = ctx["scales"]
     h = ctx["h_orient"]
+    layout = _param(params, "layout", style, "layout")
     jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
     msize = _param(params, "marker_size", style, "marker_size")
     malpha = _param(params, "alpha", style, "marker_alpha")
     point_group, idx = [], ctx["gid_start"]
     for grp in ctx["groups"]:
         ys, point_ids, keys = grp["ys"], grp["point_ids"], grp["keys"]
-        # jitter runs along the categorical axis (y in horizontal mode), keyed by
-        # each mark's stable level-row id so a redraw keeps points put.
-        cat_pos = grp["pos"] + np.array([_stable_jitter(k, jitter) for k in keys]) \
-            if len(ys) else np.array([])
+        # swarm draws every mark at the lane centre and defers the no-overlap
+        # packing to the final-draw solve (_apply_beeswarm); jitter offsets each
+        # mark along the categorical axis by its stable level-row id so a redraw
+        # keeps points put (y in horizontal mode).
+        if layout == "swarm":
+            cat_pos = np.full(len(ys), grp["pos"])
+        else:
+            cat_pos = grp["pos"] + np.array([_stable_jitter(k, jitter) for k in keys]) \
+                if len(ys) else np.array([])
+        lane_colls = []
         cvals, svals, shvals = grp.get("cvals"), grp.get("svals"), grp.get("shvals")
         ccols = grp.get("ccols")
         # Sub-series split first by shape marker, then (for a discrete per-point
@@ -794,7 +891,19 @@ def _geom_dot(ax, ctx, layer):
             # row_ids[k] is the chained raw-id list behind the k-th drawn point
             point_group.append({"gid": gid,
                                 "row_ids": [point_ids[k] for k in sel]})
+            lane_colls.append(coll)
             idx += 1
+        # All of a group's (marker × colour) sub-series pack jointly against each
+        # other in one lane, so the silhouette reflects the whole group, not each
+        # sub-series in isolation. Stash for the deferred pixel-space solve, which
+        # needs the final axis transform (mirrors fig._iris_legend_nudge).
+        if layout == "swarm" and lane_colls:
+            fig = ax.figure
+            if not hasattr(fig, "_iris_beeswarm"):
+                fig._iris_beeswarm = []
+            fig._iris_beeswarm.append(
+                {"ax": ax, "collections": lane_colls, "center": grp["pos"],
+                 "orient": "y" if h else "x", "width": 0.8 * ctx["wscale"]})
     return point_group
 
 
@@ -1466,14 +1575,14 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
 
 
 def figure_to_svg(fig) -> str:
-    _apply_legend_offset(fig)
+    _finalize_deferred(fig)
     buf = io.StringIO()
     fig.savefig(buf, format="svg")
     return buf.getvalue()
 
 
 def figure_to_bytes(fig, fmt: str, dpi: int = 300) -> bytes:
-    _apply_legend_offset(fig)
+    _finalize_deferred(fig)
     buf = io.BytesIO()
     fig.savefig(buf, format=fmt, dpi=dpi)
     return buf.getvalue()

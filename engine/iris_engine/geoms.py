@@ -78,8 +78,9 @@ GEOMS: dict[str, GeomDef] = {
     "dot": GeomDef(
         "Dots", "group_comparison", False, ["x", "y"],
         x_type="categorical", y_type="numeric", h_orient=True,
-        params={"jitter": 0.18},
-        param_specs=[_num("jitter", "Jitter", lo=0.0, hi=0.5, step=0.02),
+        params={"layout": "swarm", "jitter": 0.18},
+        param_specs=[_sel("layout", "Layout", ["swarm", "jitter"]),
+                     _num("jitter", "Jitter", lo=0.0, hi=0.5, step=0.02),
                      _num("marker_size", "Point size", lo=4, hi=140, step=2),
                      _num("alpha", "Opacity", lo=0.05, hi=1.0, step=0.05)],
         point_cap=POINT_CAP, aes=["color", "size", "shape"]),

@@ -1,7 +1,7 @@
 # Beeswarm layout for the `dot` geom
 
 **Date:** 2026-06-17
-**Status:** Design approved, pending implementation
+**Status:** Implemented
 
 ## Problem
 
