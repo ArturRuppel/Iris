@@ -38,6 +38,35 @@ browser pass — folded into the browser-blocked batch below.)
 All active (headlessly-completable) items are done. The remaining items need a
 browser (no Chromium in this sandbox) and should be batched together.
 
+## New UX / styling items (added 2026-06-17)
+
+### A. Analysis-list rename interaction
+Clicking a long analysis name is hard because the click starts an inline rename
+instead of selecting. Left click should ALWAYS select; renaming should move to
+right click → "Rename" (context menu). Decouple select from rename.
+
+### B. Resizable analysis-list columns
+It should be possible to resize the vertical columns of the analysis list so
+clipped/long analysis-name labels can be read in full.
+
+### C. Rationalize plot-style specification
+The style controls are currently split inconsistently:
+- Some params live in the Encoding & Layers column, some in the Style tab.
+- Some are missing entirely (e.g. boxplot background/fill color).
+- Some are shown when not applicable (e.g. jitter shown on a beeswarm plot).
+Audit every plot param, give each a single canonical home, add the missing
+ones, and gate each param on the geoms it actually applies to.
+
+### D. Move size preselection out of the top row into Style
+The size preselection in the top row is poorly placed. Remove it from the top
+row entirely and add it to the Style controls instead. When a size is chosen it
+should also SET the extent (width/height) rather than leaving them on "auto".
+
+### E. Drag legends out of the window to dock them on the canvas
+Like titles and labels, it should be possible to drag a legend out of the plot
+window and drop it onto the canvas, which extends the canvas to incorporate the
+docked legend.
+
 ## Browser-blocked (no Chromium in this sandbox)
 
 ### 1. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
