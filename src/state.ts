@@ -230,6 +230,10 @@ export function estimateBytes(res: AnalyzeResponse): number {
    out of swap, well below the JS engine's own OOM ceiling. */
 export const CACHE_BUDGET_BYTES = 300 * 1024 * 1024;
 
+/* the live budget the LRU enforces, seeded from the default constant. An atom so
+   it can be tuned at runtime (and driven to a tiny value in tests). */
+export const cacheBudgetAtom = atom<number>(CACHE_BUDGET_BYTES);
+
 /* The same gate the active analyze loop uses, applied to a background plottable's
    spec: a Y encoding, ≥1 layer, and no mapping error (every mapped axis survives
    the post-reduction schema). When no effective schema is known for the plottable
@@ -279,12 +283,13 @@ export const setAnalysisResultAtom = atom(null,
     // most-recently-used at the end
     const recency = [...get(analysisRecencyAtom).filter((x) => x !== arg.id), arg.id];
     const activeId = get(activePlottableIdAtom);
+    const budget = get(cacheBudgetAtom);
     let total = Object.keys(byId).reduce((s, id) => s + estimateBytes(byId[id]), 0);
     // evict from the front (LRU), skipping the active plottable and the entry we
     // just inserted — both are pinned. The inserted/active entry alone may exceed
     // the budget; that is accepted, never evicted.
     for (const victim of recency) {
-      if (total <= CACHE_BUDGET_BYTES) break;
+      if (total <= budget) break;
       if (victim === activeId || victim === arg.id) continue;
       if (!(victim in byId)) continue;
       total -= estimateBytes(byId[victim]);

@@ -472,7 +472,7 @@ declare global {
 /* Dev mode uses a fixed port; under the shell the port is chosen at runtime
    (collision handling) and fetched from the `engine_port` command. */
 const baseUrl: Promise<string> = (async () => {
-  if (window.__TAURI__) {
+  if (typeof window !== "undefined" && window.__TAURI__) {
     try {
       const port = await window.__TAURI__.core.invoke<number>("engine_port");
       return `http://127.0.0.1:${port}`;
