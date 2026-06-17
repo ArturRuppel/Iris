@@ -115,6 +115,27 @@ GEOMS: dict[str, GeomDef] = {
         "Regression", "correlation", True, ["x", "y"],
         x_type="numeric", y_type="numeric",
         params={}, param_specs=[], aes=["color"]),
+    # Time series: numeric x (ordered, an ordered axis like `frame`) vs numeric y.
+    # Two geoms mirror the dot+summary pairing — `line` is per-unit (the spaghetti
+    # of one curve per spine unit), `trend` is the aggregate (mean ± band over
+    # units per timepoint). Both share the `timeseries` family, which the engine's
+    # geom-aware tie-break uses to claim a numeric/numeric design away from
+    # `correlation` (see statmodel.infer). `color` styles *how* lines/trends look
+    # per condition; for `line` "which rows form one curve" comes from the spine,
+    # not an aesthetic (see hierarchy.trajectory_units).
+    "line": GeomDef(
+        "Trajectories", "timeseries", aggregates=False, needs=["x", "y"],
+        x_type="numeric", y_type="numeric",
+        params={"alpha": 0.35, "linewidth": 0.8},
+        param_specs=[_num("alpha", "Opacity", lo=0.05, hi=1.0, step=0.05),
+                     _num("linewidth", "Line width", lo=0.3, hi=3.0, step=0.1)],
+        point_cap=POINT_CAP, aes=["color"]),
+    "trend": GeomDef(
+        "Mean ± band", "timeseries", aggregates=True, needs=["x", "y"],
+        x_type="numeric", y_type="numeric",
+        params={"error_type": "ci95", "show_band": True},
+        param_specs=[_err_select(), _bool("show_band", "Spread band")],
+        aes=["color"]),
     # one geom for the distribution of a single numeric column. `dist_render`
     # picks the representation (bars/step/line/points, or "smooth" = a KDE curve
     # with no bars — the old `density` geom). `overlay_smooth` adds a KDE on top

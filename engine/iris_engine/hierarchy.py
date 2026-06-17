@@ -102,6 +102,26 @@ def resolve_level(levels: dict, level: str | None) -> tuple[pd.DataFrame, dict]:
     return levels.get(level or RAW) or levels[RAW]
 
 
+def trajectory_units(df: pd.DataFrame, spine: list[str], x_col: str,
+                     split_cols: list[str] | None = None) -> list[str]:
+    """Grouping keys that identify one trajectory (curve) for the `line` geom —
+    "which rows form one line". A unit is the spine columns *coarser than* the x
+    axis (the sub-identities that persist as x advances), plus any `split_cols`
+    (the colour qualifier). With the default spine
+    ``date → position_id → cell_id → frame`` and ``x=frame``, the unit is
+    ``(date, position_id, cell_id)`` — one curve per cell, drawn in frame order.
+
+    When `x_col` is off the spine (or there is no spine) there is no coarser
+    unit, so the whole (reduced, split) frame is a single curve — the "one series
+    over time" case, for free. Columns absent from `df` are dropped. The result
+    is de-duplicated, order-preserving, so a column used both as x-context and as
+    colour can't land in the grouping twice."""
+    present = spine_present(df, spine)
+    split = [c for c in (split_cols or []) if c in df.columns]
+    unit = present[: present.index(x_col)] if x_col in present else []
+    return list(dict.fromkeys(unit + split))
+
+
 def coarsest_level(present_spine: list[str], layer_levels: list[str]) -> str:
     """The coarsest level among the levels the figure's layers are bound to — the
     grain the inferential test reads, so plot and stats share one materialization

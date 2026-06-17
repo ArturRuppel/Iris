@@ -495,6 +495,8 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
     family = spec["stat_model"]["family"]
     if family == "correlation":
         return build_scatter_figure(df, schema, spec, stats)
+    if family == "timeseries":
+        return build_timeseries_figure(df, schema, spec, stats, level_tables)
     if family == "descriptive":
         return build_histogram_figure(df, schema, spec, stats)
     if family == "contingency":
@@ -1063,6 +1065,133 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         _draw_legend(fig, last_ax, sc_global, style, x, faceted=faceted)
         _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
     return fig, point_groups
+
+
+def _layer_param(layer: dict, key: str):
+    """A timeseries layer param, falling back to the geom's registry default so a
+    legacy spec (or a layer that omits a param) renders with the declared
+    defaults rather than None."""
+    g = geoms_mod.GEOMS.get(layer["geom"])
+    default = g.params.get(key) if g else None
+    v = (layer.get("params") or {}).get(key)
+    return v if v is not None else default
+
+
+def _geom_line(ax, rows, spine, x, y, sc, style, layer):
+    """One thin, light curve per trajectory unit (the spaghetti). Units come from
+    the spine (`trajectory_units`), NOT an aesthetic: with the default cell spine
+    and x=frame, one curve per cell. Each curve is sorted by x ascending; a
+    missing x leaves a break. Colour styles how curves look per `color` level
+    (the legend names conditions, not units) and never decides which rows form a
+    line. Aggregates no rows but emits no gid tags, so (like box/violin) its
+    curves are not click-to-exclude targets — returns an empty point-group."""
+    alpha = _layer_param(layer, "alpha")
+    lw = _layer_param(layer, "linewidth")
+    color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None
+    split = [color_col] if color_col else []
+    units = hierarchy_mod.trajectory_units(rows, spine, x, split)
+    groups = (rows.groupby(units, observed=True, sort=False) if units
+              else [(None, rows)])
+    for _, g in groups:
+        g = g.dropna(subset=[x, y]).sort_values(x)
+        if len(g) < 2:
+            continue
+        color = (sc.color_for(str(g[color_col].iloc[0])) if color_col
+                 else _group_color(style, 0))
+        ax.plot(g[x].to_numpy(dtype=float), g[y].to_numpy(dtype=float),
+                color=color, lw=lw, alpha=alpha, zorder=2)
+    return []
+
+
+def _geom_trend(ax, rows, x, y, sc, style, layer):
+    """Mean ± spread band per `color` level over the ordered x. Groups RAW rows by
+    x value — averaging across every unit at each timepoint — exactly the
+    keep-frame/collapse-cell aggregation the prefix-grain model can't express, done
+    internally here as `summary` does per category. The band (when `show_band`) is
+    drawn first so the mean line sits on top; the half-spread reuses `_err_half`
+    with the layer's `error_type` (ci95/sem/sd)."""
+    error_type = _layer_param(layer, "error_type")
+    show_band = _layer_param(layer, "show_band")
+    color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None
+    levels = sc.color_levels if color_col else [None]
+    for lv in levels:
+        sub = rows if lv is None else rows[rows[color_col].astype(str) == lv]
+        sub = sub[[x, y]].dropna()
+        if not len(sub):
+            continue
+        color = sc.color_for(lv) if color_col else _group_color(style, 0)
+        xs, means, errs = [], [], []
+        for xv, grp in sub.groupby(x, observed=True, sort=True):
+            s = _summary_of(str(xv), grp[y].to_numpy(dtype=float))
+            xs.append(float(xv))
+            means.append(s["mean"])
+            errs.append(_err_half(s, error_type))
+        xs, means, errs = np.array(xs), np.array(means), np.array(errs)
+        if show_band:
+            ax.fill_between(xs, means - errs, means + errs, color=color,
+                            alpha=0.2, linewidth=0, zorder=1)
+        ax.plot(xs, means, color=color, linewidth=style["line_width"], zorder=3)
+    return []
+
+
+def build_timeseries_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
+                            level_tables: dict | None = None):
+    """A measure over an ordered numeric x. Modeled on build_scatter_figure
+    (numeric x/y axes, faceting via _build_grid, one shared legend) but the marks
+    connect points across x: a `line` layer draws one per-unit trajectory (units
+    from the spine), a `trend` layer draws the mean ± band over units per
+    timepoint. Both bind to the raw rows — `trend` aggregates across units
+    internally by x; `line` needs raw per-(unit, x) rows — so `level_tables` is
+    unused here (the timeseries path never grain-collapses). The layered
+    spaghetti+mean figure is just a `line` layer under a `trend` layer.
+
+    Describe-only: no inferential test, so no annotation or significance bracket.
+    Returns (fig, []) — no per-point click targets (see _geom_line)."""
+    x = spec["encodings"]["x"]["column"]
+    y = spec["encodings"]["y"]["column"]
+    cols = {c["name"]: c for c in schema["columns"]}
+    style = resolve_style(spec)
+    layers = [l for l in spec.get("layers", []) if l["geom"] in ("line", "trend")]
+    rows = df[df[x].notna() & df[y].notna()]
+    sc_global = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
+    hier = spec.get("hierarchy") or {}
+    spine = hierarchy_mod.spine_present(df, hier.get("spine") or [])
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    faceted = row_col is not None or col_col is not None
+    facet_cfg = spec.get("facet") or {}
+
+    with plt.rc_context(_rc(style)):
+        fig, axes = _build_grid(style["width_mm"], style["height_mm"],
+                                len(row_levels), len(col_levels),
+                                sharex=facet_cfg.get("share_x", True),
+                                sharey=facet_cfg.get("share_y", True))
+        last_ax = None
+        for ri, rlevel in enumerate(row_levels):
+            for ci, clevel in enumerate(col_levels):
+                ax = axes[ri][ci]
+                cell_rows = _facet_cell_df(rows, row_col, col_col, rlevel, clevel)
+                for layer in layers:
+                    if layer["geom"] == "line":
+                        _geom_line(ax, cell_rows, spine, x, y, sc_global, style, layer)
+                    else:
+                        _geom_trend(ax, cell_rows, x, y, sc_global, style, layer)
+                if not faceted:
+                    ax.set_xlabel(_axis_label(cols, x))
+                    ax.set_ylabel(_axis_label(cols, y))
+                _apply_axes(ax, style, x_numeric=True,
+                            grid_x_default=False, grid_y_default=True)
+                if faceted:
+                    title = _facet_title(row_col, col_col, rlevel, clevel)
+                    if title:
+                        ax.set_title(title, fontsize=style["font_pt"] - 1)
+                last_ax = ax
+
+        if faceted:
+            style["x_label"] = style["x_label"] or _axis_label(cols, x)
+            style["y_label"] = style["y_label"] or _axis_label(cols, y)
+        _draw_legend(fig, last_ax, sc_global, style, x, faceted=faceted)
+        _decorate(fig, last_ax, style, faceted=faceted)
+    return fig, []
 
 
 _SINH_SHARPNESS = 3.0

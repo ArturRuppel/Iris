@@ -8,6 +8,8 @@ per-facet correction). When the design is ambiguous, default to describe-only.
 """
 from __future__ import annotations
 
+from . import geoms as geoms_mod
+
 
 def _kind(schema: dict, name: str | None) -> str | None:
     if not name:
@@ -23,8 +25,21 @@ def _col(enc: dict, key: str) -> str | None:
     return e["column"] if e and e.get("column") else None
 
 
+def _is_timeseries(layers: list[dict] | None) -> bool:
+    """True iff any layer's geom declares the `timeseries` family in the
+    registry. The geom's declared family is authoritative when the column types
+    are ambiguous (numeric x + numeric y is otherwise `correlation`): a `line`
+    or `trend` layer means the user is drawing a time course, not a scatter."""
+    for layer in (layers or []):
+        g = geoms_mod.GEOMS.get(layer.get("geom"))
+        if g is not None and g.family == "timeseries":
+            return True
+    return False
+
+
 def infer(encodings: dict, schema: dict, override: str | None,
-          facet: dict | None = None, unit: list[str] | None = None) -> dict:
+          facet: dict | None = None, unit: list[str] | None = None,
+          layers: list[dict] | None = None) -> dict:
     """encodings + schema -> StatModel. `override` is the user-chosen test
     name carried from the spec when chosen_by == user_override, else None.
     `facet` is the spec's facet block; Phase 4 v1 runs no inferential test
@@ -34,12 +49,28 @@ def infer(encodings: dict, schema: dict, override: str | None,
     `unit` is the declared independent-repetition key (Phase 5 / item 10):
     the test counts these units, not raw rows, and a per-unit overlay layer can
     draw them. It is echoed on the model (`unit`) and named in the design
-    sentence so the inference basis is explicit."""
+    sentence so the inference basis is explicit.
+
+    `layers` are the spec's geom layers; a `line`/`trend` layer (registry family
+    `timeseries`) breaks the numeric/numeric tie toward a time-series design
+    rather than `correlation` — the geom's declared family is authoritative when
+    column types alone are ambiguous."""
     unit = unit or []
     x = _col(encodings, "x")
     y = _col(encodings, "y")
     color = _col(encodings, "color")
     xk, yk = _kind(schema, x), _kind(schema, y)
+
+    # Time series breaks the numeric/numeric tie before it can fall through to
+    # `correlation`: an x-vs-y plot with an ordered x, described only (no
+    # inferential test in the first cut — comparing time courses needs
+    # mixed-effects / functional-data methods that don't fit the picker).
+    if xk == "numeric" and yk == "numeric" and _is_timeseries(layers):
+        return {"design": f"{y} over {x}", "family": "timeseries",
+                "factors": [{"column": x, "role": "time"},
+                            {"column": y, "role": "response"}],
+                "test": None, "facet_handling": None,
+                "chosen_by": "describe_only", "unit": unit, "issues": []}
 
     if xk == "categorical" and yk == "numeric":
         family = "group_comparison"

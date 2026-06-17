@@ -5,8 +5,22 @@ from iris_engine import geoms
 def test_every_known_geom_is_registered():
     expected = {"dot", "summary", "box", "violin", "bar",
                 "scatter", "regression", "distribution",
-                "tile"}  # Phase 3d; distribution = histogram+density unified
+                "tile",  # Phase 3d; distribution = histogram+density unified
+                "line", "trend"}  # time series: per-unit + aggregate
     assert set(geoms.GEOMS) == expected
+
+
+def test_timeseries_geoms_declare_family_and_kind():
+    line, trend = geoms.GEOMS["line"], geoms.GEOMS["trend"]
+    assert line.family == trend.family == "timeseries"
+    # line is per-unit (capped, like dot/scatter); trend aggregates (no cap)
+    assert line.aggregates is False and line.point_cap == geoms.POINT_CAP
+    assert trend.aggregates is True and trend.point_cap is None
+    # both are numeric/numeric and take a categorical colour only
+    for g in (line, trend):
+        assert g.x_type == "numeric" and g.y_type == "numeric"
+        assert g.aes == ["color"]
+        assert g.needs == ["x", "y"]
 
 
 def test_per_row_geoms_carry_the_point_cap():

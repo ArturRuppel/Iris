@@ -95,6 +95,10 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
      The engine picks via the expected-count rule and falls back to chi-square if
      Fisher is overridden on a non-2×2 table. */
   contingency: ["chi_square", "fisher_exact"],
+  /* Time series is describe-only in the first cut (no inferential test on time
+     courses — that needs mixed-effects / functional-data methods). No override
+     tests to round-trip. */
+  timeseries: [],
 };
 
 /* provenance: every exclusion toggle is logged, never silently applied */

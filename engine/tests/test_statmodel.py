@@ -28,6 +28,26 @@ def test_two_numerics_is_correlation():
     assert m["family"] == "correlation"
 
 
+def test_numeric_numeric_with_timeseries_geom_breaks_tie():
+    # a line/trend layer claims the numeric/numeric design as a time series
+    # rather than a scatter correlation (the geom's family is authoritative when
+    # the column types are ambiguous), and it is describe-only (no test).
+    for geom in ("line", "trend"):
+        m = statmodel.infer(enc("dose", "response"), SCHEMA, override=None,
+                            layers=[{"geom": geom}])
+        assert m["family"] == "timeseries"
+        assert m["test"] is None
+        assert m["chosen_by"] == "describe_only"
+        assert m["design"] == "response over dose"
+
+
+def test_numeric_numeric_with_scatter_geom_stays_correlation():
+    # a non-timeseries geom on numeric/numeric still falls through to correlation
+    m = statmodel.infer(enc("dose", "response"), SCHEMA, override=None,
+                        layers=[{"geom": "scatter"}])
+    assert m["family"] == "correlation"
+
+
 def test_single_numeric_is_descriptive():
     m = statmodel.infer(enc(None, "response"), SCHEMA, override=None)
     assert m["family"] == "descriptive"

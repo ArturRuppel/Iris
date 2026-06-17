@@ -301,7 +301,7 @@ def _run(table: dict, spec: dict):
 
     describe_only = bool(spec.get("_describe_only"))
     model = statmodel.infer(spec["encodings"], schema, spec.get("_override"),
-                            spec.get("facet"))
+                            spec.get("facet"), layers=spec.get("layers"))
     # Data hierarchy (redesign): per-level tables for the group-comparison path,
     # filled in below once the grouping column is known. None elsewhere.
     level_tables = None
@@ -386,6 +386,13 @@ def _run(table: dict, spec: dict):
                if describe_only else
                stats.correlation(df, enc["x"]["column"], enc["y"]["column"],
                                  alpha=alpha, override=override))
+    elif family == "timeseries":
+        # Describe-only in the first cut (no inferential test on time courses).
+        # The figure (build_timeseries_figure) computes its own per-timepoint
+        # means/bands and per-unit curves internally from the raw rows, so the
+        # stats result is a legible describe-only summary, not a test.
+        res = stats.timeseries(df, enc["x"]["column"], enc["y"]["column"],
+                               alpha=alpha)
     elif family == "descriptive":
         res = stats.descriptive(df, enc["y"]["column"], alpha=alpha)
     elif family == "contingency":

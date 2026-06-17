@@ -446,6 +446,32 @@ def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
     }
 
 
+def timeseries(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dict:
+    """Time series of `y` over an ordered numeric `x`, described only — no
+    inferential test in the first cut (comparing time courses properly needs
+    mixed-effects / functional-data methods that don't fit the two-question
+    picker). Reports the span of timepoints and the n of (x, y) observations so
+    the stats panel has a legible summary; the figure computes its own
+    per-timepoint means/bands and per-unit curves internally."""
+    sub = df[[x, y]].dropna()
+    n = int(len(sub))
+    n_tp = int(sub[x].nunique())
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    span = (f" over {sub[x].min():g}–{sub[x].max():g}" if n else "")
+    methods = (f"{y} was plotted over {x} ({n_tp} timepoint(s){span}, "
+               f"{n} observation(s)); no statistical test was run "
+               f"(describe only).{excl}")
+    return {
+        "levels": [], "checks": [],
+        "recommendation": {"test": "none", "reason": "describe only — no test was run"},
+        "chosen_by": "describe_only",
+        "result": {"test": "none", "n": n, "n_timepoints": n_tp,
+                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+        "summaries": [], "alpha": alpha, "methods_text": methods,
+    }
+
+
 def describe_pairs(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dict:
     """Scatter of two numeric columns with NO correlation test — the 'describe
     only' path. Raw points only; no regression line, r, or p."""

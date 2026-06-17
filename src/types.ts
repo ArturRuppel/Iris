@@ -50,7 +50,7 @@ export function tableFromColumnar(ct: ColumnarTable): Table {
   return { schema: ct.schema, rows };
 }
 
-export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency";
+export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency" | "timeseries";
 export type TestName =
   | "welch_t" | "mann_whitney" | "paired_t" | "wilcoxon"
   | "one_way_anova" | "kruskal"
