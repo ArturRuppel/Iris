@@ -215,13 +215,23 @@ export const loadTableAtom = atom(null, async (get, set,
   // The engine owns the table behind a session handle, created here from the
   // rows the importer handed us. The browser keeps the handle, not the dataset.
   set(dataLoadingAtom, true);
+  const inline = { schema: table.schema, rows: table.rows };
   let s;
   try {
     // a freshly imported table is already cached engine-side: seed the session
     // from its token instead of re-uploading every row (table.token), falling
     // back to the inline rows for manually-entered / tokenless tables.
-    s = await engine.createSession(
-      table.token ? { token: table.token } : { schema: table.schema, rows: table.rows });
+    //
+    // The token is only a hint: the engine's table cache is bounded (it can
+    // evict between commit and here), and a stale engine predating the
+    // table_token wiring rejects it outright. Either way the seed would
+    // silently produce an empty session (0 rows). Since we still hold every
+    // row, fall back to shipping them inline — slower, but correct — rather
+    // than load a phantom empty table.
+    s = table.token
+      ? await engine.createSession({ token: table.token })
+          .catch(() => engine.createSession(inline))
+      : await engine.createSession(inline);
   } finally {
     set(dataLoadingAtom, false);
   }
