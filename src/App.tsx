@@ -11,10 +11,12 @@ import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
-  analyzeStatusAtom, dataLoadingAtom, effectiveSchemaAtom, engineErrorAtom,
-  engineSnapshotAtom, exclusionLogAtom, hierarchyAtom, loadDocumentAtom, loadTableAtom,
-  registryAtom, renderErrorAtom, schemaAtom, setAnalysisByIdAtom,
-  setReducePreviewByIdAtom, specAtom, tableHandleAtom, viewModeAtom,
+  analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
+  effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
+  hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom,
+  reducePreviewByIdAtom, renderErrorAtom, schemaAtom, setAnalysisByIdAtom,
+  setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
+  touchAnalysisAtom, viewModeAtom,
 } from "./state";
 import { downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
 
@@ -56,6 +58,10 @@ export default function App() {
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
+  const setAnalysisResult = useSetAtom(setAnalysisResultAtom);
+  const touchAnalysis = useSetAtom(touchAnalysisAtom);
+  const analysisKeyById = useAtomValue(analysisKeyByIdAtom);
+  const reducePreviews = useAtomValue(reducePreviewByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
   const handle = useAtomValue(tableHandleAtom);
   const setError = useSetAtom(engineErrorAtom);
@@ -64,6 +70,7 @@ export default function App() {
   const effectiveSchema = useAtomValue(effectiveSchemaAtom);
   const setRegistry = useSetAtom(registryAtom);
   const setStatus = useSetAtom(analyzeStatusAtom);
+  const analyzeStatus = useAtomValue(analyzeStatusAtom);
   const setRenderError = useSetAtom(renderErrorAtom);
   const renderError = useAtomValue(renderErrorAtom);
   const dataLoading = useAtomValue(dataLoadingAtom);
@@ -76,6 +83,13 @@ export default function App() {
   const previewTimer = useRef<number>();
   const didInit = useRef(false);
   const loadFileRef = useRef<HTMLInputElement>(null);
+  /* background-render loop: exactly one /analyze in flight at a time (matplotlib
+     is treated as not thread-safe, so renders are serialized client-side), and a
+     set of `${id}:${key}` configs whose render already failed, so a 422-ing plot
+     is attempted once per key rather than re-hammered. */
+  const bgInFlight = useRef(false);
+  const failedKeys = useRef<Set<string>>(new Set());
+  const [bgTick, setBgTick] = useState(0);
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
@@ -136,6 +150,15 @@ export default function App() {
       setAnalysisById({ id: spec.id, res: null });
       return;
     }
+    /* freshness short-circuit: the cached figure was computed from this exact
+       data + spec, so show it instantly with no re-render. (Guards above run
+       first, so a non-renderable plottable never reaches here.) Touch recency so
+       a plot the user keeps returning to survives eviction once they leave it. */
+    const key = cacheKey(handle.id, handle.version, spec);
+    if (analysisKeyById[spec.id] === key) {
+      setStatus("ok"); setRenderError(null); touchAnalysis(spec.id);
+      return;
+    }
     window.clearTimeout(timer.current);
     /* a change is pending the moment deps settle — show it immediately so the
        debounce + request window never reads as "hung" or "crashed" */
@@ -146,7 +169,7 @@ export default function App() {
     timer.current = window.setTimeout(async () => {
       try {
         const res = await engine.analyze({ token: handle.id }, spec);
-        setAnalysisById({ id: targetId, res }); setRenderError(null);
+        setAnalysisResult({ id: targetId, key, res }); setRenderError(null);
         setStatus("ok");
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
@@ -159,6 +182,11 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(timer.current);
+    // analysisKeyById is intentionally NOT a dep: the active plottable's cached
+    // key only ever changes via its own render here (the background loop skips it
+    // and eviction never drops it), so the short-circuit's read is always current
+    // under the existing deps — and re-running on every background completion
+    // would needlessly reset this loop's debounce.
   }, [handle?.id, handle?.version, specKey, schemaKey, mappingError]);
 
   /* live reduced-table preview for the active plottable, recomputed as the
@@ -184,6 +212,45 @@ export default function App() {
     }, 200);
     return () => window.clearTimeout(previewTimer.current);
   }, [handle?.id, handle?.version, stepsKey, activeId]);
+
+  /* background loop: a self-draining sequential queue that warms every OTHER
+     plottable's cache so even a never-opened analysis is instant on first visit.
+     It yields while the active loop is rendering and never runs two /analyze at
+     once (one figure in flight, always), and it never touches analyzeStatus /
+     renderError — those stay active-plot-only, so the indicator keeps meaning
+     "the plot you are looking at." A stable JSON key mirrors the active loop's
+     specKey so a spec edit re-triggers the drain. */
+  const allSpecsKey = JSON.stringify(allSpecs);
+  useEffect(() => {
+    if (!handle || allSpecs.length === 0) return;
+    if (analyzeStatus === "running" || bgInFlight.current) return;  // one at a time
+    const schemaFor = (id: string) => reducePreviews[id]?.preview.schema ?? schema ?? null;
+    const target = pickStaleSpec(allSpecs, {
+      activeId, handleId: handle.id, version: handle.version,
+      keyById: analysisKeyById, failedKeys: failedKeys.current, schemaFor,
+    });
+    if (!target) return;
+    bgInFlight.current = true;
+    const { id } = handle;
+    void (async () => {
+      try {
+        const res = await engine.analyze({ token: id }, target.spec);
+        // store under the key it was computed from; a stale-version result simply
+        // reads as not-fresh and is re-rendered, never shown as up to date.
+        setAnalysisResult({ id: target.spec.id, key: target.key, res });
+      } catch {
+        // not the plot the user is looking at: swallow, record, move on. If they
+        // later switch to it, the active loop attempts it and surfaces the error.
+        failedKeys.current.add(`${target.spec.id}:${target.key}`);
+      } finally {
+        bgInFlight.current = false;
+        // a success bumps analysisKeyById (re-triggering this effect for the next
+        // stale plottable); a failure changes no state, so nudge the drain along.
+        setBgTick((t) => t + 1);
+      }
+    })();
+  }, [handle?.id, handle?.version, allSpecsKey, analysisKeyById, analyzeStatus,
+      activeId, bgTick]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec || !handle) return;
