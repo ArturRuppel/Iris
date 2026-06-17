@@ -84,7 +84,11 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
      (paired_t / wilcoxon). The paired cells are only valid when the data has a
      pairing structure (see model.pairing); the panel gates them on that, and the
      engine errors if a paired test is forced without it. */
-  group_comparison: ["welch_t", "mann_whitney", "paired_t", "wilcoxon"],
+  /* >2 levels switch to the omnibus pair (one_way_anova / kruskal); these are
+     listed so a user override of the omnibus round-trips through buildSpec. The
+     StatsPanel offers the right subset per group count (FAMILY_TESTS there). */
+  group_comparison: ["welch_t", "mann_whitney", "paired_t", "wilcoxon",
+                     "one_way_anova", "kruskal"],
   correlation: ["pearson", "spearman"],
   descriptive: ["descriptive"],
   /* §5 independent contingency cell: chi-square (default) ↔ Fisher's exact (2×2).

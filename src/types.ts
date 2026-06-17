@@ -53,8 +53,21 @@ export function tableFromColumnar(ct: ColumnarTable): Table {
 export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency";
 export type TestName =
   | "welch_t" | "mann_whitney" | "paired_t" | "wilcoxon"
+  | "one_way_anova" | "kruskal"
   | "pearson" | "spearman" | "descriptive"
   | "chi_square" | "fisher_exact";
+
+/* One pairwise comparison in a multi-group result: the two group labels, the
+   raw and (multiplicity-)adjusted p-values, and the significance stars. */
+export interface PairwiseComparison {
+  a: string;
+  b: string;
+  p: number;
+  p_adj: number;
+  stars: string;
+  mean_diff?: number;
+  effect?: { name: string; value: number };
+}
 export type Mark =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "histogram" | "density";
@@ -304,6 +317,9 @@ export interface StatsResult {
     r?: number; n?: number; chi2?: number; dof?: number; odds_ratio?: number;
     mean?: number; sd?: number; median?: number; q1?: number; q3?: number;
     min?: number; max?: number;
+    /* multi-group (>2 levels): omnibus stat + per-pair corrected comparisons */
+    F?: number; df_between?: number; df_within?: number; H?: number; k?: number;
+    pairwise?: PairwiseComparison[]; correction?: string;
     effect: { name: string; value: number; ci: [number, number] | null };
   };
   regression?: { slope: number; intercept: number };

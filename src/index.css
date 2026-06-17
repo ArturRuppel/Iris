@@ -149,6 +149,10 @@ em.warn { font-style: normal; }
 .override-note { font-size: 12px; color: var(--warn); margin: 6px 0 0; }
 dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
 dt { color: var(--dim); } dd { margin: 0; font-size: 12px; }
+/* multi-group pairwise block: a labelled sub-header then indented per-pair rows */
+dt.pairwise-head { grid-column: 1 / -1; color: var(--dim); text-transform: uppercase;
+  letter-spacing: 0.04em; font-size: 10px; margin-top: 6px; }
+dt.pairwise-row { padding-left: 10px; }
 dd.strong { font-weight: 600; }
 .methods { font-size: 12px; color: var(--dim); background: #f8fafc;
   border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 0 0 8px; }

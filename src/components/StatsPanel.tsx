@@ -9,6 +9,8 @@ const TEST_LABELS: Record<string, string> = {
   mann_whitney: "Mann–Whitney U",
   paired_t: "Paired t-test",
   wilcoxon: "Wilcoxon signed-rank",
+  one_way_anova: "One-way ANOVA",
+  kruskal: "Kruskal–Wallis",
   pearson: "Pearson r",
   spearman: "Spearman ρ",
   descriptive: "Descriptive summary",
@@ -16,11 +18,15 @@ const TEST_LABELS: Record<string, string> = {
   fisher_exact: "Fisher's exact",
 };
 const GROUP_TESTS: TestName[] = ["welch_t", "mann_whitney", "paired_t", "wilcoxon"];
+// >2 groups: the omnibus alternatives (parametric ANOVA vs robust Kruskal).
+const MULTI_TESTS: TestName[] = ["one_way_anova", "kruskal"];
 const FAMILY_TESTS: Record<string, TestName[]> = {
   welch_t: GROUP_TESTS,
   mann_whitney: GROUP_TESTS,
   paired_t: GROUP_TESTS,
   wilcoxon: GROUP_TESTS,
+  one_way_anova: MULTI_TESTS,
+  kruskal: MULTI_TESTS,
   pearson: ["pearson", "spearman"],
   spearman: ["pearson", "spearman"],
   // Fisher's exact is offered only for 2×2; the engine falls back to chi-square
@@ -69,6 +75,35 @@ function ResultRows({ s }: { s: StatsResult }) {
           <dt>p (two-tailed)</dt><dd className="mono strong">{fmtP(r.p!)} {stars(r.p!)}</dd>
           <dt>Rank-biserial r</dt><dd className="mono">{r.effect.value.toFixed(2)}</dd>
           <dt>n (pairs)</dt><dd className="mono">{r.n}</dd>
+        </>
+      );
+    case "one_way_anova":
+    case "kruskal":
+      return (
+        <>
+          {r.test === "one_way_anova" ? (
+            <>
+              <dt>F ({r.df_between}, {r.df_within} df)</dt>
+              <dd className="mono">{r.F!.toFixed(2)}</dd>
+            </>
+          ) : (
+            <>
+              <dt>H ({r.df} df)</dt><dd className="mono">{r.H!.toFixed(2)}</dd>
+            </>
+          )}
+          <dt>p (omnibus)</dt><dd className="mono strong">{fmtP(r.p!)} {stars(r.p!)}</dd>
+          <dt>{r.effect.name === "eta_squared" ? "η²" : "ε²"}</dt>
+          <dd className="mono">{r.effect.value.toFixed(2)}</dd>
+          <dt>N (k groups)</dt><dd className="mono">{r.n} ({r.k})</dd>
+          <dt className="pairwise-head">
+            Pairwise ({r.correction === "tukey" ? "Tukey HSD" : "Holm-adjusted"})
+          </dt><dd></dd>
+          {(r.pairwise ?? []).map((pw) => (
+            <span key={`${pw.a}-${pw.b}`} style={{ display: "contents" }}>
+              <dt className="pairwise-row">{pw.a} vs {pw.b}</dt>
+              <dd className="mono">{fmtP(pw.p_adj)} {pw.stars}</dd>
+            </span>
+          ))}
         </>
       );
     case "pearson":
