@@ -139,7 +139,7 @@ export interface StatModel {
   factors: { column: string; role: string }[];
   test: TestName | null;
   facet_handling: { per_facet: boolean; correction: "holm" | "bonferroni" | null } | null;
-  chosen_by: "inferred" | "user_override" | "describe_only";
+  chosen_by: "inferred" | "describe_only";
   /* Hierarchy redesign: the spine present after reduction, the pairing verdict
      for the comparison qualifier (derived from the spine), and the inferential
      grain — the coarsest level any layer draws at, the grain the test actually
@@ -277,7 +277,14 @@ export interface AnalysisSpec {
   stats: {
     family: StatsFamily;
     test: TestName;
+    /* `chosen_by` is descriptive only — it never flags a pick as a deviation
+       ("user_override" remains in the union solely so legacy specs still parse).
+       The user's pinned test rides in `override`, decoupled from this label. */
     chosen_by: "recommendation_accepted" | "user_override" | "default" | "describe_only";
+    /* the test the user pinned, independent of the recommendation; null when no
+       test is pinned (the engine then runs its recommendation). Transport for
+       the override round-trip, replacing the old chosen_by == user_override signal. */
+    override?: TestName | null;
     alternatives_offered: string[];
     assumption_checks: { check: string; per: string }[];
     alpha: number;

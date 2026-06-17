@@ -57,8 +57,9 @@ def test_small_skewed_groups_select_kruskal():
 def test_override_pins_kruskal_on_normal_data():
     df = _three_group_df()
     res = stats.group_comparison(df, "g", "y", ["A", "B", "C"], override="kruskal")
+    # the pin takes effect; chosen_by stays neutral (no deviation marker)
     assert res["result"]["test"] == "kruskal"
-    assert res["chosen_by"] == "user_override"
+    assert res["chosen_by"] == "recommendation_accepted"
 
 
 def test_stale_two_group_override_is_ignored_for_multi():

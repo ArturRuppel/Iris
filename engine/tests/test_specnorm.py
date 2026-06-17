@@ -42,12 +42,23 @@ def test_marks_become_geoms_preserving_order_and_options():
     assert out["layers"][0]["params"] == {"jitter": 0.18}
 
 
-def test_carries_the_user_override_for_inference():
+def test_carries_the_pinned_test_from_the_override_field():
+    # the decoupled transport: the pin rides in stats.override, independent of the
+    # neutral chosen_by label.
+    spec = legacy_spec()
+    spec["stats"] = {"family": "group_comparison", "test": "mann_whitney",
+                     "chosen_by": "recommendation_accepted", "override": "mann_whitney"}
+    out = specnorm.normalize(spec)
+    assert out["_override"] == "mann_whitney"
+
+
+def test_carries_the_legacy_user_override_for_inference():
+    # back-compat: pre-decoupling specs encoded the pin as chosen_by == user_override
     out = specnorm.normalize(legacy_spec())
-    assert out["_override"] == "mann_whitney"  # chosen_by was user_override
+    assert out["_override"] == "mann_whitney"
 
 
-def test_no_override_when_recommendation_accepted():
+def test_no_override_when_recommendation_accepted_and_no_override_field():
     spec = legacy_spec()
     spec["stats"]["chosen_by"] = "recommendation_accepted"
     out = specnorm.normalize(spec)

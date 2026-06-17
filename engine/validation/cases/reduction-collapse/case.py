@@ -77,8 +77,8 @@ ANALYSES = [
             "reduce": {"steps": [
                 {"kind": "filter",
                  "conditions": [{"column": "quality", "op": ">", "value": 0}]}]},
-            "stats": {"alpha": 0.05, "chosen_by": "user_override",
-                      "test": "welch_t"},
+            "stats": {"alpha": 0.05, "chosen_by": "recommendation_accepted",
+                      "test": "welch_t", "override": "welch_t"},
         },
         "expected_stats": {
             "test": "welch_t",
@@ -92,7 +92,7 @@ ANALYSES = [
             "summaries.1.mean": (16.5, 1e-9),
         },
         "expected_model": {"family": "group_comparison",
-                           "chosen_by": "user_override",
+                           "chosen_by": "inferred",
                            "inferential_level": "well"},
         "expected_figure": {
             "axis_labels": {"y": "value"},

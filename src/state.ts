@@ -275,7 +275,9 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     shareX: spec.facet?.share_x ?? true,
     shareY: spec.facet?.share_y ?? true,
     layers: migrateDistLayers(spec.layers ?? []),
-    override: s?.chosen_by === "user_override" ? s.test : null,
+    // Prefer the dedicated `override` field; fall back to the legacy
+    // chosen_by == user_override signal so pre-decoupling .viz files still load.
+    override: s?.override ?? (s?.chosen_by === "user_override" ? s.test : null),
     describeOnly: s?.chosen_by === "describe_only",
     previewLevel: RAW_LEVEL,
     preset: spec.style?.preset ?? "demo_default",
@@ -335,9 +337,11 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
     ?? recOk ?? tests[0];
-  const usedOverride = p.override !== null && test === p.override && test !== recOk;
+  // The user owns the test choice; a pick that differs from the recommendation
+  // is not flagged as a deviation. We record only whether a test was chosen at
+  // all, not whether it matched the recommendation. (The engine still computes
+  // its own chosen_by / methods_text until that follow-up lands.)
   const chosen_by = p.describeOnly ? "describe_only"
-    : usedOverride ? "user_override"
     : recOk ? "recommendation_accepted" : "default";
   return {
     spec_version: "2.0",
@@ -363,6 +367,9 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     layers: p.layers,
     stats: {
       family, test, chosen_by,
+      /* the pinned test rides here, not in chosen_by — a non-recommended pick is
+         the user's choice, not a flagged deviation. null when nothing is pinned. */
+      override: p.override,
       alternatives_offered: tests.filter((t) => t !== test),
       assumption_checks: [{ check: "shapiro_wilk",
                             per: family === "group_comparison" ? "group" : "variable" }],

@@ -61,7 +61,7 @@ ANALYSES = [{
   "spec": { ...a real 2.0 Iris AnalysisSpec... },
   "expected_stats":  { "test": "pearson", "r": (0.962865, 1e-5),
                        "p": ("<", 1e-80), "n": 150 },
-  "expected_model":  { "family": "correlation", "chosen_by": "user_override" },
+  "expected_model":  { "family": "correlation", "chosen_by": "inferred" },
   "expected_figure": { "axis_labels": {"x": "petal length"}, "n_points": 150 },
 }]
 ```

@@ -133,7 +133,8 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
     # override from the UI doesn't apply once there are >2 levels)
     pinned = override if override in _MULTI_TESTS else None
     test = pinned or recommended
-    chosen_by = "user_override" if pinned else "recommendation_accepted"
+    # descriptive only; a pinned test is the user's choice, not a flagged deviation
+    chosen_by = "recommendation_accepted"
 
     n_excl = int(df.attrs.get("n_excluded", 0))
     excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
@@ -307,16 +308,16 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     recommended = _COMBINE[(structural_rec, assumption_rec)]
     test = override or recommended
     decision = {
+        # chosen_by is descriptive only — the user owns the choice, so a pick that
+        # differs from the recommendation is not flagged as a deviation.
         "structural": {
             "recommended": structural_rec, "chosen": structural_chosen,
-            "chosen_by": ("user_override" if structural_chosen != structural_rec
-                          else "recommendation_accepted"),
+            "chosen_by": "recommendation_accepted",
             "reason": struct_reason,
             "options": ["independent", "paired"] if paired_possible else ["independent"]},
         "assumption": {
             "recommended": assumption_rec, "chosen": assumption_chosen,
-            "chosen_by": ("user_override" if assumption_chosen != assumption_rec
-                          else "recommendation_accepted"),
+            "chosen_by": "recommendation_accepted",
             "reason": assume_reason, "options": ["parametric", "robust"]},
     }
 
@@ -409,7 +410,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
         "recommendation": {"test": recommended,
                            "reason": f"{struct_reason}; {assume_reason}"},
         "decision": decision,
-        "chosen_by": "user_override" if override else "recommendation_accepted",
+        "chosen_by": "recommendation_accepted",  # descriptive only; the user owns the pick
         "result": result, "summaries": summaries, "alpha": alpha,
         "methods_text": methods,
     }
@@ -556,7 +557,7 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
     return {
         "levels": [], "checks": checks,
         "recommendation": {"test": recommended, "reason": reason},
-        "chosen_by": "user_override" if override else "recommendation_accepted",
+        "chosen_by": "recommendation_accepted",  # descriptive only; the user owns the pick
         "result": result, "regression": regression,
         "summaries": [_summary(x, xa), _summary(y, ya)],
         "alpha": alpha, "methods_text": methods,
@@ -679,7 +680,7 @@ def contingency_test(df: pd.DataFrame, x: str, y: str,
         "counts": base["counts"], "total": base["total"],
         "levels": [], "checks": [],
         "recommendation": {"test": recommended, "reason": reason},
-        "chosen_by": "user_override" if override else "recommendation_accepted",
+        "chosen_by": "recommendation_accepted",  # descriptive only; the user owns the pick
         "result": result, "summaries": [], "alpha": alpha,
         "methods_text": methods,
     }

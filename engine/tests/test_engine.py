@@ -69,7 +69,9 @@ def test_mann_whitney_override():
     df = pd.DataFrame(make_table()["rows"])
     res = stats.group_comparison(df, "treatment", "response",
                                  ["control", "drug_a"], override="mann_whitney")
-    assert res["chosen_by"] == "user_override"
+    # the pin takes effect; chosen_by stays neutral (no deviation marker)
+    assert res["result"]["test"] == "mann_whitney"
+    assert res["chosen_by"] == "recommendation_accepted"
     assert res["result"]["U"] == pytest.approx(400, abs=0.5)
     assert res["result"]["p"] == pytest.approx(6.7956e-08, rel=1e-2)
 
@@ -222,10 +224,11 @@ def test_correlation_matches_scipy_ground_truth():
     assert res["result"]["test"] == "pearson"
     assert res["result"]["r"] == pytest.approx(expected.statistic, abs=1e-6)
     assert res["result"]["p"] == pytest.approx(expected.pvalue, rel=1e-6)
-    # spearman override agrees with scipy too, and is recorded as an override
+    # spearman override agrees with scipy too, and the pin takes effect
     res_sp = stats.correlation(df, "dose", "response", override="spearman")
     exp_sp = sps.spearmanr(df["dose"], df["response"])
-    assert res_sp["chosen_by"] == "user_override"
+    assert res_sp["result"]["test"] == "spearman"
+    assert res_sp["chosen_by"] == "recommendation_accepted"
     assert res_sp["result"]["r"] == pytest.approx(exp_sp.statistic, abs=1e-6)
     assert res_sp["result"]["p"] == pytest.approx(exp_sp.pvalue, rel=1e-6)
 

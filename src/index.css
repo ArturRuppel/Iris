@@ -157,6 +157,63 @@ dd.strong { font-weight: 600; }
 .methods { font-size: 12px; color: var(--dim); background: #f8fafc;
   border: 1px solid var(--line); border-radius: 6px; padding: 8px; margin: 0 0 8px; }
 
+/* assumption-axis caption above the test chips */
+.assumption-axis { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--faint); margin: 8px 0 4px; }
+.chip-wrap { display: inline-flex; align-items: center; gap: 2px; }
+
+/* Guided test picker: a stack of question cards (one per decision axis) that
+   replaces the recommendation + override-chips block for the two-group family.
+   See docs/superpowers/specs/2026-06-17-guided-test-picker-ui-design.md */
+.guided-picker { margin-bottom: 8px; }
+.qcard { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+  margin-bottom: 8px; }
+.qcard-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.qcard-head .qnum { color: var(--accent); font-weight: 600; }
+.qcard-head .qtitle { font-size: 12px; font-weight: 600; color: var(--ink); }
+.qcard-head .qhint { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--faint); margin-left: auto; }
+/* segmented radiogroup: two mutually-exclusive answers, not a free toggle */
+.seg { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.seg .opt { font-size: 12px; padding: 3px 12px; border-radius: 0;
+  border-left-width: 0; }
+.seg .opt:first-of-type { border-left-width: 1px; border-radius: 6px 0 0 6px; }
+.seg .opt:last-of-type { border-radius: 0 6px 6px 0; }
+.seg .opt.active { background: var(--accent); color: white; border-color: var(--accent); }
+.seg .opt.rec { font-weight: 600; }
+.seg-badge { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--ok); }
+.qcard .reason { margin: 0; }
+.qstatic { font-size: 12px; color: var(--dim); margin: 0; }
+.qstatic strong { color: var(--ink); }
+.qfooter { display: flex; align-items: center; gap: 6px; padding-top: 8px;
+  border-top: 1px solid var(--line); }
+.qfooter .qresult { font-size: 13px; font-weight: 600; color: var(--ink); }
+
+/* InfoTip: an inline `?`/ⓘ trigger that reveals a glossary popover on
+   hover/focus. Content, not decoration — see statsGlossary.ts. */
+.infotip { position: relative; display: inline-flex; vertical-align: baseline; }
+.infotip-trigger { all: unset; cursor: help; color: var(--faint);
+  font-size: 11px; line-height: 1; padding: 0 1px; border-radius: 50%; }
+.infotip-trigger:hover, .infotip-trigger:focus-visible { color: var(--accent); }
+.infotip-trigger:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+/* Rendered in a portal on document.body (see InfoTip.tsx) with fixed
+   positioning so the scrolling, overflow-hidden stats pane can't clip it.
+   left/top|bottom are set inline from the trigger's rect. */
+.infotip-pop { position: fixed; z-index: 1000;
+  width: 300px; max-width: calc(100vw - 16px); padding: 10px 12px; text-align: left;
+  background: var(--bg, #fff); color: var(--fg, #1e293b);
+  border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+  font-size: 12px; line-height: 1.45; font-weight: 400; text-transform: none;
+  letter-spacing: normal; white-space: normal; }
+.infotip-term { display: block; font-size: 12px; font-weight: 600;
+  color: var(--fg, #1e293b); margin-bottom: 4px; }
+.infotip-what { display: block; color: var(--dim); }
+.infotip-line { display: block; margin-top: 6px; color: var(--dim); }
+.infotip-line em { font-style: normal; font-weight: 600; color: var(--fg, #475569);
+  text-transform: uppercase; font-size: 10px; letter-spacing: 0.04em; }
+
 .modal-overlay { position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
   display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { background: var(--panel); border-radius: 12px; padding: 16px 18px;

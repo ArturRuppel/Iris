@@ -40,8 +40,8 @@ def _is_timeseries(layers: list[dict] | None) -> bool:
 def infer(encodings: dict, schema: dict, override: str | None,
           facet: dict | None = None, unit: list[str] | None = None,
           layers: list[dict] | None = None) -> dict:
-    """encodings + schema -> StatModel. `override` is the user-chosen test
-    name carried from the spec when chosen_by == user_override, else None.
+    """encodings + schema -> StatModel. `override` is the user's pinned test
+    name carried from the spec's `stats.override`, else None.
     `facet` is the spec's facet block; Phase 4 v1 runs no inferential test
     once either axis is faceted — multiple-comparisons correction is
     deferred, so describe-only is the only safe default.
@@ -134,7 +134,8 @@ def infer(encodings: dict, schema: dict, override: str | None,
                 "test": None, "facet_handling": None,
                 "chosen_by": "describe_only", "unit": unit, "issues": issues}
 
-    chosen_by = "user_override" if override else "inferred"
+    # `override` still pins the test; chosen_by is descriptive only and no longer
+    # flags the pick as a deviation from the recommendation.
     return {"design": design, "family": family, "factors": factors,
             "test": override, "facet_handling": None,
-            "chosen_by": chosen_by, "unit": unit, "issues": issues}
+            "chosen_by": "inferred", "unit": unit, "issues": issues}

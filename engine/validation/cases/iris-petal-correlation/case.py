@@ -13,9 +13,10 @@ Independent recompute (outside Iris, raw scipy 1.16.3):
 
 Test selection note: the engine *infers* Spearman here (Shapiro-Wilk rejects
 normality on the petal dimensions, which are bimodal across species), so to
-assert the published Pearson value we pin pearson via the user-override channel
-(chosen_by = user_override). This case therefore validates Pearson correctness;
-the engine's inference default (Spearman) is exercised elsewhere.
+assert the published Pearson value we pin pearson via the override channel
+(stats.override; chosen_by stays neutral — the user owns the pick). This case
+therefore validates Pearson correctness; the engine's inference default
+(Spearman) is exercised elsewhere.
 """
 SCHEMA_OVERRIDES = {}
 
@@ -30,8 +31,8 @@ ANALYSES = [
                           "color": None, "size": None, "shape": None},
             "layers": [{"geom": "scatter", "params": {}},
                        {"geom": "regression", "params": {}}],
-            "stats": {"alpha": 0.05, "chosen_by": "user_override",
-                      "test": "pearson"},
+            "stats": {"alpha": 0.05, "chosen_by": "recommendation_accepted",
+                      "test": "pearson", "override": "pearson"},
         },
         "expected_stats": {
             "test": "pearson",
@@ -39,7 +40,7 @@ ANALYSES = [
             "p": ("<", 1e-80),           # p = 4.7e-86 (recomputed)
             "n": 150,
         },
-        "expected_model": {"family": "correlation", "chosen_by": "user_override"},
+        "expected_model": {"family": "correlation", "chosen_by": "inferred"},
         "expected_figure": {
             "axis_labels": {"x": "petal length", "y": "petal width"},
             "n_points": 150,

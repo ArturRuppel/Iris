@@ -8,8 +8,9 @@ dual-write. A 2.0 spec passes through unchanged (idempotent).
 Legacy:  mappings{x,y,color}            layers[{mark, options?, stat?}]
 2.0:     encodings{x,y,color,size,shape} layers[{geom, params}]
 
-`_override` carries the user's chosen test (when chosen_by == user_override)
-so statmodel.infer can honor it; it is read by main._run, not persisted.
+`_override` carries the user's pinned test (from `stats.override`, or the legacy
+chosen_by == user_override signal) so statmodel.infer can honor it; it is read by
+main._run, not persisted.
 """
 from __future__ import annotations
 
@@ -92,7 +93,12 @@ def _migrate_dist_layers(layers: list[dict]) -> list[dict]:
 
 
 def _override_of(spec: dict) -> str | None:
+    # The pinned test rides in `stats.override` (decoupled from the chosen_by
+    # provenance label). Fall back to the legacy chosen_by == user_override
+    # signal so pre-decoupling specs still carry the user's pin.
     st = spec.get("stats", {})
+    if st.get("override"):
+        return st.get("override")
     if st.get("chosen_by") == "user_override":
         return st.get("test")
     return None

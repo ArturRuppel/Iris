@@ -96,7 +96,7 @@ def test_wilcoxon_override_matches_pingouin():
                                  pairing=PAIRING, override="wilcoxon")
     r = res["result"]
     assert r["test"] == "wilcoxon"
-    assert res["chosen_by"] == "user_override"
+    assert res["chosen_by"] == "recommendation_accepted"  # neutral; the pin still took effect
     assert r["W"] == pytest.approx(float(_col(ref, "W_val", "W-val")))
     assert r["p"] == pytest.approx(float(_col(ref, "p_val", "p-val")))
     assert r["effect"]["value"] == pytest.approx(float(_col(ref, "RBC")))
@@ -112,15 +112,17 @@ def test_small_paired_defaults_to_wilcoxon():
 
 # ── decision object records per-question provenance (§5) ──────────────────────
 
-def test_decision_records_structural_override():
+def test_decision_records_structural_choice_diverging_from_recommendation():
     df = _paired_df()
-    # override to an independent test on paired data → structural is a user override
+    # pin an independent test on paired data → the structural axis records a chosen
+    # answer (independent) that diverges from the recommendation (paired), without
+    # flagging it as a deviation (chosen_by stays neutral — the user owns the pick).
     res = stats.group_comparison(df, "group", "y", ["A", "B"],
                                  pairing=PAIRING, override="welch_t")
     d = res["decision"]
     assert d["structural"]["chosen"] == "independent"
     assert d["structural"]["recommended"] == "paired"
-    assert d["structural"]["chosen_by"] == "user_override"
+    assert d["structural"]["chosen_by"] == "recommendation_accepted"
     assert res["result"]["test"] == "welch_t"
 
 

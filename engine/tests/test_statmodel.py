@@ -53,11 +53,12 @@ def test_single_numeric_is_descriptive():
     assert m["family"] == "descriptive"
 
 
-def test_override_is_recorded_and_carried():
+def test_override_is_carried():
     m = statmodel.infer(enc("treatment", "response"), SCHEMA,
                         override="mann_whitney")
-    assert m["chosen_by"] == "user_override"
+    # the pin is carried into the model; chosen_by stays neutral (no deviation marker)
     assert m["test"] == "mann_whitney"
+    assert m["chosen_by"] == "inferred"
 
 
 def test_describe_only_when_unmapped():
@@ -110,7 +111,7 @@ def test_faceted_col_forces_describe_only():
     assert m["test"] is None
 
 
-def test_faceted_overrides_user_override():
+def test_faceted_forces_describe_only_even_with_a_pinned_test():
     m = statmodel.infer(enc("treatment", "response"), SCHEMA,
                         override="mann_whitney",
                         facet={"row": {"column": "genotype"}, "col": None})

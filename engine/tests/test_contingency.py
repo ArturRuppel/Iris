@@ -105,13 +105,14 @@ def test_fisher_zero_cell_uses_haldane_for_finite_ci():
 
 # ── overrides & routing ───────────────────────────────────────────────────────
 
-def test_override_fisher_on_2x2_records_user_override():
+def test_override_fisher_on_2x2_takes_effect():
     xl, yl = ["ctrl", "drug"], ["resp", "non"]
     counts = [[20, 10], [10, 20]]
     df = make_df(xl, yl, counts)
     res = contingency_test(df, "x", "y", xl, yl, override="fisher_exact")
+    # the pin takes effect; chosen_by stays neutral (no deviation marker)
     assert res["result"]["test"] == "fisher_exact"
-    assert res["chosen_by"] == "user_override"
+    assert res["chosen_by"] == "recommendation_accepted"
 
 
 def test_override_fisher_falls_back_to_chi_square_when_not_2x2():
