@@ -200,6 +200,12 @@ export function ImportWizard() {
                           {c.n_unparsed} value(s) not {c.type === "bool" ? "true/false" : "numeric"} → missing
                         </span>
                       )}
+                      {c.suggest_bool && c.type !== "bool" && (
+                        <button type="button" className="suggest-bool"
+                          onClick={() => setColType(c.name, "bool")}>
+                          looks boolean (0/1) — set to bool
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -177,6 +177,9 @@ dd.strong { font-weight: 600; }
   display: flex; flex-direction: column; gap: 3px; font-size: 12px; min-width: 130px; }
 .wizard-col strong { font-size: 12px; }
 .wizard-col span { font-size: 11px; }
+.suggest-bool { font-size: 10px; padding: 1px 6px; align-self: flex-start;
+  color: var(--accent); background: none; border: 1px dashed var(--accent);
+  border-radius: 6px; cursor: pointer; }
 .wizard-preview { max-height: 220px; border: 1px solid var(--line); border-radius: 8px; }
 .missing-cell { color: #ef4444; font-style: italic; }
 .wizard-options input[type="text"] { border: 1px solid #cbd5e1;

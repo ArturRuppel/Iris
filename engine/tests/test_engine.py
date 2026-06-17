@@ -517,6 +517,35 @@ def test_import_bool_type_plots_as_fraction():
     assert means["treated"] == pytest.approx(0.75)  # 3 of 4 divided
 
 
+def test_import_zero_one_stays_numeric_but_suggests_bool():
+    # a 0/1 column is NOT auto-detected as bool (a genuine numeric 0/1 measure
+    # must not be hijacked), but it is flagged so the wizard can suggest bool.
+    csv_data = (b"dose,divided\n"
+                b"1.5,0\n2.0,1\n2.5,1\n3.0,0\n3.5,1\n4.0,0\n")
+    prev = client.post("/import/preview", json={
+        "filename": "events.csv", "data_base64": _b64(csv_data)}).json()
+    cols = {c["name"]: c for c in prev["columns"]}
+    assert cols["divided"]["type"] == "numeric"          # default, not hijacked
+    assert cols["divided"].get("suggest_bool") is True     # but bool is suggested
+    assert cols["dose"]["type"] == "numeric"
+    assert "suggest_bool" not in cols["dose"]              # 1.5..4.0 isn't 0/1
+
+
+def test_import_retype_zero_one_to_bool_converts_on_commit():
+    # confirming the suggestion (retype to bool) converts 0/1 -> true/false.
+    csv_data = b"divided\n0\n1\n1\n0\n"
+    prev = client.post("/import/preview", json={
+        "filename": "e.csv", "data_base64": _b64(csv_data)}).json()
+    columns = prev["columns"]
+    for c in columns:
+        if c["name"] == "divided":
+            c["type"] = "bool"                            # user accepts the suggestion
+    commit = client.post("/import/commit", json={
+        "filename": "e.csv", "data_base64": _b64(csv_data),
+        "options": prev["options"], "columns": columns}).json()
+    assert commit["columns"]["divided"] == [False, True, True, False]
+
+
 def test_import_reserved_and_duplicate_names():
     csv_data = b"id,excluded,value,value\n1,yes,3.2,4.1\n2,no,3.5,4.4\n3,no,3.1,4.2\n"
     body = client.post("/import/preview", json={

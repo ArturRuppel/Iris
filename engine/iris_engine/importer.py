@@ -193,7 +193,27 @@ def _parse_bool(v: object) -> bool | None:
         return True
     if t in FALSE_TOKENS:
         return False
+    # 0/1 (and the 1.0/0.0 a numeric column stringifies to) convert on an
+    # *explicit* retype-to-bool, so a 0/1 event-count column becomes true/false.
+    # Auto-detection still excludes 0/1 (see _infer_type), so a genuine numeric
+    # 0/1 measure is never hijacked into bool without the user asking.
+    if t in {"1", "1.0"}:
+        return True
+    if t in {"0", "0.0"}:
+        return False
     return None
+
+
+def _is_zero_one(non_na: pd.Series, decimal: str) -> bool:
+    """True when every non-missing value is 0 or 1 — a 0/1 column the wizard
+    should *suggest* (not default) as bool, the inverse of the auto-detect
+    exclusion above. Used only to nudge; the inferred type stays numeric."""
+    if non_na.empty:
+        return False
+    nums = _as_numeric(non_na, decimal)
+    if nums.notna().mean() < 1.0:
+        return False
+    return set(nums.dropna().unique()).issubset({0.0, 1.0})
 
 
 def _infer_type(s: pd.Series, decimal: str) -> str:
@@ -237,6 +257,11 @@ def _column_report(df: pd.DataFrame, labels: list[str], decimal: str,
         non_na = s.dropna()
         col = {"name": name, "label": label, "type": ctype,
                "examples": non_na.head(3).tolist()}
+        # a numeric 0/1 column stays numeric by default but is flagged so the
+        # wizard can suggest bool (the user confirms; commit then converts 0/1
+        # -> true/false via _parse_bool). Skip if already bool.
+        if ctype != "bool" and _is_zero_one(non_na, decimal):
+            col["suggest_bool"] = True
         if counts:
             col["n_missing"] = int(s.isna().sum())
             col["n_distinct"] = int(non_na.nunique())

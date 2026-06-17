@@ -431,6 +431,8 @@ export interface ImportColumn {
   n_unparsed?: number;
   levels?: string[];
   examples: string[];
+  /* a 0/1 column: stays numeric by default but the wizard suggests bool */
+  suggest_bool?: boolean;
 }
 export interface ImportPreview {
   options: {
