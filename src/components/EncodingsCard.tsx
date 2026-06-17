@@ -95,7 +95,12 @@ export function EncodingsCard() {
            currently-mapped column is always kept so a mapping is never silently
            dropped. No geoms → registry-wide offer (encoding-first, unchanged). */
         if ((key === "x" || key === "y") && activeGeoms.length) {
-          const allowed = geomAxisColTypes(activeGeoms, key);
+          /* the other axis's current type carries the joint orientation
+             constraint: once X is numeric, an h_orient geom can only be
+             horizontal, so Y narrows to categorical (and numeric/numeric — which
+             would silently fall through to a scatter — becomes unreachable). */
+          const otherType = colType(schema, key === "x" ? mappings.y : mappings.x);
+          const allowed = geomAxisColTypes(activeGeoms, key, otherType);
           if (allowed.size) candidates = candidates.filter((c) => {
             if (c.name === value) return true;
             const ct = colType(schema, c.name);

@@ -299,4 +299,22 @@ describe("geomAxisColTypes — geom→encoding narrowing", () => {
   it("no geoms → empty set (caller falls back to the registry-wide offer)", () => {
     expect(geomAxisColTypes([], "x").size).toBe(0);
   });
+  it("joint constraint: an h_orient box with numeric X narrows Y to categorical only", () => {
+    // the reported bug — without the other-axis constraint Y also offered numeric,
+    // giving a numeric/numeric pair that fell through to a scatter.
+    expect([...geomAxisColTypes([REG_3C.geoms["box"]], "y", "numeric")])
+      .toEqual(["categorical"]);
+  });
+  it("joint constraint: an h_orient box with categorical X narrows Y to numeric only", () => {
+    expect([...geomAxisColTypes([REG_3C.geoms["box"]], "y", "categorical")])
+      .toEqual(["numeric"]);
+  });
+  it("joint constraint: an h_orient box with numeric Y narrows X to categorical only", () => {
+    expect([...geomAxisColTypes([REG_3C.geoms["box"]], "x", "numeric")])
+      .toEqual(["categorical"]);
+  });
+  it("an unmapped other axis (null) leaves every orientation open", () => {
+    expect(new Set(geomAxisColTypes([REG_3C.geoms["box"]], "y", null)))
+      .toEqual(new Set(["numeric", "categorical"]));
+  });
 });

@@ -195,17 +195,37 @@ export function geomAddable(
 }
 
 /* The column types an axis should offer once geoms are chosen — the geom→encoding
-   narrowing. Union over the active geoms (an h_orient geom accepts categorical OR
-   numeric on each axis). Empty when no geoms are present, so the caller falls
-   back to the registry-wide offer rule (encoding-first, unchanged). */
+   narrowing. Union over the active geoms of the orientations they support; an
+   h_orient geom adds the swapped orientation (vertical box = categorical x /
+   numeric y; horizontal box = numeric x / categorical y).
+
+   `otherType` is the type the OTHER axis currently carries. When it is given
+   (the axis is mapped) only orientations whose other component matches it
+   contribute — this preserves the *joint* X/Y constraint that a per-axis union
+   would lose. The decisive case: with a box and a numeric X already mapped, the
+   only consistent orientation is horizontal, so Y narrows to categorical alone
+   and a numeric/numeric pair (which would silently fall through to a scatter)
+   can never be expressed. When `otherType` is null/undefined (the other axis is
+   unmapped) every orientation is still open. Empty when no geoms are present, so
+   the caller falls back to the registry-wide offer rule (encoding-first). */
 export function geomAxisColTypes(
-  activeGeoms: GeomMeta[], axis: "x" | "y",
+  activeGeoms: GeomMeta[], axis: "x" | "y", otherType?: ColType | null,
 ): Set<ColType> {
   const out = new Set<ColType>();
   for (const g of activeGeoms) {
-    const primary = axis === "x" ? g.x_type : g.y_type;
-    if (primary === "categorical" || primary === "numeric") out.add(primary);
-    if (g.h_orient) out.add(axis === "x" ? "numeric" : "categorical");
+    // the (xType, yType) orientations this geom supports — vertical, plus the
+    // swapped pair for h_orient geoms (horizontal group comparison).
+    const pairs: [string, string][] = [[g.x_type, g.y_type]];
+    if (g.h_orient) pairs.push([g.y_type, g.x_type]);
+    for (const [px, py] of pairs) {
+      const mine = axis === "x" ? px : py;
+      const other = axis === "x" ? py : px;
+      if (mine !== "categorical" && mine !== "numeric") continue; // "none": no offer
+      // a mapped other axis must match this orientation for it to contribute;
+      // unmapped (null/undefined) leaves every orientation open.
+      if (otherType != null && other !== otherType) continue;
+      out.add(mine);
+    }
   }
   return out;
 }
