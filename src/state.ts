@@ -115,8 +115,8 @@ export interface Plottable {
   id: string;
   name: string;
   mappings: { x: string; y: string };
-  /* aesthetic channels (Phase 2), "" = unmapped. color defaults to x for a
-     group comparison (today's look); a color ≠ x dodges a second factor. */
+  /* aesthetic channels (Phase 2), "" = unmapped. Each is an independent,
+     explicit choice — color is never auto-derived from x. */
   color: string;
   size: string;
   shape: string;

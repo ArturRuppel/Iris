@@ -4,16 +4,11 @@ Open items only, ordered by the agreed sequence: a quick contained bug first,
 then the validation net before the feature it validates, then remaining feature
 work by increasing scope. The two browser-blocked items sit at the end.
 
-(Completed items 1–22 and the resolved repetition-key/superplot item were
-removed on 2026-06-17 — see git history for their write-ups.)
+(Completed items 1–22, the resolved repetition-key/superplot item, and the
+"picking X auto-propagates into Color" bug were removed on 2026-06-17 — see git
+history for their write-ups.)
 
-## 1. Picking X auto-propagates the column into Color — TODO
-When picking a value for X, it automatically propagates that column into the
-Color channel. That should not happen — choosing X must not set (or change)
-the Color encoding. Selecting an X column should leave Color untouched.
-Smallest, most contained (a single frontend wiring bug) — do this first.
-
-## 2. Build the validation corpus — TODO
+## 1. Build the validation corpus — TODO
 Build a corpus of curated `.iris` validation cases (known, well-characterized
 datasets → known plots and stats) per the design spec
 `docs/superpowers/specs/2026-06-17-validation-corpus-design.md`. Each case pairs
@@ -34,10 +29,10 @@ analytic ground truth for the reduce-pipeline path). Designed to grow as sibling
 (Spearman, Mann-Whitney/Kruskal, paired-t, Fisher-exact). The three iris
 `data.csv` files are already staged (canonical Fisher iris, verified
 byte-identical to seaborn's bundled copy).
-Do this before item 3 — it's the harness that asserts item 3's adjusted
+Do this before item 2 — it's the harness that asserts item 2's adjusted
 p-values against published references.
 
-## 3. Build multi-comparison + render significance brackets — TODO
+## 2. Build multi-comparison + render significance brackets — TODO
 Build out support for **multiple pairwise comparisons** across >2 groups and
 **render a significance bracket per comparison**. Today the stats path handles a
 single two-group comparison (one bracket, anchored on the drawn value max); this
@@ -59,7 +54,7 @@ control and stacked, non-overlapping brackets.
 - Open questions: which pairs to show by default (all vs. vs-reference), and how
   to keep a dense bracket stack legible (hide n.s.? cap the number shown?).
 
-## 4. Auto-detect 0/1 columns as bool on import — TODO
+## 3. Auto-detect 0/1 columns as bool on import — TODO
 When importing data, a column whose non-null values are only `0` and `1` should
 be auto-detected as `bool`, and if the user picks/confirms it as `bool` it should
 be converted to true/false on import. NOTE: this reverses the deliberate choice
@@ -71,7 +66,7 @@ columns) so genuine numeric 0/1 measures still import as numeric. The
 retype-to-bool path and the 0/1→true/false conversion on commit are the concrete
 deliverables.
 
-## 5. Geom-first workflow: allow selecting a geom before data — TODO
+## 4. Geom-first workflow: allow selecting a geom before data — TODO
 It should be possible to pick a geom *before* loading/selecting data. The chosen
 geom should then restrict what data can be loaded — i.e. the geom's encoding
 requirements (its `(x_type, y_type)` expectations) constrain the columns/types
@@ -83,7 +78,7 @@ items since it touches the most surface.
 
 ## Browser-blocked (no Chromium in this sandbox)
 
-### 6. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
+### 5. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
 Facet COL is fixed and verified; facet ROW still doesn't work in the running app.
 Everything verifiable headlessly passes, so the remaining bug is app/browser-side
 and not reproducible in this sandbox (no Chromium):
@@ -102,7 +97,7 @@ in the app, capture the console + the produced figure height, and decide whether
 to cap total figure size and/or fix the figure-pane display of very tall
 figures.
 
-### 7. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
+### 6. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
 Three UI-wiring e2e tests are written (mirroring the verified
 `aesthetics_test.mjs` pattern: explicit import via the ImportWizard hidden file
 input → switch to Analyses → map X/Y → `.add-layer-btn` flow):
@@ -116,4 +111,4 @@ All three pass `node --check`. NOT executed here — this sandbox has no Chromiu
 and no network to download one. Run on a machine with Chromium: start the engine
 (8765) + vite (5173), then `node e2e/continuous_color_test.mjs` (and
 `horizontal_test.mjs`, `tile_test.mjs`); each exits 0 on success. Batch with
-item 6 whenever a browser environment is available.
+item 5 whenever a browser environment is available.

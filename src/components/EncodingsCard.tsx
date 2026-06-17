@@ -69,13 +69,11 @@ export function EncodingsCard() {
     return active[ch];
   };
 
-  /* color follows x while it tracks x (the default), so changing the group
-     column doesn't strand color on the old one; an explicit color is left be. */
+  /* Each channel is set independently — picking X maps only X and never touches
+     Color (or any other channel). Color is its own explicit choice. */
   const setValue = (ch: Channel, col: string) => {
     if (ch === "x") {
-      const colorTracksX = active.color === mappings.x;
-      setActive({ ...active, mappings: { ...mappings, x: col },
-                  color: colorTracksX ? col : active.color });
+      setActive({ ...active, mappings: { ...mappings, x: col } });
     } else if (ch === "y") {
       setActive({ ...active, mappings: { ...mappings, y: col } });
     } else if (ch === "facet_row" || ch === "facet_col") {
