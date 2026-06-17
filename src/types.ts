@@ -203,7 +203,7 @@ export interface ReducePreview {
 }
 
 /* every key the style panel exposes; the engine fills in defaults, so all
-   fields are optional and an empty object means "preset look" */
+   fields are optional and an empty object means "default look" */
 export interface StyleOverrides {
   width_mm?: number;
   height_mm?: number;
@@ -223,6 +223,9 @@ export interface StyleOverrides {
   y_label?: string;
   /* written by dragging labels on the figure; SVG px, y down */
   offsets?: Record<string, [number, number]>;
+  /* written by dragging/resizing the plot area within the canvas:
+     [left, bottom, width, height] in figure fractions (y up). Unfaceted only. */
+  axes_rect?: [number, number, number, number];
   /* axes & ticks */
   tick_direction?: "out" | "in" | "inout";
   tick_length?: number;
@@ -293,7 +296,7 @@ export interface AnalysisSpec {
     report: string[];
   };
   annotations: { significance_brackets: "auto"; show_n: boolean };
-  style: { preset: string; overrides: StyleOverrides };
+  style: { overrides: StyleOverrides };
   engine_snapshot: Record<string, string>;
 }
 

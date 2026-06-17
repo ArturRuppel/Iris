@@ -115,7 +115,7 @@ def test_exclusion_changes_n_and_methods_text():
 
 def test_pdf_export_has_exact_mm_size():
     spec = make_spec()
-    spec["style"]["preset"] = "nature_single_column"  # 89 x 70 mm
+    spec["style"]["overrides"] = {"width_mm": 89, "height_mm": 70}
     r = client.post("/export", json={"table": make_table(), "spec": spec,
                                      "format": "pdf"})
     pdf = base64.b64decode(r.json()["data_base64"])

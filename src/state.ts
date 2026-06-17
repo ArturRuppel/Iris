@@ -143,7 +143,6 @@ export interface Plottable {
   /* which level the reduced-table preview shows ("" = raw reduced rows). The
      hierarchy itself is table-level (hierarchyAtom), shared by all analyses. */
   previewLevel: string;
-  preset: string;
   style: StyleOverrides;
   reduce: ReduceSpec;
 }
@@ -166,7 +165,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     layers: [],
     override: null, describeOnly: false,
     previewLevel: RAW_LEVEL,
-    preset: "demo_default", style: {},
+    style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
        so an in-place mutation could never alias across plottables.
        Empty steps == the full table (today's default). */
@@ -430,7 +429,6 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     override: s?.override ?? (s?.chosen_by === "user_override" ? s.test : null),
     describeOnly: s?.chosen_by === "describe_only",
     previewLevel: RAW_LEVEL,
-    preset: spec.style?.preset ?? "demo_default",
     style: spec.style?.overrides ?? {},
     reduce: spec.reduce ?? { steps: [] },
   };
@@ -529,7 +527,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       report: ["effect_size", "ci", "n_per_group"],
     },
     annotations: { significance_brackets: "auto", show_n: true },
-    style: { preset: p.preset, overrides: p.style },
+    style: { overrides: p.style },
     engine_snapshot: snapshot,
   };
 }

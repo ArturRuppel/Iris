@@ -27,15 +27,13 @@ from .scales import PALETTE  # the single colour source of truth (see scales.py)
 MM = 1 / 25.4
 INK = "#0f172a"
 
-STYLE_PRESETS = {
-    "demo_default": {"width_mm": 140, "height_mm": 100, "font_pt": 9},
-    "nature_single_column": {"width_mm": 89, "height_mm": 70, "font_pt": 7},
-    "nature_double_column": {"width_mm": 183, "height_mm": 100, "font_pt": 7},
-}
-
-# every visual knob the style panel exposes; presets fill the size keys,
-# overrides may replace any of these (None = "use the plot's own default")
+# every visual knob the style panel exposes; overrides may replace any of these
+# (None = "use the plot's own default"). One canonical figure size — width/height
+# come straight from these defaults and are tunable only via per-plot overrides.
 STYLE_DEFAULTS = {
+    "width_mm": 140.0,       # canonical figure size; override per-plot in Style
+    "height_mm": 100.0,
+    "font_pt": 9,
     "marker_size": 22.0,     # scatter/dot area in pt²
     "marker_alpha": 0.55,
     "layout": "swarm",       # dot layout: "swarm" (no-overlap pack) or "jitter"
@@ -50,6 +48,11 @@ STYLE_DEFAULTS = {
     "x_label": "",
     "y_label": "",
     "offsets": {},           # {"lbl-x": [dx, dy], ...} from dragging, SVG px (y down)
+    "axes_rect": None,       # [left, bottom, width, height] in figure fractions;
+                             # None = let constrained layout place the plot area.
+                             # Set by dragging/resizing the plot area within the
+                             # (independently sized) canvas, so a grown canvas can
+                             # host a docked legend in the freed space. Unfaceted only.
     # axes & ticks
     "tick_direction": "out",     # out | in | inout
     "tick_length": 3.5,          # pt
@@ -126,8 +129,8 @@ def _stable_jitter(row_id: str, width: float = 0.18) -> float:
 
 def resolve_style(spec: dict) -> dict:
     style = spec.get("style", {})
-    preset = STYLE_PRESETS.get(style.get("preset"), STYLE_PRESETS["demo_default"])
-    resolved = {**STYLE_DEFAULTS, **preset}
+    # `preset` is a retired concept; any value left on old saved specs is ignored.
+    resolved = {**STYLE_DEFAULTS}
     for k, v in (style.get("overrides") or {}).items():
         if v is None:
             continue
@@ -241,21 +244,41 @@ def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
         ax.set_ylim(top=max(ax.get_ylim()[1], headroom))
 
 
-def _draw_n_labels(ax, counts: dict, levels: list, horizontal: bool,
+_SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+
+
+def _n_label(counts_per_grain: list[int]) -> str:
+    """Compose one x-level's sample-size label from its per-grain counts, ordered
+    FINEST→COARSEST. One grain → ``n = R`` (the replicate count, today's label);
+    two → ``n = R  N = U`` (replicates and units, the superplot pair); more →
+    indexed ``n₀ = …  n₁ = …`` finest-first so deeper nesting stays unambiguous."""
+    if len(counts_per_grain) == 1:
+        return f"n = {counts_per_grain[0]}"
+    if len(counts_per_grain) == 2:
+        return f"n = {counts_per_grain[0]}  N = {counts_per_grain[1]}"
+    return "  ".join(f"n{str(i).translate(_SUBSCRIPT)} = {c}"
+                     for i, c in enumerate(counts_per_grain))
+
+
+def _draw_n_labels(ax, count_dicts: list[dict], levels: list, horizontal: bool,
                    style: dict) -> None:
-    """One faint ``n = N`` label per x-level, anchored just outside the value
-    axis (below a vertical plot, left of a horizontal one). ``counts`` maps a
-    level name to its raw observation count; toggled by the ``show_n`` flag."""
+    """One faint sample-size label per x-level, anchored just outside the value
+    axis (below a vertical plot, left of a horizontal one). ``count_dicts`` is one
+    count map per distinct grain the layers draw at, FINEST→COARSEST; each maps a
+    level name to that grain's group count within the level. Toggled by
+    ``show_n``."""
+    if not count_dicts:
+        return
     fs = style["font_pt"] - 2
     for i, lv in enumerate(levels):
-        n = counts.get(lv, 0)
+        txt = _n_label([cd.get(lv, 0) for cd in count_dicts])
         if horizontal:
-            ax.annotate(f"n = {n}", (0, i), xycoords=("axes fraction", "data"),
+            ax.annotate(txt, (0, i), xycoords=("axes fraction", "data"),
                         xytext=(-4, 0), textcoords="offset points",
                         ha="right", va="center", fontsize=fs,
                         color="#94a3b8", annotation_clip=False)
         else:
-            ax.annotate(f"n = {n}", (i, 0), xycoords=("data", "axes fraction"),
+            ax.annotate(txt, (i, 0), xycoords=("data", "axes fraction"),
                         xytext=(0, -26), textcoords="offset points",
                         ha="center", fontsize=fs,
                         color="#94a3b8", annotation_clip=False)
@@ -352,6 +375,17 @@ def _decorate(fig, ax, style: dict, extra: dict | None = None, *, faceted: bool 
             art.set_transform(art.get_transform() + mtransforms.ScaledTranslation(
                 off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
 
+    # Plot-area drag/resize: pin the axes to an explicit figure-fraction rect.
+    # Deferred to _finalize_deferred (like the legend nudge) so constrained
+    # layout solves first and is then frozen; only meaningful with one axes.
+    rect = style.get("axes_rect")
+    if not faceted:
+        # Tag the axes background so the frontend can locate the plot-area
+        # rectangle and overlay its move/resize handles (gid 'plot-area').
+        ax.patch.set_gid("plot-area")
+        if rect and len(rect) == 4:
+            fig._iris_axes_rect = (ax, [float(v) for v in rect])
+
 
 def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
     """Legend for the mapped aesthetic channels. Color is omitted when it just
@@ -400,6 +434,19 @@ def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
         fig._iris_legend_nudge = (
             leg, fig.transFigure if faceted else ax.transAxes, off)
     return leg
+
+
+def _apply_axes_rect(fig) -> None:
+    """Pin the plot area to its dragged/resized rect (offsets['axes_rect'] →
+    [left, bottom, width, height] in figure fractions). Run from
+    _finalize_deferred after constrained layout has solved and the legend has
+    been re-anchored, with the layout engine about to be frozen, so the explicit
+    position survives the save. Pops its stash, so a second save is a no-op."""
+    stash = fig.__dict__.pop("_iris_axes_rect", None)
+    if not stash:
+        return
+    ax, box = stash
+    ax.set_position(box)
 
 
 def _apply_legend_offset(fig) -> None:
@@ -500,12 +547,14 @@ def _finalize_deferred(fig) -> None:
     relayout the result away. Each pass pops its own stash, so this is a no-op on
     a second save."""
     pending = (getattr(fig, "_iris_beeswarm", None)
-               or "_iris_legend_nudge" in fig.__dict__)
+               or "_iris_legend_nudge" in fig.__dict__
+               or "_iris_axes_rect" in fig.__dict__)
     if not pending:
         return
     fig.canvas.draw()
     _apply_beeswarm(fig)
     _apply_legend_offset(fig)
+    _apply_axes_rect(fig)
     fig.set_layout_engine("none")
 
 
@@ -965,7 +1014,6 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         point_groups, gid_next = [], 0
         cbar_mappable, last_ax = None, None
         levels, h = layout["levels"], layout["h_orient"]
-        raw_df, _ = hierarchy_mod.resolve_level(level_tables, hierarchy_mod.RAW)
         for ri, rlevel in enumerate(row_levels):
             for ci, clevel in enumerate(col_levels):
                 ax = axes[ri][ci]
@@ -1005,11 +1053,31 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 _apply_axes(ax, style, x_numeric=h,
                             grid_x_default=h, grid_y_default=not h)
                 if style["show_n"]:
-                    raw_cell = _facet_cell_df(raw_df, row_col, col_col, rlevel, clevel)
-                    if val_col in raw_cell.columns:
-                        raw_cell = raw_cell[raw_cell[val_col].notna()]
-                    counts = raw_cell[cat_col].astype(str).value_counts().to_dict()
-                    _draw_n_labels(ax, counts, levels, h, style)
+                    # n reports the grains the LAYERS actually draw at (decision:
+                    # "only the drawn levels"). An unknown/dropped level collapses
+                    # to RAW; grains nest, so a finer one has more rows — order by
+                    # table size, finest (most rows) → coarsest, for n / n,N / n₀…
+                    drawn: list[str] = []
+                    for layer in layers:
+                        if layer["geom"] not in _COMPARISON_GEOMS:
+                            continue
+                        lv = layer.get("level") or hierarchy_mod.RAW
+                        if lv not in level_tables:
+                            lv = hierarchy_mod.RAW
+                        if lv not in drawn:
+                            drawn.append(lv)
+                    drawn.sort(
+                        key=lambda lv: len(hierarchy_mod.resolve_level(level_tables, lv)[0]),
+                        reverse=True)
+                    count_dicts = []
+                    for lv in drawn:
+                        ldf, _ = hierarchy_mod.resolve_level(level_tables, lv)
+                        cell = _facet_cell_df(ldf, row_col, col_col, rlevel, clevel)
+                        if val_col in cell.columns:
+                            cell = cell[cell[val_col].notna()]
+                        count_dicts.append(
+                            cell[cat_col].astype(str).value_counts().to_dict())
+                    _draw_n_labels(ax, count_dicts, levels, h, style)
                 if faceted:
                     title = _facet_title(row_col, col_col, rlevel, clevel)
                     if title:

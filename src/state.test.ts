@@ -31,7 +31,7 @@ function makeSpec(id: string, opts: {
       alpha: 0.05, report: [],
     },
     annotations: { significance_brackets: "auto", show_n: true },
-    style: { preset: "demo_default", overrides: {} },
+    style: { overrides: {} },
     engine_snapshot: {},
   };
 }

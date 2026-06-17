@@ -358,13 +358,13 @@ export function StylePane() {
         <fieldset>
           <legend>Size</legend>
           <label>Width
-            <input type="number" min={40} max={300} placeholder="preset"
+            <input type="number" min={40} max={300} placeholder="140"
               value={style.width_mm ?? ""}
               onChange={(e) => set({ width_mm: num(e.target.value) })} />
             <span className="dim">mm</span>
           </label>
           <label>Height
-            <input type="number" min={30} max={250} placeholder="preset"
+            <input type="number" min={30} max={250} placeholder="100"
               value={style.height_mm ?? ""}
               onChange={(e) => set({ height_mm: num(e.target.value) })} />
             <span className="dim">mm</span>

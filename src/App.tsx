@@ -50,7 +50,7 @@ function RenderIndicator({ dataLoading }: { dataLoading: boolean }) {
 
 export default function App() {
   const [schema] = useAtom(schemaAtom);
-  const [active, setActive] = useAtom(activePlottableAtom);
+  const [active] = useAtom(activePlottableAtom);
   const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
@@ -93,9 +93,6 @@ export default function App() {
 
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
-  const preset = active?.preset ?? "demo_default";
-
-  const setPreset = (p: string) => active && setActive({ ...active, preset: p });
 
   useEffect(() => {
     /* run exactly once. React 18 StrictMode double-invokes mount effects in dev;
@@ -303,15 +300,6 @@ export default function App() {
         <div className="controls">
           <ImportWizard />
           <DataEntry />
-          {viewMode === "analyses" && (
-            <label>Size
-              <select value={preset} onChange={(e) => setPreset(e.target.value)}>
-                <option value="demo_default">Screen (140 mm)</option>
-                <option value="nature_single_column">Nature single (89 mm)</option>
-                <option value="nature_double_column">Nature double (183 mm)</option>
-              </select>
-            </label>
-          )}
           <RenderIndicator dataLoading={dataLoading} />
           <span className="spacer" />
           <button onClick={() => doExport("svg")}>SVG</button>

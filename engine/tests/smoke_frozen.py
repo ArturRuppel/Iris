@@ -82,7 +82,7 @@ def main() -> None:
         ok("analyze: stats + gid-tagged SVG contract")
 
         spec = make_spec()
-        spec["style"]["preset"] = "nature_single_column"
+        spec["style"]["overrides"] = {"width_mm": 89, "height_mm": 70}
         exp = req("/export", {"table": make_table(), "spec": spec,
                               "format": "pdf", "dpi": 300})
         pdf = base64.b64decode(exp["data_base64"])

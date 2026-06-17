@@ -47,6 +47,10 @@ export function FigurePane() {
   const [menu, setMenu] = useState<{ x: number; y: number; rowIds: string[] } | null>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [resizing, setResizing] = useState<string | null>(null);
+  /* plot-area (axes) rect in figure-host px, for the move/resize grips. Null
+     when the engine didn't tag a plot area (e.g. faceted figures). */
+  const [plotRect, setPlotRect] =
+    useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   /* keep the resize handle glued to the SVG's bottom-right corner */
   const placeHandle = () => {
@@ -57,6 +61,18 @@ export function FigurePane() {
     const sr = svg.getBoundingClientRect();
     h.style.left = `${sr.right - er.left - 7}px`;
     h.style.top = `${sr.bottom - er.top - 7}px`;
+  };
+
+  /* the engine tags the axes background <g id="plot-area"> (unfaceted only); its
+     screen rect is the draggable plot area. Grips sit at its corners. */
+  const placePlotHandles = () => {
+    const el = host.current;
+    const pa = el?.querySelector("#plot-area") as SVGGraphicsElement | null;
+    if (!el || !pa) { setPlotRect(null); return; }
+    const er = el.getBoundingClientRect();
+    const pr = pa.getBoundingClientRect();
+    setPlotRect({ left: pr.left - er.left, top: pr.top - er.top,
+                  width: pr.width, height: pr.height });
   };
 
   useEffect(() => {
@@ -70,6 +86,7 @@ export function FigurePane() {
       useByRow.current.clear();
       setMenu(null);
       setDims(null);
+      setPlotRect(null);
       return;
     }
     /* Trust boundary: the SVG is injected as raw markup (the click-to-exclude
@@ -92,7 +109,8 @@ export function FigurePane() {
     svg.style.height = "auto";
     setDims({ w: Math.round(vb.width / PT_PER_MM), h: Math.round(vb.height / PT_PER_MM) });
     placeHandle();
-    const ro = new ResizeObserver(placeHandle);
+    placePlotHandles();
+    const ro = new ResizeObserver(() => { placeHandle(); placePlotHandles(); });
     ro.observe(el);
 
     /* points: click = select, right-click = context menu. Hierarchy redesign:
@@ -220,6 +238,54 @@ export function FigurePane() {
     window.addEventListener("pointerup", up);
   };
 
+  /* plot-area move/resize: drag a corner grip to reposition or resize the axes
+     inside the canvas, committed as `axes_rect` (figure fractions, y up). The
+     canvas itself is sized independently by the corner handle above, so growing
+     the canvas and pulling the plot area aside frees a strip the legend can be
+     dragged into — "docking" it on the extended canvas. Grips move live; the
+     figure re-renders at the committed rect on release. */
+  const onPlotDrag = (mode: "move" | "resize") => (e0: ReactPointerEvent) => {
+    const el = host.current;
+    const svg = el?.querySelector("svg");
+    const pa = el?.querySelector("#plot-area") as SVGGraphicsElement | null;
+    if (!el || !svg || !pa || !plotRect) return;
+    e0.preventDefault();
+    e0.stopPropagation();
+    const sr = svg.getBoundingClientRect();
+    /* current axes rect as figure fractions (y down for top) */
+    const left0 = (pa.getBoundingClientRect().left - sr.left) / sr.width;
+    const top0 = (pa.getBoundingClientRect().top - sr.top) / sr.height;
+    const w0 = pa.getBoundingClientRect().width / sr.width;
+    const h0 = pa.getBoundingClientRect().height / sr.height;
+    const start = plotRect;
+    const move = (e: PointerEvent) => {
+      const dx = e.clientX - e0.clientX, dy = e.clientY - e0.clientY;
+      setPlotRect(mode === "move"
+        ? { ...start, left: start.left + dx, top: start.top + dy }
+        : { ...start, width: Math.max(24, start.width + dx),
+            height: Math.max(24, start.height + dy) });
+    };
+    const up = (e: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const dx = e.clientX - e0.clientX, dy = e.clientY - e0.clientY;
+      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) { placePlotHandles(); return; }
+      const cl = (v: number) => Math.max(0, Math.min(1, v));
+      let rect: [number, number, number, number];
+      if (mode === "move") {
+        const top = top0 + dy / sr.height;
+        rect = [cl(left0 + dx / sr.width), cl(1 - (top + h0)), w0, h0];
+      } else {
+        const width = Math.min(1, Math.max(0.1, w0 + dx / sr.width));
+        const height = Math.min(1, Math.max(0.1, h0 + dy / sr.height));
+        rect = [left0, cl(1 - (top0 + height)), width, height];
+      }
+      setStyle((st) => ({ ...st, axes_rect: rect }));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   const exclude = async (rowIds: string[]) => {
     // a coarse mark excludes its whole unit; serialize so the handle counts
     // settle on the final server state rather than racing concurrent toggles.
@@ -247,8 +313,19 @@ export function FigurePane() {
             if ((e.target as Element).tagName !== "use") setSelected(null);
           }} />
         {analysis && (
-          <div ref={handle} className="resize-handle" title="drag to resize (mm)"
+          <div ref={handle} className="resize-handle" title="drag to resize the canvas (mm)"
             onPointerDown={onResizeStart} />
+        )}
+        {analysis && plotRect && (
+          <>
+            <div className="plot-move" title="drag to move the plot area"
+              style={{ left: plotRect.left - 7, top: plotRect.top - 7 }}
+              onPointerDown={onPlotDrag("move")} />
+            <div className="plot-resize" title="drag to resize the plot area"
+              style={{ left: plotRect.left + plotRect.width - 7,
+                       top: plotRect.top + plotRect.height - 7 }}
+              onPointerDown={onPlotDrag("resize")} />
+          </>
         )}
         {(status === "running" || dataLoading) && (
           <div className={`figure-overlay${analysis ? " over-figure" : ""}`}>
@@ -279,7 +356,8 @@ export function FigurePane() {
       )}
       <p className="hint">
         Click a point to select it; right-click to exclude. Drag labels or the
-        legend to reposition, drag the corner handle to resize — exports match.
+        legend to reposition. Drag the canvas corner to resize the figure, or the
+        plot-area corners to move/resize the axes within it — exports match.
       </p>
       <StylePane />
     </section>
