@@ -96,9 +96,9 @@ def test_analyze_endpoint_svg_has_clickable_point_groups():
         assert m, f"gid {g['gid']} missing from SVG"
         n_use = len(re.findall(r"<use\b", m.group(1)))
         assert n_use == len(g["row_ids"]), "one <use> per row required"
-    # Hierarchy redesign: the figure is decoupled from the inferential test, so
-    # the on-figure significance bracket is deferred with the rest of stats.
-    assert "***" not in svg
+    # The two-group comparison draws its significance bracket on the figure
+    # (re-introduced with the multi-comparison work); this fixture is significant.
+    assert "<!-- *** -->" in svg
 
 
 def test_exclusion_changes_n_and_methods_text():

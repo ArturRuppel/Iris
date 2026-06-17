@@ -6,13 +6,16 @@ never echoed from the engine — so an assertion can't be a tautology. Covers te
 selection (ANOVA vs Kruskal), the omnibus statistic, the pairwise table shape +
 multiplicity correction, and the override channel.
 """
+import json
+import re
+
 import numpy as np
 import pandas as pd
 import pingouin as pg
 import pytest
 from scipy import stats as sps
 
-from iris_engine import stats
+from iris_engine import compiler, document, main, stats
 
 
 def _three_group_df(seed=0, n=40):
@@ -124,6 +127,47 @@ def test_stars_track_adjusted_p():
     res = stats.group_comparison(df, "g", "y", ["A", "B", "C"])
     for pw in res["result"]["pairwise"]:
         assert pw["stars"] == stats._p_stars(pw["p_adj"])
+
+
+# ── figure: stacked significance brackets ──────────────────────────────────────
+
+def _render(df, geom="box", horizontal=False, show_significance=True):
+    rows = json.loads(df.to_json(orient="records"))
+    for i, r in enumerate(rows, 1):
+        r["id"] = str(i)
+        r["excluded"] = False
+    schema = document._infer_schema(df)
+    enc = ({"x": {"column": "y"}, "y": {"column": "g"}} if horizontal
+           else {"x": {"column": "g"}, "y": {"column": "y"}})
+    enc.update({"color": None, "size": None, "shape": None})
+    spec = {"spec_version": "2.0", "title": "t", "encodings": enc,
+            "layers": [{"geom": geom, "params": {}}],
+            "style": {"overrides": {"show_significance": show_significance}},
+            "stats": {"alpha": 0.05}}
+    fig, *_ = main._run({"schema": schema, "rows": rows}, spec)
+    svg = compiler.figure_to_svg(fig)
+    compiler.close(fig)
+    return svg
+
+
+def _bracket_labels(svg):
+    # matplotlib (svg.fonttype=none) emits each text string as an SVG comment
+    return re.findall(r"<!-- (\*{1,3}|ns) -->", svg)
+
+
+def test_three_groups_draw_one_bracket_per_pair():
+    svg = _render(_three_group_df())
+    assert len(_bracket_labels(svg)) == 3  # one per pairwise comparison
+
+
+def test_horizontal_multi_group_brackets_drawn():
+    svg = _render(_three_group_df(), horizontal=True)
+    assert len(_bracket_labels(svg)) == 3
+
+
+def test_show_significance_off_suppresses_brackets():
+    svg = _render(_three_group_df(), show_significance=False)
+    assert _bracket_labels(svg) == []
 
 
 # ── degenerate input ───────────────────────────────────────────────────────────

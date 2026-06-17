@@ -193,13 +193,15 @@ def test_horizontal_aggregate_geoms_have_no_point_groups():
         assert r.json()["figure"]["point_groups"] == [], geom_name
 
 
-def test_horizontal_no_significance_bracket_deferred():
-    """Hierarchy redesign: the figure no longer draws the inferential
-    significance bracket (stats are deferred until plotting settles)."""
+def test_horizontal_significance_bracket_drawn():
+    """A horizontal two-group comparison draws its significance bracket on the
+    value axis (the multi-comparison work re-introduced on-figure brackets). The
+    two fixture groups are well separated, so the bracket label is significant."""
     r = client.post("/analyze", json={"table": make_table(),
                                       "spec": make_horiz_spec("box")})
     assert r.status_code == 200
-    assert "***" not in r.json()["figure"]["svg"]
+    # matplotlib (svg.fonttype=none) emits each label's text as an SVG comment
+    assert "<!-- *** -->" in r.json()["figure"]["svg"]
 
 
 def test_horizontal_mixed_layers():

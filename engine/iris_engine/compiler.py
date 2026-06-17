@@ -197,6 +197,65 @@ def _drawn_value_max(ax, horizontal: bool) -> float:
     return float(lim[1])
 
 
+def _sig_stars(p: float) -> str:
+    return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
+
+
+def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
+                       style: dict) -> None:
+    """Stack one significance bracket per reported comparison above the drawn
+    data. Two-group results draw a single bracket; multi-group results draw one
+    per ``result['pairwise']`` entry. Brackets are ordered by span (short ones
+    sit lowest, so wider spans arch over them), offset upward by a fixed step
+    from the outlier-safe anchor (`_drawn_value_max`), and the value axis is
+    grown to fit the whole stack — unless the user pinned the value-axis max."""
+    r = (res or {}).get("result", {}) or {}
+    if r.get("test") in (None, "none"):
+        return
+    pairwise = r.get("pairwise")
+    if pairwise:
+        items = [(pw["a"], pw["b"], pw["stars"]) for pw in pairwise]
+    elif r.get("p") is not None and len(levels) == 2:
+        items = [(levels[0], levels[1], _sig_stars(r["p"]))]
+    else:
+        return
+    idx = {str(lv): i for i, lv in enumerate(levels)}
+    spans = [(idx[str(a)], idx[str(b)], lbl) for a, b, lbl in items
+             if str(a) in idx and str(b) in idx]
+    if not spans:
+        return
+    # short spans lowest, then left-to-right, so nested brackets don't cross
+    spans.sort(key=lambda t: (abs(t[1] - t[0]), min(t[0], t[1])))
+
+    base = _drawn_value_max(ax, horizontal)
+    lo, hi = ax.get_xlim() if horizontal else ax.get_ylim()
+    extent = (hi - lo) or 1.0
+    step = extent * 0.08          # vertical gap between stacked brackets
+    tip = step * 0.3              # length of the little downward end ticks
+    fs = style["font_pt"] - 1
+    top = base
+    for n, (i, j, lbl) in enumerate(spans):
+        v = base + step * (n + 1)
+        a_pos, b_pos = sorted((i, j))
+        if horizontal:                       # value axis is X; brackets reach right
+            ax.plot([v - tip, v, v, v - tip], [a_pos, a_pos, b_pos, b_pos],
+                    lw=1.0, color=INK, clip_on=False)
+            ax.text(v, (a_pos + b_pos) / 2, lbl, ha="left", va="center",
+                    rotation=-90, fontsize=fs)
+        else:                                # value axis is Y; brackets reach up
+            ax.plot([a_pos, a_pos, b_pos, b_pos], [v - tip, v, v, v - tip],
+                    lw=1.0, color=INK, clip_on=False)
+            ax.text((a_pos + b_pos) / 2, v, lbl, ha="center", va="bottom",
+                    fontsize=fs)
+        top = v
+    headroom = top + step          # clear the top label
+    if horizontal:
+        if style["x_max"] is None:
+            ax.set_xlim(right=max(ax.get_xlim()[1], headroom))
+    elif style["y_max"] is None:
+        ax.set_ylim(top=max(ax.get_ylim()[1], headroom))
+
+
 def _err_half(s: dict, error_type: str) -> float:
     """Half-length of an error bar for one group summary."""
     if error_type == "sem":
@@ -843,6 +902,12 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         ax.set_title(title, fontsize=style["font_pt"] - 1)
                 cbar_mappable = ctx.get("cbar_mappable") or cbar_mappable
                 last_ax = ax
+
+        # Significance brackets read the inferential result. Faceted figures are
+        # describe-only (no test), so brackets only apply to the single-axes case.
+        if not faceted and style["show_significance"]:
+            _draw_significance(last_ax, stats, layout["levels"],
+                               layout["h_orient"], style)
 
         cbar = sc_global.colorbar_spec()
         if cbar:
