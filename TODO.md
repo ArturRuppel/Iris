@@ -4,40 +4,27 @@ Open items only, ordered by the agreed sequence: a quick contained bug first,
 then the validation net before the feature it validates, then remaining feature
 work by increasing scope. The two browser-blocked items sit at the end.
 
-(Completed items 1–22, the resolved repetition-key/superplot item, and the
-"picking X auto-propagates into Color" bug were removed on 2026-06-17 — see git
-history for their write-ups.)
+(Completed items 1–22, the resolved repetition-key/superplot item, the
+"picking X auto-propagates into Color" bug, and the validation corpus were
+removed on 2026-06-17 — see git history for their write-ups. The validation
+corpus shipped one case per stat family in `engine/validation/` — correlation
+(Pearson), group comparison (Welch t), descriptive, contingency (chi-square),
+and the reduce-pipeline path — all reference values independently recomputed
+with raw scipy. The spec's `iris-species-anova` case is deferred into item 1
+below: the engine has no >2-group test yet, so the ANOVA case is added there
+once multi-group support lands.)
 
-## 1. Build the validation corpus — TODO
-Build a corpus of curated `.iris` validation cases (known, well-characterized
-datasets → known plots and stats) per the design spec
-`docs/superpowers/specs/2026-06-17-validation-corpus-design.md`. Each case pairs
-a dataset (`data.csv`) with an analysis spec (`case.py`) and serves four jobs at
-once: statistical correctness (assert against published reference values,
-independently recomputed with raw scipy/pingouin — never echoing Iris's own
-output), end-to-end regression (drive the real `.iris` → analyses → figure +
-stats pipeline), shippable demos (build to a real, openable `.iris`), and
-visual/plot correctness (structural parsed-SVG assertions). Build on demand into
-a gitignored `artifacts/` (don't commit the binary `.iris`); load the built file
-back via `document.load_document` and run each analysis through `main._run`.
-Layout under `engine/validation/` (`cases/`, `harness.py`, `svgstruct.py`,
-`build.py`, `test_validation.py`). Initial corpus = one case per stat family:
-`iris-petal-correlation` (Pearson r=0.962865), `iris-species-anova` (one-way
-ANOVA F=1180.16), `iris-sepal-descriptive` (sepal_length summary),
-`contingency-2x2` (published 2×2, chi-square), `reduction-collapse` (synthetic,
-analytic ground truth for the reduce-pipeline path). Designed to grow as siblings
-(Spearman, Mann-Whitney/Kruskal, paired-t, Fisher-exact). The three iris
-`data.csv` files are already staged (canonical Fisher iris, verified
-byte-identical to seaborn's bundled copy).
-Do this before item 2 — it's the harness that asserts item 2's adjusted
-p-values against published references.
-
-## 2. Build multi-comparison + render significance brackets — TODO
+## 1. Build multi-comparison + render significance brackets — TODO
 Build out support for **multiple pairwise comparisons** across >2 groups and
-**render a significance bracket per comparison**. Today the stats path handles a
-single two-group comparison (one bracket, anchored on the drawn value max); this
-item generalizes it to a family of pairwise tests with proper multiplicity
-control and stacked, non-overlapping brackets.
+**render a significance bracket per comparison**. Today `stats.group_comparison`
+errors on anything but exactly 2 groups (`needs exactly 2 groups`) and the stats
+path draws a single two-group bracket (anchored on the drawn value max); this
+item adds an omnibus (one-way ANOVA / Kruskal) + a family of pairwise tests with
+proper multiplicity control and stacked, non-overlapping brackets.
+- Validation: once the multi-group path exists, add the spec's deferred
+  `iris-species-anova` case to `engine/validation/cases/` (one-way ANOVA on
+  petal_length ~ species, k=3, N=150, F=1180.16, p≈2.9e-91 — already recomputed)
+  so the new path is asserted against a published reference.
 - Stats: when a grouping has >2 levels, compute the set of pairwise comparisons
   (all pairs, or a chosen reference/contrast set), apply a multiple-comparison
   correction (e.g. Holm / Benjamini–Hochberg / Tukey HSD as appropriate to the
@@ -54,7 +41,7 @@ control and stacked, non-overlapping brackets.
 - Open questions: which pairs to show by default (all vs. vs-reference), and how
   to keep a dense bracket stack legible (hide n.s.? cap the number shown?).
 
-## 3. Auto-detect 0/1 columns as bool on import — TODO
+## 2. Auto-detect 0/1 columns as bool on import — TODO
 When importing data, a column whose non-null values are only `0` and `1` should
 be auto-detected as `bool`, and if the user picks/confirms it as `bool` it should
 be converted to true/false on import. NOTE: this reverses the deliberate choice
@@ -66,7 +53,7 @@ columns) so genuine numeric 0/1 measures still import as numeric. The
 retype-to-bool path and the 0/1→true/false conversion on commit are the concrete
 deliverables.
 
-## 4. Geom-first workflow: allow selecting a geom before data — TODO
+## 3. Geom-first workflow: allow selecting a geom before data — TODO
 It should be possible to pick a geom *before* loading/selecting data. The chosen
 geom should then restrict what data can be loaded — i.e. the geom's encoding
 requirements (its `(x_type, y_type)` expectations) constrain the columns/types
@@ -78,7 +65,7 @@ items since it touches the most surface.
 
 ## Browser-blocked (no Chromium in this sandbox)
 
-### 5. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
+### 4. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
 Facet COL is fixed and verified; facet ROW still doesn't work in the running app.
 Everything verifiable headlessly passes, so the remaining bug is app/browser-side
 and not reproducible in this sandbox (no Chromium):
@@ -97,7 +84,7 @@ in the app, capture the console + the produced figure height, and decide whether
 to cap total figure size and/or fix the figure-pane display of very tall
 figures.
 
-### 6. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
+### 5. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
 Three UI-wiring e2e tests are written (mirroring the verified
 `aesthetics_test.mjs` pattern: explicit import via the ImportWizard hidden file
 input → switch to Analyses → map X/Y → `.add-layer-btn` flow):
@@ -111,4 +98,4 @@ All three pass `node --check`. NOT executed here — this sandbox has no Chromiu
 and no network to download one. Run on a machine with Chromium: start the engine
 (8765) + vite (5173), then `node e2e/continuous_color_test.mjs` (and
 `horizontal_test.mjs`, `tile_test.mjs`); each exits 0 on success. Batch with
-item 5 whenever a browser environment is available.
+item 4 whenever a browser environment is available.
