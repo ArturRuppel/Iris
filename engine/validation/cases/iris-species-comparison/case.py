@@ -1,9 +1,9 @@
 """Petal length, versicolor vs virginica — the two-group comparison family.
 
-A reduce-filter drops setosa so the comparison is the engine's supported
-two-group cell (the omnibus k>2 ANOVA path does not yet exist; this is its
-mappable sibling). The engine *infers* the test: large, roughly-normal groups
-yield Welch's t, which this case asserts.
+A reduce-filter drops setosa so the comparison is the two-group cell (Welch's t /
+Mann-Whitney); the three-group omnibus sibling is iris-species-anova. The engine
+*infers* the test: large, roughly-normal groups yield Welch's t, which this case
+asserts.
 """
 
 TITLE = "Petal length: versicolor vs virginica (Fisher's iris)"
