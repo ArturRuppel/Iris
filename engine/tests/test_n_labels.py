@@ -56,7 +56,7 @@ def _spec(layers):
 def _svg(spec, df, schema, levels):
     # svg.fonttype="none" keeps real <text> in the SVG, so the label string
     # appears verbatim and can be substring-matched.
-    fig, _ = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    fig = compiler.build_comparison_figure(df, schema, spec, {}, levels)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     return svg

@@ -110,29 +110,26 @@ def _build(spec):
     return compiler.build_timeseries_figure(df, SCHEMA, spec, {}, None)
 
 
-def test_line_draws_one_curve_per_unit_and_no_point_groups():
-    fig, pg = _build(make_spec(geoms=("line",)))
+def test_line_draws_one_curve_per_unit():
+    fig = _build(make_spec(geoms=("line",)))
     # one Line2D per (cell) unit: 2 conditions × 2 cells = 4 curves
     lines = fig.axes[0].get_lines()
     assert len(lines) == 4
-    # spaghetti curves are not click-to-exclude targets
-    assert pg == []
     compiler.close(fig)
 
 
 def test_trend_draws_mean_line_and_band():
-    fig, pg = _build(make_spec(geoms=("trend",), color="condition"))
+    fig = _build(make_spec(geoms=("trend",), color="condition"))
     ax = fig.axes[0]
     # one mean line per condition level
     assert len(ax.get_lines()) == 2
     # show_band defaults True → a fill_between collection per condition
     assert len(ax.collections) == 2
-    assert pg == []
     compiler.close(fig)
 
 
 def test_layered_line_under_trend():
-    fig, _ = _build(make_spec(geoms=("line", "trend"), color="condition"))
+    fig = _build(make_spec(geoms=("line", "trend"), color="condition"))
     ax = fig.axes[0]
     # 4 trajectory curves + 2 condition mean lines
     assert len(ax.get_lines()) == 6
@@ -152,7 +149,7 @@ def test_analyze_timeseries_is_describe_only():
     assert body["stat_model"]["chosen_by"] == "describe_only"
     assert body["stat_model"]["design"] == "area over frame"
     assert "<svg" in body["figure"]["svg"]
-    assert body["figure"]["point_groups"] == []
+    assert "point_groups" not in body["figure"]
 
 
 def test_analyze_numeric_numeric_without_ts_geom_is_correlation():

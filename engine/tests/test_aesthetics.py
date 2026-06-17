@@ -1,12 +1,24 @@
 """Phase 2 aesthetics: color/size/shape draw on scatter (per-point) and on the
-group geoms (dodged), and the click-to-exclude point-group contract survives
-sub-series splitting."""
+group geoms (dodged). Item I removed the click-to-exclude point-group contract,
+so colour is now vectorized into one scatter call per marker (a discrete colour
+no longer splits into per-level series); only a mapped shape still splits."""
 import matplotlib
 matplotlib.use("Agg")
+from matplotlib.collections import PathCollection
 import pandas as pd
 import pytest
 
 from iris_engine import compiler, scales
+
+
+def _scatter_colls(ax):
+    """The scatter PathCollections on an axes (excludes fill_between PolyCollections
+    and the like), in draw order."""
+    return [c for c in ax.collections if isinstance(c, PathCollection)]
+
+
+def _total_points(ax):
+    return sum(len(c.get_offsets()) for c in _scatter_colls(ax))
 
 SCHEMA = {"schema_version": "1.0", "columns": [
     {"name": "x", "type": "numeric", "label": "X"},
@@ -33,32 +45,34 @@ def _scatter_spec(**enc):
             "style": {"preset": "demo_default", "overrides": {}}}
 
 
-def _partition_ok(point_groups, df):
-    rows = sorted(r for g in point_groups for r in g["row_ids"])
-    assert rows == sorted(df["id"].tolist())          # covers every row once
-    gids = [g["gid"] for g in point_groups]
-    assert len(gids) == len(set(gids))                # unique gids
+def test_scatter_no_channels_is_single_collection():
+    fig = compiler.build_scatter_figure(DF, SCHEMA, _scatter_spec(), RESULT)
+    colls = _scatter_colls(fig.axes[0])
+    assert len(colls) == 1                            # one uniform scatter call
+    assert len(colls[0].get_offsets()) == len(DF)     # every row drawn once
+    compiler.close(fig)
 
 
-def test_scatter_no_channels_is_single_series():
-    _, pg = compiler.build_scatter_figure(DF, SCHEMA, _scatter_spec(), RESULT)
-    assert pg == [{"gid": "pts-0", "row_ids": DF["id"].tolist()}]
+def test_scatter_discrete_color_is_one_vectorized_collection():
+    # Item I: a discrete colour is no longer split into per-level series; it draws
+    # in a single scatter call carrying a per-point colour array.
+    fig = compiler.build_scatter_figure(DF, SCHEMA,
+                                        _scatter_spec(color="grp"), RESULT)
+    colls = _scatter_colls(fig.axes[0])
+    assert len(colls) == 1
+    fc = colls[0].get_facecolors()
+    assert len(fc) == len(DF)                         # one colour per point
+    assert len({tuple(c) for c in fc}) == 2           # two distinct group colours
+    compiler.close(fig)
 
 
-def test_scatter_color_splits_into_per_level_series():
-    _, pg = compiler.build_scatter_figure(DF, SCHEMA,
-                                          _scatter_spec(color="grp"), RESULT)
-    assert len(pg) == 2                               # one series per color level
-    _partition_ok(pg, DF)
-    by_first = {g["row_ids"][0] for g in pg}
-    assert by_first == {"r0", "r3"}                   # a-rows and b-rows split
-
-
-def test_scatter_shape_splits_into_per_level_series():
-    _, pg = compiler.build_scatter_figure(DF, SCHEMA,
-                                          _scatter_spec(shape="grp"), RESULT)
-    assert len(pg) == 2
-    _partition_ok(pg, DF)
+def test_scatter_shape_splits_into_per_marker_series():
+    # a mapped shape still splits (matplotlib can't vary the marker per point)
+    fig = compiler.build_scatter_figure(DF, SCHEMA,
+                                        _scatter_spec(shape="grp"), RESULT)
+    assert len(_scatter_colls(fig.axes[0])) == 2
+    assert _total_points(fig.axes[0]) == len(DF)      # every row drawn once
+    compiler.close(fig)
 
 
 # ---------------- dodged group geoms (color = a second factor) ----------------
@@ -176,25 +190,26 @@ def test_color_equal_to_x_is_not_dodged():
     ctx = _cmp_ctx(df, CMP_SCHEMA, spec)
     assert ctx["dodged"] is False
     assert len(ctx["groups"]) == 2               # one cell per x-level
-    _, pg = compiler.build_comparison_figure(df, CMP_SCHEMA, spec, _cmp_stats())
-    assert len(pg) == 2                           # one dot series per x-level
+    fig = compiler.build_comparison_figure(df, CMP_SCHEMA, spec, _cmp_stats())
+    assert len(_scatter_colls(fig.axes[0])) == 2  # one dot series per x-level
+    compiler.close(fig)
 
 
 def test_dodged_dots_split_points_per_cell():
     df = _cmp_df()
-    _, pg = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         df, CMP_SCHEMA, _cmp_spec("dot", color="geno"), _cmp_stats())
-    assert len(pg) == 4                          # cond × geno cells
-    # each point's row_ids is now a chained list of raw ids (one id at raw level)
-    rows = sorted(i for g in pg for ids in g["row_ids"] for i in ids)
-    assert rows == sorted(df["id"].tolist())     # every row drawn once
+    colls = _scatter_colls(fig.axes[0])
+    assert len(colls) == 4                       # cond × geno cells
+    assert _total_points(fig.axes[0]) == len(df)  # every row drawn once
+    compiler.close(fig)
 
 
 def test_scatter_size_varies_marker_area_within_range():
-    fig, pg = compiler.build_scatter_figure(DF, SCHEMA,
-                                            _scatter_spec(size="w"), RESULT)
-    assert len(pg) == 1                               # size alone: one series
+    fig = compiler.build_scatter_figure(DF, SCHEMA,
+                                        _scatter_spec(size="w"), RESULT)
     ax = fig.axes[0]
+    assert len(_scatter_colls(ax)) == 1               # size alone: one series
     sizes = ax.collections[0].get_sizes()
     assert len(set(sizes.round(3))) > 1               # areas actually vary
     assert sizes.min() == pytest.approx(scales.SIZE_MIN_AREA)
@@ -204,7 +219,7 @@ def test_scatter_size_varies_marker_area_within_range():
 # ---------------- legend ----------------
 
 def test_color_scatter_draws_legend_with_level_labels():
-    fig, _ = compiler.build_scatter_figure(DF, SCHEMA,
+    fig = compiler.build_scatter_figure(DF, SCHEMA,
                                            _scatter_spec(color="grp"), RESULT)
     leg = fig.axes[0].get_legend()
     assert leg is not None
@@ -228,12 +243,12 @@ def test_legend_offset_moves_the_drawn_legend():
     # dragging the legend writes offsets['legend'] (SVG px, y down); the engine
     # must re-anchor the *drawn* legend by that delta, not just tag it.
     base_spec = _scatter_spec(color="grp")
-    fig0, _ = compiler.build_scatter_figure(DF, SCHEMA, base_spec, RESULT)
+    fig0 = compiler.build_scatter_figure(DF, SCHEMA, base_spec, RESULT)
     x0, y0 = _legend_marker_xy(compiler.figure_to_svg(fig0))
 
     spec = _scatter_spec(color="grp")
     spec["style"]["overrides"]["offsets"] = {"legend": [40, 20]}
-    fig1, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    fig1 = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
     x1, y1 = _legend_marker_xy(compiler.figure_to_svg(fig1))
 
     # +x moves right, +y (SVG down) moves down → larger SVG y
@@ -244,31 +259,31 @@ def test_legend_offset_idempotent_across_saves():
     # a second save (e.g. SVG then PNG export) must not double-apply the nudge
     spec = _scatter_spec(color="grp")
     spec["style"]["overrides"]["offsets"] = {"legend": [40, 20]}
-    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    fig = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
     first = _legend_marker_xy(compiler.figure_to_svg(fig))
     second = _legend_marker_xy(compiler.figure_to_svg(fig))
     assert first == pytest.approx(second)
 
 
 def test_no_channels_draws_no_legend():
-    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, _scatter_spec(), RESULT)
+    fig = compiler.build_scatter_figure(DF, SCHEMA, _scatter_spec(), RESULT)
     assert fig.axes[0].get_legend() is None
 
 
 def test_show_legend_false_suppresses_it():
     spec = _scatter_spec(color="grp")
     spec["style"]["overrides"]["show_legend"] = False
-    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    fig = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
     assert fig.axes[0].get_legend() is None
 
 
 # ---------------- continuous color (Phase 3b) ----------------
 
 def test_scatter_numeric_color_is_single_series_with_colorbar():
-    fig, pg = compiler.build_scatter_figure(DF, SCHEMA,
-                                            _scatter_spec(color="w"), RESULT)
-    # a numeric color is NOT split into discrete level series
-    assert pg == [{"gid": "pts-0", "row_ids": DF["id"].tolist()}]
+    fig = compiler.build_scatter_figure(DF, SCHEMA,
+                                        _scatter_spec(color="w"), RESULT)
+    # a numeric color is one vectorized scatter call, not discrete level series
+    assert len(_scatter_colls(fig.axes[0])) == 1
     # the scatter carries a per-point value array, and a colorbar adds an Axes
     arr = fig.axes[0].collections[0].get_array()
     assert arr is not None and len(arr) == len(DF)
@@ -279,7 +294,7 @@ def test_scatter_numeric_color_is_single_series_with_colorbar():
 def test_scatter_numeric_color_show_legend_false_hides_colorbar():
     spec = _scatter_spec(color="w")
     spec["style"]["overrides"]["show_legend"] = False
-    fig, _ = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
+    fig = compiler.build_scatter_figure(DF, SCHEMA, spec, RESULT)
     assert len(fig.axes) == 1                          # colorbar suppressed
 
 
@@ -304,8 +319,8 @@ def test_comparison_dots_numeric_color_per_point_not_dodged():
     ctx = _cmp_ctx(df, schema, spec)
     assert ctx["dodged"] is False                      # numeric color never dodges
     assert ctx["scales"].color_numeric is True
-    fig, pg = compiler.build_comparison_figure(df, schema, spec, _cmp_stats())
-    assert len(pg) == 2                                 # one dot series per x-level
+    fig = compiler.build_comparison_figure(df, schema, spec, _cmp_stats())
+    assert len(_scatter_colls(fig.axes[0])) == 2        # one dot series per x-level
     assert len(fig.axes) == 2                           # colorbar present
 
 
@@ -315,7 +330,7 @@ def test_show_n_toggles_per_group_n_labels():
     def n_labels(show_n):
         spec = _cmp_spec("dot")
         spec["style"]["overrides"] = {"show_n": show_n}
-        fig, _ = compiler.build_comparison_figure(
+        fig = compiler.build_comparison_figure(
             _cmp_df(), CMP_SCHEMA, spec, _cmp_stats())
         return [t.get_text() for ax in fig.axes for t in ax.texts
                 if t.get_text().startswith("n =")]
@@ -326,10 +341,10 @@ def test_show_n_toggles_per_group_n_labels():
 
 def test_dodged_comparison_draws_legend_but_color_equals_x_does_not():
     df = _cmp_df()
-    fig, _ = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         df, CMP_SCHEMA, _cmp_spec("box", color="geno"), _cmp_stats())
     assert fig.axes[0].get_legend() is not None       # second factor → legend
 
-    fig2, _ = compiler.build_comparison_figure(
+    fig2 = compiler.build_comparison_figure(
         df, CMP_SCHEMA, _cmp_spec("dot", color="cond"), _cmp_stats())
     assert fig2.axes[0].get_legend() is None          # color == x → no legend

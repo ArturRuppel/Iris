@@ -1,8 +1,8 @@
-import { useAtomValue, useSetAtom, useAtom } from "jotai";
+import { useAtomValue, useAtom } from "jotai";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   activePlottableAtom, analysisAtom, analyzeStatusAtom, dataLoadingAtom,
-  renderErrorAtom, selectedRowIdAtom, tableHandleAtom, toggleExclusionAtom,
+  renderErrorAtom, tableHandleAtom,
 } from "../state";
 import type { StyleOverrides } from "../types";
 import { StylePane } from "./StylePane";
@@ -16,20 +16,18 @@ const DRAGGABLE = ["lbl-title", "lbl-x", "lbl-y", "lbl-annot", "legend"];
 const PT_PER_MM = 72 / 25.4;
 const PX_PER_PT = 96 / 72;
 
-/** Renders the engine's SVG and attaches interactivity.
- *  Contract: each point group is <g id="pts-i"> whose k-th <use> element
- *  corresponds to point_groups[i].row_ids[k] (validated by engine tests).
- *  Clicking a point selects it; exclusion is deliberate, via right-click.
- *  Labels drag (each gets a transparent hit-rect — the glyph strokes alone
- *  are unhittable); the corner handle drag-resizes in real mm. */
+/** Renders the engine's SVG and attaches interactivity. Item I: dots are not
+ *  individually clickable — they draw as plain vector marks and exclusion lives
+ *  in the DataTable, so there is no per-point click/select wiring here. Labels
+ *  drag (each gets a transparent hit-rect — the glyph strokes alone are
+ *  unhittable); the canvas corner handle drag-resizes in real mm; the plot-area
+ *  grips move/resize the axes within the canvas. */
 export function FigurePane() {
   const analysis = useAtomValue(analysisAtom);
   const status = useAtomValue(analyzeStatusAtom);
   const renderError = useAtomValue(renderErrorAtom);
   const dataLoading = useAtomValue(dataLoadingAtom);
   const tableHandle = useAtomValue(tableHandleAtom);
-  const toggle = useSetAtom(toggleExclusionAtom);
-  const [selected, setSelected] = useAtom(selectedRowIdAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
   /* style updater: merges a patch into the active plottable's style.
      We capture active via a ref so the drag closure always sees the latest value. */
@@ -43,8 +41,6 @@ export function FigurePane() {
   };
   const host = useRef<HTMLDivElement>(null);
   const handle = useRef<HTMLDivElement>(null);
-  const useByRow = useRef<Map<string, SVGElement>>(new Map());
-  const [menu, setMenu] = useState<{ x: number; y: number; rowIds: string[] } | null>(null);
   const [dims, setDims] = useState<{ w: number; h: number } | null>(null);
   const [resizing, setResizing] = useState<string | null>(null);
   /* plot-area (axes) rect in figure-host px, for the move/resize grips. Null
@@ -83,21 +79,15 @@ export function FigurePane() {
        block, not a cover, so a leftover figure would render beside it (item 11) */
     if (!analysis) {
       el.innerHTML = "";
-      useByRow.current.clear();
-      setMenu(null);
       setDims(null);
       setPlotRect(null);
       return;
     }
-    /* Trust boundary: the SVG is injected as raw markup (the click-to-exclude
-       contract needs the engine's gid-tagged <g>/<use> structure intact, so it
-       can't be sanitized without breaking interactivity). It is safe because it
+    /* Trust boundary: the SVG is injected as raw markup. It is safe because it
        comes only from our own localhost engine's matplotlib renderer — never a
        remote/user-supplied source — and matplotlib escapes data text into SVG.
        Keep this invariant: don't point the figure host at untrusted markup. */
     el.innerHTML = analysis.figure.svg;
-    setMenu(null);
-    useByRow.current.clear();
     const svg = el.querySelector("svg");
     if (!svg) return;
     const vb = svg.viewBox.baseVal;
@@ -112,34 +102,6 @@ export function FigurePane() {
     placePlotHandles();
     const ro = new ResizeObserver(() => { placeHandle(); placePlotHandles(); });
     ro.observe(el);
-
-    /* points: click = select, right-click = context menu. Hierarchy redesign:
-       a mark's row_ids entry may be a LIST of raw rows it aggregates (a coarse
-       per-grain mark), so selecting/excluding a mark acts on all of them; a bare
-       string is a single raw row. */
-    for (const group of analysis.figure.point_groups) {
-      const g = el.querySelector(`g#${CSS.escape(group.gid)}`);
-      if (!g) continue;
-      g.querySelectorAll("use").forEach((use, k) => {
-        const entry = group.row_ids[k];
-        if (!entry) return;
-        const ids = Array.isArray(entry) ? entry : [entry];
-        if (ids.length === 0) return;
-        const lead = ids[0];                       // representative for selection
-        ids.forEach((id) => useByRow.current.set(id, use as SVGElement));
-        (use as SVGElement).style.cursor = "pointer";
-        use.addEventListener("click", () =>
-          setSelected((cur) => (cur === lead ? null : lead)));
-        use.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          setSelected(lead);
-          setMenu({ x: e.clientX, y: e.clientY, rowIds: ids });
-        });
-        const title = document.createElementNS(SVGNS, "title");
-        title.textContent = ids.length > 1 ? `${ids.length} rows` : lead;
-        use.appendChild(title);
-      });
-    }
 
     /* labels: drag to move; viewBox units == engine pt, so the committed
        offset is resolution-independent */
@@ -182,13 +144,7 @@ export function FigurePane() {
       });
     }
     return () => ro.disconnect();
-  }, [analysis, setSelected]);
-
-  /* selection highlight, applied without re-injecting the SVG */
-  useEffect(() => {
-    useByRow.current.forEach((use, rowId) =>
-      use.classList.toggle("pt-selected", rowId === selected));
-  }, [selected, analysis]);
+  }, [analysis]);
 
   /* corner handle: drag → live preview in px, commit in mm on release */
   const onResizeStart = (e0: ReactPointerEvent) => {
@@ -286,14 +242,6 @@ export function FigurePane() {
     window.addEventListener("pointerup", up);
   };
 
-  const exclude = async (rowIds: string[]) => {
-    // a coarse mark excludes its whole unit; serialize so the handle counts
-    // settle on the final server state rather than racing concurrent toggles.
-    for (const id of rowIds) await toggle(id);
-    setMenu(null);
-    setSelected(null);
-  };
-
   const nExcluded = tableHandle?.counts?.excluded ?? 0;
   return (
     <section className="pane figure-pane">
@@ -307,11 +255,7 @@ export function FigurePane() {
         )}
       </div>
       <div className="figure-frame">
-        <div ref={host} className="figure-host"
-          onClick={(e) => {
-            setMenu(null);
-            if ((e.target as Element).tagName !== "use") setSelected(null);
-          }} />
+        <div ref={host} className="figure-host" />
         {analysis && (
           <div ref={handle} className="resize-handle" title="drag to resize the canvas (mm)"
             onPointerDown={onResizeStart} />
@@ -341,23 +285,10 @@ export function FigurePane() {
           </div>
         )}
       </div>
-      {menu && (
-        <>
-          <div className="menu-backdrop" onClick={() => setMenu(null)}
-            onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
-          <div className="context-menu" style={{ left: menu.x, top: menu.y }}>
-            <button onClick={() => exclude(menu.rowIds)}>
-              Exclude {menu.rowIds.length > 1
-                ? `${menu.rowIds.length} rows` : menu.rowIds[0]} from analysis
-            </button>
-            <button onClick={() => setMenu(null)}>Cancel</button>
-          </div>
-        </>
-      )}
       <p className="hint">
-        Click a point to select it; right-click to exclude. Drag labels or the
-        legend to reposition. Drag the canvas corner to resize the figure, or the
-        plot-area corners to move/resize the axes within it — exports match.
+        Drag labels or the legend to reposition. Drag the canvas corner to resize
+        the figure, or the plot-area corners to move/resize the axes within it —
+        exports match. Exclude rows from the Data table.
       </p>
       <StylePane />
     </section>

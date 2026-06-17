@@ -63,8 +63,8 @@ def test_levels_and_grain_cardinality():
 
 
 def test_row_ids_chain_to_raw():
-    """Every coarse row carries exactly the raw ids it aggregates, so excluding a
-    coarse mark drops the whole unit. The subject level partitions the raw ids."""
+    """Every coarse row carries exactly the raw ids it aggregates (provenance of
+    the unit). The subject level partitions the raw ids."""
     df = _unpaired_df()
     levels, _ = hierarchy.materialize_levels(df, _schema(), SPINE, {}, ["group"])
     subj_tbl = levels["subject"][0]
@@ -193,7 +193,8 @@ def _spec(layers):
             "layers": layers, "style": {"preset": "demo_default", "overrides": {}}}
 
 
-def test_two_dot_layers_unique_gids_and_chained_ids():
+def test_two_dot_layers_draw_their_own_grain():
+    from matplotlib.collections import PathCollection
     df = _unpaired_df()
     schema = _schema()
     levels, _ = hierarchy.materialize_levels(df, schema, SPINE, {}, ["group"])
@@ -202,24 +203,23 @@ def test_two_dot_layers_unique_gids_and_chained_ids():
         {"geom": "dot", "params": {}, "level": "subject"},          # one per subject
         {"geom": "summary", "params": {"error_type": "sem"}, "level": "subject"},
     ])
-    fig, pg = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    fig = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    # both grains draw marks: total scatter points = raw observations + one mark
+    # per subject (the coarse layer aggregates raw rows into fewer marks).
+    n_subjects = df[["group", "subject"]].drop_duplicates().shape[0]
+    total = sum(len(c.get_offsets()) for ax in fig.axes for c in ax.collections
+                if isinstance(c, PathCollection))
+    assert total == len(df) + n_subjects
     compiler.close(fig)
-    gids = [g["gid"] for g in pg]
-    assert len(gids) == len(set(gids))               # no pts-N reuse across layers
-    # the subject-level dots: each mark's row_ids is a list chaining to raw rows
-    flat = [ids for g in pg for ids in g["row_ids"]]
-    assert any(isinstance(ids, list) and len(ids) > 1 for ids in flat)
-    # every emitted raw id is a real raw row
-    every = {i for ids in flat for i in (ids if isinstance(ids, list) else [ids])}
-    assert every <= set(df["id"])
 
 
 def test_identifier_color_colours_dots_per_grain_without_dodge():
     """Mapping an identifier (a replicate id) to colour draws each per-grain dot
     in its own swatch — the superplot replicate colouring — without dodging the
-    group into sub-columns. Each (x-level × colour) sub-series is its own
-    point-group so the click/exclude contract survives, and a box layer at a
+    group into sub-columns. Colour is vectorized (item I), so each x-level group
+    is one scatter call carrying a per-point colour array, and a box layer at a
     different grain keeps a single uniform mark per x-level."""
+    from matplotlib.collections import PathCollection
     df = _unpaired_df()
     schema = _schema()
     levels, _ = hierarchy.materialize_levels(df, schema, SPINE, {}, ["group", "subject"])
@@ -228,17 +228,16 @@ def test_identifier_color_colours_dots_per_grain_without_dodge():
         {"geom": "dot", "params": {}, "level": "subject"},   # one bold dot per subject
     ])
     spec["encodings"]["color"] = {"column": "subject"}        # identifier on colour
-    fig, pg = compiler.build_comparison_figure(df, schema, spec, {}, levels)
-    # two groups (A, B) × two subjects each = four per-subject dot series, each a
-    # single mark (one subject-level dot), and gids stay unique.
-    assert len(pg) == 4
-    assert all(len(g["row_ids"]) == 1 for g in pg)
-    assert len({g["gid"] for g in pg}) == 4
-    # the four subject dots take four distinct colours (no two subjects share)
-    dot_colors = {tuple(round(x, 3) for x in coll.get_facecolors()[0])
-                  for ax in fig.axes for coll in ax.collections
-                  if len(coll.get_offsets()) == 1}
-    assert len(dot_colors) == 4
+    fig = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    # two groups (A, B), one vectorized dot scatter per group (no dodge), each
+    # carrying its two subjects' marks; four distinct subject colours in total.
+    scatters = [c for ax in fig.axes for c in ax.collections
+                if isinstance(c, PathCollection)]
+    assert len(scatters) == 2                                 # one per x-level, no dodge
+    assert sum(len(c.get_offsets()) for c in scatters) == 4   # four subject dots
+    dot_colors = {tuple(round(x, 3) for x in fc)
+                  for c in scatters for fc in c.get_facecolors()}
+    assert len(dot_colors) == 4                               # no two subjects share
     compiler.close(fig)
 
 

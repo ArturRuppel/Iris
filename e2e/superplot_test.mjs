@@ -73,11 +73,17 @@ await page.waitForTimeout(1500);
 const figure = await page.locator(".iris svg").count();
 if (figure === 0) fail("no figure rendered");
 
-// raw reps (2 groups) + one mark per subject (2×3 = 6) = 8 point-groups.
-const ptsGroups = await page.locator('.iris svg g[id^="pts-"]').count();
-if (ptsGroups < 8)
-  fail(`expected ≥8 point-groups (2 raw + 6 subject), saw ${ptsGroups}`);
-console.log(`superplot drew ${ptsGroups} point-groups`);
+// Item I: dots draw as plain vector scatter calls (no per-point pts- gid). Colour
+// is vectorized, so each x-group is ONE matplotlib PathCollection: 2 raw groups +
+// 2 subject groups = 4 scatter collections, and the subject layer adds ≥6 bold
+// marks (2×3 subjects) drawn as <use> glyphs.
+const scatterColls = await page.locator('.iris svg g[id^="PathCollection_"]').count();
+if (scatterColls < 4)
+  fail(`expected ≥4 scatter collections (2 raw + 2 subject), saw ${scatterColls}`);
+const useMarks = await page.locator('.iris svg g[id^="PathCollection_"] use').count();
+if (useMarks < 8)
+  fail(`expected ≥8 drawn point marks (raw + 6 subject), saw ${useMarks}`);
+console.log(`superplot drew ${scatterColls} scatter collections, ${useMarks} marks`);
 
 // the pairing verdict (derived from the spine) must surface.
 const badge = page.locator(".pairing-badge");

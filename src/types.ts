@@ -339,12 +339,10 @@ export interface StatsResult {
   alpha: number;
   methods_text: string;
 }
-/* A point group's k-th drawn mark maps to row_ids[k]. Hierarchy redesign:
-   an entry is the chained list of raw row-ids behind that mark (a coarse mark
-   aggregates many rows); a bare string is shorthand for a single raw row. */
-export type PointRowIds = (string | string[])[];
 export interface AnalyzeResponse {
-  figure: { svg: string; point_groups: { gid: string; row_ids: PointRowIds }[] };
+  /* Item I: dots are not individually clickable, so the figure payload is
+     svg-only — no per-point gid/row_ids contract. */
+  figure: { svg: string };
   stats: StatsResult;
   stat_model: StatModel;
   issues: Issue[];

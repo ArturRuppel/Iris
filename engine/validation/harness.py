@@ -213,7 +213,7 @@ def render_svg(case: ModuleType, spec: dict, *, write: bool = True) -> str:
     """Run one analysis through the engine and return its figure SVG, writing it
     to ``artifacts/`` for human spot-checking ('look for yourself')."""
     table = {"schema": case.__built__["schema"], "rows": case.__built__["rows"]}
-    fig, _, res, _, _, model, issues = main._run(table, spec)
+    fig, res, _, _, model, issues = main._run(table, spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     if write:

@@ -10,10 +10,10 @@ level's ``fn``, default mean). "Average away frames" is just *pick level
 ``cell_id``* — no complement to declare.
 
 `materialize_levels` produces one table per level **once**, each carrying a
-``row_ids`` column (the list of raw row ids it aggregates) so click-to-exclude on
-a coarse mark still drops every underlying raw row. Because every grain is a
-*prefix* of the spine, each level can be computed directly from the (reduced)
-raw frame — the prefixes nest, so the id lists chain implicitly.
+``row_ids`` column — the provenance list of raw row ids each coarse unit
+aggregates. Because every grain is a *prefix* of the spine, each level can be
+computed directly from the (reduced) raw frame — the prefixes nest, so the id
+lists chain implicitly.
 
 Pure pandas — no matplotlib, no FastAPI. The caller removes excluded rows first.
 """

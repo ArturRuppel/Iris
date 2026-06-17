@@ -75,11 +75,10 @@ def main() -> None:
 
         body = req("/analyze", {"table": make_table(), "spec": make_spec()})
         svg = body["figure"]["svg"]
-        for g in body["figure"]["point_groups"]:
-            m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>', svg, re.S)
-            assert m and len(re.findall(r"<use\b", m.group(1))) == len(g["row_ids"])
+        assert "point_groups" not in body["figure"]   # item I: no per-point contract
+        assert "<use" in svg                          # dot marks drawn as vector glyphs
         assert body["stats"]["result"]["test"] == "welch_t"
-        ok("analyze: stats + gid-tagged SVG contract")
+        ok("analyze: stats + vector-mark SVG")
 
         spec = make_spec()
         spec["style"]["overrides"] = {"width_mm": 89, "height_mm": 70}

@@ -4,7 +4,6 @@ Group-comparison geoms (dot/box/violin/bar/summary) render horizontally when
 the encoding has numeric x + categorical y. The compiler swaps axis roles;
 stats still group by the categorical column and measure the numeric one.
 """
-import re
 
 import numpy as np
 import pytest
@@ -169,28 +168,24 @@ def test_horizontal_stats_match_vertical_stats():
         assert v_sums[grp]["mean"] == pytest.approx(h_sums[grp]["mean"], abs=1e-6)
 
 
-def test_horizontal_dot_keeps_click_contract():
-    """gid → row_ids contract holds for horizontal dot plots."""
+def test_horizontal_dot_renders_marks_without_point_groups():
+    """Item I: a horizontal dot plot draws its marks as plain vector <use> nodes
+    (one per observation) and the payload carries no point_groups."""
     r = client.post("/analyze", json={"table": make_table(),
                                       "spec": make_horiz_spec("dot")})
     assert r.status_code == 200
     body = r.json()
-    svg = body["figure"]["svg"]
-    groups = body["figure"]["point_groups"]
-    assert len(groups) == 2
-    for g in groups:
-        m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>', svg, re.S)
-        assert m, f"gid {g['gid']} missing from SVG"
-        n_use = len(re.findall(r"<use\b", m.group(1)))
-        assert n_use == len(g["row_ids"]), "one <use> per row required"
+    assert "point_groups" not in body["figure"]
+    # the scatter marks are still vector glyphs, one <use> per drawn point
+    assert "<use" in body["figure"]["svg"]
 
 
-def test_horizontal_aggregate_geoms_have_no_point_groups():
+def test_horizontal_aggregate_geoms_render():
     for geom_name in ("box", "violin", "bar", "summary"):
         r = client.post("/analyze", json={"table": make_table(),
                                           "spec": make_horiz_spec(geom_name)})
         assert r.status_code == 200, geom_name
-        assert r.json()["figure"]["point_groups"] == [], geom_name
+        assert "point_groups" not in r.json()["figure"], geom_name
 
 
 def test_horizontal_significance_bracket_drawn():
@@ -211,8 +206,7 @@ def test_horizontal_mixed_layers():
     assert r.status_code == 200
     body = r.json()
     assert "<svg" in body["figure"]["svg"]
-    # dot layer produces point groups even when combined with box
-    assert len(body["figure"]["point_groups"]) == 2
+    assert "point_groups" not in body["figure"]
 
 
 def test_stat_model_returned_for_horizontal():

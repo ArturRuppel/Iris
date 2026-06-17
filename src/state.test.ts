@@ -40,7 +40,7 @@ function makeSpec(id: string, opts: {
    overhead, so the request is a lower bound the tests account for). */
 function makeRes(bytes = 0): AnalyzeResponse {
   return {
-    figure: { svg: "x".repeat(bytes), point_groups: [] },
+    figure: { svg: "x".repeat(bytes) },
     stats: {} as AnalyzeResponse["stats"],
     stat_model: {} as AnalyzeResponse["stat_model"],
     issues: [], engine_snapshot: {},

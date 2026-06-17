@@ -10,10 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Above this many raw marks, a per-row geom (dot/scatter) freezes the browser:
-# 82,241 points → a 13.8 MB SVG with 82k interactive <use> nodes. 1,383 points
-# rendered in 0.26 MB and stayed responsive, so 3,000 is a safe blocking cap.
-POINT_CAP = 3000
+# Above this many raw marks, a per-row geom (dot/scatter) bloats the SVG: each
+# point is still its own vector <use> node (~150 bytes), so payload grows with N.
+# Dots are no longer individually clickable (item I removed the per-point
+# point_groups/gid contract and its ~6k frontend listeners), so the old 3,000 cap
+# — sized for interactive-node cost — can rise: a purely-vector scatter at 10,000
+# points is ~1.5 MB with no per-point DOM wiring, which stays responsive.
+POINT_CAP = 10000
 
 # Phase 4: above this many facet cells (rows × cols, counting only combinations
 # actually present in the data), the grid is unreadable and the per-cell SVG

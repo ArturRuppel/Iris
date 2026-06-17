@@ -191,11 +191,12 @@ def test_tile_renders():
     assert "<svg" in body["figure"]["svg"]
 
 
-def test_tile_has_no_point_groups():
-    """Tile is a purely aggregate geom — no per-row click targets."""
+def test_figure_payload_has_no_point_groups():
+    """Item I: dots are not clickable, so the figure payload is svg-only —
+    no point_groups field on any figure (tile or otherwise)."""
     r = client.post("/analyze", json={"table": TABLE, "spec": tile_spec()})
     assert r.status_code == 200
-    assert r.json()["figure"]["point_groups"] == []
+    assert "point_groups" not in r.json()["figure"]
 
 
 def test_tile_stat_model_is_contingency():

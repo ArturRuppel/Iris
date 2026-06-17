@@ -33,7 +33,7 @@ def _scatter_spec(overrides):
 
 def test_axes_rect_pins_plot_area():
     box = [0.1, 0.2, 0.5, 0.6]  # left, bottom, width, height in figure fractions
-    fig, _ = compiler.build_scatter_figure(
+    fig = compiler.build_scatter_figure(
         DF, SCHEMA, _scatter_spec({"axes_rect": box}), RESULT)
     compiler.figure_to_svg(fig)  # triggers _finalize_deferred → set_position + freeze
     pos = fig.axes[0].get_position()
@@ -47,7 +47,7 @@ def test_axes_rect_pins_plot_area():
 def test_no_axes_rect_leaves_constrained_layout():
     """Without the override the plot area is whatever constrained layout chose —
     in particular not the test rect above, so the pin is opt-in."""
-    fig, _ = compiler.build_scatter_figure(
+    fig = compiler.build_scatter_figure(
         DF, SCHEMA, _scatter_spec({}), RESULT)
     compiler.figure_to_svg(fig)
     pos = fig.axes[0].get_position()
@@ -59,7 +59,7 @@ def test_no_axes_rect_leaves_constrained_layout():
 def test_axes_rect_idempotent_second_save():
     """A second save must not move the axes again (the stash is popped once)."""
     box = [0.15, 0.15, 0.7, 0.7]
-    fig, _ = compiler.build_scatter_figure(
+    fig = compiler.build_scatter_figure(
         DF, SCHEMA, _scatter_spec({"axes_rect": box}), RESULT)
     compiler.figure_to_svg(fig)
     first = fig.axes[0].get_position()

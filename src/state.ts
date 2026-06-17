@@ -74,9 +74,6 @@ export const DEFAULT_TYPE_COLORS: Record<ColumnType, string> = {
 export const typeColorsAtom = atomWithStorage<Record<ColumnType, string>>(
   "iris.typeColors", DEFAULT_TYPE_COLORS);
 
-/* figure-side point selection (click); exclusion goes via right-click menu */
-export const selectedRowIdAtom = atom<string | null>(null);
-
 /* the tests each family offers, mirrored for cheap lookups when building the
    spec and filtering override choices */
 export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
@@ -209,18 +206,13 @@ export const cacheKey = (handleId: string, version: number, spec: AnalysisSpec):
   `${handleId}:${version}:${JSON.stringify(spec)}`;
 
 /* approximate bytes for one cached analysis, cheap and serialization-free: the
-   SVG string length plus a flat per-row-id cost times the number of raw ids
-   referenced across point_groups (each id in each entry counted once, since an
-   entry may be a chained list of raw ids behind one coarse mark), plus a small
-   fixed overhead for stats / stat_model / issues. A monotone proxy for real heap
-   cost, not an exact measurement — all the LRU needs. */
-const ROW_ID_BYTES = 24;        // a short id string + per-element array overhead
+   SVG string length (the dominant cost now that dots draw as plain vector marks
+   with no per-point row-id payload) plus a small fixed overhead for stats /
+   stat_model / issues. A monotone proxy for real heap cost, not an exact
+   measurement — all the LRU needs. */
 const ENTRY_OVERHEAD = 4096;    // stats / stat_model / issues, flat
 export function estimateBytes(res: AnalyzeResponse): number {
-  let ids = 0;
-  for (const g of res.figure.point_groups)
-    for (const entry of g.row_ids) ids += Array.isArray(entry) ? entry.length : 1;
-  return res.figure.svg.length + ids * ROW_ID_BYTES + ENTRY_OVERHEAD;
+  return res.figure.svg.length + ENTRY_OVERHEAD;
 }
 
 /* default cache budget — a single tunable knob. Hundreds of typical plots fit
@@ -372,7 +364,6 @@ export const loadTableAtom = atom(null, async (get, set,
   set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
   set(exclusionLogAtom, []);
   set(engineErrorAtom, null);
-  set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
@@ -462,7 +453,6 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
     : { spine: identifierCols(doc.schema), fn: {} });
   set(exclusionLogAtom, doc.exclusions);
   set(engineErrorAtom, null);
-  set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);

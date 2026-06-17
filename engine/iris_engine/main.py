@@ -418,8 +418,8 @@ def _run(table: dict, spec: dict):
         raise HTTPException(422, "no statistical model — map X / Y to analyze")
     if "error" in res:
         raise HTTPException(422, res["error"])
-    fig, point_groups = compiler.build_figure(df, schema, spec, res, level_tables)
-    return fig, point_groups, res, df, schema, model, issues
+    fig = compiler.build_figure(df, schema, spec, res, level_tables)
+    return fig, res, df, schema, model, issues
 
 
 @app.get("/health")
@@ -503,10 +503,10 @@ def table_distinct(tid: str, req: DistinctRequest):
 @app.post("/analyze")
 def analyze(req: AnalyzeRequest):
     table = _resolve_table(req.table, req.table_token)
-    fig, point_groups, res, df, schema, model, issues = _run(table, req.spec)
+    fig, res, df, schema, model, issues = _run(table, req.spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
-    return {"figure": {"svg": svg, "point_groups": point_groups},
+    return {"figure": {"svg": svg},
             "stats": res, "stat_model": model, "issues": issues,
             "engine_snapshot": engine_snapshot()}
 
@@ -551,7 +551,7 @@ def export(req: ExportRequest):
     if req.format not in ("svg", "pdf", "png"):
         raise HTTPException(400, "format must be svg, pdf, or png")
     table = _resolve_table(req.table, req.table_token)
-    fig, _, _, _, _, _, _ = _run(table, req.spec)
+    fig, _, _, _, _, _ = _run(table, req.spec)
     data = compiler.figure_to_bytes(fig, req.format, dpi=req.dpi)
     compiler.close(fig)
     return {"filename": f"figure.{req.format}",

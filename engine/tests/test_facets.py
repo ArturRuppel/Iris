@@ -158,19 +158,21 @@ def test_faceted_comparison_grid_shape_row_and_col():
     spec = make_spec(facet_row="site", facet_col="treatment", geom="dot")
     pooled = stats_mod.describe_groups(df, "treatment", "response",
                                        levels=["control", "drug_a"])
-    fig, _ = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
+    fig = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
     assert len(fig.axes) == 4   # 2 site levels x 2 treatment levels
 
 
-def test_faceted_comparison_gids_are_unique_across_cells():
+def test_faceted_comparison_draws_marks_in_every_cell():
     df = _site_effect_table()
     spec = make_spec(facet_row="site", geom="dot")
     pooled = stats_mod.describe_groups(df, "treatment", "response",
                                        levels=["control", "drug_a"])
-    _, point_groups = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
-    gids = [pg["gid"] for pg in point_groups]
-    assert len(gids) == len(set(gids))
-    assert len(gids) >= 4   # 2 facet cells x 2 treatment groups, at minimum
+    fig = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
+    # every facet cell draws marks; across all cells every raw row is drawn once
+    total = sum(len(_all_collection_ys(ax)) for ax in fig.axes)
+    assert total == len(df)
+    assert all(len(_all_collection_ys(ax)) > 0 for ax in fig.axes)
+    compiler.close(fig)
 
 
 def test_faceted_comparison_draws_per_cell_data_not_pooled():
@@ -178,7 +180,7 @@ def test_faceted_comparison_draws_per_cell_data_not_pooled():
     spec = make_spec(facet_row="site", geom="dot")
     pooled = stats_mod.describe_groups(df, "treatment", "response",
                                        levels=["control", "drug_a"])
-    fig, _ = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
+    fig = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
     north_ax, south_ax = fig.axes[0], fig.axes[1]   # sorted: north, south
     north_ys = _all_collection_ys(north_ax)
     south_ys = _all_collection_ys(south_ax)
@@ -190,11 +192,11 @@ def test_unfaceted_comparison_is_single_axes():
     spec = make_spec(geom="dot")
     pooled = stats_mod.describe_groups(df, "treatment", "response",
                                        levels=["control", "drug_a"])
-    fig, _ = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
+    fig = compiler.build_comparison_figure(df, SCHEMA, spec, pooled)
     assert len(fig.axes) == 1
 
 
-def test_faceted_scatter_grid_shape_and_unique_gids():
+def test_faceted_scatter_grid_shape_and_marks_per_cell():
     schema = {"schema_version": "1.0", "columns": [
         {"name": "id", "type": "identifier", "label": "ID"},
         {"name": "site", "type": "categorical", "label": "Site",
@@ -209,10 +211,10 @@ def test_faceted_scatter_grid_shape_and_unique_gids():
     spec["encodings"] = {"x": {"column": "x"}, "y": {"column": "y"},
                          "color": None, "size": None, "shape": None}
     pooled = stats_mod.describe_pairs(df, "x", "y")
-    fig, point_groups = compiler.build_scatter_figure(df, schema, spec, pooled)
+    fig = compiler.build_scatter_figure(df, schema, spec, pooled)
     assert len(fig.axes) == 2
-    gids = [pg["gid"] for pg in point_groups]
-    assert len(gids) == len(set(gids))
+    total = sum(len(_all_collection_ys(ax)) for ax in fig.axes)
+    assert total == len(df)   # every row drawn once across the two cells
 
 
 def test_faceted_tile_grid_shape_and_per_cell_counts():
@@ -240,6 +242,5 @@ def test_faceted_tile_grid_shape_and_per_cell_counts():
                          "color": None, "size": None, "shape": None}
     pooled = stats_mod.contingency_counts(df, "treatment", "outcome",
                                           ["control", "drug_a"], ["yes", "no"])
-    fig, point_groups = compiler.build_tile_figure(df, schema, spec, pooled)
+    fig = compiler.build_tile_figure(df, schema, spec, pooled)
     assert len(fig.axes) >= 2   # 2 row cells (+ shared colorbar axes)
-    assert point_groups == []   # aggregate geom: no per-row click targets

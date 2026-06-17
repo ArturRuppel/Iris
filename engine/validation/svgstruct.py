@@ -2,14 +2,20 @@
 assert against — mark counts, geom layers, axis/label text, tick labels.
 
 Deliberately structural, never pixel-exact: it reads the gids the engine stamps
-on the figure (``pts-N`` point series, ``lbl-x``/``lbl-y``/``lbl-title``/
-``lbl-annot`` draggable labels, ``legend``) and the text matplotlib emits as SVG
-comments. That survives font-hinting and matplotlib-version differences across
-machines (and the coming macOS/Windows packaging), where an image diff would not.
+on the figure (``lbl-x``/``lbl-y``/``lbl-title``/``lbl-annot`` draggable labels,
+``legend``) plus matplotlib's own ``PathCollection_N`` scatter groups, and the
+text matplotlib emits as SVG comments. That survives font-hinting and
+matplotlib-version differences across machines (and the coming macOS/Windows
+packaging), where an image diff would not.
 
-Regex-only, no XML dependency: matplotlib's SVG is regular enough, and the gids
-we rely on are written by the engine itself (see ``compiler._tag_labels`` /
-``_group``), so they are a stable contract rather than an implementation detail.
+Point marks are counted from matplotlib's ``<g id="PathCollection_N">`` scatter
+groups (one ``<use>`` per drawn point). Item I removed the engine's per-point
+``pts-N`` gid/click contract, so the marks are plain vector glyphs now; the
+matplotlib-assigned collection group is the stable structural handle.
+
+Regex-only, no XML dependency: matplotlib's SVG is regular enough, and the label
+gids we rely on are written by the engine itself (see ``compiler._tag_labels``),
+so they are a stable contract rather than an implementation detail.
 """
 from __future__ import annotations
 
@@ -25,7 +31,7 @@ class SvgFacts:
     axis_labels: dict = field(default_factory=dict)   # {"x": str, "y": str}
     title: str | None = None
     annotation: str | None = None
-    point_groups: list = field(default_factory=list)  # [(gid, n_use), ...]
+    point_groups: list = field(default_factory=list)  # [(gid, n_use), ...] scatter colls
     xtick_labels: list = field(default_factory=list)
     ytick_labels: list = field(default_factory=list)
     legend_labels: list = field(default_factory=list)
@@ -91,14 +97,14 @@ def parse(svg: str) -> SvgFacts:
     f.title = _label_text(svg, "lbl-title")
     f.annotation = _label_text(svg, "lbl-annot")
 
-    # point series: each <g id="pts-N"> holds one <use> per row (the
-    # click-to-exclude contract). Sorted by N so order is render order.
+    # point marks: matplotlib wraps each scatter call in <g id="PathCollection_N">
+    # holding one <use> per drawn point. Sorted by N so order is render order.
     pts = []
-    for m in re.finditer(r'<g id="(pts-\d+)"[^>]*>', svg):
+    for m in re.finditer(r'<g id="(PathCollection_\d+)"[^>]*>', svg):
         gid = m.group(1)
         inner = _group_inner(svg, gid) or ""
         pts.append((gid, len(re.findall(r"<use\b", inner))))
-    f.point_groups = sorted(pts, key=lambda g: int(g[0].split("-")[1]))
+    f.point_groups = sorted(pts, key=lambda g: int(g[0].split("_")[1]))
 
     f.xtick_labels = _tick_labels(svg, "x")
     f.ytick_labels = _tick_labels(svg, "y")

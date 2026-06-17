@@ -85,19 +85,17 @@ def test_small_group_recommends_rank_based():
     assert "< 12" in res["recommendation"]["reason"]  # small-n rule fired
 
 
-def test_analyze_endpoint_svg_has_clickable_point_groups():
+def test_analyze_endpoint_svg_draws_marks_without_point_groups():
+    # Item I: dots draw as plain vector marks; the payload carries no point_groups
+    # and the SVG has no per-point gid/click structure (just <use> glyphs).
     r = client.post("/analyze", json={"table": make_table(),
                                       "spec": make_spec()})
     assert r.status_code == 200
     body = r.json()
     svg = body["figure"]["svg"]
-    groups = body["figure"]["point_groups"]
-    assert [g["gid"] for g in groups] == ["pts-0", "pts-1"]
-    for g in groups:
-        m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>', svg, re.S)
-        assert m, f"gid {g['gid']} missing from SVG"
-        n_use = len(re.findall(r"<use\b", m.group(1)))
-        assert n_use == len(g["row_ids"]), "one <use> per row required"
+    assert "point_groups" not in body["figure"]
+    assert 'id="pts-' not in svg               # no per-point group tags
+    assert "<use" in svg                       # marks still drawn as vector glyphs
     # The two-group comparison draws its significance bracket on the figure
     # (re-introduced with the multi-comparison work); this fixture is significant.
     assert "<!-- *** -->" in svg
@@ -178,13 +176,9 @@ def test_marks_render(marks):
     assert r.status_code == 200
     body = r.json()
     assert "<svg" in body["figure"]["svg"]
-    if "dot" in marks:  # the click-to-exclude contract holds under overlays
-        for g in body["figure"]["point_groups"]:
-            m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>',
-                          body["figure"]["svg"], re.S)
-            assert m and len(re.findall(r"<use\b", m.group(1))) == len(g["row_ids"])
-    else:  # aggregate-only marks expose no per-row click targets
-        assert body["figure"]["point_groups"] == []
+    assert "point_groups" not in body["figure"]   # item I: no per-point contract
+    if "dot" in marks:  # dots still draw as vector glyphs under the overlays
+        assert "<use" in body["figure"]["svg"]
 
 
 # ---------------- tier-2: correlation family ----------------
@@ -233,16 +227,15 @@ def test_correlation_matches_scipy_ground_truth():
     assert res_sp["result"]["p"] == pytest.approx(exp_sp.pvalue, rel=1e-6)
 
 
-def test_scatter_endpoint_keeps_click_contract():
+def test_scatter_endpoint_draws_marks_without_point_groups():
     from scipy import stats as sps
     table = make_scatter_table()
     r = client.post("/analyze", json={"table": table,
                                       "spec": make_scatter_spec()})
     assert r.status_code == 200
     body = r.json()
-    [g] = body["figure"]["point_groups"]
-    m = re.search(rf'<g id="{g["gid"]}"(.*?)</g>', body["figure"]["svg"], re.S)
-    assert m and len(re.findall(r"<use\b", m.group(1))) == 40
+    assert "point_groups" not in body["figure"]       # item I
+    assert "<use" in body["figure"]["svg"]            # marks drawn as vector glyphs
     df = pd.DataFrame(table["rows"])
     expected = sps.linregress(df["dose"], df["response"])
     assert body["stats"]["regression"]["slope"] == pytest.approx(
@@ -267,7 +260,7 @@ def test_histogram_and_descriptives():
     assert res["mean"] == pytest.approx(vals.mean(), abs=1e-6)
     assert res["median"] == pytest.approx(np.median(vals), abs=1e-6)
     assert res["sd"] == pytest.approx(vals.std(ddof=1), abs=1e-6)
-    assert body["figure"]["point_groups"] == []
+    assert "point_groups" not in body["figure"]
     assert "<svg" in body["figure"]["svg"]
 
 
@@ -288,7 +281,7 @@ def _distribution_fig(params):
     spec.setdefault("style", {}).setdefault("overrides", {})["show_annotation"] = False
     spec = specnorm.normalize(spec)
     st = stats.descriptive(df, "response", alpha=0.05)
-    fig, _ = compiler.build_histogram_figure(df, table["schema"], spec, st)
+    fig = compiler.build_histogram_figure(df, table["schema"], spec, st)
     return fig.axes[0]
 
 
@@ -619,7 +612,8 @@ def test_style_default_spec_unchanged():
     # empty overrides keep the tier-1 contract intact (regression guard)
     r = client.post("/analyze", json={"table": make_table(), "spec": make_spec()})
     body = r.json()
-    assert [g["gid"] for g in body["figure"]["point_groups"]] == ["pts-0", "pts-1"]
+    assert "point_groups" not in body["figure"]   # item I: no per-point contract
+    assert "<use" in body["figure"]["svg"]        # dot marks still drawn
     assert 'id="lbl-y"' in body["figure"]["svg"]  # y label always draggable
 
 
@@ -814,9 +808,10 @@ def test_layer_params_override_style_jitter():
     spec["layers"] = [{"geom": "dot", "params": {"jitter": 0.0}}]
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 200
-    # the click contract still holds (one <use> per row, ordered groups)
+    # the dot layer renders its marks (as plain vector glyphs, item I)
     body = r.json()
-    assert [g["gid"] for g in body["figure"]["point_groups"]] == ["pts-0", "pts-1"]
+    assert "<use" in body["figure"]["svg"]
+    assert "point_groups" not in body["figure"]
 
 
 def test_blocking_point_cap_returns_422():
@@ -846,7 +841,7 @@ def test_health_serves_the_geom_registry():
     body = client.get("/health").json()
     assert "registry" in body
     assert "dot" in body["registry"]["geoms"]
-    assert body["registry"]["point_cap"] == 3000
+    assert body["registry"]["point_cap"] == 10000
 
 
 # ---------------- phase 1: describe-only (run no test) ----------------------

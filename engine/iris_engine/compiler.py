@@ -1,4 +1,11 @@
-"""Compile an analysis spec to a matplotlib figure with gid-tagged points.
+"""Compile an analysis spec to a matplotlib figure.
+
+Dots/scatter draw as plain vector marks: points are not individually clickable
+(item I removed click-to-exclude/select from the figure — exclusion lives in the
+DataTable), so the compiler emits no per-point gids or point_groups and colour is
+vectorized into one scatter call per marker rather than split per colour level.
+Draggable artists (title, axis labels, the r/p annotation, the legend) still
+carry their own stable gids — see `_decorate`.
 
 WYSIWYG rule: the figure is laid out at its physical size (mm). The SVG sent
 to the screen and the exported SVG/PDF come from the same renderer at the
@@ -473,14 +480,13 @@ def _apply_beeswarm(fig) -> None:
     drawn (by `_finalize_deferred`). Mirrors `_apply_legend_offset`: pops its
     stash so a second save is a no-op.
 
-    A lane's sub-series collections (the split by shape marker × discrete colour)
-    are packed *jointly* — concatenated into one solve — so the silhouette
-    reflects the whole group, not each sub-series in isolation. We replicate the
-    transform → solve → writeback wrapper `Beeswarm.__call__` does for one
-    collection, extended across a lane's collections, and reuse the solver's
-    maintained core (`beeswarm`, `add_gutters`). Only the categorical coordinate
-    is rewritten; point counts and ordering are untouched, so every gid still maps
-    to the same row_ids (click-to-exclude survives)."""
+    A lane's sub-series collections (the split by shape marker) are packed
+    *jointly* — concatenated into one solve — so the silhouette reflects the whole
+    group, not each sub-series in isolation. We replicate the transform → solve →
+    writeback wrapper `Beeswarm.__call__` does for one collection, extended across
+    a lane's collections, and reuse the solver's maintained core (`beeswarm`,
+    `add_gutters`). Only the categorical coordinate is rewritten; point counts and
+    ordering are untouched."""
     lanes = fig.__dict__.pop("_iris_beeswarm", None)
     if not lanes:
         return
@@ -628,9 +634,7 @@ def _build_grid(width_mm: float, height_mm: float, n_rows: int, n_cols: int,
 
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
                  level_tables: dict | None = None):
-    """Dispatch on the inferred stat_model family. Returns (fig, point_groups);
-    point_groups maps SVG gids to row ids in draw order, so the frontend can
-    wire click-to-exclude per point (empty for aggregate-only figures).
+    """Dispatch on the inferred stat_model family. Returns the matplotlib figure.
 
     `level_tables` (the data hierarchy's per-level tables) is consumed only by
     the group-comparison path, where each layer draws from its bound level."""
@@ -728,32 +732,24 @@ def _layout(df, schema, spec, *, scales=None):
             "color_col": color_col, "dodged": dodged, "clevels": clevels,
             "slot": slot, "wscale": wscale, "scales": sc, "has_dots": has_dots,
             "lw": style["line_width"], "summary_dx": 0.0 if dodged else 0.28,
-            "cbar_mappable": None, "gid_start": 0}
+            "cbar_mappable": None}
 
 
 def _group(rows, lv, pos, color, layout):
     """One (x-level [× colour]) cell of a layer's level table → a group dict.
-    `point_ids[k]` is the chained list of raw row-ids behind the k-th point
-    (the row's own id at the raw level), so excluding any mark — raw point or
-    coarse aggregate — drops every underlying raw row uniformly."""
+    `keys` are the per-mark row ids used only for the stable jitter offset."""
     val_col, sc = layout["val_col"], layout["scales"]
     num_color_col = layout["color_col"] if sc.color_numeric else None
     # a discrete colour that isn't dodged and isn't the x grouping (an
     # identifier/replicate id) colours each dot per-row instead of splitting the
     # group into sub-columns. When colour just follows x it is constant within a
-    # group, so the uniform group-colour path is used (keeping the marker-reuse
-    # <use> SVG the click-to-exclude contract relies on).
+    # group, so the uniform group-colour path is used.
     cat_color_col = (layout["color_col"]
                      if (layout["color_col"] and not sc.color_numeric
                          and not layout["dodged"]
                          and layout["color_col"] != layout["cat_col"]) else None)
     ys = rows[val_col].to_numpy(dtype=float) if val_col in rows else np.array([])
-    if "row_ids" in rows:
-        point_ids = [list(r) for r in rows["row_ids"].tolist()]
-    else:
-        point_ids = [[i] for i in rows["id"].tolist()]
     return {"pos": pos, "lv": lv, "ys": ys, "color": color,
-            "point_ids": point_ids,
             "keys": rows["id"].tolist() if "id" in rows else list(range(len(ys))),
             "summary": stats_mod._summary(lv, ys),
             **_aes_arrays(rows, sc, num_color_col, cat_color_col)}
@@ -858,18 +854,20 @@ def _geom_bar(ax, ctx, layer):
 def _geom_dot(ax, ctx, layer):
     """Dots for one layer's level table — one mark per row of that level. At the
     raw level this is one mark per observation, honouring the per-point color
-    (numeric via colormap), size, and shape channels (a mapped shape splits a
-    group into one scatter call per marker, each its own point-group so the
-    gid → row-ids click/exclude contract survives). At a coarser level it is one
-    prominent mark per grain (e.g. one per date) — the superplot's "big marks"
-    that make n visible — coloured by group, or per-grain when colour maps a
-    discrete column that survives the grain (e.g. date colouring per-date dots);
-    the numeric size/colour per-row channels stay bypassed (a coarse mark is an
-    aggregate). Each mark carries the chained raw row-ids of everything it
-    aggregates, so excluding it drops the whole unit.
+    (numeric via colormap, or a discrete per-grain swatch), size, and shape
+    channels. A mapped shape splits a group into one scatter call per marker
+    (matplotlib can't vary the marker within a call); colour, by contrast, is
+    vectorized — a numeric colour passes `c=values` through the colormap and a
+    discrete per-grain colour passes a per-point RGBA array, so each marker is one
+    scatter call regardless of how many colours it carries. At a coarser level it
+    is one prominent mark per grain (e.g. one per date) — the superplot's "big
+    marks" that make n visible — coloured by group, or per-grain when colour maps
+    a discrete column that survives the grain; the numeric size/colour per-row
+    channels stay bypassed (a coarse mark is an aggregate).
 
-    Per-layer `marker_size` and `alpha` params let a raw layer be faint/small and
-    an aggregate layer bold/large within one composed figure."""
+    Dots are not individually clickable (item I), so no gids or point_groups are
+    emitted. Per-layer `marker_size` and `alpha` params let a raw layer be
+    faint/small and an aggregate layer bold/large within one composed figure."""
     params = layer.get("params") or {}
     style = ctx["style"]
     scales = ctx["scales"]
@@ -878,9 +876,8 @@ def _geom_dot(ax, ctx, layer):
     jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
     msize = _param(params, "marker_size", style, "marker_size")
     malpha = _param(params, "alpha", style, "marker_alpha")
-    point_group, idx = [], ctx["gid_start"]
     for grp in ctx["groups"]:
-        ys, point_ids, keys = grp["ys"], grp["point_ids"], grp["keys"]
+        ys, keys = grp["ys"], grp["keys"]
         # swarm draws every mark at the lane centre and defers the no-overlap
         # packing to the final-draw solve (_apply_beeswarm); jitter offsets each
         # mark along the categorical axis by its stable level-row id so a redraw
@@ -893,24 +890,12 @@ def _geom_dot(ax, ctx, layer):
         lane_colls = []
         cvals, svals, shvals = grp.get("cvals"), grp.get("svals"), grp.get("shvals")
         ccols = grp.get("ccols")
-        # Sub-series split first by shape marker, then (for a discrete per-point
-        # colour) by colour level. Each (marker × colour) sub-series is a single
-        # scatter call with a uniform marker+colour, so matplotlib renders it as
-        # reusable <use> glyphs — keeping the gid → row-ids per-point click/exclude
-        # contract that breaks if one call carries per-point colours.
+        # Split only by shape marker; colour stays vectorized within each marker.
         shape_series = ([(scales.marker_for(lv), np.flatnonzero(shvals == lv))
                          for lv in scales.shape_levels]
                         if shvals is not None
                         else [("o", np.arange(len(ys)))])
-        sub_series = []
         for marker, sel in shape_series:
-            if ccols is not None:
-                for col in dict.fromkeys(ccols[i] for i in sel):  # first-seen order
-                    csel = np.array([i for i in sel if ccols[i] == col], dtype=int)
-                    sub_series.append((marker, col, csel))
-            else:
-                sub_series.append((marker, None, sel))
-        for marker, color, sel in sub_series:
             if not len(sel):
                 continue
             size = (np.array([scales.size_for(v) for v in svals[sel]])
@@ -925,23 +910,17 @@ def _geom_dot(ax, ctx, layer):
                                   vmin=scales.color_lo, vmax=scales.color_hi,
                                   **common)
                 ctx["cbar_mappable"] = coll
+            elif ccols is not None:
+                # discrete per-grain colour: one resolved swatch per point, passed
+                # as a vectorized colour array (no per-colour sub-series split).
+                coll = ax.scatter(px, py, c=[ccols[k] for k in sel], **common)
             else:
-                # `color` is the sub-series' discrete swatch (per-grain colouring)
-                # or None to fall back to the group colour.
-                coll = ax.scatter(px, py,
-                                  color=color if color is not None else grp["color"],
-                                  **common)
-            gid = f"pts-{idx}"
-            coll.set_gid(gid)
-            # row_ids[k] is the chained raw-id list behind the k-th drawn point
-            point_group.append({"gid": gid,
-                                "row_ids": [point_ids[k] for k in sel]})
+                coll = ax.scatter(px, py, color=grp["color"], **common)
             lane_colls.append(coll)
-            idx += 1
-        # All of a group's (marker × colour) sub-series pack jointly against each
-        # other in one lane, so the silhouette reflects the whole group, not each
-        # sub-series in isolation. Stash for the deferred pixel-space solve, which
-        # needs the final axis transform (mirrors fig._iris_legend_nudge).
+        # All of a group's (marker) sub-series pack jointly against each other in
+        # one lane, so the silhouette reflects the whole group, not each sub-series
+        # in isolation. Stash for the deferred pixel-space solve, which needs the
+        # final axis transform (mirrors fig._iris_legend_nudge).
         if layout == "swarm" and lane_colls:
             fig = ax.figure
             if not hasattr(fig, "_iris_beeswarm"):
@@ -949,7 +928,7 @@ def _geom_dot(ax, ctx, layer):
             fig._iris_beeswarm.append(
                 {"ax": ax, "collections": lane_colls, "center": grp["pos"],
                  "orient": "y" if h else "x", "width": 0.8 * ctx["wscale"]})
-    return point_group
+    return None
 
 
 def _geom_summary(ax, ctx, layer):
@@ -1011,7 +990,6 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                                 len(row_levels), len(col_levels),
                                 sharex=facet_cfg.get("share_x", True),
                                 sharey=facet_cfg.get("share_y", True))
-        point_groups, gid_next = [], 0
         cbar_mappable, last_ax = None, None
         levels, h = layout["levels"], layout["h_orient"]
         for ri, rlevel in enumerate(row_levels):
@@ -1025,14 +1003,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     ldf, _ = hierarchy_mod.resolve_level(level_tables, layer.get("level"))
                     cell_df = _facet_cell_df(ldf, row_col, col_col, rlevel, clevel)
                     ctx["groups"] = _groups(cell_df, layout)
-                    # point-emitting geoms number their series from gid_start;
-                    # advance per layer so stacked dot layers (raw + aggregate)
-                    # never reuse pts-N — gids stay unique across layers AND cells.
-                    ctx["gid_start"] = gid_next
-                    pg = render(ax, ctx, layer)
-                    if pg:
-                        point_groups.extend(pg)
-                        gid_next += len(pg)
+                    render(ax, ctx, layer)
 
                 cat_labels = layout["cols"].get(cat_col, {}).get("labels", {}) or {}
                 lv_labels = [cat_labels.get(lv, lv) for lv in levels]
@@ -1103,62 +1074,53 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 style["y_label"] = style["y_label"] or val_label
         _draw_legend(fig, last_ax, sc_global, style, cat_col, faceted=faceted)
         _decorate(fig, last_ax, style, faceted=faceted)
-    return fig, point_groups
+    return fig
 
 
 def _axis_label(cols: dict, name: str) -> str:
     return cols.get(name, {}).get("label", name)
 
 
-def _draw_points(ax, rows, x, y, sc, style, *, gid_start: int = 0):
-    """Per-point scatter honoring the color/size/shape scales. Splits rows into
-    one sub-series per (color level × shape level) so each carries its own color
-    and marker, and emits one point_groups entry per sub-series so the
-    click-to-exclude contract (gid → row ids) survives. With no color/shape
-    mapped this is a single 'pts-0' series identical to the pre-aesthetics path;
-    size, when mapped, varies marker area per point within a series.
+def _draw_points(ax, rows, x, y, sc, style):
+    """Per-point scatter honoring the color/size/shape scales. A mapped shape
+    splits into one scatter call per marker (matplotlib can't vary the marker
+    within a call); colour is vectorized — a numeric colour (Phase 3b) maps each
+    point through the colormap (c=values + cmap), a discrete colour passes a
+    per-point RGBA array, and an unmapped colour is one uniform swatch. With no
+    color/shape mapped this is a single uniform scatter; size, when mapped, varies
+    marker area per point.
 
-    Returns (point_groups, colorbar_mappable, next_gid_start). A *numeric* color
-    (Phase 3b) is not split into levels: each point is coloured by its value
-    through the colormap (c=values + cmap), and the returned mappable feeds the
-    colorbar. Phase 4: gid_start offsets the per-series counter so facet cells
-    drawn into the same figure never reuse a gid."""
+    Dots are not individually clickable (item I), so no gids/point_groups are
+    emitted. Returns the colorbar mappable (None unless a numeric colour is
+    mapped, in which case it feeds the colorbar)."""
     numeric_color = sc.color_col is not None and sc.color_numeric
-    color_levels = sc.color_levels if (sc.color_col and not numeric_color) else [None]
     shape_levels = sc.shape_levels if sc.shape_col else [None]
-    split = (sc.color_col is not None and not numeric_color) or sc.shape_col is not None
-    point_groups, idx, mappable = [], gid_start, None
-    for cl in color_levels:
-        for sl in shape_levels:
-            sub = rows
-            if sc.color_col is not None and not numeric_color:
-                sub = sub[sub[sc.color_col].astype(str) == cl]
-            if sc.shape_col is not None:
-                sub = sub[sub[sc.shape_col].astype(str) == sl]
-            if not len(sub):
-                continue
-            marker = sc.marker_for(sl) if sc.shape_col else "o"
-            size = ([sc.size_for(v) for v in sub[sc.size_col]] if sc.size_col
-                    else style["marker_size"])
-            common = dict(s=size, marker=marker, alpha=style["marker_alpha"],
-                          linewidths=0.6, edgecolors="white", zorder=3)
-            if numeric_color:
-                coll = ax.scatter(sub[x].to_numpy(dtype=float),
-                                  sub[y].to_numpy(dtype=float),
+    mappable = None
+    for sl in shape_levels:
+        sub = rows
+        if sc.shape_col is not None:
+            sub = sub[sub[sc.shape_col].astype(str) == sl]
+        if not len(sub):
+            continue
+        marker = sc.marker_for(sl) if sc.shape_col else "o"
+        size = ([sc.size_for(v) for v in sub[sc.size_col]] if sc.size_col
+                else style["marker_size"])
+        common = dict(s=size, marker=marker, alpha=style["marker_alpha"],
+                      linewidths=0.6, edgecolors="white", zorder=3)
+        px = sub[x].to_numpy(dtype=float)
+        py = sub[y].to_numpy(dtype=float)
+        if numeric_color:
+            mappable = ax.scatter(px, py,
                                   c=sub[sc.color_col].to_numpy(dtype=float),
                                   cmap=sc.color_cmap, vmin=sc.color_lo,
                                   vmax=sc.color_hi, **common)
-                mappable = coll
-            else:
-                color = sc.color_for(cl) if sc.color_col else _group_color(style, 0)
-                coll = ax.scatter(sub[x].to_numpy(dtype=float),
-                                  sub[y].to_numpy(dtype=float),
-                                  color=color, **common)
-            gid = f"pts-{idx}" if split else f"pts-{gid_start}"
-            coll.set_gid(gid)
-            point_groups.append({"gid": gid, "row_ids": sub["id"].tolist()})
-            idx += 1
-    return point_groups, mappable, idx
+        elif sc.color_col is not None:
+            # discrete colour: one resolved swatch per point, vectorized.
+            colors = [sc.color_for(v) for v in sub[sc.color_col].astype(str)]
+            ax.scatter(px, py, c=colors, **common)
+        else:
+            ax.scatter(px, py, color=_group_color(style, 0), **common)
+    return mappable
 
 
 def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
@@ -1190,7 +1152,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                                 len(row_levels), len(col_levels),
                                 sharex=facet_cfg.get("share_x", True),
                                 sharey=facet_cfg.get("share_y", True))
-        point_groups, gid_next, cbar_mappable, last_ax = [], 0, None, None
+        cbar_mappable, last_ax = None, None
         extra = {}
         for ri, rlevel in enumerate(row_levels):
             for ci, clevel in enumerate(col_levels):
@@ -1207,9 +1169,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                     ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
                             color=color, linewidth=style["line_width"], zorder=2)
 
-                pg, mappable, gid_next = _draw_points(
-                    ax, cell_rows, x, y, sc_global, style, gid_start=gid_next)
-                point_groups.extend(pg)
+                mappable = _draw_points(ax, cell_rows, x, y, sc_global, style)
                 cbar_mappable = mappable or cbar_mappable
 
                 if (style["show_annotation"]
@@ -1244,7 +1204,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
             style["y_label"] = style["y_label"] or _axis_label(cols, y)
         _draw_legend(fig, last_ax, sc_global, style, x, faceted=faceted)
         _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
-    return fig, point_groups
+    return fig
 
 
 def _layer_param(layer: dict, key: str):
@@ -1263,8 +1223,7 @@ def _geom_line(ax, rows, spine, x, y, sc, style, layer):
     and x=frame, one curve per cell. Each curve is sorted by x ascending; a
     missing x leaves a break. Colour styles how curves look per `color` level
     (the legend names conditions, not units) and never decides which rows form a
-    line. Aggregates no rows but emits no gid tags, so (like box/violin) its
-    curves are not click-to-exclude targets — returns an empty point-group."""
+    line."""
     alpha = _layer_param(layer, "alpha")
     lw = _layer_param(layer, "linewidth")
     color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None
@@ -1280,7 +1239,6 @@ def _geom_line(ax, rows, spine, x, y, sc, style, layer):
                  else _group_color(style, 0))
         ax.plot(g[x].to_numpy(dtype=float), g[y].to_numpy(dtype=float),
                 color=color, lw=lw, alpha=alpha, zorder=2)
-    return []
 
 
 def _geom_trend(ax, rows, x, y, sc, style, layer):
@@ -1311,7 +1269,6 @@ def _geom_trend(ax, rows, x, y, sc, style, layer):
             ax.fill_between(xs, means - errs, means + errs, color=color,
                             alpha=0.2, linewidth=0, zorder=1)
         ax.plot(xs, means, color=color, linewidth=style["line_width"], zorder=3)
-    return []
 
 
 def build_timeseries_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
@@ -1325,8 +1282,7 @@ def build_timeseries_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     unused here (the timeseries path never grain-collapses). The layered
     spaghetti+mean figure is just a `line` layer under a `trend` layer.
 
-    Describe-only: no inferential test, so no annotation or significance bracket.
-    Returns (fig, []) — no per-point click targets (see _geom_line)."""
+    Describe-only: no inferential test, so no annotation or significance bracket."""
     x = spec["encodings"]["x"]["column"]
     y = spec["encodings"]["y"]["column"]
     cols = {c["name"]: c for c in schema["columns"]}
@@ -1371,7 +1327,7 @@ def build_timeseries_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
             style["y_label"] = style["y_label"] or _axis_label(cols, y)
         _draw_legend(fig, last_ax, sc_global, style, x, faceted=faceted)
         _decorate(fig, last_ax, style, faceted=faceted)
-    return fig, []
+    return fig
 
 
 _SINH_SHARPNESS = 3.0
@@ -1435,8 +1391,7 @@ def _draw_distribution(ax, vals, params: dict, style: dict):
     bars/step/line/points are binned views (counts per bin); "smooth" is a KDE
     curve only; "potential" Boltzmann-inverts the histogram to U(x) = −ln P (the
     log-density, empty bins dropped). `overlay_smooth` adds a KDE on top of a
-    binned render. Mutates ax; aggregates rows, so there are no per-point click
-    targets."""
+    binned render. Mutates ax; aggregates rows."""
     render = params.get("dist_render", "bars")
     color = _group_color(style, 0)
     counts, edges = np.histogram(vals, bins=_resolve_dist_bins(params, style, vals))
@@ -1482,8 +1437,7 @@ def _draw_distribution(ax, vals, params: dict, style: dict):
 def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Distribution of one numeric column (mapped on y). The `distribution`
     layer's render mode picks bars/step/line/points or a "smooth" KDE; an
-    `overlay_smooth` param adds a KDE curve over a binned render. Aggregates
-    rows, so there are no per-point click targets.
+    `overlay_smooth` param adds a KDE curve over a binned render. Aggregates rows.
 
     Phase 4: when faceted, draws one cell per (row level × col level), each
     with its own marks/KDE/median recomputed from that cell's own values."""
@@ -1543,12 +1497,12 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
             style["x_label"] = style["x_label"] or _axis_label(cols, y)
             style["y_label"] = style["y_label"] or count_label
         _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
-    return fig, []
+    return fig
 
 
 def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Phase 3d: tile/heatmap for categorical x × categorical y. Fill = count of
-    rows in each (x_level, y_level) cell. No per-row click targets (aggregate).
+    rows in each (x_level, y_level) cell (aggregate).
 
     Phase 4: when faceted, draws one cell per (row level × col level), each
     with its own count matrix recomputed from that cell's own rows but
@@ -1642,7 +1596,7 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
             style["x_label"] = style["x_label"] or _axis_label(cols, x)
             style["y_label"] = style["y_label"] or _axis_label(cols, y)
         _decorate(fig, last_ax, style, faceted=faceted)
-    return fig, []   # aggregate: no per-point click targets
+    return fig
 
 
 def figure_to_svg(fig) -> str:

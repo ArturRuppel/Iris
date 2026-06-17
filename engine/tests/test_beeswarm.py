@@ -1,9 +1,10 @@
 """Beeswarm (`layout="swarm"`) for the dot geom: a dense group packs into a
 no-overlap swarm at final draw, building a violin-like silhouette while keeping
-every raw mark (and its gid → row_ids click contract) intact. Jitter stays
+every raw mark intact (the solver never adds or drops points). Jitter stays
 available as a selectable layout."""
 import matplotlib
 matplotlib.use("Agg")
+from matplotlib.collections import PathCollection
 import numpy as np
 import pandas as pd
 
@@ -40,9 +41,9 @@ def _stats():
 
 
 def _dots(fig):
-    """Every dot PathCollection on the main axes (gid starts with 'pts-')."""
+    """Every dot PathCollection on the axes (dots draw as plain scatter calls)."""
     return [c for ax in fig.axes for c in ax.collections
-            if (c.get_gid() or "").startswith("pts-")]
+            if isinstance(c, PathCollection)]
 
 
 # --- swarm spreads a dense lane -------------------------------------------
@@ -50,7 +51,7 @@ def _dots(fig):
 def test_swarm_packs_dense_lane_into_distinct_coordinates():
     # 30 points at the same value must overlap if stacked — the solver spreads
     # them along the categorical (x) axis at final draw.
-    fig, pg = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         _df([5.0] * 30), SWARM_SCHEMA, _spec("swarm"), _stats())
     colls = _dots(fig)
     pre = np.concatenate([c.get_offsets() for c in colls])
@@ -70,28 +71,25 @@ def test_swarm_packs_dense_lane_into_distinct_coordinates():
     assert not getattr(fig, "_iris_beeswarm", None)
 
 
-def test_swarm_preserves_point_count_and_row_id_contract():
+def test_swarm_preserves_point_count():
     df = _df([5.0] * 24)
-    fig, pg = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         df, SWARM_SCHEMA, _spec("swarm"), _stats())
     colls = _dots(fig)
     counts_pre = [len(c.get_offsets()) for c in colls]
-    n_rows = sum(len(g["row_ids"]) for g in pg)
 
     compiler.figure_to_svg(fig)
     counts_post = [len(c.get_offsets()) for c in colls]
 
     assert counts_pre == counts_post                  # solver never adds/drops
-    assert n_rows == len(df)                          # every row mapped once
-    # gid → row_ids count matches each collection's drawn point count
-    assert [len(g["row_ids"]) for g in pg] == counts_post
+    assert sum(counts_post) == len(df)                # every row drawn once
 
 
 def test_swarm_builds_a_peaked_silhouette():
     # symmetric, peaked at resp=5 → the swarm is widest there, like a violin.
     counts = {3: 5, 4: 10, 5: 30, 6: 10, 7: 5}
     vals = [v for v, c in counts.items() for _ in range(c)]
-    fig, _ = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         _df(vals), SWARM_SCHEMA, _spec("swarm"), _stats())
     colls = _dots(fig)
     compiler.figure_to_svg(fig)
@@ -107,7 +105,7 @@ def test_swarm_builds_a_peaked_silhouette():
 # --- horizontal orientation -----------------------------------------------
 
 def test_swarm_horizontal_packs_along_the_y_axis():
-    fig, _ = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         _df([5.0] * 30), SWARM_SCHEMA, _spec("swarm", horizontal=True), _stats())
     rec = fig._iris_beeswarm[0]
     assert rec["orient"] == "y"
@@ -122,7 +120,7 @@ def test_swarm_horizontal_packs_along_the_y_axis():
 
 def test_jitter_layout_uses_stable_hash_offsets_and_no_solve():
     df = _df([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
-    fig, _ = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         df, SWARM_SCHEMA, _spec("jitter"), _stats())
     assert not getattr(fig, "_iris_beeswarm", None)   # jitter registers no lane
     coll = _dots(fig)[0]
@@ -136,6 +134,6 @@ def test_default_dot_layout_is_swarm():
     # a layer with no explicit layout param takes the swarm default
     spec = _spec("swarm")
     spec["layers"][0]["params"] = {}
-    fig, _ = compiler.build_comparison_figure(
+    fig = compiler.build_comparison_figure(
         _df([5.0] * 12), SWARM_SCHEMA, spec, _stats())
     assert getattr(fig, "_iris_beeswarm", None)

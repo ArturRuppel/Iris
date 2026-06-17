@@ -159,37 +159,43 @@ re-flow), (b) re-rendering on the engine per view change (accurate, but a round
 trip per gesture), or (c) swapping the figure pane to an interactive renderer.
 Scope the trade-offs before building.
 
-### I. Drop click-to-exclude/select on dots; keep exclusion in the DataTable
-The right-click-data → exclude interaction is a bad feature, and making *every
-dot individually clickable* is what makes it expensive. Investigation
-(2026-06-17) found the clickability contract is the root cause of several costs:
-- **SVG payload.** A clickable dot must be its own `<use>` node with a stable
-  gid + a `point_group` (`gid → row_ids`). This is exactly why `POINT_CAP = 3000`
-  exists — `geoms.py:13`: 82,241 pts → a 13.8 MB SVG with 82k `<use>` nodes.
-  Without the contract, dots can flatten to a single simplified path and the cap
-  could rise sharply or disappear.
-- **Render path distortion.** A `<use>` glyph must be reusable, so `_geom_dot`
-  (`compiler.py:876`) cannot vectorize per-point colour in one `scatter` call —
-  it splits every group into `(marker × colour)` sub-series, each its own scatter
-  + gid + point_group (`compiler.py:879`). Dropping the contract collapses
-  numeric-colour dots back to one `ax.scatter(c=cvals)`.
-- **Frontend wiring.** Every figure injection walks all point_groups and adds 2
-  listeners + a `<title>` + a `useByRow` entry per `<use>` (`FigurePane.tsx:120`)
-  — ~6k listeners + 3k DOM mutations at the cap — and forces the raw-SVG
-  `innerHTML` trust boundary (`FigurePane.tsx:92`) to stay un-sanitizable.
+(Item I — shipped 2026-06-17. Click-to-exclude AND click-to-select were removed
+from the figure; exclusion stays via the DataTable `excluded` checkbox (the
+shared `/table/{id}/exclude` endpoint is untouched). Decision on the cap (asked):
+stay fully VECTOR and raise the cap modestly rather than rasterize — a vectorized
+scatter is still one `<use>` per point (~150 B), so rasterizing was the only way
+to *remove* the cap, and the user chose to keep crisp vector dots. `POINT_CAP`
+3000 → 10000 (`geoms.py`), justified by dropping the ~6k per-point frontend
+listeners, not by node count.
 
-KEY INSIGHT: exclusion and clickable-dots are separable. There are two ways to
-exclude a row — clicking a dot, and the `excluded` checkbox column in the
-DataTable (`DataTable.tsx:61`) — and they share one engine endpoint
-(`/table/{id}/exclude`). The DataTable path needs no point_groups/gids.
+Engine: the `point_groups`/`gid → row_ids` contract is gone end-to-end.
+`_geom_dot` and `_draw_points` no longer emit gids/point_groups and now vectorize
+colour — a discrete colour passes a per-point RGBA array in ONE `ax.scatter`
+(numeric colour was already `c=cvals`); only a mapped *shape* still splits (one
+scatter per marker, a matplotlib limitation). `build_*_figure`/`build_figure`
+return just `fig`; the `_run`/`/analyze` payload is `figure: { svg }` (no
+`point_groups` field). `_group` dropped its `point_ids` chaining; `_layout`
+dropped `gid_start`. The hierarchy `row_ids` column stays as unit→raw provenance
+(its own test/data-model concern), just no longer read by the compiler.
 
-PROPOSAL: remove click-to-exclude AND click-to-select from the figure (both ride
-the same `point_groups` loop), keep exclusion via the DataTable checkbox. Then
-draw dots as flattened paths, raise/remove `POINT_CAP`, vectorize `_geom_dot`
-colour, and delete the FigurePane per-`<use>` wiring. The `point_groups` emission
-in the compiler can go too. Trade-off: in-figure selection highlighting is lost
-(it's wired through the same machinery). Engine `excluded`/`n_excluded` plumbing
-(session.py, reduce.py, stats.py, methods-text) stays as-is.
+Frontend: FigurePane lost the per-`<use>` loop (2 listeners + `<title>` +
+`useByRow` per point), the selection-highlight effect, the right-click exclude
+context menu, and `selectedRowIdAtom` (deleted from state). `estimateBytes`
+simplified to `svg.length + overhead` (no per-row-id term). `types.ts`
+`AnalyzeResponse.figure` is now `{ svg }`; `PointRowIds` removed. `.pt-selected`
+CSS dropped (the shared `.context-menu`/`.menu-backdrop` stay — used by the
+sidebar + style popover). The raw-SVG `innerHTML` trust boundary remains (still
+our own localhost matplotlib output) but no longer needs the gid structure.
+
+Tests: the validation SvgFacts parser now counts marks from matplotlib's own
+`<g id="PathCollection_N">` groups instead of `pts-N` (one `<use>` per point);
+all per-point-contract assertions across test_engine/aesthetics/hierarchy/
+horizontal/facets/beeswarm/tile/timeseries/smoke were rewritten to assert the
+vectorized collection structure (e.g. a discrete colour = one collection with a
+per-point facecolor array). 294 engine + 65 FE tests green, typecheck + build
+clean. NOT browser-verified here (no Chromium): the e2e `superplot_test.mjs`
+assertion was updated to the new `PathCollection_N` structure for whoever next
+runs it with a browser — fold into the browser-blocked batch.)
 
 ### 1. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
 Facet COL is fixed and verified; facet ROW still doesn't work in the running app.
