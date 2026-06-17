@@ -431,3 +431,27 @@ requirements (its `(x_type, y_type)` expectations) constrain the columns/types
 that are offered or accepted on import, the inverse of item 6 (which filters the
 add-layer menu by the current encoding). Effectively: encoding-first and
 geom-first should both be valid entry points, each narrowing the other.
+
+## Validation corpus
+
+### 24. Build the validation corpus — TODO
+Build a corpus of curated `.iris` validation cases (known, well-characterized
+datasets → known plots and stats) per the design spec
+`docs/superpowers/specs/2026-06-17-validation-corpus-design.md`. Each case pairs
+a dataset (`data.csv`) with an analysis spec (`case.py`) and serves four jobs at
+once: statistical correctness (assert against published reference values,
+independently recomputed with raw scipy/pingouin — never echoing Iris's own
+output), end-to-end regression (drive the real `.iris` → analyses → figure +
+stats pipeline), shippable demos (build to a real, openable `.iris`), and
+visual/plot correctness (structural parsed-SVG assertions). Build on demand into
+a gitignored `artifacts/` (don't commit the binary `.iris`); load the built file
+back via `document.load_document` and run each analysis through `main._run`.
+Layout under `engine/validation/` (`cases/`, `harness.py`, `svgstruct.py`,
+`build.py`, `test_validation.py`). Initial corpus = one case per stat family:
+`iris-petal-correlation` (Pearson r=0.962865), `iris-species-anova` (one-way
+ANOVA F=1180.16), `iris-sepal-descriptive` (sepal_length summary),
+`contingency-2x2` (published 2×2, chi-square), `reduction-collapse` (synthetic,
+analytic ground truth for the reduce-pipeline path). Designed to grow as siblings
+(Spearman, Mann-Whitney/Kruskal, paired-t, Fisher-exact). The three iris
+`data.csv` files are already staged (canonical Fisher iris, verified
+byte-identical to seaborn's bundled copy).
