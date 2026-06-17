@@ -129,6 +129,47 @@ def test_color_second_factor_builds_dodged_cells():
     assert len(colors) == 2                       # one per genotype, not per cell
 
 
+ID_SCHEMA = {"schema_version": "1.0", "columns": [
+    {"name": "cond", "type": "categorical", "label": "Condition",
+     "levels": ["ctrl", "drug"]},
+    {"name": "batch", "type": "identifier", "label": "Batch"},   # a replicate id
+    {"name": "resp", "type": "numeric", "label": "Response"},
+]}
+
+
+def _id_df():
+    rows, rid = [], 0
+    for cond in ("ctrl", "drug"):
+        for batch in ("b1", "b2"):
+            for v in (1.0, 2.0, 3.0, 4.0):
+                rows.append({"id": f"r{rid}", "cond": cond, "batch": batch,
+                             "resp": v})
+                rid += 1
+    return pd.DataFrame(rows)
+
+
+def test_identifier_color_dodges_a_box_with_no_point_layer():
+    """A box on its own coloured by an identifier (e.g. `date`) has no per-point
+    layer to claim the id for superplot replicate colouring, so it dodges each x
+    group into one box per id — the grouped-boxplot the user expects."""
+    spec = _cmp_spec("box", color="batch")
+    spec["encodings"]["x"] = {"column": "cond"}
+    ctx = _cmp_ctx(_id_df(), ID_SCHEMA, spec)
+    assert ctx["dodged"] is True
+    assert len(ctx["groups"]) == 4               # 2 conditions × 2 batches
+
+
+def test_identifier_color_does_not_dodge_when_a_point_layer_is_present():
+    """Adding a dot layer reclaims the identifier colour for the superplot idiom
+    (per-row colouring, one uniform box per x-level) — no dodge."""
+    spec = _cmp_spec("box", color="batch")
+    spec["encodings"]["x"] = {"column": "cond"}
+    spec["layers"].append({"geom": "dot", "params": {}})
+    ctx = _cmp_ctx(_id_df(), ID_SCHEMA, spec)
+    assert ctx["dodged"] is False
+    assert len(ctx["groups"]) == 2               # one cell per x-level
+
+
 def test_color_equal_to_x_is_not_dodged():
     df = _cmp_df()
     spec = _cmp_spec("dot", color="cond")        # color == x → today's behaviour

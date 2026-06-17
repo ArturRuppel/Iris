@@ -56,6 +56,12 @@ export function EncodingsCard() {
 
   const mappings = active.mappings;
   const columns = schema?.columns ?? [];
+  /* the geoms the current layer stack draws — gates which colour types the
+     Color row offers (numeric colour needs a per-point geom; box/violin/bar
+     take a categorical/ID colour only). */
+  const activeGeoms = (active.layers ?? [])
+    .map((l) => registry?.geoms[l.geom])
+    .filter((g): g is NonNullable<typeof g> => !!g);
 
   const valueOf = (ch: Channel): string => {
     if (ch === "x" || ch === "y") return mappings[ch];
@@ -85,7 +91,7 @@ export function EncodingsCard() {
         /* the column the *other* axis holds is excluded so X and Y can't collide */
         const otherAxis = key === "x" ? mappings.y : key === "y" ? mappings.x : "";
         const offered = offeredColumns(
-          registry, key, columns.filter((c) => c.name !== otherAxis));
+          registry, key, columns.filter((c) => c.name !== otherAxis), activeGeoms);
         /* nothing this channel can carry (and nothing stale mapped) → hide row */
         if (offered.selectable.length === 0 && offered.disabled.length === 0
             && !valueOf(key)) return null;
@@ -93,7 +99,7 @@ export function EncodingsCard() {
         /* a still-mapped column whose type the engine can't render yet: surface
            the reason inline (it also rides the amber warn-bar after render). */
         const t = colType(schema, value);
-        const status = t ? renderStatus(registry, key, t) : null;
+        const status = t ? renderStatus(registry, key, t, activeGeoms) : null;
         const reason = status && status !== "ok" ? status.reason : null;
         return (
           <div className="enc-row" key={key}>

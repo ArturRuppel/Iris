@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 .claude/
 .superpowers/
+
+# local data corpus — too large to track
+cells_by_frame.csv

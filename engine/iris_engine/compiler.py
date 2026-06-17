@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sps
 
+from . import geoms as geoms_mod
 from . import hierarchy as hierarchy_mod
 from . import scales as scales_mod
 from . import stats as stats_mod
@@ -502,10 +503,21 @@ def _layout(df, schema, spec, *, scales=None):
 
     color = enc.get("color")
     color_col = color["column"] if color and color.get("column") else None
-    dodged = (color_col is not None and color_col != cat_col
-              and _is_categorical(schema, color_col))
     sc = scales if scales is not None else scales_mod.resolve_scales(
         enc, df[df[val_col].notna()] if val_col in df else df, schema, style)
+    # A colour ≠ x splits each x group into dodged sub-marks (a second factor).
+    # A plain categorical colour always dodges. An identifier (a replicate id
+    # like `date`) is discrete too, but a per-point geom claims it for the
+    # superplot idiom — colouring each row's mark in place, no dodge — so an
+    # identifier colour only dodges when no per-point layer is present (e.g. a box
+    # on its own: each x group splits into one box per id). A numeric colour is a
+    # colormap and never dodges.
+    has_point = any(not geoms_mod.GEOMS[l["geom"]].aggregates
+                    for l in spec.get("layers", [])
+                    if l.get("geom") in geoms_mod.GEOMS)
+    dodged = (color_col is not None and color_col != cat_col
+              and not sc.color_numeric
+              and (_is_categorical(schema, color_col) or not has_point))
 
     if dodged:
         clevels = list(sc.color_levels)

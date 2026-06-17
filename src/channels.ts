@@ -117,12 +117,29 @@ export function isOfferable(reg: Registry | null, channel: Channel, type: ColTyp
   return type in RENDERABLE[channel];
 }
 
+/* A continuous (numeric) colour is a colormap over per-row values, so it renders
+   only on a per-point geom (dot/scatter). An aggregate geom (box/violin/bar/
+   summary) collapses rows and takes a categorical/identifier colour only — it
+   dodges each x group into sub-marks (see `aes` in geoms.py). So numeric colour
+   is renderable iff some active layer is a per-point geom that takes colour. */
+function activeAcceptsNumericColor(activeGeoms: GeomMeta[]): boolean {
+  return activeGeoms.some((g) => !g.aggregates && g.aes.includes("color"));
+}
+
 /* renderability for an offerable mapping: "ok" (drawn), {reason} (offerable but
-   not renderable today → disabled-with-reason), or null (not offerable). */
+   not renderable today → disabled-with-reason), or null (not offerable). When
+   `activeGeoms` is given, a numeric colour is gated on the active layers having
+   a per-point geom — box/violin/bar take a categorical/ID colour only. */
 export function renderStatus(
   reg: Registry | null, channel: Channel, type: ColType,
+  activeGeoms?: GeomMeta[],
 ): "ok" | { reason: string } | null {
   if (!isOfferable(reg, channel, type)) return null;
+  if (channel === "color" && type === "numeric"
+      && activeGeoms && activeGeoms.length > 0
+      && !activeAcceptsNumericColor(activeGeoms)) {
+    return { reason: "needs a point/scatter layer (box/violin/bar take a categorical color)" };
+  }
   const r = RENDERABLE[channel][type];
   return r === true ? "ok" : (r ?? null);
 }
@@ -150,13 +167,20 @@ export function geomGateReason(
   return null;
 }
 
+/* channels that treat a spine identifier (a replicate id like `date`) as a
+   discrete categorical: color draws it as a palette (the superplot idiom of
+   coloring per-grain marks by grain), and the facets split a small-multiples
+   grid by it (one panel per date/position). Every other channel excludes
+   identifiers (colType returns null). High-cardinality ids are caught downstream
+   — the palette-exhausted warning for color, the blocking facet-cell cap. */
+const ID_AS_CATEGORICAL: ReadonlySet<Channel> =
+  new Set(["color", "facet_row", "facet_col"]);
+
 /* the columns offerable on a channel, split into selectable (renderable) and
-   disabled-with-reason (offerable but not drawn today). Identifier columns are
-   excluded by colType returning null — except on the color channel, where a
-   spine identifier (a replicate id like `date`) is offered and drawn as a
-   discrete palette: the superplot idiom of coloring per-grain dots by grain. */
+   disabled-with-reason (offerable but not drawn today). */
 export function offeredColumns(
   reg: Registry | null, channel: Channel, columns: ColumnDef[],
+  activeGeoms?: GeomMeta[],
 ): { selectable: ColumnDef[]; disabled: { col: ColumnDef; reason: string }[] } {
   const selectable: ColumnDef[] = [];
   const disabled: { col: ColumnDef; reason: string }[] = [];
@@ -164,10 +188,10 @@ export function offeredColumns(
     const t: ColType | null =
       c.type === "numeric" || c.type === "bool" ? "numeric"
       : c.type === "categorical" ? "categorical"
-      : channel === "color" && c.type === "identifier" ? "categorical"
+      : c.type === "identifier" && ID_AS_CATEGORICAL.has(channel) ? "categorical"
       : null;
     if (!t) continue;
-    const st = renderStatus(reg, channel, t);
+    const st = renderStatus(reg, channel, t, activeGeoms);
     if (st === "ok") selectable.push(c);
     else if (st) disabled.push({ col: c, reason: st.reason });
   }

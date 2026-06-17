@@ -47,6 +47,15 @@ export function LayerCard(
             </label>
           );
         }
+        if (spec.type === "bool") {
+          return (
+            <label key={spec.key} className="layer-param">
+              <span>{spec.label}</span>
+              <input type="checkbox" checked={Boolean(cur)}
+                onChange={(e) => setParam(spec.key, e.target.checked)} />
+            </label>
+          );
+        }
         return (
           <label key={spec.key} className="layer-param">
             <span>{spec.label}</span>

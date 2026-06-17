@@ -101,7 +101,34 @@ describe("offeredColumns — selectable vs disabled-with-reason, identifiers exc
     expect(disabled).toEqual([]);                       // identifier offered as discrete
   });
 
-  it("shape: identifier excluded — only colour offers identifiers", () => {
+  it("color: an aggregate-only layer stack disables numeric colour (box takes a categorical/ID colour)", () => {
+    const boxOnly: GeomMeta[] = [{ ...geom("categorical", "numeric"),
+      aggregates: true, aes: ["color"] }];
+    const { selectable, disabled } = offeredColumns(REG, "color", COLS, boxOnly);
+    expect(selectable.map((c) => c.name)).toEqual(["grp", "id"]);  // categorical + id
+    expect(disabled.map((d) => d.col.name)).toEqual(["val"]);      // numeric disabled
+    expect(disabled[0].reason).toBeTruthy();
+  });
+
+  it("color: a per-point layer (dot) re-enables numeric colour as a colormap", () => {
+    const withDot: GeomMeta[] = [
+      { ...geom("categorical", "numeric"), aggregates: true, aes: ["color"] },
+      { ...geom("categorical", "numeric"), aggregates: false,
+        aes: ["color", "size", "shape"] },
+    ];
+    const { selectable } = offeredColumns(REG, "color", COLS, withDot);
+    expect(selectable.map((c) => c.name)).toEqual(["grp", "val", "id"]);
+  });
+
+  it("facets offer identifiers as discrete (small multiples per date/position)", () => {
+    for (const ch of ["facet_row", "facet_col"] as const) {
+      const { selectable, disabled } = offeredColumns(REG, ch, COLS);
+      expect(selectable.map((c) => c.name)).toEqual(["grp", "id"]);  // categorical + id
+      expect(disabled).toEqual([]);                                  // numeric not offered
+    }
+  });
+
+  it("shape: identifier excluded — only colour/facets offer identifiers", () => {
     const { selectable, disabled } = offeredColumns(REG, "shape", COLS);
     expect(selectable.map((c) => c.name)).not.toContain("id");
     expect(disabled.map((d) => d.col.name)).not.toContain("id");
