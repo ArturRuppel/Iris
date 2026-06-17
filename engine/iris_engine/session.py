@@ -25,6 +25,10 @@ class SessionTable:
         self.schema = schema
         self._df = df.reset_index(drop=True)
         self.version = 0
+        # Sync endpoints run in uvicorn's threadpool, so an /analyze snapshot can
+        # race a concurrent cell edit / exclusion toggle. Guard the frame so a
+        # read sees a consistent table and writes serialize.
+        self._lock = threading.Lock()
 
     @property
     def n(self) -> int:
@@ -34,9 +38,10 @@ class SessionTable:
         return self._df
 
     def window(self, start: int, end: int) -> list[dict]:
-        start = max(0, start)
-        end = min(self.n, max(start, end))
-        return _records(self._df.iloc[start:end])
+        with self._lock:
+            start = max(0, start)
+            end = min(self.n, max(start, end))
+            return _records(self._df.iloc[start:end])
 
     def _row_pos(self, row_id: str) -> int:
         hits = self._df.index[self._df["id"].astype(str) == str(row_id)]
@@ -45,28 +50,32 @@ class SessionTable:
         return int(hits[0])
 
     def edit_cell(self, row_id: str, column: str, value) -> None:
-        if column not in self._df.columns:
-            raise KeyError(f"unknown column {column!r}")
-        pos = self._row_pos(row_id)
-        self._df.at[pos, column] = value
-        self.version += 1
+        with self._lock:
+            if column not in self._df.columns:
+                raise KeyError(f"unknown column {column!r}")
+            pos = self._row_pos(row_id)
+            self._df.at[pos, column] = value
+            self.version += 1
 
     def toggle_exclusion(self, row_id: str) -> bool:
-        pos = self._row_pos(row_id)
-        new = not bool(self._df.at[pos, "excluded"])
-        self._df.at[pos, "excluded"] = new
-        self.version += 1
-        return new
+        with self._lock:
+            pos = self._row_pos(row_id)
+            new = not bool(self._df.at[pos, "excluded"])
+            self._df.at[pos, "excluded"] = new
+            self.version += 1
+            return new
 
     def distinct(self, column: str) -> list[str]:
-        if column not in self._df.columns:
-            raise KeyError(f"unknown column {column!r}")
-        vals = self._df[column].dropna().astype(str).unique().tolist()
+        with self._lock:
+            if column not in self._df.columns:
+                raise KeyError(f"unknown column {column!r}")
+            vals = self._df[column].dropna().astype(str).unique().tolist()
         return sorted(vals)[: self._DISTINCT_CAP]
 
     def counts(self) -> dict:
-        excluded = int(self._df["excluded"].fillna(False).astype(bool).sum())
-        return {"total": self.n, "excluded": excluded}
+        with self._lock:
+            excluded = int(self._df["excluded"].fillna(False).astype(bool).sum())
+            return {"total": self.n, "excluded": excluded}
 
 
 class SessionStore:

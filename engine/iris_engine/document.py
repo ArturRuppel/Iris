@@ -92,7 +92,9 @@ def sample_rows() -> list[dict]:
 
 # ----- wide real-world sample (cells_by_frame): drives the reduction pipeline -----
 
-DEFAULT_SAMPLE_CSV = "/home/aruppel/Data/aggregate_quantification/cells_by_frame.csv"
+# the repo-root dataset (gitignored, present on dev machines); override with
+# IRIS_SAMPLE_CSV, and fall back to the synthetic sample when absent.
+DEFAULT_SAMPLE_CSV = str(Path(__file__).resolve().parents[2] / "cells_by_frame.csv")
 # columns to treat as identifiers even though they parse as numbers/strings
 _ID_COLS = {"cell_id"}
 _CAT_MAX_CARD = 50  # object columns with <= this many distinct values -> categorical

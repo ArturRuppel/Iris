@@ -84,7 +84,11 @@ class HierarchyRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    table: dict
+    # the table rides inline, or references one already cached via /import/commit
+    # (or /table) by its content token — so a freshly imported table isn't shipped
+    # to the browser and then straight back to the engine to seed the session.
+    table: dict | None = None
+    table_token: str | None = None
 
 
 class WindowRequest(BaseModel):
@@ -447,8 +451,9 @@ def table_create(req: CreateSessionRequest):
     """Build the server-owned session table from a {schema, rows|columns} payload
     and return its stable id + row count + version. The browser keeps the id, not
     the rows."""
-    schema = req.table["schema"]
-    df = frame_from_table(req.table)
+    table = _resolve_table(req.table, req.table_token)
+    schema = table["schema"]
+    df = frame_from_table(table)
     if "id" not in df:
         df.insert(0, "id", [str(i + 1) for i in range(len(df))])
     if "excluded" not in df:

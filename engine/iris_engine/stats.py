@@ -37,6 +37,18 @@ def _p_stars(p: float) -> str:
     return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
 
 
+def _excl_note(df: pd.DataFrame) -> str:
+    """The trailing methods-text clause naming how many raw rows were excluded
+    before this analysis ran (empty when none were)."""
+    n = int(df.attrs.get("n_excluded", 0))
+    return f" {n} observation(s) were excluded." if n else ""
+
+
+def _no_effect() -> dict:
+    """The effect-size slot for a describe-only result (no test run)."""
+    return {"name": "none", "value": 0.0, "ci": None}
+
+
 def shapiro_check(values: np.ndarray) -> dict:
     n = len(values)
     if n < 3:
@@ -136,8 +148,7 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
     # descriptive only; a pinned test is the user's choice, not a flagged deviation
     chosen_by = "recommendation_accepted"
 
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl_note = _excl_note(df)
 
     if test == "one_way_anova":
         aov = pg.anova(data=sub, dv=y, between=x).iloc[0]
@@ -322,8 +333,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     }
 
     nA, nB = len(a), len(b)
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl_note = _excl_note(df)
     if structural_chosen == "paired":
         excl_note += (f" n counts {nA} complete pairs across "
                       f"{pairing.get('across')}.")
@@ -397,13 +407,8 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{excl_note}")
 
     # per-group summaries for the plot (mean ± 95% CI of the mean), on raw rows
-    summaries = []
-    for lv in found:
-        v = sub.loc[sub[x] == lv, y].to_numpy(dtype=float)
-        ci_half = float(sps.t.ppf(0.975, len(v) - 1) * sps.sem(v)) if len(v) > 1 else 0.0
-        summaries.append({"group": lv, "n": len(v), "mean": float(np.mean(v)),
-                          "sd": float(np.std(v, ddof=1)) if len(v) > 1 else 0.0,
-                          "ci95_half": ci_half})
+    summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
+                 for lv in found]
 
     return {
         "levels": found, "checks": checks,
@@ -417,9 +422,11 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
 
 
 def _summary(label: str, v: np.ndarray) -> dict:
-    ci_half = float(sps.t.ppf(0.975, len(v) - 1) * sps.sem(v)) if len(v) > 1 else 0.0
-    return {"group": label, "n": len(v), "mean": float(np.mean(v)),
-            "sd": float(np.std(v, ddof=1)) if len(v) > 1 else 0.0,
+    n = len(v)
+    ci_half = float(sps.t.ppf(0.975, n - 1) * sps.sem(v)) if n > 1 else 0.0
+    return {"group": label, "n": n,
+            "mean": float(np.mean(v)) if n else 0.0,
+            "sd": float(np.std(v, ddof=1)) if n > 1 else 0.0,
             "ci95_half": ci_half}
 
 
@@ -433,8 +440,7 @@ def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
     found += sorted(set(sub[x]) - set(levels))
     summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
                  for lv in found]
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl = _excl_note(df)
     methods = (f"{y} was summarized by {x} across {len(found)} group(s); "
                f"no statistical test was run (describe only).{excl}")
     return {
@@ -442,7 +448,7 @@ def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},
         "chosen_by": "describe_only",
         "result": {"test": "none", "n": int(len(sub)),
-                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+                   "effect": _no_effect()},
         "summaries": summaries, "alpha": alpha, "methods_text": methods,
     }
 
@@ -457,8 +463,7 @@ def timeseries(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dict:
     sub = df[[x, y]].dropna()
     n = int(len(sub))
     n_tp = int(sub[x].nunique())
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl = _excl_note(df)
     span = (f" over {sub[x].min():g}–{sub[x].max():g}" if n else "")
     methods = (f"{y} was plotted over {x} ({n_tp} timepoint(s){span}, "
                f"{n} observation(s)); no statistical test was run "
@@ -468,7 +473,7 @@ def timeseries(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dict:
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},
         "chosen_by": "describe_only",
         "result": {"test": "none", "n": n, "n_timepoints": n_tp,
-                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+                   "effect": _no_effect()},
         "summaries": [], "alpha": alpha, "methods_text": methods,
     }
 
@@ -477,14 +482,13 @@ def describe_pairs(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dic
     """Scatter of two numeric columns with NO correlation test — the 'describe
     only' path. Raw points only; no regression line, r, or p."""
     sub = df[[x, y]].dropna()
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl = _excl_note(df)
     return {
         "levels": [], "checks": [],
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},
         "chosen_by": "describe_only",
         "result": {"test": "none", "n": int(len(sub)),
-                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+                   "effect": _no_effect()},
         "summaries": [], "alpha": alpha,
         "methods_text": (f"{x} and {y} were plotted without a correlation test "
                          f"(describe only).{excl}"),
@@ -532,8 +536,7 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
     result = {"test": test, "r": r, "p": p, "n": n,
               "effect": {"name": eff_name, "value": r, "ci": ci}}
 
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl_note = _excl_note(df)
     symbol = "r" if test == "pearson" else "ρ"
     name = "Pearson correlation" if test == "pearson" else "Spearman rank correlation"
     methods = (
@@ -578,8 +581,7 @@ def contingency_counts(df: pd.DataFrame, x: str, y: str,
          for xl in x_levels]
         for yl in y_levels
     ]
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl = _excl_note(df)
     return {
         "x_levels": x_levels, "y_levels": y_levels, "counts": counts,
         "total": total,
@@ -588,7 +590,7 @@ def contingency_counts(df: pd.DataFrame, x: str, y: str,
                            "reason": "contingency tile — no test (describe only)"},
         "chosen_by": "describe_only",
         "result": {"test": "none", "n": total,
-                   "effect": {"name": "none", "value": 0.0, "ci": None}},
+                   "effect": _no_effect()},
         "summaries": [], "alpha": alpha,
         "methods_text": (f"The contingency of {y} × {x} was displayed for "
                          f"n = {total} observations.{excl}"),
@@ -611,8 +613,7 @@ def contingency_test(df: pd.DataFrame, x: str, y: str,
     All inferential numbers come from scipy (chi2_contingency / fisher_exact)."""
     base = contingency_counts(df, x, y, x_levels, y_levels, alpha)
     full = np.array(base["counts"], dtype=float)  # rows = y_levels, cols = x_levels
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl = _excl_note(df)
 
     # Drop all-zero rows/cols: a schema level with no observations (e.g. after
     # exclusions) contributes nothing and makes chi2_contingency raise. The full
@@ -711,10 +712,9 @@ def descriptive(df: pd.DataFrame, y: str, alpha: float = 0.05) -> dict:
               "mean": float(np.mean(v)), "sd": float(np.std(v, ddof=1)),
               "median": med, "q1": q1, "q3": q3,
               "min": float(v.min()), "max": float(v.max()),
-              "effect": {"name": "none", "value": 0.0, "ci": None}}
+              "effect": _no_effect()}
 
-    n_excl = int(df.attrs.get("n_excluded", 0))
-    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+    excl_note = _excl_note(df)
     center = (f"mean = {result['mean']:.2f} (SD {result['sd']:.2f})" if normal
               else f"median = {med:.2f} (IQR {q1:.2f}–{q3:.2f})")
     methods = f"{y} was summarized for n = {n} observations: {center}.{excl_note}"

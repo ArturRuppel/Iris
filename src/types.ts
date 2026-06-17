@@ -86,7 +86,9 @@ export type Geom =
    summary at a coarse level shows mean ± error of that level's spread — composing
    a superplot with no preset. The unit columns live on the plottable's
    `hierarchy`, shared by every consumer. */
-export interface Layer { geom: Geom; params: Record<string, unknown>; level: string }
+/* `id` is a client-only stable key for React lists (reorderable layers); the
+   engine ignores it. Optional so older .viz layers without one still parse. */
+export interface Layer { id?: string; geom: Geom; params: Record<string, unknown>; level: string }
 
 /* How finer rows aggregate into a coarser grain — the set the engine's
    `materialize_levels` honors (hierarchy._AGG). This is the only aggregation
@@ -519,9 +521,12 @@ export const engine = {
     }
   },
   sample: (): Promise<Table> => get<Table>("/sample"),
-  createSession: (table: Table) =>
+  /* seed the server-owned session from the table inline, or — for a freshly
+     imported table the engine already cached — by its content token, so the
+     whole table isn't shipped browser→engine again just to create the session */
+  createSession: (arg: Table | { token: string }) =>
     post<{ id: string; n: number; version: number; schema: Schema; counts: TableCounts }>(
-      "/table/create", { table }),
+      "/table/create", "token" in arg ? { table_token: arg.token } : { table: arg }),
   rowsWindow: (id: string, start: number, end: number) =>
     post<{ rows: Row[]; n: number; version: number }>(
       `/table/${id}/rows`, { start, end }),

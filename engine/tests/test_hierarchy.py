@@ -252,8 +252,8 @@ def test_summary_error_from_level_spread():
     subj = levels["subject"][0]
     a_means = subj[subj["group"] == "A"]["y"].tolist()
     assert sorted(a_means) == [1.0, 4.0]
-    # the summary geom computes _summary_of over these subject means (n=2), so the
-    # SD is that of [1,4], not of the six raw values.
-    s = compiler._summary_of("A", np.array(a_means))
+    # the summary geom computes stats._summary over these subject means (n=2), so
+    # the SD is that of [1,4], not of the six raw values.
+    s = compiler.stats_mod._summary("A", np.array(a_means))
     assert s["n"] == 2
     assert abs(s["sd"] - np.std([1.0, 4.0], ddof=1)) < 1e-9

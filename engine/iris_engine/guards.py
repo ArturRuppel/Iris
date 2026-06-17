@@ -14,10 +14,10 @@ from __future__ import annotations
 import pandas as pd
 
 from . import geoms
-from .scales import MARKERS
+from .scales import MARKERS, PALETTE
 
 MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
-COLOR_CAP = 8   # the default Okabe–Ito palette length; above it, colors repeat
+COLOR_CAP = len(PALETTE)  # the default palette length; above it, colors repeat
 
 # Phase 3 "model now, build later" safeguard: the (channel, column-type) pairings
 # the compiler cannot render TODAY, each with the reason shown to the user. Mapped

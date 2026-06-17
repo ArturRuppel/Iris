@@ -53,9 +53,9 @@ function reconcileSpine(order: string[], ids: string[]): string[] {
   return [...order.filter((s) => set.has(s)), ...ids.filter((c) => !order.includes(c))];
 }
 
-/* must match compiler.PALETTE (Okabe–Ito) so the swatches shown in the style
-   panel for an unset palette are the exact colors the engine draws; the style
-   panel edits copies of it */
+/* must match scales.PALETTE (Okabe–Ito + Paul Tol) so the swatches shown in the
+   style panel for an unset palette are the exact colors the engine draws; the
+   style panel edits copies of it */
 export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
   "#0072B2", "#D55E00", "#CC79A7", "#000000",
   "#332288", "#117733", "#88CCEE", "#882255",
@@ -150,6 +150,10 @@ export interface Plottable {
 
 let _pid = 0;
 const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
+/* stable per-layer key for React lists, so reordering layers keeps each card's
+   local state (collapsed/expanded) glued to its own layer. Client-only. */
+let _lid = 0;
+export const nextLayerId = () => `ly_${Date.now().toString(36)}_${_lid++}`;
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
    preselected geom. The user picks x/y and adds layers explicitly. */
@@ -213,7 +217,11 @@ export const loadTableAtom = atom(null, async (get, set,
   set(dataLoadingAtom, true);
   let s;
   try {
-    s = await engine.createSession({ schema: table.schema, rows: table.rows });
+    // a freshly imported table is already cached engine-side: seed the session
+    // from its token instead of re-uploading every row (table.token), falling
+    // back to the inline rows for manually-entered / tokenless tables.
+    s = await engine.createSession(
+      table.token ? { token: table.token } : { schema: table.schema, rows: table.rows });
   } finally {
     set(dataLoadingAtom, false);
   }
@@ -274,7 +282,8 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     facetCol: spec.facet?.col?.column ?? "",
     shareX: spec.facet?.share_x ?? true,
     shareY: spec.facet?.share_y ?? true,
-    layers: migrateDistLayers(spec.layers ?? []),
+    layers: migrateDistLayers(spec.layers ?? []).map(
+      (l) => ({ ...l, id: l.id ?? nextLayerId() })),
     // Prefer the dedicated `override` field; fall back to the legacy
     // chosen_by == user_override signal so pre-decoupling .viz files still load.
     override: s?.override ?? (s?.chosen_by === "user_override" ? s.test : null),
@@ -404,8 +413,13 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
   const snap = get(engineSnapshotAtom) ?? {};
   const hierarchy = get(hierarchyAtom);
   const byId = get(analysisByIdAtom);
+  // mirror specAtom: derive each plottable's family from ITS post-reduction
+  // schema (the reduce preview, when present) so the saved family/test matches
+  // what the live spec computes, falling back to the master schema.
+  const previews = get(reducePreviewByIdAtom);
   return get(plottablesAtom).map((p) => {
-    const family = familyForMappings(p.mappings, schema);
+    const eff = previews[p.id]?.preview.schema ?? schema;
+    const family = familyForMappings(p.mappings, eff);
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
@@ -430,8 +444,8 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     mappings: { ...src.mappings },
-    layers: src.layers.map((l) => ({ geom: l.geom, params: { ...l.params },
-                                     level: l.level })),
+    layers: src.layers.map((l) => ({ id: nextLayerId(), geom: l.geom,
+                                     params: { ...l.params }, level: l.level })),
     style: structuredClone(src.style),
     reduce: { steps: structuredClone(src.reduce.steps) },
   };
@@ -528,7 +542,7 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
   // a new layer draws the raw reduced rows by default; the user binds it to a
   // coarser level (one mark per grain) to build the superplot's bold marks.
   set(activePlottableAtom,
-    { ...p, layers: [...p.layers, { geom, params, level: RAW_LEVEL }] });
+    { ...p, layers: [...p.layers, { id: nextLayerId(), geom, params, level: RAW_LEVEL }] });
 });
 
 /* ---- table-level hierarchy: column roles + spine order (Data tab) ---- */

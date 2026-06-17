@@ -72,6 +72,12 @@ export function FigurePane() {
       setDims(null);
       return;
     }
+    /* Trust boundary: the SVG is injected as raw markup (the click-to-exclude
+       contract needs the engine's gid-tagged <g>/<use> structure intact, so it
+       can't be sanitized without breaking interactivity). It is safe because it
+       comes only from our own localhost engine's matplotlib renderer — never a
+       remote/user-supplied source — and matplotlib escapes data text into SVG.
+       Keep this invariant: don't point the figure host at untrusted markup. */
     el.innerHTML = analysis.figure.svg;
     setMenu(null);
     useByRow.current.clear();

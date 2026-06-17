@@ -127,7 +127,7 @@ export function LayerRail() {
 
       <ol className="layer-list">
         {layers.map((layer, i) => (
-          <LayerItem key={i} layer={layer} registry={registry} i={i}
+          <LayerItem key={layer.id ?? i} layer={layer} registry={registry} i={i}
             last={i === layers.length - 1} retypeGeoms={retypeOptions(layer.geom)}
             gateReason={gateReason} levels={levelOptions(hierarchy, schema)}
             onMove={(dir) => moveLayer({ index: i, dir })}

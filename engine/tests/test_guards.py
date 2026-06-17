@@ -111,8 +111,9 @@ def test_renderable_aesthetic_channels_are_kept():
 
 
 def test_high_cardinality_color_warns_palette_exhausted():
+    n = guards.COLOR_CAP + 1                # one more level than the palette holds
     rows = [{"id": f"r{i}", "grp": f"g{i}", "val": float(i), "excluded": False}
-            for i in range(12)]            # 12 distinct color levels > 8 palette
+            for i in range(n)]             # distinct color levels > palette → repeat
     df = pd.DataFrame(rows)
     schema = {"schema_version": "1.0", "columns": [
         {"name": "grp", "type": "categorical", "label": "Group"},

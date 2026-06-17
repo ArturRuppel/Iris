@@ -17,27 +17,14 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 import numpy as np
 import pandas as pd
-from scipy import stats as sps
 
 from . import geoms as geoms_mod
 from . import hierarchy as hierarchy_mod
 from . import scales as scales_mod
 from . import stats as stats_mod
+from .scales import PALETTE  # the single colour source of truth (see scales.py)
 
 MM = 1 / 25.4
-# Okabe–Ito: an 8-colour qualitative palette that stays distinguishable under
-# the common forms of colour blindness. Default for every aesthetic series and
-# group palette, so figures are colourblind-safe out of the box. Black sits last
-# so a single-series plot leads with a coloured (not black) mark.
-# Leading 8 are Okabe–Ito (colourblind-safe); a plot with ≤8 series stays on
-# them. Beyond that we extend with Paul Tol's qualitative hues (also
-# colourblind-friendly) rather than wrapping back to colour 0, so 9+ series stay
-# distinct. Black stays at index 7 so a single-series plot still leads with a
-# coloured mark and the canonical 8-series look is unchanged.
-PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
-           "#0072B2", "#D55E00", "#CC79A7", "#000000",
-           "#332288", "#117733", "#88CCEE", "#882255",
-           "#999933", "#AA4499", "#44AA99", "#661100"]
 INK = "#0f172a"
 
 STYLE_PRESETS = {
@@ -199,10 +186,6 @@ def _drawn_value_max(ax, horizontal: bool) -> float:
     return float(lim[1])
 
 
-def _sig_stars(p: float) -> str:
-    return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
-
-
 def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
                        style: dict) -> None:
     """Stack one significance bracket per reported comparison above the drawn
@@ -218,7 +201,7 @@ def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
     if pairwise:
         items = [(pw["a"], pw["b"], pw["stars"]) for pw in pairwise]
     elif r.get("p") is not None and len(levels) == 2:
-        items = [(levels[0], levels[1], _sig_stars(r["p"]))]
+        items = [(levels[0], levels[1], stats_mod._p_stars(r["p"]))]
     else:
         return
     idx = {str(lv): i for i, lv in enumerate(levels)}
@@ -626,17 +609,6 @@ def _is_categorical(schema, name):
                for c in schema["columns"])
 
 
-def _summary_of(label, ys):
-    """Per-cell summary in stats._summary's shape, for dodged sub-groups whose
-    (x × color) cells aren't present in the x-only stats summaries."""
-    n = len(ys)
-    ci = float(sps.t.ppf(0.975, n - 1) * sps.sem(ys)) if n > 1 else 0.0
-    return {"group": label, "n": n,
-            "mean": float(np.mean(ys)) if n else 0.0,
-            "sd": float(np.std(ys, ddof=1)) if n > 1 else 0.0,
-            "ci95_half": ci}
-
-
 def _resolve_cat_val(schema, enc):
     """Phase 3c: detect horizontal orientation (categorical y + numeric x).
     Returns (cat_col, val_col, h_orient) — cat_col is the categorical column
@@ -734,7 +706,7 @@ def _group(rows, lv, pos, color, layout):
     return {"pos": pos, "lv": lv, "ys": ys, "color": color,
             "point_ids": point_ids,
             "keys": rows["id"].tolist() if "id" in rows else list(range(len(ys))),
-            "summary": _summary_of(lv, ys),
+            "summary": stats_mod._summary(lv, ys),
             **_aes_arrays(rows, sc, num_color_col, cat_color_col)}
 
 
@@ -817,7 +789,7 @@ def _geom_bar(ax, ctx, layer):
     style, lw = ctx["style"], ctx["lw"]
     h = ctx["h_orient"]
     error_type = _param(params, "error_type", style, "error_type")
-    width = (style["mark_width"] or 0.6) * ctx["wscale"]
+    width = (_param(params, "mark_width", style, "mark_width") or 0.6) * ctx["wscale"]
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
@@ -1262,7 +1234,7 @@ def _geom_trend(ax, rows, x, y, sc, style, layer):
         color = sc.color_for(lv) if color_col else _group_color(style, 0)
         xs, means, errs = [], [], []
         for xv, grp in sub.groupby(x, observed=True, sort=True):
-            s = _summary_of(str(xv), grp[y].to_numpy(dtype=float))
+            s = stats_mod._summary(str(xv), grp[y].to_numpy(dtype=float))
             xs.append(float(xv))
             means.append(s["mean"])
             errs.append(_err_half(s, error_type))
