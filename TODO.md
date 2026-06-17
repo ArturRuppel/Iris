@@ -455,3 +455,21 @@ analytic ground truth for the reduce-pipeline path). Designed to grow as sibling
 (Spearman, Mann-Whitney/Kruskal, paired-t, Fisher-exact). The three iris
 `data.csv` files are already staged (canonical Fisher iris, verified
 byte-identical to seaborn's bundled copy).
+
+## Encoding bugs reported 2026-06-17
+
+### 25. Picking X auto-propagates the column into Color — TODO
+When picking a value for X, it automatically propagates that column into the
+Color channel. That should not happen — choosing X must not set (or change)
+the Color encoding. Selecting an X column should leave Color untouched.
+
+### 26. Auto-detect 0/1 columns as bool on import — TODO
+When importing data, a column whose non-null values are only `0` and `1` should
+be auto-detected as `bool`, and if the user picks/confirms it as `bool` it should
+be converted to true/false on import. NOTE: this reverses the deliberate choice in
+item 16, where `_infer_type` intentionally excluded `0/1` from the bool vocabulary
+so a real numeric 0/1 *measure* wouldn't be hijacked. So this can't be a blanket
+auto-detect — it needs a tie-breaker (e.g. column-name heuristic, or offer bool as
+a suggested-but-not-default type for 0/1 columns) so genuine numeric 0/1 measures
+still import as numeric. The retype-to-bool path and the 0/1→true/false conversion
+on commit are the concrete deliverables.
