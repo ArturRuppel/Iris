@@ -5,43 +5,24 @@ then the validation net before the feature it validates, then remaining feature
 work by increasing scope. The two browser-blocked items sit at the end.
 
 (Completed items 1–22, the resolved repetition-key/superplot item, the
-"picking X auto-propagates into Color" bug, and the validation corpus were
-removed on 2026-06-17 — see git history for their write-ups. The validation
-corpus shipped one case per stat family in `engine/validation/` — correlation
-(Pearson), group comparison (Welch t), descriptive, contingency (chi-square),
-and the reduce-pipeline path — all reference values independently recomputed
-with raw scipy. The spec's `iris-species-anova` case is deferred into item 1
-below: the engine has no >2-group test yet, so the ANOVA case is added there
-once multi-group support lands.)
+"picking X auto-propagates into Color" bug, the validation corpus, and the
+multi-comparison + significance-bracket work were removed on 2026-06-17 — see
+git history for their write-ups. The validation corpus shipped one case per stat
+family in `engine/validation/` with reference values independently recomputed
+against raw scipy. Multi-comparison shipped: `stats.group_comparison` now
+delegates to `multi_group_comparison` for >2 groups (one-way ANOVA + Tukey, or
+Kruskal + Holm-adjusted pairwise), the compiler stacks one significance bracket
+per pair, the StatsPanel shows the omnibus + pairwise table, and the deferred
+`iris-species-anova` validation case (F=1180.16) was added.
 
-## 1. Build multi-comparison + render significance brackets — TODO
-Build out support for **multiple pairwise comparisons** across >2 groups and
-**render a significance bracket per comparison**. Today `stats.group_comparison`
-errors on anything but exactly 2 groups (`needs exactly 2 groups`) and the stats
-path draws a single two-group bracket (anchored on the drawn value max); this
-item adds an omnibus (one-way ANOVA / Kruskal) + a family of pairwise tests with
-proper multiplicity control and stacked, non-overlapping brackets.
-- Validation: once the multi-group path exists, add the spec's deferred
-  `iris-species-anova` case to `engine/validation/cases/` (one-way ANOVA on
-  petal_length ~ species, k=3, N=150, F=1180.16, p≈2.9e-91 — already recomputed)
-  so the new path is asserted against a published reference.
-- Stats: when a grouping has >2 levels, compute the set of pairwise comparisons
-  (all pairs, or a chosen reference/contrast set), apply a multiple-comparison
-  correction (e.g. Holm / Benjamini–Hochberg / Tukey HSD as appropriate to the
-  omnibus test) and return adjusted p-values per pair alongside the test/family
-  used. Decide the default correction per family (ANOVA→Tukey, Kruskal→Dunn,
-  etc.) and let it be overridden; surface the method in `methods_text`.
-- Rendering: draw one significance bracket per reported comparison, stacked
-  without overlap above the drawn data — each spanning its two group positions,
-  labelled with the (adjusted) p-value / stars. Reuse the existing
-  `_drawn_value_max(ax)` anchor (the outlier-safe base height) for the bracket
-  base, offset each successive bracket upward by a fixed step, and grow the
-  value-axis headroom to fit the whole stack. Handle horizontal orientation,
-  facets, and the per-group n-labels.
-- Open questions: which pairs to show by default (all vs. vs-reference), and how
-  to keep a dense bracket stack legible (hide n.s.? cap the number shown?).
+Decisions made while building multi-comparison: default correction is Tukey HSD
+for ANOVA / Holm-adjusted Mann-Whitney for Kruskal; all pairs are shown (not
+vs-reference); the dense-stack legibility question was answered by ordering
+brackets by span and labelling with stars (n.s. brackets are still drawn, not
+hidden). Paired multi-group (RM-ANOVA / Friedman) remains out of scope and folds
+into the deferred pair_by work.)
 
-## 2. Auto-detect 0/1 columns as bool on import — TODO
+## 1. Auto-detect 0/1 columns as bool on import — TODO
 When importing data, a column whose non-null values are only `0` and `1` should
 be auto-detected as `bool`, and if the user picks/confirms it as `bool` it should
 be converted to true/false on import. NOTE: this reverses the deliberate choice
@@ -53,7 +34,7 @@ columns) so genuine numeric 0/1 measures still import as numeric. The
 retype-to-bool path and the 0/1→true/false conversion on commit are the concrete
 deliverables.
 
-## 3. Geom-first workflow: allow selecting a geom before data — TODO
+## 2. Geom-first workflow: allow selecting a geom before data — TODO
 It should be possible to pick a geom *before* loading/selecting data. The chosen
 geom should then restrict what data can be loaded — i.e. the geom's encoding
 requirements (its `(x_type, y_type)` expectations) constrain the columns/types
@@ -65,7 +46,7 @@ items since it touches the most surface.
 
 ## Browser-blocked (no Chromium in this sandbox)
 
-### 4. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
+### 3. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
 Facet COL is fixed and verified; facet ROW still doesn't work in the running app.
 Everything verifiable headlessly passes, so the remaining bug is app/browser-side
 and not reproducible in this sandbox (no Chromium):
@@ -84,7 +65,7 @@ in the app, capture the console + the produced figure height, and decide whether
 to cap total figure size and/or fix the figure-pane display of very tall
 figures.
 
-### 5. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
+### 4. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
 Three UI-wiring e2e tests are written (mirroring the verified
 `aesthetics_test.mjs` pattern: explicit import via the ImportWizard hidden file
 input → switch to Analyses → map X/Y → `.add-layer-btn` flow):
@@ -98,4 +79,4 @@ All three pass `node --check`. NOT executed here — this sandbox has no Chromiu
 and no network to download one. Run on a machine with Chromium: start the engine
 (8765) + vite (5173), then `node e2e/continuous_color_test.mjs` (and
 `horizontal_test.mjs`, `tile_test.mjs`); each exits 0 on success. Batch with
-item 4 whenever a browser environment is available.
+item 3 whenever a browser environment is available.
