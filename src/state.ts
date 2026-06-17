@@ -190,6 +190,121 @@ export const activePlottableAtom = atom(
 
 export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 
+/* Per plottable, the key the cached result in analysisByIdAtom was computed from:
+   `${handle.id}:${handle.version}:${JSON.stringify(spec)}` — a complete freshness
+   fingerprint (spec embeds encodings/layers/style/reduce/hierarchy/snapshot,
+   handle.version captures data edits + exclusion toggles). Written ONLY on a
+   successful render (setAnalysisResultAtom); reset with analysisByIdAtom on data /
+   document load. A fresh key means "the cached figure already matches" → no
+   re-render. */
+export const analysisKeyByIdAtom = atom<Record<string, string>>({});
+
+/* LRU recency for the byte-budget cache: plottable ids ordered least- → most-
+   recently used (touched on every cache write and on every cache hit). Eviction
+   drops from the front. */
+export const analysisRecencyAtom = atom<string[]>([]);
+
+/* the complete freshness fingerprint for a plottable's spec under the current
+   table handle. Must match the key the active analyze loop compares against. */
+export const cacheKey = (handleId: string, version: number, spec: AnalysisSpec): string =>
+  `${handleId}:${version}:${JSON.stringify(spec)}`;
+
+/* approximate bytes for one cached analysis, cheap and serialization-free: the
+   SVG string length plus a flat per-row-id cost times the number of raw ids
+   referenced across point_groups (each id in each entry counted once, since an
+   entry may be a chained list of raw ids behind one coarse mark), plus a small
+   fixed overhead for stats / stat_model / issues. A monotone proxy for real heap
+   cost, not an exact measurement — all the LRU needs. */
+const ROW_ID_BYTES = 24;        // a short id string + per-element array overhead
+const ENTRY_OVERHEAD = 4096;    // stats / stat_model / issues, flat
+export function estimateBytes(res: AnalyzeResponse): number {
+  let ids = 0;
+  for (const g of res.figure.point_groups)
+    for (const entry of g.row_ids) ids += Array.isArray(entry) ? entry.length : 1;
+  return res.figure.svg.length + ids * ROW_ID_BYTES + ENTRY_OVERHEAD;
+}
+
+/* default cache budget — a single tunable knob. Hundreds of typical plots fit
+   comfortably; eviction only engages on the pathological tail (every plot a heavy
+   superplot attributing all raw rows). Sized to keep an older / low-RAM machine
+   out of swap, well below the JS engine's own OOM ceiling. */
+export const CACHE_BUDGET_BYTES = 300 * 1024 * 1024;
+
+/* The same gate the active analyze loop uses, applied to a background plottable's
+   spec: a Y encoding, ≥1 layer, and no mapping error (every mapped axis survives
+   the post-reduction schema). When no effective schema is known for the plottable
+   we cannot check survival here — the engine will 422 and the background loop
+   records it in failedKeys, so allowing it through is safe. */
+export function isSpecRenderable(spec: AnalysisSpec, schema: Schema | null): boolean {
+  if (!spec.encodings.y?.column || spec.layers.length === 0) return false;
+  if (!schema) return true;
+  const survives = (col?: string | null) =>
+    !col || schema.columns.some((c) => c.name === col);
+  return survives(spec.encodings.x?.column) && survives(spec.encodings.y?.column);
+}
+
+/* Pick the first plottable the background loop should warm: not the active one
+   (the active loop owns it and its status), renderable, stale (its cached key no
+   longer matches), and not already failed at this exact key. Returns the spec plus
+   the key its result must be stored under, or null when nothing is stale. Pure, so
+   the drain logic is unit-testable without the React effect. */
+export function pickStaleSpec(specs: AnalysisSpec[], opts: {
+  activeId: string | null;
+  handleId: string;
+  version: number;
+  keyById: Record<string, string>;
+  failedKeys: Set<string>;
+  schemaFor: (id: string) => Schema | null;
+}): { spec: AnalysisSpec; key: string } | null {
+  for (const spec of specs) {
+    if (spec.id === opts.activeId) continue;
+    if (!isSpecRenderable(spec, opts.schemaFor(spec.id))) continue;
+    const key = cacheKey(opts.handleId, opts.version, spec);
+    if (opts.keyById[spec.id] === key) continue;                 // fresh
+    if (opts.failedKeys.has(`${spec.id}:${key}`)) continue;      // already failed
+    return { spec, key };
+  }
+  return null;
+}
+
+/* Store a successful render: result + the key it was computed from, mark the
+   plottable most-recently-used, then enforce the byte budget by evicting
+   least-recently-used entries (dropping both the result and its key) until back
+   under budget. Never evicts the active plottable nor the entry just written, so
+   the figure the user is looking at is always present. */
+export const setAnalysisResultAtom = atom(null,
+  (get, set, arg: { id: string; key: string; res: AnalyzeResponse }) => {
+    const byId = { ...get(analysisByIdAtom), [arg.id]: arg.res };
+    const keyById = { ...get(analysisKeyByIdAtom), [arg.id]: arg.key };
+    // most-recently-used at the end
+    const recency = [...get(analysisRecencyAtom).filter((x) => x !== arg.id), arg.id];
+    const activeId = get(activePlottableIdAtom);
+    let total = Object.keys(byId).reduce((s, id) => s + estimateBytes(byId[id]), 0);
+    // evict from the front (LRU), skipping the active plottable and the entry we
+    // just inserted — both are pinned. The inserted/active entry alone may exceed
+    // the budget; that is accepted, never evicted.
+    for (const victim of recency) {
+      if (total <= CACHE_BUDGET_BYTES) break;
+      if (victim === activeId || victim === arg.id) continue;
+      if (!(victim in byId)) continue;
+      total -= estimateBytes(byId[victim]);
+      delete byId[victim];
+      delete keyById[victim];
+    }
+    set(analysisByIdAtom, byId);
+    set(analysisKeyByIdAtom, keyById);
+    set(analysisRecencyAtom, recency.filter((id) => id in byId));
+  });
+
+/* mark a cached plottable most-recently-used without rewriting its result — used
+   when the active loop shows a plot straight from cache (a freshness hit), so a
+   plot the user keeps returning to is not the first evicted once they leave it. */
+export const touchAnalysisAtom = atom(null, (get, set, id: string) => {
+  const rec = get(analysisRecencyAtom);
+  if (rec[rec.length - 1] === id || !(id in get(analysisByIdAtom))) return;
+  set(analysisRecencyAtom, [...rec.filter((x) => x !== id), id]);
+});
+
 /* analysisAtom: derived read-only convenience for the ACTIVE plottable */
 export const analysisAtom = atom((get) => {
   const id = get(activePlottableIdAtom);
@@ -203,7 +318,16 @@ export const analysisAtom = atom((get) => {
 export const setAnalysisByIdAtom = atom(
   null, (get, set, arg: { id: string; res: AnalyzeResponse | null }) => {
     const map = { ...get(analysisByIdAtom) };
-    if (arg.res) map[arg.id] = arg.res; else delete map[arg.id];
+    if (arg.res) { map[arg.id] = arg.res; }
+    else {
+      // clearing a figure (no Y / no layer / mapping error / failed active
+      // render) must also drop its freshness key and recency slot, so the
+      // background loop never sees a key with no backing result behind it.
+      delete map[arg.id];
+      const keys = { ...get(analysisKeyByIdAtom) }; delete keys[arg.id];
+      set(analysisKeyByIdAtom, keys);
+      set(analysisRecencyAtom, get(analysisRecencyAtom).filter((x) => x !== arg.id));
+    }
     set(analysisByIdAtom, map);
   });
 
@@ -246,6 +370,8 @@ export const loadTableAtom = atom(null, async (get, set,
   set(engineErrorAtom, null);
   set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
+  set(analysisKeyByIdAtom, {});
+  set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
   const first = makeDefaultPlottable(table.schema);
   set(plottablesAtom, [first]);
@@ -335,6 +461,8 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   set(engineErrorAtom, null);
   set(selectedRowIdAtom, null);
   set(analysisByIdAtom, {});
+  set(analysisKeyByIdAtom, {});
+  set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
   const plottables = doc.analyses.length
     ? doc.analyses.map(plottableFromSpec)
@@ -478,6 +606,9 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
     set(activePlottableIdAtom, next[Math.max(0, idx - 1)].id);
   const map = { ...get(analysisByIdAtom) }; delete map[id];
   set(analysisByIdAtom, map);
+  const keys = { ...get(analysisKeyByIdAtom) }; delete keys[id];
+  set(analysisKeyByIdAtom, keys);
+  set(analysisRecencyAtom, get(analysisRecencyAtom).filter((x) => x !== id));
   const prev = { ...get(reducePreviewByIdAtom) }; delete prev[id];
   set(reducePreviewByIdAtom, prev);
 });
