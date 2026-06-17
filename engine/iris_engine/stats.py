@@ -32,6 +32,11 @@ def _fmt_p(p: float) -> str:
     return "< 0.001" if p < 0.001 else f"= {p:.3f}"
 
 
+def _p_stars(p: float) -> str:
+    """Significance stars (the on-figure bracket label vocabulary)."""
+    return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
+
+
 def shapiro_check(values: np.ndarray) -> dict:
     n = len(values)
     if n < 3:
@@ -80,6 +85,145 @@ _PAIRED_TESTS = {"paired_t", "wilcoxon"}
 _PARAM_TESTS = {"welch_t", "paired_t"}
 
 
+# Multi-group (>2 levels): an omnibus test + corrected pairwise comparisons.
+# Parametric → one-way ANOVA with Tukey's HSD (HSD itself controls the family-
+# wise error, so the per-pair p is already adjusted); robust → Kruskal–Wallis
+# with Holm-adjusted pairwise Mann–Whitney. Override pins the omnibus.
+_MULTI_PARAM = {"one_way_anova"}
+_MULTI_ROBUST = {"kruskal"}
+_MULTI_TESTS = _MULTI_PARAM | _MULTI_ROBUST
+
+
+def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
+                           alpha: float = 0.05,
+                           override: str | None = None) -> dict:
+    """Compare >2 independent groups: an omnibus test (one-way ANOVA or
+    Kruskal–Wallis, chosen on the same normality rule as the two-group picker)
+    plus every pairwise comparison with a multiplicity correction. Returns the
+    two-group result shape extended with ``result['pairwise']`` (one entry per
+    pair, carrying the adjusted p and significance stars) and the omnibus stat,
+    so the figure can stack one bracket per reported pair."""
+    sub = df[[x, y]].dropna()
+    arrays = {lv: sub.loc[sub[x] == lv, y].to_numpy(dtype=float) for lv in found}
+    k = len(found)
+    N = int(sum(len(a) for a in arrays.values()))
+    n_min = min(len(a) for a in arrays.values())
+    if n_min < 2:
+        return {"error": "every group needs at least 2 observations to compare",
+                "levels": found}
+
+    # Assumption axis — same rule as the two-group picker, applied per group.
+    checks = [{"check": "shapiro_wilk", "group": lv, **shapiro_check(arrays[lv])}
+              for lv in found]
+    small = n_min < MIN_N_FOR_NORMALITY_RULE
+    normal = all(c.get("ok") and c["p"] > alpha for c in checks)
+    if small:
+        assumption_rec, assume_reason = "robust", (
+            f"the smallest group (n = {n_min}) is < {MIN_N_FOR_NORMALITY_RULE}; "
+            "the normality check is underpowered, so the rank-based omnibus is the "
+            "safe default")
+    elif normal:
+        assumption_rec, assume_reason = "parametric", (
+            "Shapiro–Wilk is consistent with normality in every group")
+    else:
+        assumption_rec, assume_reason = "robust", (
+            "Shapiro–Wilk indicates non-normality in at least one group")
+    recommended = "one_way_anova" if assumption_rec == "parametric" else "kruskal"
+    # honour an override only if it names a multi-group omnibus (a stale 2-group
+    # override from the UI doesn't apply once there are >2 levels)
+    pinned = override if override in _MULTI_TESTS else None
+    test = pinned or recommended
+    chosen_by = "user_override" if pinned else "recommendation_accepted"
+
+    n_excl = int(df.attrs.get("n_excluded", 0))
+    excl_note = f" {n_excl} observation(s) were excluded." if n_excl else ""
+
+    if test == "one_way_anova":
+        aov = pg.anova(data=sub, dv=y, between=x).iloc[0]
+        F = float(_col(aov, "F"))
+        p = float(_col(aov, "p-unc", "p_unc"))
+        df_b = float(_col(aov, "ddof1"))
+        df_w = float(_col(aov, "ddof2"))
+        eta = float(_col(aov, "np2"))  # partial η² == η² for one-way
+        tuk = pg.pairwise_tukey(data=sub, dv=y, between=x)
+        pairwise = []
+        for _, r in tuk.iterrows():
+            padj = float(_col(r, "p-tukey", "p_tukey"))
+            pairwise.append({
+                "a": str(r["A"]), "b": str(r["B"]),
+                "p": padj, "p_adj": padj, "stars": _p_stars(padj),
+                "mean_diff": float(_col(r, "diff")),
+                "effect": {"name": "hedges_g", "value": float(_col(r, "hedges"))},
+            })
+        correction = "tukey"
+        result = {
+            "test": "one_way_anova", "F": F, "df_between": df_b,
+            "df_within": df_w, "p": p, "n": N, "k": k,
+            "effect": {"name": "eta_squared", "value": eta, "ci": None},
+            "pairwise": pairwise, "correction": correction,
+        }
+        pair_txt = "; ".join(
+            f"{pw['a']} vs {pw['b']} p {_fmt_p(pw['p_adj'])}" for pw in pairwise)
+        methods = (
+            f"{y} was compared across the {k} levels of {x} (N = {N}) using a "
+            f"one-way ANOVA. F({df_b:.0f}, {df_w:.0f}) = {F:.2f}, "
+            f"p {_fmt_p(p)}; η² = {eta:.2f}. Pairwise differences used Tukey's "
+            f"HSD (family-wise α = {alpha}): {pair_txt}.{excl_note}")
+    else:
+        kw = pg.kruskal(data=sub, dv=y, between=x).iloc[0]
+        H = float(_col(kw, "H"))
+        p = float(_col(kw, "p-unc", "p_unc"))
+        df_b = float(_col(kw, "ddof1"))
+        eps = (H - k + 1) / (N - k) if N > k else 0.0  # epsilon-squared
+        pw = pg.pairwise_tests(data=sub, dv=y, between=x, parametric=False,
+                               padjust="holm")
+        pairwise = []
+        for _, r in pw.iterrows():
+            praw = float(_col(r, "p-unc", "p_unc"))
+            padj = float(_col(r, "p-corr", "p_corr")) if ("p-corr" in r or "p_corr" in r) \
+                else praw
+            pairwise.append({
+                "a": str(r["A"]), "b": str(r["B"]),
+                "p": praw, "p_adj": padj, "stars": _p_stars(padj),
+            })
+        correction = "holm"
+        result = {
+            "test": "kruskal", "H": H, "df": df_b, "p": p, "n": N, "k": k,
+            "effect": {"name": "epsilon_squared", "value": eps, "ci": None},
+            "pairwise": pairwise, "correction": correction,
+        }
+        pair_txt = "; ".join(
+            f"{pw['a']} vs {pw['b']} p {_fmt_p(pw['p_adj'])}" for pw in pairwise)
+        methods = (
+            f"{y} was compared across the {k} levels of {x} (N = {N}) using the "
+            f"Kruskal–Wallis test. H({df_b:.0f}) = {H:.2f}, p {_fmt_p(p)}; "
+            f"epsilon² = {eps:.2f}. Pairwise differences used Mann–Whitney U with "
+            f"Holm correction: {pair_txt}.{excl_note}")
+
+    decision = {
+        "structural": {
+            "recommended": "independent", "chosen": "independent",
+            "chosen_by": "recommendation_accepted",
+            "reason": "more than two groups are compared as independent samples "
+                      "(paired multi-group designs are not yet supported)",
+            "options": ["independent"]},
+        "assumption": {
+            "recommended": assumption_rec,
+            "chosen": "parametric" if test == "one_way_anova" else "robust",
+            "chosen_by": chosen_by, "reason": assume_reason,
+            "options": ["parametric", "robust"]},
+    }
+    summaries = [_summary(lv, arrays[lv]) for lv in found]
+    return {
+        "levels": found, "checks": checks,
+        "recommendation": {"test": recommended,
+                           "reason": f"{k} groups; {assume_reason}"},
+        "decision": decision, "chosen_by": chosen_by,
+        "result": result, "summaries": summaries, "alpha": alpha,
+        "methods_text": methods,
+    }
+
+
 def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
                      alpha: float = 0.05, override: str | None = None,
                      pairing: dict | None = None) -> dict:
@@ -94,8 +238,14 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     sub = df[[x, y]].dropna()
     found = [lv for lv in levels if lv in set(sub[x])]
     found += sorted(set(sub[x]) - set(levels))
-    if len(found) != 2:
-        return {"error": f"needs exactly 2 groups (found {len(found)})", "levels": found}
+    if len(found) < 2:
+        return {"error": f"needs at least 2 groups (found {len(found)})", "levels": found}
+    if len(found) > 2:
+        # >2 levels: an omnibus test + corrected pairwise comparisons (the
+        # multiple-comparison path). Paired multi-group designs (RM-ANOVA /
+        # Friedman) are out of scope — this path always treats the groups as
+        # independent; a paired declaration folds into the deferred pair_by work.
+        return multi_group_comparison(df, x, y, found, alpha=alpha, override=override)
 
     verdict = (pairing or {}).get("verdict")
     unit_cols = (pairing or {}).get("unit_cols") or []
