@@ -257,9 +257,6 @@ dd.strong { font-weight: 600; }
 .hp-floating { font-size: 11px; color: #854d0e; margin-top: 6px; }
 .hp-measures { font-size: 11px; margin: 0; }
 
-/* read-only hierarchy summary in the analyses tab */
-.spine-mini { display: flex; flex-wrap: wrap; gap: 4px; }
-.spine-chip { font-size: 11px; color: #475569; }
 .analyses-mode { display: flex; gap: 12px; height: 100%; min-height: 0; }
 .plottable-sidebar { width: 200px; flex: 0 0 auto; overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
@@ -284,9 +281,10 @@ dd.strong { font-weight: 600; }
 .iris-section .section-header:hover { background: #f1f5f9; }
 .iris-section .section-body { padding: 0; }
 .chevron { font-size: 11px; color: var(--faint); }
-.filter-row { display: flex; gap: 4px; margin: 2px 0; align-items: center; }
-.filter-row select, .filter-row input { font-size: 12px; }
-.filter-row input { border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; width: 110px; }
+.filter-row { display: flex; flex-wrap: wrap; gap: 4px; margin: 2px 0; align-items: center; }
+.filter-row select { font-size: 12px; min-width: 0; }
+.filter-row input { font-size: 12px; flex: 1 1 110px; min-width: 0;
+  border: 1px solid #cbd5e1; border-radius: 6px; padding: 3px 6px; }
 .reduced-table { height: 240px; }
 .iris-section .section-body .reduced-table { height: 320px; }
 
@@ -439,9 +437,6 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .rep-key-note { font-size: 11px; }
 
 /* data hierarchy (nesting spine) */
-.hierarchy-card { display: flex; flex-direction: column; gap: 6px;
-  background: #f8fafc; border: 1px solid var(--line); border-radius: 8px;
-  padding: 8px; }
 .spine-list { list-style: none; margin: 0; padding: 0; display: flex;
   flex-direction: column; gap: 3px; }
 .spine-level { display: flex; align-items: center; gap: 6px; font-size: 12px;
@@ -457,13 +452,6 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .chip-btn { font-size: 11px; color: #0e7490; background: #ecfeff;
   border: 1px solid #a5f3fc; border-radius: 6px; padding: 2px 7px; cursor: pointer; }
 .chip-btn:hover { background: #cffafe; }
-
-/* pairing verdict, derived from the spine */
-.pairing-badge { font-size: 11px; border-radius: 6px; padding: 3px 7px;
-  cursor: help; align-self: flex-start; }
-.pairing-badge.paired { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
-.pairing-badge.partial { background: #fef9c3; color: #854d0e; border: 1px solid #fde047; }
-.pairing-badge.unpaired { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
 
 .layer-level { font-weight: 500; }
 .reduced-level select { font-size: 11px; }

@@ -309,6 +309,21 @@ def test_comparison_dots_numeric_color_per_point_not_dodged():
     assert len(fig.axes) == 2                           # colorbar present
 
 
+def test_show_n_toggles_per_group_n_labels():
+    # the style flag is the only thing that gates the `n = N` labels; the count
+    # is the raw observations per x-level (8 per condition in _cmp_df).
+    def n_labels(show_n):
+        spec = _cmp_spec("dot")
+        spec["style"]["overrides"] = {"show_n": show_n}
+        fig, _ = compiler.build_comparison_figure(
+            _cmp_df(), CMP_SCHEMA, spec, _cmp_stats())
+        return [t.get_text() for ax in fig.axes for t in ax.texts
+                if t.get_text().startswith("n =")]
+
+    assert n_labels(True) == ["n = 8", "n = 8"]
+    assert n_labels(False) == []
+
+
 def test_dodged_comparison_draws_legend_but_color_equals_x_does_not():
     df = _cmp_df()
     fig, _ = compiler.build_comparison_figure(

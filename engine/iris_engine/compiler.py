@@ -258,6 +258,26 @@ def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
         ax.set_ylim(top=max(ax.get_ylim()[1], headroom))
 
 
+def _draw_n_labels(ax, counts: dict, levels: list, horizontal: bool,
+                   style: dict) -> None:
+    """One faint ``n = N`` label per x-level, anchored just outside the value
+    axis (below a vertical plot, left of a horizontal one). ``counts`` maps a
+    level name to its raw observation count; toggled by the ``show_n`` flag."""
+    fs = style["font_pt"] - 2
+    for i, lv in enumerate(levels):
+        n = counts.get(lv, 0)
+        if horizontal:
+            ax.annotate(f"n = {n}", (0, i), xycoords=("axes fraction", "data"),
+                        xytext=(-4, 0), textcoords="offset points",
+                        ha="right", va="center", fontsize=fs,
+                        color="#94a3b8", annotation_clip=False)
+        else:
+            ax.annotate(f"n = {n}", (i, 0), xycoords=("data", "axes fraction"),
+                        xytext=(0, -26), textcoords="offset points",
+                        ha="center", fontsize=fs,
+                        color="#94a3b8", annotation_clip=False)
+
+
 def _err_half(s: dict, error_type: str) -> float:
     """Half-length of an error bar for one group summary."""
     if error_type == "sem":
@@ -630,14 +650,18 @@ def _resolve_cat_val(schema, enc):
 
 def _cat_levels(df, schema, cat_col):
     """Ordered category levels for the grouping axis: the schema's declared
-    levels (restricted to those present in the data), else the sorted distinct
-    values. Replaces stats["levels"] now that the figure is stats-independent."""
+    levels (restricted to those present in the data) first, then any present
+    values the schema doesn't declare (sorted), so the schema controls ordering
+    but no value living in the data is silently dropped from the axis — e.g.
+    relaxing a filter brings rows back and they must reappear as their own box.
+    Replaces stats["levels"] now that the figure is stats-independent."""
     if not cat_col or cat_col not in df.columns:
         return []
     sch = next((c for c in schema["columns"] if c["name"] == cat_col), None)
     present = set(df[cat_col].dropna().astype(str).unique())
     declared = [lv for lv in ((sch.get("levels") if sch else None) or []) if lv in present]
-    return declared or sorted(present)
+    extra = sorted(present - set(declared))
+    return declared + extra
 
 
 def _layout(df, schema, spec, *, scales=None):
@@ -969,6 +993,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         point_groups, gid_next = [], 0
         cbar_mappable, last_ax = None, None
         levels, h = layout["levels"], layout["h_orient"]
+        raw_df, _ = hierarchy_mod.resolve_level(level_tables, hierarchy_mod.RAW)
         for ri, rlevel in enumerate(row_levels):
             for ci, clevel in enumerate(col_levels):
                 ax = axes[ri][ci]
@@ -1007,6 +1032,12 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 # for horizontal the value axis is X (numeric); grids follow accordingly
                 _apply_axes(ax, style, x_numeric=h,
                             grid_x_default=h, grid_y_default=not h)
+                if style["show_n"]:
+                    raw_cell = _facet_cell_df(raw_df, row_col, col_col, rlevel, clevel)
+                    if val_col in raw_cell.columns:
+                        raw_cell = raw_cell[raw_cell[val_col].notna()]
+                    counts = raw_cell[cat_col].astype(str).value_counts().to_dict()
+                    _draw_n_labels(ax, counts, levels, h, style)
                 if faceted:
                     title = _facet_title(row_col, col_col, rlevel, clevel)
                     if title:

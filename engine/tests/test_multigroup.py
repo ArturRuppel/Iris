@@ -176,3 +176,17 @@ def test_singleton_group_errors():
     df = pd.DataFrame({"g": ["A", "A", "B", "B", "C"], "y": [1.0, 2, 3, 4, 5]})
     res = stats.group_comparison(df, "g", "y", ["A", "B", "C"])
     assert "error" in res
+
+
+def test_cat_levels_keeps_undeclared_present_values():
+    # regression (reduction-collapse.iris): a value living in the data but
+    # absent from the schema's declared levels must still get its own box, else
+    # relaxing a filter that hid it leaves the axis stuck at the declared count.
+    schema = {"columns": [{"name": "condition", "type": "categorical",
+                           "levels": ["ctrl", "trt"]}]}
+    df = pd.DataFrame({"condition": ["blank", "ctrl", "trt", "blank"]})
+    # declared order first, then the undeclared "blank" appended (not dropped)
+    assert compiler._cat_levels(df, schema, "condition") == ["ctrl", "trt", "blank"]
+    # filter still applied → only the declared, present levels
+    df2 = pd.DataFrame({"condition": ["ctrl", "trt"]})
+    assert compiler._cat_levels(df2, schema, "condition") == ["ctrl", "trt"]

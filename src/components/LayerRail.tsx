@@ -9,7 +9,6 @@ import type { Geom, Layer, Registry } from "../types";
 import { levelOptions } from "../levels";
 import { LayerCard } from "./LayerCards";
 import { EncodingsCard } from "./EncodingsCard";
-import { HierarchyCard } from "./HierarchyCard";
 import { PipelineSection } from "./PipelineSection";
 
 /* one geom layer, independently collapsible so a tall stack stays scannable.
@@ -121,8 +120,6 @@ export function LayerRail() {
       </div>
 
       <EncodingsCard />
-
-      <HierarchyCard />
 
       {layers.length === 0 && (
         <p className="rail-empty">No layers — add a geom.</p>
