@@ -361,12 +361,23 @@ def _run(table: dict, spec: dict):
         # qualifier's coarser-than-home units); surfaced for the deferred stats.
         model["spine"] = present_spine
         model["pairing"] = hierarchy.pairing(df, present_spine, cat_col)
+        # One source of truth: the test reads the SAME materialized grain the
+        # figure draws — never a parallel raw-vs-level route. The inferential grain
+        # is the coarsest level any layer is bound to (the prominent "unit" marks;
+        # a summary at `date` reports spread across dates — the honest n). With no
+        # spine, or layers left at the raw level, this resolves to the raw reduced
+        # rows, so the spineless path is unchanged.
+        layer_levels = [layer.get("level", hierarchy.RAW)
+                        for layer in spec.get("layers", [])]
+        inf_level = hierarchy.coarsest_level(present_spine, layer_levels)
+        model["inferential_level"] = inf_level
+        stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
         res = (stats.describe_groups(
-                   df, cat_col, val_col,
+                   stat_df, cat_col, val_col,
                    levels=cat_schema.get("levels", []), alpha=alpha)
                if describe_only else
                stats.group_comparison(
-                   df, cat_col, val_col,
+                   stat_df, cat_col, val_col,
                    levels=cat_schema.get("levels", []), alpha=alpha,
                    override=override, pairing=model["pairing"]))
     elif family == "correlation":

@@ -1,4 +1,5 @@
-"""Reduction layer: an ordered pipeline of select / filter / collapse steps."""
+"""Reduction layer: an ordered pipeline of select / filter steps. Aggregation is
+NOT a reduce step — it is the data hierarchy's job (see test_hierarchy.py)."""
 import pandas as pd
 import pytest
 
@@ -28,10 +29,6 @@ def frame():
 
 def filter_step(conditions):
     return {"kind": "filter", "conditions": conditions}
-
-
-def collapse_step(group_by, aggregate=None):
-    return {"kind": "collapse", "group_by": group_by, "aggregate": aggregate or {}}
 
 
 def select_step(columns):
@@ -105,59 +102,14 @@ def test_filter_unknown_column_raises():
             filter_step([{"column": "nope", "op": "==", "value": 1}])])
 
 
-# ---- collapse ----
+# ---- aggregation is NOT a reduce step ----
 
-def test_collapse_mean_per_group():
-    out, schema = rd.apply_reduction(frame(), SCHEMA, [
-        collapse_step(["treatment"], {"response": "mean"})])
-    out = out.set_index("treatment")
-    assert out.loc["control", "response"] == pytest.approx(75.0)
-    assert out.loc["drug_a", "response"] == pytest.approx(55.0)
-    types = {c["name"]: c["type"] for c in schema["columns"]}
-    assert types["treatment"] == "categorical"
-    assert types["response"] == "numeric"
-
-
-def test_collapse_default_mean_for_unlisted_numeric():
-    out, _ = rd.apply_reduction(frame(), SCHEMA, [collapse_step(["treatment"])])
-    out = out.set_index("treatment")
-    assert out.loc["control", "dose"] == pytest.approx(15.0)
-    assert out.loc["control", "response"] == pytest.approx(75.0)
-
-
-def test_collapse_count_adds_n_column():
-    out, schema = rd.apply_reduction(frame(), SCHEMA, [
-        collapse_step(["treatment"], {"response": "count"})])
-    assert set(out["n"]) == {2}
-    assert any(c["name"] == "n" for c in schema["columns"])
-
-
-def test_collapse_sem_matches_scipy():
-    from scipy.stats import sem
-    out, _ = rd.apply_reduction(frame(), SCHEMA, [
-        collapse_step(["treatment"], {"response": "sem"})])
-    out = out.set_index("treatment")
-    assert out.loc["control", "response"] == pytest.approx(sem([80.0, 70.0]))
-
-
-def test_collapse_assigns_fresh_row_ids():
-    out, _ = rd.apply_reduction(frame(), SCHEMA, [collapse_step(["treatment"])])
-    assert "id" in out and out["id"].is_unique
-
-
-# ---- ordered composition: filter -> collapse -> filter ----
-
-def test_filter_after_collapse_keeps_groups_by_aggregate():
-    # collapse to per-(treatment) means, then keep only groups with mean dose >= 15
-    out, _ = rd.apply_reduction(frame(), SCHEMA, [
-        collapse_step(["treatment", "subject"], {"dose": "mean", "response": "count"}),
-        filter_step([{"column": "n", "op": ">", "value": 1}])])
-    # each subject has 2 rows -> n == 2 for both, both survive
-    assert len(out) == 2
-    out2, _ = rd.apply_reduction(frame(), SCHEMA, [
-        collapse_step(["treatment", "subject"], {"dose": "mean", "response": "count"}),
-        filter_step([{"column": "n", "op": ">", "value": 5}])])
-    assert len(out2) == 0
+def test_collapse_step_is_rejected():
+    # collapse was removed: aggregating to a grain is the data hierarchy's job, so
+    # a stray collapse step must error loudly, never silently aggregate.
+    with pytest.raises(rd.ReduceError):
+        rd.apply_reduction(frame(), SCHEMA, [
+            {"kind": "collapse", "group_by": ["treatment"], "aggregate": {}}])
 
 
 # ---- trace ----
@@ -166,12 +118,11 @@ def test_trace_reports_rows_and_schema_per_step():
     steps = [
         select_step(["treatment", "subject", "response"]),
         filter_step([{"column": "treatment", "op": "==", "value": "control"}]),
-        collapse_step(["treatment"], {"response": "mean"}),
     ]
     out, schema, trace = rd.reduce_with_trace(frame(), SCHEMA, steps)
-    assert [t["n_rows_out"] for t in trace] == [4, 2, 1]
-    # the collapse step's output schema lost `subject`, kept treatment + response
+    assert [t["n_rows_out"] for t in trace] == [4, 2]
+    # the select step's output schema dropped `dose`, kept treatment/subject/response
     last_cols = [c["name"] for c in trace[-1]["schema_out"]["columns"]]
     assert "treatment" in last_cols and "response" in last_cols
-    assert "subject" not in last_cols
-    assert len(out) == 1
+    assert "dose" not in last_cols
+    assert len(out) == 2

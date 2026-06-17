@@ -45,8 +45,8 @@ def normalize(spec: dict) -> dict:
         for layer in spec.get("layers", [])
     ])
     # Data hierarchy (redesign): legacy specs carry no spine, so every layer draws
-    # the raw reduced rows — today's behaviour. A legacy reduce.collapse still
-    # works destructively for old documents; the new flow uses the hierarchy.
+    # the raw reduced rows — today's behaviour. Aggregating to a grain is the
+    # hierarchy's job (pick a level), not a reduce step.
     out["hierarchy"] = {"spine": [], "fn": {}}
     out["_override"] = _override_of(spec)
     out["_describe_only"] = _describe_only_of(spec)

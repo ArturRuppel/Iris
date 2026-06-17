@@ -88,9 +88,9 @@ export type Geom =
    `hierarchy`, shared by every consumer. */
 export interface Layer { geom: Geom; params: Record<string, unknown>; level: string }
 
-/* How finer rows collapse into a coarser grain. The set the engine's
-   `materialize_levels` actually honors (hierarchy._AGG); distinct from the
-   reduce-step `AggFn`, which also carries count/sem but no min/max. */
+/* How finer rows aggregate into a coarser grain — the set the engine's
+   `materialize_levels` honors (hierarchy._AGG). This is the only aggregation
+   surface: there is no separate reduce-step aggregate. */
 export type LevelFn = "mean" | "median" | "sum" | "min" | "max";
 export const LEVEL_FNS: LevelFn[] = ["mean", "median", "sum", "min", "max"];
 
@@ -140,11 +140,14 @@ export interface StatModel {
   test: TestName | null;
   facet_handling: { per_facet: boolean; correction: "holm" | "bonferroni" | null } | null;
   chosen_by: "inferred" | "user_override" | "describe_only";
-  /* Hierarchy redesign: the spine present after reduction, and the pairing
-     verdict for the comparison qualifier (derived from the spine, surfaced for
-     the deferred stats pass). Both absent for non-comparison families. */
+  /* Hierarchy redesign: the spine present after reduction, the pairing verdict
+     for the comparison qualifier (derived from the spine), and the inferential
+     grain — the coarsest level any layer draws at, the grain the test actually
+     reads so plot and stats share one materialization. All absent for
+     non-comparison families. */
   spine?: string[];
   pairing?: Pairing | null;
+  inferential_level?: string;
   issues: unknown[];
 }
 
@@ -171,19 +174,15 @@ export interface FilterCond {
   op: FilterOp;
   value: string | number | (string | number)[]; // array only for in / not-in
 }
-export type AggFn = "mean" | "median" | "count" | "sum" | "sem";
 
 /* keep only these columns, in this order (projection). */
 export interface SelectStep { kind: "select"; columns: string[] }
 /* drop rows that fail every condition (AND-ed). */
 export interface FilterStep { kind: "filter"; conditions: FilterCond[] }
-/* group rows, replacing the table with one row per group. */
-export interface CollapseStep {
-  kind: "collapse";
-  group_by: string[];
-  aggregate: Record<string, AggFn>;   // numeric column -> fn; unlisted numerics default to mean
-}
-export type ReduceStep = SelectStep | FilterStep | CollapseStep;
+/* Reduction only filters/projects rows — it never aggregates. Coarsening to a
+   grain is the data hierarchy's job (pick a level), so the figure and the stats
+   read one shared grain rather than a destructive collapse. */
+export type ReduceStep = SelectStep | FilterStep;
 export type ReduceStepKind = ReduceStep["kind"];
 
 export interface ReduceSpec { steps: ReduceStep[] } // [] means the full table
@@ -339,27 +338,26 @@ export interface AnalyzeResponse {
   engine_snapshot: Record<string, string>;
 }
 
-/* Upgrade a serialized analysis to spec_version 2.0. Legacy reduce shapes
-   ({filter, collapse}) become the ordered steps[] pipeline; legacy mappings
-   become encodings; legacy {mark, options|stat} layers become {geom, params}.
-   Lossless: the engine does the same normalization server-side. */
+/* Upgrade a serialized analysis to spec_version 2.0. Legacy reduce shapes become
+   the ordered steps[] pipeline (filter/select only — aggregation moved to the
+   data hierarchy); legacy mappings become encodings; legacy {mark, options|stat}
+   layers become {geom, params}. Lossless: the engine does the same normalization
+   server-side. */
 export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
   if ((an as { spec_version?: string }).spec_version === "2.0") {
     return an as unknown as AnalysisSpec;
   }
   const base = an as Record<string, unknown>;
 
-  /* --- reduce: legacy {filter, collapse} -> steps[] (unchanged logic) --- */
+  /* --- reduce: legacy {filter} -> steps[] --- */
   const steps: ReduceStep[] = [];
   const r = base.reduce as
-    | { filter?: FilterCond[]; collapse?: CollapseStepLegacy | null; steps?: ReduceStep[] }
+    | { filter?: FilterCond[]; steps?: ReduceStep[] }
     | undefined;
   let reduce: ReduceSpec;
   if (r?.steps) reduce = { steps: r.steps };
   else {
     if (r?.filter && r.filter.length) steps.push({ kind: "filter", conditions: r.filter });
-    if (r?.collapse) steps.push({ kind: "collapse", group_by: r.collapse.group_by,
-                                  aggregate: r.collapse.aggregate ?? {} });
     reduce = { steps };
   }
 
@@ -389,7 +387,6 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
     stats: st,
   } as AnalysisSpec;
 }
-interface CollapseStepLegacy { group_by: string[]; aggregate?: Record<string, AggFn> }
 
 /* a loaded .viz: table + the analyses (raw specs, pre-migration) + provenance
    (the exclusion log). Mirrors document.load_document's payload. */

@@ -451,8 +451,7 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 
 export function makeStep(kind: ReduceStepKind): ReduceStep {
   if (kind === "select") return { kind, columns: [] };  // starts blank, by design
-  if (kind === "filter") return { kind, conditions: [] };
-  return { kind: "collapse", group_by: [], aggregate: {} };
+  return { kind: "filter", conditions: [] };
 }
 
 export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) => {

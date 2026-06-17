@@ -6,12 +6,12 @@ import {
 } from "../state";
 import type {
   ColumnDef, ReduceStep, ReduceStepKind, Schema,
-  SelectStep, FilterStep, CollapseStep,
+  SelectStep, FilterStep,
 } from "../types";
-import { StepCollapse, StepFilter, StepSelect } from "./StepCards";
+import { StepFilter, StepSelect } from "./StepCards";
 
 const KIND_LABEL: Record<ReduceStepKind, string> = {
-  select: "Select columns", filter: "Filter rows", collapse: "Collapse",
+  select: "Select columns", filter: "Filter rows",
 };
 const fmt = (n: number) => n.toLocaleString();
 
@@ -47,9 +47,6 @@ function StepItem({ step, cols, out, i, last, onMove, onRemove, onChange }: {
           )}
           {step.kind === "filter" && (
             <StepFilter step={step as FilterStep} columns={cols} onChange={onChange} />
-          )}
-          {step.kind === "collapse" && (
-            <StepCollapse step={step as CollapseStep} columns={cols} onChange={onChange} />
           )}
         </div>
       )}
@@ -127,8 +124,8 @@ export function PipelineSection() {
           <div className="add-step">
             {adding ? (
               <div className="add-step-menu">
-                {/* collapse is superseded by the data hierarchy (pick a level);
-                    select/filter remain. Legacy collapse steps still render/run. */}
+                {/* reduction only filters/projects; aggregating to a grain is the
+                    data hierarchy's job (pick a level), not a reduce step. */}
                 {(["select", "filter"] as ReduceStepKind[]).map((k) => (
                   <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
                     {KIND_LABEL[k]}

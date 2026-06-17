@@ -1,10 +1,9 @@
-import { ColumnPicker, groupByPrefix } from "./ColumnPicker";
+import { ColumnPicker } from "./ColumnPicker";
 import type {
-  AggFn, ColumnDef, FilterOp, SelectStep, FilterStep, CollapseStep,
+  ColumnDef, FilterOp, SelectStep, FilterStep,
 } from "../types";
 
 const OPS: FilterOp[] = ["==", "!=", "<", "<=", ">", ">=", "in", "not-in"];
-const AGGS: AggFn[] = ["mean", "median", "count", "sum", "sem"];
 
 const orderBy = (cols: ColumnDef[], chosen: Set<string>) =>
   cols.map((c) => c.name).filter((n) => chosen.has(n));
@@ -72,58 +71,5 @@ export function StepFilter(
       <button className="step-add-row" onClick={add}>+ condition</button>
       {conds.length === 0 && <em className="step-meta">no conditions — all rows pass</em>}
     </div>
-  );
-}
-
-/* ---- Collapse: group rows, replace table with one row per group ---- */
-export function StepCollapse(
-  { step, columns, onChange }:
-  { step: CollapseStep; columns: ColumnDef[]; onChange: (s: CollapseStep) => void },
-) {
-  const toggle = (name: string) => {
-    const has = step.group_by.includes(name);
-    onChange({ ...step,
-      group_by: has ? step.group_by.filter((g) => g !== name) : [...step.group_by, name] });
-  };
-  const toggleGroup = (names: string[], on: boolean) => {
-    const set = new Set(step.group_by);
-    names.forEach((n) => (on ? set.add(n) : set.delete(n)));
-    onChange({ ...step, group_by: orderBy(columns, set) });
-  };
-  const setAgg = (col: string, fn: AggFn) =>
-    onChange({ ...step, aggregate: { ...step.aggregate, [col]: fn } });
-
-  // bool collapses to numeric 1/0, so it's aggregatable too (mean → fraction true)
-  const numerics = columns.filter(
-    (c) => (c.type === "numeric" || c.type === "bool") && !step.group_by.includes(c.name));
-  return (
-    <>
-      <div className="step-sub">Group by</div>
-      <ColumnPicker columns={columns} selected={step.group_by}
-        onToggle={toggle} onToggleGroup={toggleGroup} />
-      {step.group_by.length === 0
-        ? <em className="step-meta">pick at least one grouping column</em>
-        : (
-          <>
-            <div className="step-sub">Aggregate ({numerics.length})</div>
-            <div className="agg-list">
-              {groupByPrefix(numerics).map(({ prefix, cols }) => (
-                <div key={prefix} className="agg-group">
-                  {prefix !== "(other)" && <div className="agg-prefix">{prefix}</div>}
-                  {cols.map((c) => (
-                    <label key={c.name} className="agg-row" title={c.name}>
-                      <span>{c.name.includes(".") ? c.name.slice(c.name.indexOf(".") + 1) : c.name}</span>
-                      <select value={step.aggregate[c.name] ?? "mean"}
-                        onChange={(e) => setAgg(c.name, e.target.value as AggFn)}>
-                        {AGGS.map((a) => <option key={a} value={a}>{a}</option>)}
-                      </select>
-                    </label>
-                  ))}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-    </>
   );
 }

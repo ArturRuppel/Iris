@@ -102,6 +102,16 @@ def resolve_level(levels: dict, level: str | None) -> tuple[pd.DataFrame, dict]:
     return levels.get(level or RAW) or levels[RAW]
 
 
+def coarsest_level(present_spine: list[str], layer_levels: list[str]) -> str:
+    """The coarsest level among the levels the figure's layers are bound to — the
+    grain the inferential test reads, so plot and stats share one materialization
+    (no parallel raw-vs-level route). `present_spine` is coarse → fine; RAW ("") is
+    finer than every spine level. Layers at RAW (or none on the spine) → RAW, i.e.
+    the test runs on the raw reduced rows, matching the spineless default."""
+    idxs = [present_spine.index(lv) for lv in layer_levels if lv in present_spine]
+    return present_spine[min(idxs)] if idxs else RAW
+
+
 # --------------------------------------------------------------------------- #
 # Pairing: paired vs. unpaired follows from the spine, not a user declaration.
 # --------------------------------------------------------------------------- #

@@ -1,8 +1,11 @@
 """Reduction layer: an ordered pipeline of steps applied top-to-bottom.
 
-A step is one of `select` (project columns), `filter` (drop rows), or `collapse`
-(group + aggregate). Each step transforms the output of the one above, so order
-matters and is honored (e.g. filter → collapse → filter).
+A step is one of `select` (project columns) or `filter` (drop rows). Each step
+transforms the output of the one above, so order matters and is honored (e.g.
+filter → select → filter). Aggregation across a grain is NOT a reduce step: it
+is the data hierarchy's job (pick a level — see hierarchy.materialize_levels),
+so the figure and the statistics read one shared grain instead of a destructive
+collapse mutating the table out from under them.
 
 Quantity-agnostic and pandas-only (no matplotlib, no FastAPI). The caller
 removes excluded rows first; reduction never sees them.
@@ -10,7 +13,6 @@ removes excluded rows first; reduction never sees them.
 from __future__ import annotations
 
 import pandas as pd
-from scipy.stats import sem as _scipy_sem
 
 
 class ReduceError(ValueError):
@@ -91,8 +93,6 @@ def _apply_step(df: pd.DataFrame, schema: dict,
     if kind == "filter":
         out = _apply_filter(df, schema, step.get("conditions") or [])
         return out.reset_index(drop=True), schema
-    if kind == "collapse":
-        return _apply_collapse(df, schema, step)
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
@@ -121,62 +121,3 @@ def reduce_with_trace(
     out = out.reset_index(drop=True)
     out.attrs["n_excluded"] = n_excluded
     return out, sch, trace
-
-
-_AGG = {
-    "mean": "mean",
-    "median": "median",
-    "sum": "sum",
-    "count": "size",
-    "sem": lambda s: _scipy_sem(s.to_numpy(dtype=float), nan_policy="omit"),
-}
-
-
-def _apply_collapse(df: pd.DataFrame, schema: dict,
-                    collapse: dict) -> tuple[pd.DataFrame, dict]:
-    group_by = collapse["group_by"]
-    if not group_by:
-        raise ReduceError("collapse requires at least one group_by column")
-    for col in group_by:
-        if col not in df:
-            raise ReduceError(f"unknown group_by column {col!r}")
-
-    cols = {c["name"]: c for c in schema["columns"]}
-    numerics = [c["name"] for c in schema["columns"]
-                if c["type"] == "numeric" and c["name"] in df
-                and c["name"] not in group_by]
-    agg = dict(collapse.get("aggregate") or {})
-    wants_count = any(fn == "count" for fn in agg.values())
-
-    grouped = df.groupby(group_by, observed=True, sort=False)
-    data: dict[str, list] = {}
-    for col in numerics:
-        fn = agg.get(col, "mean")
-        if fn == "count":
-            continue  # represented by the shared n column below
-        data[col] = grouped[col].agg(_AGG[fn]).to_numpy()
-
-    # Build group key frame from a grouped size series (avoids .groups.keys()
-    # which changes shape in pandas 4 when group_by is a list).
-    size_series = grouped.size()
-    key_frame = size_series.reset_index(drop=False)
-
-    out = pd.DataFrame()
-    for gcol in group_by:
-        out[gcol] = key_frame[gcol].to_numpy()
-    for col, vals in data.items():
-        out[col] = vals
-    if wants_count:
-        out["n"] = size_series.to_numpy()
-    out.insert(0, "id", [f"g{i+1}" for i in range(len(out))])
-    out["excluded"] = False
-
-    new_cols = []
-    for gcol in group_by:
-        new_cols.append(cols[gcol])
-    for col in data:
-        new_cols.append(cols[col])
-    if wants_count:
-        new_cols.append({"name": "n", "type": "numeric", "label": "n"})
-    new_schema = {**schema, "columns": new_cols}
-    return out.reset_index(drop=True), new_schema

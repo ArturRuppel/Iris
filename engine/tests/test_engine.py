@@ -145,14 +145,14 @@ def test_document_roundtrip_keeps_reduce_clause():
     spec["reduce"] = {"steps": [
         {"kind": "filter",
          "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
-        {"kind": "collapse", "group_by": ["subject"], "aggregate": {"response": "mean"}}]}
+        {"kind": "select", "columns": ["treatment", "response"]}]}
     saved = document.save_document(table["schema"], table["rows"], [spec, make_spec()],
                                    {"exclusions": []}, {"engine": "test"})
     doc = document.load_document(saved)
     assert len(doc["analyses"]) == 2
     steps = doc["analyses"][0]["reduce"]["steps"]
     assert steps[0]["conditions"][0]["value"] == "control"
-    assert steps[1]["group_by"] == ["subject"]
+    assert steps[1]["columns"] == ["treatment", "response"]
 
 
 def test_health_reports_versions():
@@ -697,17 +697,6 @@ def test_analyze_filter_changes_n():
     assert r.json()["stats"]["result"]["n"] == 20  # only control rows
 
 
-def test_analyze_collapse_makes_stats_per_group():
-    table = make_table()
-    spec = _spec_with_steps(
-        [{"kind": "collapse", "group_by": ["treatment", "subject"],
-          "aggregate": {"response": "mean"}}],
-        x={"column": "treatment"}, y={"column": "response"})
-    r = client.post("/analyze", json={"table": table, "spec": spec})
-    assert r.status_code == 200
-    assert r.json()["stats"]["summaries"][0]["n"] == 20  # 20 subjects per group
-
-
 def test_analyze_filter_preserves_exclusion_provenance():
     # exclusions happen before reduction; the methods text must still report
     # them even when a reduce clause builds a fresh frame
@@ -760,13 +749,13 @@ def test_reduce_preview_trace_per_step():
         {"kind": "select", "columns": ["treatment", "subject", "response"]},
         {"kind": "filter",
          "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
-        {"kind": "collapse", "group_by": ["treatment"], "aggregate": {"response": "mean"}},
+        {"kind": "select", "columns": ["treatment", "response"]},
     ]
     r = client.post("/reduce", json={"table": table, "steps": steps})
     assert r.status_code == 200
     body = r.json()
-    assert [t["n_rows_out"] for t in body["trace"]] == [40, 20, 1]
-    assert body["n_total"] == 1
+    assert [t["n_rows_out"] for t in body["trace"]] == [40, 20, 20]
+    assert body["n_total"] == 20
     cols = [c["name"] for c in body["preview"]["schema"]["columns"]]
     assert "treatment" in cols and "response" in cols and "subject" not in cols
 
