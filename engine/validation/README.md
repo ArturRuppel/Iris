@@ -99,21 +99,40 @@ a cited source (e.g. a contingency count matrix), keep the matrix and a
 
 ## Current cases
 
-| Case | Dataset | Family / test | Geom |
+The corpus closes the per-test matrix: every test `iris_engine/stats.py` can
+compute has a case asserting its arithmetic against an independently-recomputed
+reference. Each case names the test it wants (the user's choice, carried in
+`stats.override`); the corpus guards that the engine computes that test — and
+renders it — correctly, not which test the engine would have inferred.
+
+| Case | Dataset | Test (named) | Geom |
 |---|---|---|---|
-| `iris-petal-correlation` | Fisher iris (150) | correlation → Pearson (pinned) | scatter + regression |
-| `iris-species-comparison` | Fisher iris, 2 species | group comparison → Welch's t (inferred) | box |
-| `iris-sepal-descriptive` | Fisher iris (150) | descriptive | histogram |
-| `contingency-2x2` | Aspirin × MI (NEJM 1988) | contingency → chi-square | tile |
+| `iris-petal-correlation` | Fisher iris (150) | `pearson` | scatter + regression |
+| `iris-petal-spearman` | Fisher iris (150) | `spearman` | scatter + regression |
+| `iris-species-comparison` | Fisher iris, 2 species | `welch_t` | box |
+| `iris-species-anova` | Fisher iris, 3 species | `one_way_anova` (+ Tukey) | box |
+| `mann-whitney` | synthetic, 2 groups | `mann_whitney` | box |
+| `kruskal` | synthetic, 3 groups | `kruskal` (+ Holm pairwise) | box |
+| `sleep-paired-t` | Cushny–Peebles sleep (10×2) | `paired_t` | box |
+| `sleep-wilcoxon` | Cushny–Peebles sleep (10×2) | `wilcoxon` | box |
+| `iris-sepal-descriptive` | Fisher iris (150) | `descriptive` | histogram |
+| `contingency-2x2` | Aspirin × MI (NEJM 1988) | `chi_square` | tile |
+| `fisher-exact-tea` | Fisher's lady-tasting-tea 2×2 | `fisher_exact` | tile |
 | `reduction-collapse` | synthetic, cells_by_frame-shaped | reduce (filter → collapse) → group comparison | box |
 
-The corpus grows as siblings — Spearman, Mann–Whitney/Kruskal, paired-t,
-Fisher-exact, and a k>2 omnibus once the engine grows an ANOVA path — each a new
-`cases/` folder.
-
-> **Note on test selection.** The `iris-petal-correlation` case pins Pearson via
-> the override channel because the engine *infers* Spearman on the petal
-> dimensions (Shapiro–Wilk rejects normality). The design spec's original
-> `iris-species-anova` (a k>2 one-way ANOVA) is **not yet mappable** — the engine
-> only compares exactly two groups — so it is represented here by its mappable
-> sibling, the two-group `iris-species-comparison`.
+Notes:
+- **Spearman vs Pearson** on the iris petals are two plain user choices on the
+  same two columns — the Pearson case happens to differ from what the engine
+  would default to (it infers Spearman, since Shapiro–Wilk rejects normality on
+  the bimodal petals), but the corpus asserts each test's arithmetic, not the
+  default.
+- **The `sleep-*` cases** are the only ones exercising the paired-alignment path:
+  `hierarchy.pairing` detects `patient` as the unit crossing both `drug` levels
+  (the spine is `["patient", "rep"]`, mirroring the `subject ⊃ rep` design in
+  `tests/test_paired.py`), so the engine aligns 10 pairs and reports n = 10. The
+  *unpaired* branch — a paired test requested without pairing structure — is
+  guarded at the unit level (`tests/test_paired.py::test_paired_override_without_structure_errors`),
+  where the engine returns an error rather than silently substituting a test.
+- **Nonparametric two/multi-group** (`mann-whitney`, `kruskal`) use synthetic
+  data, exact by construction (no clean published nonparametric statistic exists),
+  with a raw-scipy recompute — the reduction-collapse precedent.
