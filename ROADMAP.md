@@ -8,68 +8,101 @@
 > light-splitting association sideways, as kin rather than knockoff. The code
 > rename (package id, Tauri bundle, `iris_engine`) is complete.
 
-*Status: Tier 0 and Tier 1 complete on Linux (validated installer, sidecar
+*Status: Tiers 0 and 1 complete on Linux (validated installer path, sidecar
 lifecycle, orphan prevention); macOS/Windows packaging deferred to the end by
-decision. Tier 2 underway: import wizard (CSV/TSV/Excel, locale sniffing,
-type confirmation, wide→long stacking), plot matrix core (box, violin, bar,
-scatter+regression, histogram+density with correlation and descriptive stat
-families), the AG Grid table upgrade, the style panel (markers, lines, frame,
-colors, text, size; draggable figure labels that export identically), the
-data-entry wizard (one column per condition), and deliberate exclusion
-(select + right-click) are in. One master table now feeds many live-computed
-*plottables* — each a saved reduction (row filter + group/aggregate collapse)
-carrying its own figure and stats; the workspace splits into a maximized-table
-"Data" mode and an "Analyses" mode (plottable sidebar + collapsible
-reduced-table / figure / stats sections). The spec gained an additive `reduce`
-clause, now an **ordered pipeline of composable steps** — `select` (column
-projection), `filter`, `collapse` — applied engine-side in pandas before the
-existing mappings→figure→stats pipeline (spec 1.2→1.3; older specs migrate
-losslessly to a two-step filter→collapse pipeline). The Analyses workspace
-gained a collapsible **pipeline rail** with prefix-grouped, searchable column
-pickers (tames 50+ column datasets), a live `/reduce` preview (capped, with a
-per-step row-count funnel), and a content-hash table cache so large master
-tables upload once and ride as a token instead of re-sending on every edit. The
-wide `cells_by_frame` dataset is the new default sample. Plots are now a
-**composable grammar of graphics** (Phase 1, *Layers*): the six fixed plot
-types became an ordered, editable stack of geom layers driven by an
-engine-authoritative geom registry, with first-class validity guards (a
-per-geom point cap that turns the 82k-row browser freeze into an actionable
-message) and statistics inferred from the encodings into a visible, overridable
-`stat_model` (with a describe-only escape hatch); the spec moved 1.3→2.0 and
-older specs/documents migrate losslessly. **Phase 2 (*Aesthetics*:
-color/size/shape ← a column, with scales, an exportable legend, dodged second
-factors, and the Okabe–Ito palette) shipped 16 June 2026**; a categorical color
-distinct from x is surfaced as a candidate second factor but not yet two-way
-tested (that is Tier 3). The next grammar cycle is **Phase 3 (*Data-First
-Encodings*)**: the column *types* mapped to channels — not a hidden plot-family
-chosen with the plot type — drive which primitives are offered, unlocking
-continuous color, horizontal orientation, and a count heatmap; it is specced for
-follow-up (`docs/superpowers/specs/2026-06-16-data-first-encodings-design.md`).
-**Phase 4 (*Facets*)** — small multiples via the `facet` block, already designed
-into the schema
-(`docs/superpowers/specs/2026-06-15-composable-grammar-plots-design.md`) —
-**shipped 16 June 2026**: mapping a categorical column to Facet Row/Col splits
-the figure into a 2D subplot grid (one shared legend/colorbar/sup-axis-labels,
-per-cell strip titles), describe-only per cell in v1 (no per-facet inferential
-test or multiple-comparisons correction — that is later work), guarded at 20
-facet cells. **Phase 3 shipped complete 16 June 2026** (3a type-driven core, 3b
-continuous color, 3c horizontal orientation, 3d the contingency tile, plus a
-same-day fix pass for a contingency-family crash and blank-startup/ghost-figure
-cleanup). **Phase 5 (*Superplots*) shipped 16 June 2026**: a layer-level per-unit
-stat (`stat: {per_unit}`, sourced from the existing `repetition_key` so the
-visible marks and the inferential n share one unit declaration) overlays one mark
-per independent unit on the raw replicates, with a one-click "Build superplot"
-template — making n visible ("count the big marks") and closing `TODO.md` item
-10's "n does nothing" gap. A known e2e-suite regression from the Phase 3 fix pass
-is tracked in `TODO.md`; Phase 4's (`e2e/facets_test.mjs`) and Phase 5's
-(`e2e/superplot_test.mjs`) own e2e smokes are written but unverified in this
-sandbox for the same Chromium-unavailability reason. The Tier 2 statistics
-approach was redesigned (not yet built) around an opt-in, describe-by-default
-**guided test picker**: the family is fixed by the mapped column types, two
-questions (structural + assumption) select the test with the diagnostic
-proposing and the user confirming, and a Poisson/NB rate family plus an
-omnibus→post-hoc correction layer extend the same grid (§5). Project is under
-git as of 13 June 2026. Last updated 16 June 2026.*
+decision. **Tier 2 is substantially complete** — the composable grammar of
+graphics shipped through all five phases, the data model was re-grounded on a
+**data hierarchy**, and the redesigned **guided test picker** statistics are
+built; what remains is breadth (paired plots, undo/redo, methods/stats-table
+export, the Poisson rate slice) and rigor polish.*
+
+*Foundations in: the import wizard (CSV/TSV/Excel, locale sniffing, type
+confirmation — including a first-class `bool` event-flag type with a 0/1 "looks
+boolean" nudge — and wide→long stacking); the AG Grid table; the style panel
+(markers, lines, frame, colours, text, mm size; draggable figure labels and
+corner-drag resize that export identically); the data-entry wizard; deliberate
+exclusion (select + right-click) with a provenance log. One master table feeds
+many live-computed **plottables**, each its own figure + stats; the workspace
+splits into a maximized-table "Data" mode and an "Analyses" mode (plottable
+sidebar + collapsible reduced-table / figure / stats sections). The table is now
+**server-owned** — the engine holds it behind a session handle (id + version +
+schema + counts) and the browser pulls only the row windows it shows — so
+multi-million-cell tables never live in the browser. The wide `cells_by_frame`
+dataset is the default sample.*
+
+*The central architectural evolution since this roadmap was first drafted is the
+**data-hierarchy redesign** (`docs/superpowers/specs/2026-06-16-data-hierarchy-redesign.md`),
+which replaced the destructive `reduce.collapse` step **and** the Phase-5
+`repetition_key` / `stat.per_unit` / `pair_by` machinery with one model.
+Reduction is now an ordered pipeline of `select` + `filter` only — **aggregation
+is no longer a reduce step**. Instead a table-level **spine** of nested
+identifier columns (coarsest→finest, e.g. `date → position → cell → frame`)
+defines *grain*; each layer binds to a **level** of it (a spine column, or raw),
+and picking a level keeps that prefix and aggregates everything finer by the
+level's function (default mean), carrying a `row_ids` chain so click-to-exclude
+on a coarse mark still drops every underlying raw row. Superplots fall out for
+free — a faint raw-dot layer under a bold per-grain layer under a summary, no
+`stat:{per_unit}` and no preset. Crucially, **pairing is *derived from the
+spine*, not declared**: whether two groups are paired / partially-paired /
+unpaired follows from whether a within-unit sub-identity crosses both levels, and
+feeds the test picker's structural axis.*
+
+*Plots are a **composable grammar of graphics**, shipped through Phase 5:
+**Phase 1 (Layers)** — an ordered editable geom stack on an engine-authoritative
+registry (served on `/health`), a layered compiler, and a first-class guard pass
+(the 3,000-mark point cap that turned the 82k-point freeze into an actionable
+message); spec moved 1.3→2.0, older specs/documents migrate losslessly.
+**Phase 2 (Aesthetics)** — `color`/`size`/`shape` as real encodings with shared
+scales, an exportable draggable legend, dodged categorical second factors, and
+the Okabe–Ito palette (extended with Paul Tol hues to 16 for colourblind-safe
+high-cardinality series). **Phase 3 (Data-First Encodings)** — mapped column
+*types* drive which primitives are offered (registry-derived,
+disabled-with-reason, geom-first selectable), `family` reduced to a derived stats
+label; unlocked continuous colour (3b), horizontal orientation (3c), and the
+contingency tile/heatmap (3d). **Phase 4 (Facets)** — Facet Row/Col split the
+figure into a shared subplot grid (singular legend/colorbar/sup-labels, per-cell
+strip titles), describe-only per cell in v1, guarded at 20 cells.
+**Phase 5 (Superplots)** — now expressed through the data hierarchy (layers bound
+to levels), not a layer `stat`, making the inferential n visible while the test
+binds to one honest unit grain.*
+
+*Beyond the original plan, two representations were added: a **time-series
+family** (`line` per-unit trajectories + `trend` mean±band over an ordered
+numeric x, units from the spine; describe-only in the first cut —
+`2026-06-17-time-series-support-design.md`), and a unified **`distribution`
+geom** folding the old histogram/density into one geom with selectable renders
+(bars/step/line/points/KDE-smooth and a Boltzmann-inverted "potential"
+U(x)=−ln P) and binning strategies (numpy strategies, fixed, and a sinh spacing
+tighter near zero for signed data). Dot layouts gained a no-overlap **beeswarm**
+solver; the stats panel gained inline **info boxes** explaining every reported
+quantity.*
+
+***Statistics — the guided test picker — is built*** (it was "redesigned, not yet
+built" when this roadmap was written). Inference is opt-in and
+describe-by-default; adding a test runs a short guided decision whose family is
+fixed by the column types and whose two axes are **structural** (independent vs
+paired, prefilled from the spine-derived pairing) and **assumption** (parametric
+vs robust — the engine proposes from a Shapiro check, the user confirms). Shipped
+cells: the **two-group numeric grid** (Welch / Mann–Whitney / paired-t /
+Wilcoxon); **multi-group** (>2 levels → one-way ANOVA + Tukey HSD, or
+Kruskal–Wallis + Holm-adjusted pairwise) with the **significance brackets** it
+drives (one stacked per reported pair); **correlation** (Pearson/Spearman with an
+OLS line + CI band); and the **independent contingency** cell (chi-square ↔
+Fisher's exact for 2×2, Cramér's V / odds-ratio). Every test reports an effect
+size (+CI where defined), all numbers from scipy/pingouin. A **validation
+corpus** (`engine/validation/`) asserts one case per family against independently
+recomputed scipy reference values.*
+
+*Remaining for Tier 2: paired *plots* (lines connecting matched units); the
+minimal **Poisson rate** slice; **McNemar** (the paired contingency cell);
+undo/redo (immer patches over the Jotai store); methods-text / statistics-table
+export; sparkline mini-distributions and click-a-header descriptives; mathtext in
+labels; configurable significance-star thresholds; a visible exclusion-log UI;
+autosave/crash recovery. Documents are **`.iris`** files (a ZIP of a Parquet
+table + JSON manifest/schema/analyses/provenance). A browser-blocked batch stays
+unverified in this sandbox (no Chromium): the facet-**row** display bug and the
+Phase 3 / facet / superplot e2e smokes (see `TODO.md`). Project under git since
+13 June 2026. Last updated 17 June 2026.*
 
 ## 1. Vision and positioning
 
@@ -110,12 +143,15 @@ TypeScript + Jotai frontend and a bundled CPython sidecar running pandas,
 scipy, pingouin, seaborn, and matplotlib, communicating over localhost HTTP.
 Matplotlib is the sole renderer; it emits SVG with gid-tagged artists, which
 the frontend injects and wires for discrete interactivity (click-to-exclude,
-tooltips). The keystone artifact is the declarative analysis spec (v1.0,
-frozen): grammar-of-graphics mappings plus a stats clause, compiling to both
-the plot and the test so they can never disagree about the data. Documents
-are `.viz` files — ZIP archives of human-readable parts (manifest, CSV,
-schema JSON, analysis specs, provenance log). All compute is local; data
-never leaves the machine.
+tooltips). The keystone artifact is the declarative analysis spec (now at
+**2.0**, semantically versioned with engine-side migration from every older
+shape): grammar-of-graphics encodings + ordered geom layers + a `hierarchy`
+block + a stats clause, compiling to both the plot and the test so they can
+never disagree about the data. Documents are **`.iris`** files — ZIP archives
+of a Parquet data table (exact dtype/null round-trip, an order of magnitude
+faster to read than CSV) plus human-readable JSON parts (manifest, schema,
+analysis specs, provenance log). All compute is local; data never leaves the
+machine.
 
 Consciously rejected, with reasons recorded so they need not be relitigated:
 custom JS rendering via D3/Plotly/Vega (a multi-year chase to reimplement
@@ -142,12 +178,14 @@ Tier 0 (one-shot browser demo) proved the product loop: the triad's
 reactivity, the recommendation flow, the spec design under live mutation.
 
 Tier 1 (walking skeleton) is built and its risky claims are empirically
-validated by an 8-test suite: stats match scipy ground truth to four-plus
+validated. The engine test suite has since grown to ~270 tests (plus a
+per-family validation corpus): stats match scipy ground truth to four-plus
 decimals; the SVG contains one addressable element per data row inside
-gid-tagged groups (the click-to-exclude contract); exclusions propagate into
-n, summaries, and auto-generated methods text; PDF export measures exactly
+gid-tagged groups (the click-to-exclude contract), preserved even through the
+beeswarm re-solve and coarse-grain aggregation; exclusions propagate into n,
+summaries, and auto-generated methods text; PDF export measures exactly
 89 × 70 mm for the Nature single-column preset with editable text (fonttype
-42); `.viz` documents roundtrip; the strict-TypeScript frontend builds clean.
+42); `.iris` documents roundtrip; the strict-TypeScript frontend builds clean.
 The reactive loop runs end-to-end against the real engine in dev mode.
 
 One early lesson is already banked: pingouin 0.6 silently renamed its result
@@ -176,11 +214,15 @@ Everything in this tier is breadth riding on existing rails — the spec, the
 compiler, and the recommendation engine extend; nothing is re-architected.
 
 **Plot matrix.** Scatter with regression line and CI band; box, violin, and
-dot plots for group comparisons; bar with error bars; histogram and density;
-paired plots (lines connecting subjects, enabled by the spec's `pair_by`
-mapping). Each compiles from the same mappings-plus-layers grammar; the
-compiler targets seaborn's modern `objects` interface where it fits and raw
-matplotlib where annotation control demands it.
+dot plots for group comparisons; bar with error bars; a unified `distribution`
+geom (bars/step/line/points/KDE, plus a Boltzmann "potential" render and
+sinh binning); a time-series family (per-unit trajectories + mean±band). Each
+compiles from the same encodings-plus-layers grammar; the compiler is raw
+matplotlib throughout (the annotation/gid control the click-to-exclude contract
+needs ruled out seaborn's `objects` layer as the primary path). Paired *plots*
+(lines connecting matched units) are the one plot-matrix item still pending —
+they ride the spine-derived pairing, not a `pair_by` mapping (see the
+data-hierarchy redesign below, which retired `pair_by`).
 
 **Composable grammar of graphics (Phase 1 — Layers, shipped 15 June 2026).**
 The plot matrix above is no longer a closed set of presets: a plot is an
@@ -194,7 +236,7 @@ Statistics inverted from `plot-type → test` to `encodings → an inferred,
 plain-language, overridable stat_model`, defaulting to *describe, don't test*
 when the design is ambiguous. The spec moved 1.3→2.0 (encodings + ordered
 `{geom, params}` layers + a `facet` block), normalized engine-side so older
-specs and `.viz` documents keep working.
+specs and documents keep working (the document format has since become `.iris`).
 
 **Composable grammar of graphics (Phase 2 — Aesthetics, shipped 16 June 2026).**
 `color` / `size` / `shape` are now real encodings, each mapped to a column and
@@ -312,6 +354,28 @@ so n/error are visible there (not forced globally, preserving composition); and
 the semantics are mean of unit means with unit-level error. The rep key's
 paired-design gap (units spanning both groups) still resolves later through the
 single inferential-`unit` + `pair_by` mechanism.
+
+**Data-hierarchy redesign (shipped 16–17 June 2026 — supersedes `reduce.collapse`,
+`repetition_key`, `stat.per_unit`, and `pair_by`).** The three mechanisms above —
+a destructive `collapse` reduce step, a `repetition_key` for the inferential
+unit, and a planned `pair_by` for matched designs — were unified into one
+**data hierarchy** after they proved to be three views of the same thing: *grain*.
+A table now carries a **spine** of nested identifier columns (coarsest→finest,
+e.g. `date → position → cell → frame`), defined once in the Data tab and shared by
+every analysis. Each layer binds to a **level** of that spine (a spine column, or
+raw); picking level L keeps every spine column from the root down to L and
+aggregates everything finer by the level's function (default mean), carrying a
+`row_ids` chain so excluding a coarse mark drops every raw row beneath it. This
+replaces `collapse` ("average away frames" is just *pick level `cell`*, with no
+complement to declare and no row mutated), makes the superplot a pure
+composition of layers at different levels (retiring `stat.per_unit`), and makes
+the inferential grain the coarsest level any layer draws at — so the figure and
+the test read **one shared materialization**, never a parallel route. Most
+consequentially it makes **pairing structural, not declared**: `pair_by` is gone;
+whether a comparison is paired / partially-paired / unpaired is *derived from the
+spine* (does the same home-level entity cross both compared levels?) and feeds the
+test picker's structural axis directly. Reduction is now `select` + `filter` only.
+Design in `docs/superpowers/specs/2026-06-16-data-hierarchy-redesign.md`.
 
 **Statistics — the guided test picker.** Inference is *opt-in and
 describe-by-default*: every analysis renders its figure and summaries with **no
@@ -455,7 +519,7 @@ here once a real need for it shows up. n and exclusion annotations become
 standard figure furniture.
 
 Product hardening: autosave and crash recovery (continuous local snapshots
-beside the `.viz` file), polished empty and error states written to direct
+beside the `.iris` file), polished empty and error states written to direct
 rather than apologize, performance passes on the edit→render loop (warm
 figure cache in the worker process, skip re-layout when only data values
 moved — naive full re-renders on every keystroke would feel sluggish, so
@@ -489,9 +553,11 @@ selling point not to spend casually.
 
 ## 8. Cross-cutting disciplines
 
-The spec is the contract: frozen at v1.0, semantically versioned, migrations
-shipped with every change, and never containing executable code — documents
-must be safe to email and renderable by future engines. Validation is policy,
+The spec is the contract: semantically versioned (at 2.0, up from the 1.0
+walking-skeleton freeze), with migrations shipped with every change and
+normalized engine-side so every older shape still loads, and never containing
+executable code — documents must be safe to email and renderable by future
+engines. Validation is policy,
 not heroics: no test family ships without R-reference assertions, and CI runs
 the suite against pinned and against latest dependencies so upstream drift is
 caught before users see it. Provenance is product: exclusions, edits, test
@@ -528,25 +594,29 @@ composable-grammar Phase 3 (data-first encodings: type-driven core, continuous
 color, horizontal orientation, contingency tile) plus a same-day bug-fix pass,
 then **Phase 4 (Facets)**: small multiples via Facet Row/Col, describe-only
 per cell, gid-uniqueness and singular figure chrome across the grid, and
-**Phase 5 (Superplots)**: a layer-level per-unit stat + one-click superplot
-template that makes the inferential n visible (closing item 10's gap). That
-completes the composable-grammar track through Phase 5. Remaining for Tier 2:
-the redesigned statistics (§5) — the opt-in, describe-by-default **guided test
-picker** (shipped 16 June 2026: the independent contingency cell — chi-square /
-Fisher's exact — and the **two-question structural × assumption grid for the
-two-group numeric family**: paired t / Wilcoxon now join Welch / Mann–Whitney,
-with the structural axis read from the spine-derived pairing and a `decision`
-object recording each question's recommendation; still pending — McNemar, the
-paired contingency cell), the omnibus→post-hoc/correction layer (one-way ANOVA +
-Tukey, Kruskal–Wallis) and the significance brackets it drives, plus the minimal
-Poisson rate slice; paired *plots*; undo/redo; methods/statistics-table export.
-A known e2e-suite regression (stale
-selectors and assumptions left over from the Phase 3 fix pass, plus no
-UI-level coverage yet for Phase 3's three new render paths) is tracked in
-`TODO.md` — fix before trusting `e2e/` results again; Phase 4 and Phase 5 add
-their own smoke tests (`facets_test.mjs`, `superplot_test.mjs`) following the
-same documented fix pattern but equally unverified in this sandbox. (The
-jamovi/JASP teardown was dropped
-with the purpose restatement:
-there is no positioning to defend, only features to get right. macOS/Windows
-packaging waits until the end, alongside Tier 3 signing.)
+**Phase 5 (Superplots)**: the inferential n made visible by stacking layers at
+different grains. That completes the composable-grammar track through Phase 5.
+17 June 2026 re-grounded the data model on the **data hierarchy** (a table-level
+spine + per-layer levels, retiring `reduce.collapse` / `repetition_key` /
+`stat.per_unit` / `pair_by`; pairing now derived from the spine), added the
+**time-series** family and the unified **distribution** geom, the beeswarm dot
+layout, and the stats info-boxes, and shipped the rest of the **guided test
+picker**: the two-group structural × assumption grid (Welch / Mann–Whitney /
+paired-t / Wilcoxon, structural axis from the spine-derived pairing), the
+**multi-group omnibus→post-hoc layer** (one-way ANOVA + Tukey HSD, or
+Kruskal–Wallis + Holm-adjusted pairwise) and the **significance brackets** it
+drives, correlation (Pearson/Spearman + OLS band), and the independent
+contingency cell (chi-square / Fisher's exact). A per-family **validation
+corpus** backs them against recomputed scipy references.
+
+Remaining for Tier 2: **McNemar** (the paired contingency cell, needs the
+structural pairing wired into the categorical family); the minimal **Poisson
+rate** slice; **paired *plots*** (lines connecting matched units, on the
+spine-derived pairing); undo/redo (immer patches over the Jotai store);
+methods-text / statistics-table export; sparkline mini-distributions and
+click-a-header descriptives; mathtext labels; configurable significance-star
+thresholds; a visible exclusion-log UI; autosave/crash recovery. A
+**browser-blocked batch** stays unverified here (no Chromium): a facet-**row**
+display bug and the Phase 3 / Phase 4 / Phase 5 e2e smokes — all tracked in
+`TODO.md`, to be run on a machine with a browser before `e2e/` is trusted again.
+macOS/Windows packaging waits until the end, alongside Tier 3 signing.
