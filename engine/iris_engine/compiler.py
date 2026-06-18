@@ -748,6 +748,8 @@ def _geom_box(ax, ctx, layer):
     use_fill = gs.get("fill", False)
     fill_alpha = gs.get("fill_alpha", 0.25)
     line = dict(color="#475569", linewidth=lw * 0.65)
+    # patch_artist turns boxes into Patch objects which need edgecolor, not color
+    box_kw = dict(edgecolor="#475569", linewidth=lw * 0.65) if use_fill else line
     for grp in ctx["groups"]:
         ys = grp["ys"]
         if not len(ys):
@@ -759,7 +761,7 @@ def _geom_box(ax, ctx, layer):
             patch_artist=use_fill,
             notch=gs.get("notch", False) and len(ys) > 5,
             showfliers=show_fliers,
-            boxprops=line, whiskerprops=line, capprops=line,
+            boxprops=box_kw, whiskerprops=line, capprops=line,
             medianprops=dict(color=INK, linewidth=lw * 0.93),
             flierprops=dict(marker=outlier_marker,
                             markersize=gs.get("outlier_size", 3.0),
