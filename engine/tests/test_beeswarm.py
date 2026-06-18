@@ -29,9 +29,10 @@ def _spec(layout, horizontal=False):
     e["x"] = {"column": x}
     e["y"] = {"column": y}
     return {"encodings": e,
-            "layers": [{"geom": "dot", "params": {"layout": layout}}],
+            "layers": [{"geom": "dot"}],
             "stat_model": {"family": "group_comparison"},
-            "style": {"preset": "demo_default", "overrides": {}}}
+            "style": {"preset": "demo_default",
+                      "overrides": {"geoms": {"dot": {"layout": layout}}}}}
 
 
 def _stats():

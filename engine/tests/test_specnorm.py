@@ -39,7 +39,9 @@ def test_legacy_color_distinct_from_x_survives_as_a_channel():
 def test_marks_become_geoms_preserving_order_and_options():
     out = specnorm.normalize(legacy_spec())
     assert [l["geom"] for l in out["layers"]] == ["dot", "summary"]
-    assert out["layers"][0]["params"] == {"jitter": 0.18}
+    # params are hoisted to style.overrides.geoms by _migrate_layer_params
+    assert out["style"]["overrides"]["geoms"]["dot"] == {"jitter": 0.18}
+    assert "params" not in out["layers"][0]
 
 
 def test_carries_the_pinned_test_from_the_override_field():
@@ -92,7 +94,7 @@ def _descriptive_legacy(marks):
 def test_legacy_histogram_folds_into_distribution_bars():
     out = specnorm.normalize(_descriptive_legacy([("histogram", {"hist_bins": 12})]))
     assert [l["geom"] for l in out["layers"]] == ["distribution"]
-    p = out["layers"][0]["params"]
+    p = out["style"]["overrides"]["geoms"]["distribution"]
     assert p["dist_render"] == "bars"
     assert p["hist_bins"] == 12          # the fixed bin count carries over
     assert not p.get("overlay_smooth")
@@ -101,14 +103,14 @@ def test_legacy_histogram_folds_into_distribution_bars():
 def test_legacy_density_folds_into_distribution_smooth():
     out = specnorm.normalize(_descriptive_legacy([("density", {})]))
     assert [l["geom"] for l in out["layers"]] == ["distribution"]
-    assert out["layers"][0]["params"]["dist_render"] == "smooth"
+    assert out["style"]["overrides"]["geoms"]["distribution"]["dist_render"] == "smooth"
 
 
 def test_legacy_histogram_plus_density_collapses_to_one_overlaid_layer():
     out = specnorm.normalize(
         _descriptive_legacy([("histogram", {}), ("density", {})]))
     assert [l["geom"] for l in out["layers"]] == ["distribution"]
-    p = out["layers"][0]["params"]
+    p = out["style"]["overrides"]["geoms"]["distribution"]
     assert p["dist_render"] == "bars"
     assert p["overlay_smooth"] is True
 
@@ -124,4 +126,4 @@ def test_distribution_migration_is_idempotent_on_2_0():
     twice = specnorm.normalize(once)
     assert [l["geom"] for l in once["layers"]] == ["distribution"]
     assert [l["geom"] for l in twice["layers"]] == ["distribution"]
-    assert once["layers"][0]["params"]["dist_render"] == "smooth"
+    assert once["style"]["overrides"]["geoms"]["distribution"]["dist_render"] == "smooth"

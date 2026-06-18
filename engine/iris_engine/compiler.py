@@ -29,63 +29,14 @@ from . import geoms as geoms_mod
 from . import hierarchy as hierarchy_mod
 from . import scales as scales_mod
 from . import stats as stats_mod
+from . import style as style_mod
 from .scales import PALETTE  # the single colour source of truth (see scales.py)
 
 MM = 1 / 25.4
 INK = "#0f172a"
 
-# every visual knob the style panel exposes; overrides may replace any of these
-# (None = "use the plot's own default"). One canonical figure size — width/height
-# come straight from these defaults and are tunable only via per-plot overrides.
-STYLE_DEFAULTS = {
-    "width_mm": 140.0,       # canonical figure size; override per-plot in Style
-    "height_mm": 100.0,
-    "font_pt": 9,
-    "marker_size": 22.0,     # scatter/dot area in pt²
-    "marker_alpha": 0.55,
-    "layout": "swarm",       # dot layout: "swarm" (no-overlap pack) or "jitter"
-    "jitter": 0.18,          # half-width of dot jitter in group units
-    "axis_linewidth": 0.8,   # spines + ticks
-    "line_width": 1.4,       # stat lines: regression, summary CI, density
-    "frame": "open",         # "open" hides top/right spines, "closed" keeps all
-    "grid_x": None,          # vertical grid lines; None = plot default
-    "grid_y": None,          # horizontal grid lines; None = plot default
-    "palette": PALETTE,      # group colors in level order; [0] for single-series
-    "title": "",             # empty = no title / auto axis label
-    "x_label": "",
-    "y_label": "",
-    "offsets": {},           # {"lbl-x": [dx, dy], ...} from dragging, SVG px (y down)
-    "axes_rect": None,       # [left, bottom, width, height] in figure fractions;
-                             # None = let constrained layout place the plot area.
-                             # Set by dragging/resizing the plot area within the
-                             # (independently sized) canvas, so a grown canvas can
-                             # host a docked legend in the freed space. Unfaceted only.
-    # axes & ticks
-    "tick_direction": "out",     # out | in | inout
-    "tick_length": 3.5,          # pt
-    "x_tick_side": "bottom",     # bottom | top
-    "y_tick_side": "left",       # left | right
-    "x_tick_spacing": None,      # data units; numeric axes only; None = auto
-    "y_tick_spacing": None,
-    "minor_ticks": False,
-    "x_tick_rotation": 0,        # degrees, for long level names
-    "y_scale": "linear",         # linear | log
-    "x_scale": "linear",         # numeric x only
-    "y_min": None, "y_max": None, "x_min": None, "x_max": None,
-    # marks
-    "notch": False,              # boxplot notches (median 95% CI)
-    "mark_width": None,          # box/violin/bar width; None = per-mark default
-    "outlier_marker": "o",       # o | D | x | + | none (when boxes hide raw dots)
-    "outlier_size": 3.0,
-    "error_type": "ci95",        # ci95 | sem | sd — summary + bar error bars
-    "capsize": 3.0,
-    "hist_bins": None,           # histogram bin count; None = auto
-    # annotations
-    "show_n": True,
-    "show_significance": True,
-    "show_annotation": True,     # r/p text, median label
-    "show_legend": None,         # None = auto (shown iff a channel needs it)
-}
+# Re-export from style.py — the single source of truth for defaults.
+STYLE_DEFAULTS = style_mod.STYLE_DEFAULTS
 
 
 def _rc(style: dict) -> dict:
@@ -134,18 +85,8 @@ def _stable_jitter(row_id: str, width: float = 0.18) -> float:
     return ((h % 1000) / 1000 - 0.5) * 2 * width
 
 
-def resolve_style(spec: dict) -> dict:
-    style = spec.get("style", {})
-    # `preset` is a retired concept; any value left on old saved specs is ignored.
-    resolved = {**STYLE_DEFAULTS}
-    for k, v in (style.get("overrides") or {}).items():
-        if v is None:
-            continue
-        if k == "font_size_pt":
-            resolved["font_pt"] = v
-        elif k in resolved:
-            resolved[k] = v
-    return resolved
+resolve_style = style_mod.resolve_style
+resolve_geom_style = style_mod.resolve_geom_style
 
 
 def _group_color(style: dict, i: int) -> str:
@@ -650,13 +591,6 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
     return build_comparison_figure(df, schema, spec, stats, level_tables)
 
 
-def _param(params: dict, key: str, style: dict, style_key: str):
-    """A layer param wins over the global style; falling back to style keeps
-    legacy specs (which carry no params) pixel-identical to today."""
-    v = params.get(key)
-    return v if v is not None else style[style_key]
-
-
 def _is_categorical(schema, name):
     return any(c["name"] == name and c["type"] == "categorical"
                for c in schema["columns"])
@@ -785,10 +719,11 @@ def _groups(level_df, layout):
 
 
 def _geom_violin(ax, ctx, layer):
-    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
+    gs = resolve_geom_style(style, "violin")
     h = ctx["h_orient"]
-    width = (_param(params, "mark_width", style, "mark_width") or 0.7) * ctx["wscale"]
+    width = (gs.get("mark_width") or 0.7) * ctx["wscale"]
+    fill_alpha = gs.get("fill_alpha", 0.22)
     for grp in ctx["groups"]:
         ys = grp["ys"]
         if len(ys) <= 1:
@@ -797,44 +732,55 @@ def _geom_violin(ax, ctx, layer):
         vp = ax.violinplot([ys], positions=[grp["pos"]], widths=width,
                            orientation=orient, showextrema=False)
         for body in vp["bodies"]:
-            body.set_facecolor(grp["color"]); body.set_alpha(0.22)
+            body.set_facecolor(grp["color"]); body.set_alpha(fill_alpha)
             body.set_edgecolor(grp["color"]); body.set_linewidth(lw * 0.6)
             body.set_zorder(1)
     return None
 
 
 def _geom_box(ax, ctx, layer):
-    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
+    gs = resolve_geom_style(style, "box")
     h = ctx["h_orient"]
-    width = (_param(params, "mark_width", style, "mark_width") or 0.42) * ctx["wscale"]
-    show_fliers = not ctx["has_dots"] and style["outlier_marker"] != "none"
+    width = (gs.get("mark_width") or 0.42) * ctx["wscale"]
+    outlier_marker = gs.get("outlier_marker", "o")
+    show_fliers = not ctx["has_dots"] and outlier_marker != "none"
+    use_fill = gs.get("fill", False)
+    fill_alpha = gs.get("fill_alpha", 0.25)
     line = dict(color="#475569", linewidth=lw * 0.65)
     for grp in ctx["groups"]:
         ys = grp["ys"]
         if not len(ys):
             continue
         orient = "vertical" if not h else "horizontal"
-        ax.boxplot([ys], positions=[grp["pos"]], widths=width,
-                   orientation=orient,
-                   notch=style["notch"] and len(ys) > 5, showfliers=show_fliers,
-                   boxprops=line, whiskerprops=line, capprops=line,
-                   medianprops=dict(color=INK, linewidth=lw * 0.93),
-                   flierprops=dict(marker=style["outlier_marker"],
-                                   markersize=style["outlier_size"],
-                                   markerfacecolor=grp["color"],
-                                   markeredgecolor=grp["color"],
-                                   markeredgewidth=0.8),
-                   zorder=2)
+        bp = ax.boxplot(
+            [ys], positions=[grp["pos"]], widths=width,
+            orientation=orient,
+            patch_artist=use_fill,
+            notch=gs.get("notch", False) and len(ys) > 5,
+            showfliers=show_fliers,
+            boxprops=line, whiskerprops=line, capprops=line,
+            medianprops=dict(color=INK, linewidth=lw * 0.93),
+            flierprops=dict(marker=outlier_marker,
+                            markersize=gs.get("outlier_size", 3.0),
+                            markerfacecolor=grp["color"],
+                            markeredgecolor=grp["color"],
+                            markeredgewidth=0.8),
+            zorder=2)
+        if use_fill:
+            for patch in bp["boxes"]:
+                patch.set_facecolor(grp["color"])
+                patch.set_alpha(fill_alpha)
     return None
 
 
 def _geom_bar(ax, ctx, layer):
-    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
+    gs = resolve_geom_style(style, "bar")
     h = ctx["h_orient"]
-    error_type = _param(params, "error_type", style, "error_type")
-    width = (_param(params, "mark_width", style, "mark_width") or 0.6) * ctx["wscale"]
+    error_type = gs.get("error_type", "ci95")
+    width = (gs.get("mark_width") or 0.6) * ctx["wscale"]
+    capsize = gs.get("capsize", 3.0)
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
@@ -842,12 +788,12 @@ def _geom_bar(ax, ctx, layer):
             ax.barh(grp["pos"], s["mean"], height=width, color=grp["color"],
                     alpha=0.55, zorder=1)
             ax.errorbar(s["mean"], grp["pos"], xerr=err, fmt="none", ecolor=INK,
-                        elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
+                        elinewidth=lw * 0.85, capsize=capsize, zorder=3)
         else:
             ax.bar(grp["pos"], s["mean"], width=width, color=grp["color"],
                    alpha=0.55, zorder=1)
             ax.errorbar(grp["pos"], s["mean"], yerr=err, fmt="none", ecolor=INK,
-                        elinewidth=lw * 0.85, capsize=style["capsize"], zorder=3)
+                        elinewidth=lw * 0.85, capsize=capsize, zorder=3)
     return None
 
 
@@ -868,14 +814,14 @@ def _geom_dot(ax, ctx, layer):
     Dots are not individually clickable (item I), so no gids or point_groups are
     emitted. Per-layer `marker_size` and `alpha` params let a raw layer be
     faint/small and an aggregate layer bold/large within one composed figure."""
-    params = layer.get("params") or {}
     style = ctx["style"]
+    gs = resolve_geom_style(style, "dot")
     scales = ctx["scales"]
     h = ctx["h_orient"]
-    layout = _param(params, "layout", style, "layout")
-    jitter = _param(params, "jitter", style, "jitter") * ctx["wscale"]
-    msize = _param(params, "marker_size", style, "marker_size")
-    malpha = _param(params, "alpha", style, "marker_alpha")
+    layout = gs.get("layout", "swarm")
+    jitter = gs.get("jitter", 0.18) * ctx["wscale"]
+    msize = gs.get("marker_size", 22.0)
+    malpha = gs.get("alpha", 0.55)
     for grp in ctx["groups"]:
         ys, keys = grp["ys"], grp["keys"]
         # swarm draws every mark at the lane centre and defers the no-overlap
@@ -932,22 +878,22 @@ def _geom_dot(ax, ctx, layer):
 
 
 def _geom_summary(ax, ctx, layer):
-    params = layer.get("params") or {}
     style, lw = ctx["style"], ctx["lw"]
+    gs = resolve_geom_style(style, "summary")
     h = ctx["h_orient"]
-    error_type = _param(params, "error_type", style, "error_type")
+    error_type = gs.get("error_type", "ci95")
+    capsize = gs.get("capsize", 3.0)
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)
-        # summary_dx offsets along the categorical axis (same logic for both)
         cpos = grp["pos"] + ctx["summary_dx"]
         if h:
             ax.errorbar(s["mean"], cpos, xerr=err, fmt="none", ecolor=INK,
-                        elinewidth=lw, capsize=style["capsize"], zorder=4)
+                        elinewidth=lw, capsize=capsize, zorder=4)
             ax.plot(s["mean"], cpos, marker="D", ms=5, color=INK, zorder=5)
         else:
             ax.errorbar(cpos, s["mean"], yerr=err, fmt="none", ecolor=INK,
-                        elinewidth=lw, capsize=style["capsize"], zorder=4)
+                        elinewidth=lw, capsize=capsize, zorder=4)
             ax.plot(cpos, s["mean"], marker="D", ms=5, color=INK, zorder=5)
     return None
 
@@ -1093,6 +1039,7 @@ def _draw_points(ax, rows, x, y, sc, style):
     Dots are not individually clickable (item I), so no gids/point_groups are
     emitted. Returns the colorbar mappable (None unless a numeric colour is
     mapped, in which case it feeds the colorbar)."""
+    gs = resolve_geom_style(style, "scatter")
     numeric_color = sc.color_col is not None and sc.color_numeric
     shape_levels = sc.shape_levels if sc.shape_col else [None]
     mappable = None
@@ -1104,8 +1051,8 @@ def _draw_points(ax, rows, x, y, sc, style):
             continue
         marker = sc.marker_for(sl) if sc.shape_col else "o"
         size = ([sc.size_for(v) for v in sub[sc.size_col]] if sc.size_col
-                else style["marker_size"])
-        common = dict(s=size, marker=marker, alpha=style["marker_alpha"],
+                else gs.get("marker_size", 22.0))
+        common = dict(s=size, marker=marker, alpha=gs.get("alpha", 0.55),
                       linewidths=0.6, edgecolors="white", zorder=3)
         px = sub[x].to_numpy(dtype=float)
         py = sub[y].to_numpy(dtype=float)
@@ -1143,6 +1090,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
     rows = df[df[x].notna() & df[y].notna()]
     sc_global = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
     color = _group_color(style, 0)
+    gs_reg = resolve_geom_style(style, "regression")
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
@@ -1164,8 +1112,9 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                 reg = cell_stats.get("regression")
                 if "regression" in marks and reg:
                     grid = np.asarray(reg["grid"])
-                    ax.fill_between(grid, reg["lo"], reg["hi"], color=color,
-                                    alpha=0.15, linewidth=0, zorder=1)
+                    if gs_reg.get("show_band", True):
+                        ax.fill_between(grid, reg["lo"], reg["hi"], color=color,
+                                        alpha=0.15, linewidth=0, zorder=1)
                     ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
                             color=color, linewidth=style["line_width"], zorder=2)
 
@@ -1207,16 +1156,6 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
     return fig
 
 
-def _layer_param(layer: dict, key: str):
-    """A timeseries layer param, falling back to the geom's registry default so a
-    legacy spec (or a layer that omits a param) renders with the declared
-    defaults rather than None."""
-    g = geoms_mod.GEOMS.get(layer["geom"])
-    default = g.params.get(key) if g else None
-    v = (layer.get("params") or {}).get(key)
-    return v if v is not None else default
-
-
 def _geom_line(ax, rows, spine, x, y, sc, style, layer):
     """One thin, light curve per trajectory unit (the spaghetti). Units come from
     the spine (`trajectory_units`), NOT an aesthetic: with the default cell spine
@@ -1224,8 +1163,9 @@ def _geom_line(ax, rows, spine, x, y, sc, style, layer):
     missing x leaves a break. Colour styles how curves look per `color` level
     (the legend names conditions, not units) and never decides which rows form a
     line."""
-    alpha = _layer_param(layer, "alpha")
-    lw = _layer_param(layer, "linewidth")
+    gs = resolve_geom_style(style, "line")
+    alpha = gs.get("alpha", 0.35)
+    lw = gs.get("linewidth", 0.8)
     color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None
     split = [color_col] if color_col else []
     units = hierarchy_mod.trajectory_units(rows, spine, x, split)
@@ -1248,8 +1188,9 @@ def _geom_trend(ax, rows, x, y, sc, style, layer):
     internally here as `summary` does per category. The band (when `show_band`) is
     drawn first so the mean line sits on top; the half-spread reuses `_err_half`
     with the layer's `error_type` (ci95/sem/sd)."""
-    error_type = _layer_param(layer, "error_type")
-    show_band = _layer_param(layer, "show_band")
+    gs = resolve_geom_style(style, "trend")
+    error_type = gs.get("error_type", "ci95")
+    show_band = gs.get("show_band", True)
     color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None
     levels = sc.color_levels if color_col else [None]
     for lv in levels:
@@ -1357,17 +1298,16 @@ def _sinh_bin_edges(lo: float, hi: float, bins: int,
     return edges
 
 
-def _resolve_dist_bins(params: dict, style: dict, vals):
+def _resolve_dist_bins(gs: dict, vals):
     """The bins= argument for np.histogram: a numpy strategy name
     (fd/scott/sturges/sqrt/auto), an int when bin_method is "fixed", or an explicit
     edge array when "sinh" (sinh-spaced over *vals*' range, tighter near zero). A
-    legacy fixed hist_bins (set before bin_method existed, via a layer param or the
-    old style override) still applies when no explicit method is chosen."""
-    method = params.get("bin_method")
-    fixed = _param(params, "hist_bins", style, "hist_bins")
+    legacy fixed hist_bins still applies when no explicit method is chosen."""
+    method = gs.get("bin_method")
+    fixed = gs.get("hist_bins")
     if method == "sinh":
         count = int(fixed) if fixed else 30
-        sharpness = params.get("bin_sharpness")
+        sharpness = gs.get("bin_sharpness")
         if sharpness is None:
             sharpness = _SINH_SHARPNESS
         return _sinh_bin_edges(float(np.min(vals)), float(np.max(vals)), count, sharpness)
@@ -1386,23 +1326,21 @@ def _kde_curve(ax, vals, scale: float, color: str, style: dict, zorder: int):
             linewidth=style["line_width"] * 0.93, zorder=zorder)
 
 
-def _draw_distribution(ax, vals, params: dict, style: dict):
-    """Draw one cell's distribution per the layer's `dist_render`:
+def _draw_distribution(ax, vals, style: dict):
+    """Draw one cell's distribution per the geom's `dist_render`:
     bars/step/line/points are binned views (counts per bin); "smooth" is a KDE
     curve only; "potential" Boltzmann-inverts the histogram to U(x) = −ln P (the
     log-density, empty bins dropped). `overlay_smooth` adds a KDE on top of a
     binned render. Mutates ax; aggregates rows."""
-    render = params.get("dist_render", "bars")
+    gs = resolve_geom_style(style, "distribution")
+    render = gs.get("dist_render", "bars")
     color = _group_color(style, 0)
-    counts, edges = np.histogram(vals, bins=_resolve_dist_bins(params, style, vals))
+    counts, edges = np.histogram(vals, bins=_resolve_dist_bins(gs, vals))
     centers = (edges[:-1] + edges[1:]) / 2
     binwidth = edges[1] - edges[0]
     smooth_ok = len(vals) > 2 and np.ptp(vals) > 0
 
     if render == "potential":
-        # U(x) = −ln P over occupied bins only — P=0 ⇒ U=∞, so empty bins are
-        # dropped (no −ln(0)). U≥0 always; let the axis autoscale rather than
-        # ground at 0, so the well minimum (the feature of interest) shows.
         occ = counts > 0
         u = -np.log(counts[occ] / counts.sum())
         ax.plot(centers[occ], u, color=color, marker="o", markersize=4,
@@ -1412,7 +1350,7 @@ def _draw_distribution(ax, vals, params: dict, style: dict):
     if render == "smooth":
         if smooth_ok:
             _kde_curve(ax, vals, len(vals) * binwidth, color, style, zorder=2)
-        else:  # too few / degenerate points for a KDE — fall back to bars
+        else:
             render = "bars"
 
     if render == "bars":
@@ -1429,8 +1367,8 @@ def _draw_distribution(ax, vals, params: dict, style: dict):
                 markersize=4, zorder=2)
 
     if render in ("line", "points", "smooth"):
-        ax.set_ylim(bottom=0)  # ground the count axis as bars would
-    if params.get("overlay_smooth") and render != "smooth" and smooth_ok:
+        ax.set_ylim(bottom=0)
+    if gs.get("overlay_smooth") and render != "smooth" and smooth_ok:
         _kde_curve(ax, vals, len(vals) * binwidth, INK, style, zorder=3)
 
 
@@ -1445,12 +1383,8 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     alpha = stats.get("alpha", 0.05)
-    layers = spec.get("layers", [])
-    dist_params = next((l.get("params", {}) for l in layers
-                        if l["geom"] == "distribution"), {})
-    # The potential render swaps the count axis for U(x) = −ln P; every other
-    # render is a count view.
-    count_label = "−ln P" if dist_params.get("dist_render") == "potential" else "Count"
+    gs = resolve_geom_style(style, "distribution")
+    count_label = "−ln P" if gs.get("dist_render") == "potential" else "Count"
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
@@ -1467,7 +1401,7 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                 cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
                 vals = cell_df[y].dropna().to_numpy(dtype=float)
                 if len(vals):
-                    _draw_distribution(ax, vals, dist_params, style)
+                    _draw_distribution(ax, vals, style)
 
                 cell_result = (stats_mod.descriptive(cell_df, y, alpha=alpha)
                               if faceted else stats)
@@ -1516,6 +1450,9 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     alpha = stats.get("alpha", 0.05)
+    gs_tile = resolve_geom_style(style, "tile")
+    tile_cmap = gs_tile.get("colormap", "Blues")
+    tile_show_counts = gs_tile.get("show_counts", True)
 
     x_levels = stats["x_levels"]
     y_levels = stats["y_levels"]
@@ -1550,10 +1487,10 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
                 # Unfaceted keeps the original auto vmin/vmax (byte-identical to
                 # pre-Phase-4); faceted shares one vmin/vmax across cells so fill
                 # color is comparable panel-to-panel.
-                im = (ax.imshow(counts, cmap="Blues", aspect="auto",
+                im = (ax.imshow(counts, cmap=tile_cmap, aspect="auto",
                                 origin="upper", vmin=0, vmax=vmax)
                       if faceted else
-                      ax.imshow(counts, cmap="Blues", aspect="auto", origin="upper"))
+                      ax.imshow(counts, cmap=tile_cmap, aspect="auto", origin="upper"))
 
                 ax.set_xticks(range(len(x_levels)))
                 x_lbl = cols.get(x, {}).get("labels", {}) or {}
@@ -1563,7 +1500,7 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
                 y_lbl = cols.get(y, {}).get("labels", {}) or {}
                 ax.set_yticklabels([y_lbl.get(lv, lv) for lv in y_levels])
 
-                if style["show_annotation"]:
+                if tile_show_counts and style["show_annotation"]:
                     for yi in range(len(y_levels)):
                         for xi in range(len(x_levels)):
                             c = int(counts[yi, xi])

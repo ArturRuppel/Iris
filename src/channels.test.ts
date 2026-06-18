@@ -9,7 +9,7 @@ import type { ColumnDef, GeomMeta, Registry, Schema } from "./types";
 /* a minimal GeomMeta — only x_type/y_type matter to the helpers under test */
 const geom = (x_type: string, y_type: string): GeomMeta => ({
   label: "", family: "group_comparison", aggregates: false, needs: [],
-  x_type, y_type, params: {}, param_specs: [], point_cap: null, aes: [],
+  x_type, y_type, point_cap: null, aes: [],
 });
 
 /* today's registry: the axis types that ship in 3a (no h_orient, no tile) */

@@ -543,7 +543,15 @@ Logistic regression and a restricted model-formula grammar in the spec
 (`family: "model"`). Multi-panel figure composition (a document-level
 `figure` object referencing analyses). Multi-table documents with joins
 (resisted until real users demonstrate the need; the one-table constraint is
-a feature). A Pyodide browser demo for zero-install sharing — the spec and
+a feature). A **data-manipulation layer** — column transforms (add, multiply,
+or otherwise combine columns with each other) and reduction methods
+(collapsing/aggregating columns into a new derived column) — is a candidate
+addition once a real need shows up; reduction in particular has to be
+approached carefully against the data-hierarchy/spine architecture, since
+naively reducing across the nesting risks silently duplicating rows at the
+wrong grain, which is part of why this likely wants multi-table support
+first (an explicit derived table rather than mutating the one master table
+in place). A Pyodide browser demo for zero-install sharing — the spec and
 protocol design keep the engine swappable, so this is expensive but not a
 rewrite. A fluid exploration mode (D3-rendered, 60 fps brushing) feeding the
 same spec, with matplotlib still rendering the publication output. A

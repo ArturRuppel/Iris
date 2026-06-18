@@ -201,8 +201,9 @@ def test_two_dot_layers_draw_their_own_grain():
     spec = _spec([
         {"geom": "dot", "params": {}, "level": hierarchy.RAW},      # raw reps
         {"geom": "dot", "params": {}, "level": "subject"},          # one per subject
-        {"geom": "summary", "params": {"error_type": "sem"}, "level": "subject"},
+        {"geom": "summary", "params": {}, "level": "subject"},
     ])
+    spec["style"]["overrides"]["geoms"] = {"summary": {"error_type": "sem"}}
     fig = compiler.build_comparison_figure(df, schema, spec, {}, levels)
     # both grains draw marks: total scatter points = raw observations + one mark
     # per subject (the coarse layer aggregates raw rows into fewer marks).

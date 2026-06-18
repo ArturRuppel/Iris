@@ -277,8 +277,10 @@ def _distribution_fig(params):
     spec["stats"]["family"] = "descriptive"
     spec["mappings"] = {"x": None, "y": {"column": "response"},
                         "color": None, "pair_by": None, "facet": None}
-    spec["layers"] = [{"mark": "distribution", "options": params}]
-    spec.setdefault("style", {}).setdefault("overrides", {})["show_annotation"] = False
+    spec["layers"] = [{"mark": "distribution", "options": {}}]
+    overrides = spec.setdefault("style", {}).setdefault("overrides", {})
+    overrides["show_annotation"] = False
+    overrides.setdefault("geoms", {})["distribution"] = dict(params)
     spec = specnorm.normalize(spec)
     st = stats.descriptive(df, "response", alpha=0.05)
     fig = compiler.build_histogram_figure(df, table["schema"], spec, st)
@@ -340,10 +342,11 @@ def _draw_into_potential(vals, params):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    style = compiler.resolve_style({})
+    geom_overrides = {**params, "dist_render": "potential"}
+    style = compiler.resolve_style(
+        {"style": {"overrides": {"geoms": {"distribution": geom_overrides}}}})
     fig, ax = plt.subplots()
-    compiler._draw_distribution(
-        ax, np.asarray(vals, dtype=float), {**params, "dist_render": "potential"}, style)
+    compiler._draw_distribution(ax, np.asarray(vals, dtype=float), style)
     return ax
 
 
@@ -805,7 +808,9 @@ def test_layer_params_override_style_jitter():
                          "color": {"column": "treatment"},
                          "size": None, "shape": None}
     spec.pop("mappings", None)
-    spec["layers"] = [{"geom": "dot", "params": {"jitter": 0.0}}]
+    spec["layers"] = [{"geom": "dot", "params": {}}]
+    spec.setdefault("style", {}).setdefault("overrides", {})["geoms"] = {
+        "dot": {"jitter": 0.0}}
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 200
     # the dot layer renders its marks (as plain vector glyphs, item I)

@@ -87,8 +87,10 @@ export type Geom =
    a superplot with no preset. The unit columns live on the plottable's
    `hierarchy`, shared by every consumer. */
 /* `id` is a client-only stable key for React lists (reorderable layers); the
-   engine ignores it. Optional so older .viz layers without one still parse. */
-export interface Layer { id?: string; geom: Geom; params: Record<string, unknown>; level: string }
+   engine ignores it. Optional so older .viz layers without one still parse.
+   `params` is a legacy field retained only for migration of older .viz files;
+   new code never sets it. Geom knobs live in style.overrides.geoms.<geom>. */
+export interface Layer { id?: string; geom: Geom; level: string; params?: Record<string, unknown> }
 
 /* How finer rows aggregate into a coarser grain — the set the engine's
    `materialize_levels` honors (hierarchy._AGG). This is the only aggregation
@@ -112,11 +114,22 @@ export interface HierarchyInfo {
   n_raw: number;
 }
 
-export interface ParamSpec {
-  key: string; label: string;
-  type: "number" | "select" | "bool";
+/* ---- style registry (served on /health, drives StylePane) ---- */
+
+export interface StyleKnobWidget {
+  type: "number" | "select" | "bool" | "text" | "swatch";
   min?: number; max?: number; step?: number; options?: string[];
 }
+export interface StyleKnob {
+  key: string; label: string; group: string;
+  widget: StyleKnobWidget;
+  default: unknown;
+  scope: "figure" | "geom";
+  applies_to_geoms?: string[];
+  visible_when?: { key: string; equals?: unknown; not_equals?: unknown };
+  transferable: boolean;
+}
+
 export interface GeomMeta {
   label: string; family: StatsFamily; aggregates: boolean;
   needs: string[];
@@ -127,8 +140,7 @@ export interface GeomMeta {
      encoding has numeric x + categorical y; lets the offer rule surface
      categorical columns on Y and enables those geoms for the swapped types. */
   h_orient?: boolean;
-  params: Record<string, unknown>;
-  param_specs: ParamSpec[]; point_cap: number | null;
+  point_cap: number | null;
   aes: string[];   // accepted aesthetic channels: "color" | "size" | "shape"
 }
 export interface Registry {
@@ -202,16 +214,22 @@ export interface ReducePreview {
   summary: ColumnSummary[];
 }
 
-/* every key the style panel exposes; the engine fills in defaults, so all
-   fields are optional and an empty object means "default look" */
+/* Every key the style panel exposes; the engine fills in defaults, so all
+   fields are optional and an empty object means "default look".
+
+   Figure-scope keys live flat at the top; geom-scoped knobs live under
+   `geoms.<geom>.<key>` (e.g. `geoms.dot.marker_size`).  The engine's
+   resolve_style / resolve_geom_style merge these onto registry defaults.
+
+   Legacy flat mark keys (marker_size, marker_alpha, layout, jitter, notch,
+   mark_width, outlier_marker, outlier_size, error_type, capsize, hist_bins)
+   are kept as optional for migration of older .viz files — new code writes
+   only into `geoms`. */
 export interface StyleOverrides {
+  /* ---- figure scope ---- */
   width_mm?: number;
   height_mm?: number;
   font_size_pt?: number;
-  marker_size?: number;
-  marker_alpha?: number;
-  layout?: "swarm" | "jitter";
-  jitter?: number;
   axis_linewidth?: number;
   line_width?: number;
   frame?: "open" | "closed";
@@ -241,7 +259,20 @@ export interface StyleOverrides {
   y_max?: number;
   x_min?: number;
   x_max?: number;
-  /* marks */
+  /* annotations */
+  show_n?: boolean;
+  show_significance?: boolean;
+  show_annotation?: boolean;
+  show_legend?: boolean;
+
+  /* ---- geom-scoped knobs (keyed by geom name) ---- */
+  geoms?: Record<string, Record<string, unknown>>;
+
+  /* ---- legacy flat mark keys (migration only, never written by new code) ---- */
+  marker_size?: number;
+  marker_alpha?: number;
+  layout?: "swarm" | "jitter";
+  jitter?: number;
   notch?: boolean;
   mark_width?: number;
   outlier_marker?: "o" | "D" | "x" | "+" | "none";
@@ -249,10 +280,6 @@ export interface StyleOverrides {
   error_type?: "ci95" | "sem" | "sd";
   capsize?: number;
   hist_bins?: number;
-  /* annotations */
-  show_n?: boolean;
-  show_significance?: boolean;
-  show_annotation?: boolean;
 }
 
 export interface AnalysisSpec {
@@ -509,7 +536,7 @@ const tableField = (t: TableRef) =>
   "token" in t ? { table_token: t.token } : { table: t };
 
 export const engine = {
-  health: () => get<{ engine_snapshot: Record<string, string>; registry: Registry }>("/health"),
+  health: () => get<{ engine_snapshot: Record<string, string>; registry: Registry; style_registry: StyleKnob[] }>("/health"),
   /* a frozen sidecar takes a few seconds to boot; poll instead of giving up */
   waitForHealth: async (attempts = 30, delayMs = 500) => {
     for (let i = 0; ; i++) {

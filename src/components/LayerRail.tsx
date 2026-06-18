@@ -23,11 +23,10 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
   onChange: (l: Layer) => void;
 }) {
   const [open, setOpen] = useState(true);
-  /* switching geom resets params to that geom's defaults but keeps the data
-     level — same result as removing the layer and adding the new one in place. */
+  /* switching geom keeps the data level — same result as removing the layer
+     and adding the new one in place. Geom knobs live in style.overrides.geoms. */
   const retype = (geom: Geom) =>
-    onChange({ geom, params: { ...(registry.geoms[geom]?.params ?? {}) },
-               level: layer.level });
+    onChange({ geom, level: layer.level });
   return (
     <li className="layer-card">
       <div className="layer-head">

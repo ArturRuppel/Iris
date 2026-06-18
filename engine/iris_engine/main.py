@@ -21,7 +21,7 @@ from pydantic import BaseModel
 
 from . import (compiler, document, geoms, guards, hierarchy, importer,
                reduce as reduce_mod, session as session_mod, specnorm, stats,
-               statmodel)
+               statmodel, style as style_mod)
 
 app = FastAPI(title="iris-engine")
 app.add_middleware(
@@ -563,7 +563,8 @@ def _run(table, spec: dict, data_id: str | None = None):
 @app.get("/health")
 def health():
     return {"status": "ok", "engine_snapshot": engine_snapshot(),
-            "registry": geoms.registry_payload()}
+            "registry": geoms.registry_payload(),
+            "style_registry": style_mod.style_registry_payload()}
 
 
 @app.get("/sample")

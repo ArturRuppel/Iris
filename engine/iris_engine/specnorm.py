@@ -19,6 +19,7 @@ def normalize(spec: dict) -> dict:
     if spec.get("spec_version") == "2.0":
         out = dict(spec)
         out["layers"] = _migrate_dist_layers(out.get("layers", []))
+        _migrate_layer_params(out)
         out.setdefault("_override", _override_of(spec))
         out.setdefault("_describe_only", _describe_only_of(spec))
         return out
@@ -45,6 +46,7 @@ def normalize(spec: dict) -> dict:
          "level": ""}
         for layer in spec.get("layers", [])
     ])
+    _migrate_layer_params(out)
     # Data hierarchy (redesign): legacy specs carry no spine, so every layer draws
     # the raw reduced rows — today's behaviour. Aggregating to a grain is the
     # hierarchy's job (pick a level), not a reduce step.
@@ -52,6 +54,33 @@ def normalize(spec: dict) -> dict:
     out["_override"] = _override_of(spec)
     out["_describe_only"] = _describe_only_of(spec)
     return out
+
+
+def _migrate_layer_params(spec: dict) -> None:
+    """Move any layer-level ``params`` into ``style.overrides.geoms.<geom>``.
+
+    Old specs (and the dist-layer migration above) place geom knobs like
+    ``dist_render`` on the layer's ``params`` dict.  The compiler now reads
+    these from ``resolve_geom_style`` (i.e. ``style.overrides.geoms``), so we
+    hoist them here — once, idempotently — during normalization.  After
+    migration the layers keep only ``geom`` + ``level``; ``params`` is dropped.
+    """
+    style = spec.setdefault("style", {})
+    overrides = style.setdefault("overrides", {})
+    geoms_ov = overrides.setdefault("geoms", {})
+
+    for layer in spec.get("layers", []):
+        params = layer.get("params")
+        if not params:
+            continue
+        geom = layer.get("geom") or layer.get("mark", "")
+        if not geom:
+            continue
+        dest = geoms_ov.setdefault(geom, {})
+        for k, v in params.items():
+            # don't overwrite an explicit override already present
+            dest.setdefault(k, v)
+        layer.pop("params", None)
 
 
 def _migrate_dist_layers(layers: list[dict]) -> list[dict]:

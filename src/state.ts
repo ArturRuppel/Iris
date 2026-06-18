@@ -2,8 +2,8 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
-  StatsFamily, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec, ReduceStep,
-  ReduceStepKind, ReducePreview,
+  StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec,
+  ReduceStep, ReduceStepKind, ReducePreview,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { familyForMappings } from "./channels";
@@ -33,6 +33,9 @@ export const dataLoadingAtom = atom<boolean>(false);
 
 /* the geom registry, fetched once from /health at startup; drives the rail */
 export const registryAtom = atom<Registry | null>(null);
+
+/* the style registry (also fetched once from /health); drives the style pane */
+export const styleRegistryAtom = atom<StyleKnob[]>([]);
 
 /* the data hierarchy is a property of the TABLE (defined in the Data tab), shared
    by every analysis: identifier columns form the ordered nesting spine, classifier
@@ -383,10 +386,7 @@ export function migrateDistLayers(layers: Layer[]): Layer[] {
   const hist = layers.find((l) => l.geom === "histogram");
   const dens = layers.find((l) => l.geom === "density");
   const base = hist ?? dens!;
-  const params: Record<string, unknown> = { ...base.params };
-  if (hist && dens) { params.dist_render ??= "bars"; params.overlay_smooth = true; }
-  else params.dist_render ??= hist ? "bars" : "smooth";
-  const merged: Layer = { geom: "distribution", params, level: base.level };
+  const merged: Layer = { geom: "distribution", level: base.level };
   let placed = false;
   const out: Layer[] = [];
   for (const l of layers) {
@@ -396,12 +396,49 @@ export function migrateDistLayers(layers: Layer[]): Layer[] {
   return out;
 }
 
+/* Migrate any layer-level params into style.overrides.geoms (same as the
+   engine's specnorm._migrate_layer_params, so the FE and engine agree).
+   Also hoists legacy histogram/density dist_render into distribution overrides.
+   Mutates the style object in place; returns the cleaned layers. */
+function migrateLayerParams(layers: Layer[], style: StyleOverrides): Layer[] {
+  const geoms: Record<string, Record<string, unknown>> = style.geoms ? { ...style.geoms } : {};
+  let migrated = false;
+  // handle legacy dist layers (histogram/density → distribution knobs)
+  const hist = layers.find((l) => l.geom === "histogram");
+  const dens = layers.find((l) => l.geom === "density");
+  if (hist || dens) {
+    const dest = geoms.distribution = { ...(geoms.distribution ?? {}) };
+    const base = hist ?? dens!;
+    const params = base.params ?? {};
+    for (const [k, v] of Object.entries(params))
+      dest[k] ??= v;
+    if (hist && dens) { dest.dist_render ??= "bars"; dest.overlay_smooth ??= true; }
+    else dest.dist_render ??= hist ? "bars" : "smooth";
+    migrated = true;
+  }
+  // hoist params from all layers
+  for (const l of layers) {
+    if (!l.params || Object.keys(l.params).length === 0) continue;
+    const dest = geoms[l.geom] = { ...(geoms[l.geom] ?? {}) };
+    for (const [k, v] of Object.entries(l.params))
+      dest[k] ??= v;
+    migrated = true;
+  }
+  if (migrated) style.geoms = geoms;
+  return layers.map(({ params: _p, ...rest }) => rest);
+}
+
 /* Inverse of buildSpec: reconstruct the editable Plottable from a saved analysis
    spec so a loaded .viz comes back fully editable, not just renderable. The spec
    carries everything the Plottable needs except previewLevel (a transient UI
    preview state), which resets to raw. */
 export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   const s = spec.stats;
+  const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
+  const layers = migrateLayerParams(
+    migrateDistLayers(spec.layers ?? []),
+    style,
+  ).map((l) => ({ ...l, id: l.id ?? nextLayerId() }));
   return {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",
@@ -413,14 +450,13 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     facetCol: spec.facet?.col?.column ?? "",
     shareX: spec.facet?.share_x ?? true,
     shareY: spec.facet?.share_y ?? true,
-    layers: migrateDistLayers(spec.layers ?? []).map(
-      (l) => ({ ...l, id: l.id ?? nextLayerId() })),
+    layers,
     // Prefer the dedicated `override` field; fall back to the legacy
     // chosen_by == user_override signal so pre-decoupling .viz files still load.
     override: s?.override ?? (s?.chosen_by === "user_override" ? s.test : null),
     describeOnly: s?.chosen_by === "describe_only",
     previewLevel: RAW_LEVEL,
-    style: spec.style?.overrides ?? {},
+    style,
     reduce: spec.reduce ?? { steps: [] },
   };
 }
@@ -576,7 +612,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
     ...src, id: nextId(), name: `${src.name} copy`,
     mappings: { ...src.mappings },
     layers: src.layers.map((l) => ({ id: nextLayerId(), geom: l.geom,
-                                     params: { ...l.params }, level: l.level })),
+                                     level: l.level })),
     style: structuredClone(src.style),
     reduce: { steps: structuredClone(src.reduce.steps) },
   };
@@ -671,12 +707,11 @@ export const effectiveSchemaAtom = atom((get) => {
 
 export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
   const p = get(activePlottableAtom); if (!p) return;
-  const reg = get(registryAtom);
-  const params = { ...(reg?.geoms[geom]?.params ?? {}) };
   // a new layer draws the raw reduced rows by default; the user binds it to a
   // coarser level (one mark per grain) to build the superplot's bold marks.
+  // Geom knobs live in style.overrides.geoms, not on the layer.
   set(activePlottableAtom,
-    { ...p, layers: [...p.layers, { id: nextLayerId(), geom, params, level: RAW_LEVEL }] });
+    { ...p, layers: [...p.layers, { id: nextLayerId(), geom, level: RAW_LEVEL }] });
 });
 
 /* ---- table-level hierarchy: column roles + spine order (Data tab) ---- */

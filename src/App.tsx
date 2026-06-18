@@ -13,7 +13,7 @@ import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
-  hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom,
+  hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom,
@@ -69,6 +69,7 @@ export default function App() {
   const exclusionLog = useAtomValue(exclusionLogAtom);
   const effectiveSchema = useAtomValue(effectiveSchemaAtom);
   const setRegistry = useSetAtom(registryAtom);
+  const setStyleRegistry = useSetAtom(styleRegistryAtom);
   const setStatus = useSetAtom(analyzeStatusAtom);
   const analyzeStatus = useAtomValue(analyzeStatusAtom);
   const setRenderError = useSetAtom(renderErrorAtom);
@@ -100,7 +101,7 @@ export default function App() {
     if (didInit.current) return;
     didInit.current = true;
     engine.waitForHealth()
-      .then((h) => { setSnapshot(h.engine_snapshot); setRegistry(h.registry); setEngineUp(true); })
+      .then((h) => { setSnapshot(h.engine_snapshot); setRegistry(h.registry); setStyleRegistry(h.style_registry ?? []); setEngineUp(true); })
       .catch(() => setEngineUp(false));
   }, []);
 

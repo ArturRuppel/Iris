@@ -102,23 +102,24 @@ def test_registry_payload_is_json_safe_and_complete():
     dot = payload["geoms"]["dot"]
     assert dot["label"] and dot["family"] == "group_comparison"
     assert dot["aggregates"] is False
-    assert isinstance(dot["param_specs"], list)
-    # bar exposes an error_type select so the rail can render an editor
-    bar_specs = {p["key"]: p for p in payload["geoms"]["bar"]["param_specs"]}
-    assert bar_specs["error_type"]["type"] == "select"
-    assert "ci95" in bar_specs["error_type"]["options"]
+    # param_specs no longer in geom registry — style knobs live in style.py
+    assert "param_specs" not in dot
+    assert "params" not in dot
 
 
-def test_distribution_exposes_render_bins_and_overlay_editors():
-    specs = {p["key"]: p for p in geoms.GEOMS["distribution"].param_specs}
-    # render mode is a select over bars/step/line/points/smooth
-    assert specs["dist_render"]["type"] == "select"
-    assert specs["dist_render"]["options"] == geoms.DIST_RENDERS
-    assert "smooth" in specs["dist_render"]["options"]
-    # binning method is a select including the adaptive numpy strategies
-    assert specs["bin_method"]["type"] == "select"
+def test_style_registry_covers_distribution_knobs():
+    """Distribution-specific style knobs (render, bins, overlay) moved to the
+    style registry; verify they exist there with correct shapes."""
+    from iris_engine.style import STYLE_REGISTRY
+    dist_knobs = {e["key"]: e for e in STYLE_REGISTRY
+                  if "distribution" in (e.get("applies_to_geoms") or [])}
+    assert "dist_render" in dist_knobs
+    assert dist_knobs["dist_render"]["widget"]["type"] == "select"
+    assert "smooth" in dist_knobs["dist_render"]["widget"]["options"]
+    assert "bin_method" in dist_knobs
     for m in ("auto", "fd", "scott", "sturges", "sqrt", "fixed"):
-        assert m in specs["bin_method"]["options"]
-    # a fixed bin count and a KDE-overlay toggle
-    assert specs["hist_bins"]["type"] == "number"
-    assert specs["overlay_smooth"]["type"] == "bool"
+        assert m in dist_knobs["bin_method"]["widget"]["options"]
+    assert "hist_bins" in dist_knobs
+    assert dist_knobs["hist_bins"]["widget"]["type"] == "number"
+    assert "overlay_smooth" in dist_knobs
+    assert dist_knobs["overlay_smooth"]["widget"]["type"] == "bool"
