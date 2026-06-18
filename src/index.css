@@ -521,3 +521,22 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   font-size: 14px; }
 .analyses-empty { display: flex; align-items: center; justify-content: center;
   height: 100%; color: var(--dim); font-size: 14px; }
+
+/* ---- style sheets (item F) ---- */
+.plottable-sidebar li.selected { background: #e0f2fe; }
+.context-menu-sep { border: none; border-top: 1px solid var(--line); margin: 2px 6px; }
+.submenu-wrap { position: relative; }
+.submenu-trigger { width: 100%; }
+.submenu { display: none; position: absolute; left: 100%; top: 0; min-width: 160px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 4px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18); z-index: 62; }
+.submenu-wrap:hover .submenu { display: flex; flex-direction: column; }
+.sidebar-toast { position: absolute; bottom: 8px; left: 8px; right: 8px;
+  background: var(--accent); color: white; font-size: 11px; text-align: center;
+  padding: 4px 8px; border-radius: 6px; pointer-events: none;
+  animation: toast-fade 2.2s ease-in-out; }
+@keyframes toast-fade { 0% { opacity: 0; } 10% { opacity: 1; } 80% { opacity: 1; } 100% { opacity: 0; } }
+.save-style-inline { display: flex; gap: 4px; align-items: center; }
+.save-style-inline input { border: 1px solid #cbd5e1; border-radius: 5px;
+  padding: 2px 6px; font-size: 11px; width: 120px; }
+.save-style-inline button { font-size: 11px; padding: 2px 8px; }

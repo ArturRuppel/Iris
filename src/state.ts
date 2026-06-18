@@ -7,6 +7,8 @@ import type {
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { familyForMappings } from "./channels";
+import type { StyleSheet } from "./style/sheet";
+import { applyStyleSheet } from "./style/sheet";
 
 export const schemaAtom = atom<Schema | null>(null);
 /* The browser no longer owns the dataset: the engine does, behind this handle
@@ -76,6 +78,33 @@ export const DEFAULT_TYPE_COLORS: Record<ColumnType, string> = {
 };
 export const typeColorsAtom = atomWithStorage<Record<ColumnType, string>>(
   "iris.typeColors", DEFAULT_TYPE_COLORS);
+
+/* ---- style sheets (item F): capture, reuse, share a plot's look ---- */
+
+/** In-session clipboard: set by Copy style, consumed by Paste style. */
+export const styleClipboardAtom = atom<StyleSheet | null>(null);
+
+/** Named library persisted to localStorage — survives restarts, spans files. */
+export const styleLibraryAtom = atomWithStorage<StyleSheet[]>(
+  "iris.styleLibrary", []);
+
+/** Multi-selection of analyses (insertion-ordered ids).  Plain click resets to
+ *  one; Cmd/Ctrl-click toggles; Shift-click selects a range.  The *active*
+ *  (edited) plottable stays single — this set drives batch style ops only. */
+export const selectedPlottableIdsAtom = atom<string[]>([]);
+
+/** Writer: apply a style sheet to every selected plottable.  Returns the count
+ *  of analyses touched. */
+export const pasteStyleAtom = atom(null,
+  (get, set, sheet: StyleSheet) => {
+    const registry = get(styleRegistryAtom);
+    const sel = get(selectedPlottableIdsAtom);
+    const ids = new Set(sel);
+    set(plottablesAtom, get(plottablesAtom).map((p) => {
+      if (!ids.has(p.id)) return p;
+      return { ...p, style: applyStyleSheet(p.style, sheet, registry) };
+    }));
+  });
 
 /* the tests each family offers, mirrored for cheap lookups when building the
    spec and filtering override choices */

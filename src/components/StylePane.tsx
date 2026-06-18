@@ -1,8 +1,14 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useAtom, useAtomValue } from "jotai";
-import { activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom, styleRegistryAtom } from "../state";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import {
+  activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom,
+  styleRegistryAtom, styleClipboardAtom, styleLibraryAtom,
+} from "../state";
 import { familyForMappings } from "../channels";
 import type { Geom, StyleKnob, StyleOverrides } from "../types";
+import { captureStyle, serializeStyleSheet, parseStyleSheet } from "../style/sheet";
+import type { StyleSheet } from "../style/sheet";
+import { fileToBase64 } from "../types";
 
 const PRESET_SWATCHES = [
   "#0e7490", "#c2410c", "#4d7c0f", "#7c3aed", "#be123c", "#0369a1",
@@ -35,6 +41,13 @@ export function StylePane() {
   const family = active ? familyForMappings(active.mappings, schema) : "group_comparison";
   const grouped = family === "group_comparison";
   const marks = new Set((active?.layers ?? []).map((l) => l.geom));
+
+  /* ---- style sheet hooks ---- */
+  const [clipboard, setClipboard] = useAtom(styleClipboardAtom);
+  const [librarySheets, setLibrarySheets] = useAtom(styleLibraryAtom);
+  const [saveName, setSaveName] = useState("");
+  const [showSave, setShowSave] = useState(false);
+  const importRef = useRef<HTMLInputElement>(null);
 
   /* ---- writers ---- */
 
@@ -221,6 +234,54 @@ export function StylePane() {
 
   const dirty = Object.keys(style).length > 0;
 
+  /* ---- style sheet actions ---- */
+
+  function doSaveAsStyle() {
+    if (!active) return;
+    const name = saveName.trim();
+    if (!name) return;
+    const sheet: StyleSheet = {
+      iris_style_version: "1.0",
+      name,
+      style: captureStyle(active.style, registry),
+    };
+    setLibrarySheets([...librarySheets, sheet]);
+    setShowSave(false);
+    setSaveName("");
+  }
+
+  function doExport() {
+    if (!active) return;
+    const sheet: StyleSheet = {
+      iris_style_version: "1.0",
+      name: active.name,
+      style: captureStyle(active.style, registry),
+    };
+    const json = serializeStyleSheet(sheet);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${active.name.replace(/[^a-zA-Z0-9_-]/g, "_")}.iris-style`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function doImport(file: File) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const sheet = parseStyleSheet(reader.result as string);
+        setClipboard(sheet);
+        // offer to save — for now, just put it on the clipboard so the user
+        // can paste it from the sidebar context menu.
+      } catch (e) {
+        console.error("Failed to import .iris-style:", e);
+      }
+    };
+    reader.readAsText(file);
+  }
+
   return (
     <details className="style-pane">
       <summary>Style{dirty && <em className="dim"> · customized</em>}</summary>
@@ -247,6 +308,30 @@ export function StylePane() {
           Reset label positions
         </button>
         <button onClick={() => active && setActive({ ...active, style: {} })} disabled={!dirty}>Reset all</button>
+      </div>
+
+      <div className="btn-row style-foot">
+        {showSave ? (
+          <span className="save-style-inline">
+            <input type="text" placeholder="Style name…" value={saveName}
+              onChange={(e) => setSaveName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") doSaveAsStyle(); else if (e.key === "Escape") setShowSave(false); }}
+              autoFocus />
+            <button disabled={!saveName.trim()} onClick={doSaveAsStyle}>Save</button>
+            <button onClick={() => setShowSave(false)}>Cancel</button>
+          </span>
+        ) : (
+          <button onClick={() => setShowSave(true)}>Save as style…</button>
+        )}
+        <button onClick={doExport}>Export…</button>
+        <button onClick={() => importRef.current?.click()}>Import…</button>
+        <input ref={importRef} type="file" accept=".iris-style,.json"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) doImport(f);
+            e.target.value = "";
+          }} />
       </div>
 
       {colorMenu && (
