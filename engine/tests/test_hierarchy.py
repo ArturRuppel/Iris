@@ -133,12 +133,9 @@ def test_pairing_partial():
     assert p["n_complete"] == 2 and p["n_units"] == 3
 
 
-def test_pairing_nested_partition_is_unpaired():
-    """A qualifier that *partitions* a sub-identity (each unit's children belong
-    to one level each, never the same child under both) is a nested batch design,
-    not a pairing — e.g. a field of view holding both `+` and `-` cells where no
-    cell is ever both. Containment of both levels in the coarser unit must not be
-    mistaken for pairing (the class_label-per-cell false-positive)."""
+def _nested_partition_df():
+    """A classifier that partitions cells within each FOV (each cell is one
+    label, but every FOV holds both) — the SuperPlot shape."""
     rows, rid = [], 0
     for fov in ("f1", "f2"):                 # coarser unit (e.g. field of view)
         for cell in range(4):                # sub-identity (home); each is one label
@@ -148,13 +145,46 @@ def test_pairing_nested_partition_is_unpaired():
                              "fov": fov, "cell": f"{fov}c{cell}", "rep": r,
                              "y": float(rid)})
                 rid += 1
-    df = pd.DataFrame(rows)
+    return pd.DataFrame(rows)
+
+
+def test_pairing_nested_partition_is_unpaired_at_raw_grain():
+    """At the *raw* grain (no inferential level) a qualifier that partitions a
+    sub-identity (each unit's children belong to one level each, never the same
+    child under both) is a nested batch design, not a pairing — a field of view
+    holding both `+` and `-` cells where no cell is ever both. Containment of both
+    levels in the coarser unit must not be mistaken for pairing among raw cells."""
+    df = _nested_partition_df()
     spine = ["fov", "cell", "rep"]
     # every fov contains both labels (containment) but via *different* cells —
-    # no cell is seen under both, so it is unpaired, not paired.
+    # no cell is seen under both, so among raw cells it is unpaired, not paired.
     p = hierarchy.pairing(df, spine, "label")
     assert p["verdict"] == "unpaired"
     assert p["n_complete"] == 0 and p["n_units"] == 2
+
+
+def test_pairing_block_grain_pairs_by_inferential_unit():
+    """The same nested-partition design becomes *paired by the block* once the
+    test runs at a grain coarser than the qualifier's home: the per-FOV means of
+    `+` and `-` are paired by FOV (the SuperPlot replicate-pairing). The verdict
+    is grain-dependent — unpaired among cells, paired across the block."""
+    df = _nested_partition_df()
+    spine = ["fov", "cell", "rep"]
+    p = hierarchy.pairing(df, spine, "label", inferential_level="fov")
+    assert p["verdict"] == "paired"
+    assert p["across"] == "fov" and p["unit_cols"] == ["fov"]
+    assert p["n_units"] == 2 and p["n_complete"] == 2
+
+
+def test_pairing_block_grain_partial_when_a_block_lacks_a_level():
+    """A block missing one level → partially paired (drop-out), not paired."""
+    df = _nested_partition_df()
+    # make f2 all-positive so it carries only one label
+    df.loc[df["fov"] == "f2", "label"] = "pos"
+    p = hierarchy.pairing(df, ["fov", "cell", "rep"], "label",
+                          inferential_level="fov")
+    assert p["verdict"] == "partially_paired"
+    assert p["n_complete"] == 1 and p["n_units"] == 2
 
 
 def test_pairing_none_for_spine_column():

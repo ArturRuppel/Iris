@@ -134,10 +134,7 @@ def render(table: dict, spec: dict, *, memo=None):
             if c and c in df.columns))
         level_tables, present_spine = hierarchy.materialize_levels(
             df, schema, spine, hier.get("fn"), split_cols)
-        # Pairing follows from the spine (paired/partially/unpaired across the
-        # qualifier's coarser-than-home units); surfaced for the deferred stats.
         model["spine"] = present_spine
-        model["pairing"] = hierarchy.pairing(df, present_spine, cat_col)
         # One source of truth: the test reads the SAME materialized grain the
         # figure draws — never a parallel raw-vs-level route. The inferential grain
         # is the coarsest level any layer is bound to (the prominent "unit" marks;
@@ -148,6 +145,11 @@ def render(table: dict, spec: dict, *, memo=None):
                         for layer in spec.get("layers", [])]
         inf_level = hierarchy.coarsest_level(present_spine, layer_levels)
         model["inferential_level"] = inf_level
+        # Pairing follows from the spine AND the grain the test runs at: a
+        # classifier nested in each replicate is unpaired among raw cells but
+        # paired by replicate once summarized to the inferential block.
+        model["pairing"] = hierarchy.pairing(
+            df, present_spine, cat_col, inferential_level=inf_level)
         stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
         res = memo(lambda: (
                stats.describe_groups(
