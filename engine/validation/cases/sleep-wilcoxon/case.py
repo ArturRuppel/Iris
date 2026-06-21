@@ -35,7 +35,7 @@ ANALYSES = [
         "spec": {
             "spec_version": "2.0",
             "title": TITLE,
-            "data": {"respect_exclusions": True},
+            "data": {"filter": []},
             "hierarchy": {"spine": ["patient", "rep"], "fn": {}},
             "encodings": {"x": {"column": "drug"},
                           "y": {"column": "extra_sleep"},

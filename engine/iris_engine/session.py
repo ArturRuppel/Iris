@@ -1,9 +1,9 @@
 """Server-owned session table: the single source of truth for the editable data.
 
 Holds the table as a pandas DataFrame keyed by a stable id (not a content hash),
-so cell edits and exclusion toggles mutate it in place and the browser never
-needs more than the rows it is showing. A monotonic `version` bumps on every
-mutation; compute and the grid use it to know the table changed."""
+so cell edits mutate it in place and the browser never needs more than the rows
+it is showing. A monotonic `version` bumps on every mutation; compute and the
+grid use it to know the table changed."""
 from __future__ import annotations
 
 import threading
@@ -26,8 +26,8 @@ class SessionTable:
         self._df = df.reset_index(drop=True)
         self.version = 0
         # Sync endpoints run in uvicorn's threadpool, so an /analyze snapshot can
-        # race a concurrent cell edit / exclusion toggle. Guard the frame so a
-        # read sees a consistent table and writes serialize.
+        # race a concurrent cell edit. Guard the frame so a read sees a consistent
+        # table and writes serialize.
         self._lock = threading.Lock()
 
     @property
@@ -39,7 +39,7 @@ class SessionTable:
 
     def snapshot(self) -> pd.DataFrame:
         """A consistent, caller-owned copy of the whole frame, taken under the
-        lock so it can't tear against a concurrent edit/exclusion. Compute reads
+        lock so it can't tear against a concurrent edit. Compute reads
         this directly instead of round-tripping the frame through a row list — a
         vectorized copy, not the per-cell boxing `records` pays."""
         with self._lock:
@@ -65,14 +65,6 @@ class SessionTable:
             self._df.at[pos, column] = value
             self.version += 1
 
-    def toggle_exclusion(self, row_id: str) -> bool:
-        with self._lock:
-            pos = self._row_pos(row_id)
-            new = not bool(self._df.at[pos, "excluded"])
-            self._df.at[pos, "excluded"] = new
-            self.version += 1
-            return new
-
     def distinct(self, column: str) -> list[str]:
         with self._lock:
             if column not in self._df.columns:
@@ -82,8 +74,7 @@ class SessionTable:
 
     def counts(self) -> dict:
         with self._lock:
-            excluded = int(self._df["excluded"].fillna(False).astype(bool).sum())
-            return {"total": self.n, "excluded": excluded}
+            return {"total": self.n}
 
 
 class SessionStore:

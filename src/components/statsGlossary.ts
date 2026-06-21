@@ -222,7 +222,7 @@ export const STATS_GLOSSARY = {
   },
   methods_text: {
     term: "Methods text",
-    what: "A ready-to-paste sentence describing the test, the numbers, and any excluded observations, in journal methods style.",
+    what: "A ready-to-paste sentence describing the test and the numbers, in journal methods style.",
     read: "Copy it into a manuscript. It records exactly what was run, including whether you accepted the recommendation or overrode it.",
   },
 } satisfies Record<string, GlossaryEntry>;

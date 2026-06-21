@@ -37,13 +37,6 @@ def _p_stars(p: float) -> str:
     return "***" if p < 0.001 else "**" if p < 0.01 else "*" if p < 0.05 else "ns"
 
 
-def _excl_note(df: pd.DataFrame) -> str:
-    """The trailing methods-text clause naming how many raw rows were excluded
-    before this analysis ran (empty when none were)."""
-    n = int(df.attrs.get("n_excluded", 0))
-    return f" {n} observation(s) were excluded." if n else ""
-
-
 def _no_effect() -> dict:
     """The effect-size slot for a describe-only result (no test run)."""
     return {"name": "none", "value": 0.0, "ci": None}
@@ -148,8 +141,6 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
     # descriptive only; a pinned test is the user's choice, not a flagged deviation
     chosen_by = "recommendation_accepted"
 
-    excl_note = _excl_note(df)
-
     if test == "one_way_anova":
         aov = pg.anova(data=sub, dv=y, between=x).iloc[0]
         F = float(_col(aov, "F"))
@@ -180,7 +171,7 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
             f"{y} was compared across the {k} levels of {x} (N = {N}) using a "
             f"one-way ANOVA. F({df_b:.0f}, {df_w:.0f}) = {F:.2f}, "
             f"p {_fmt_p(p)}; η² = {eta:.2f}. Pairwise differences used Tukey's "
-            f"HSD (family-wise α = {alpha}): {pair_txt}.{excl_note}")
+            f"HSD (family-wise α = {alpha}): {pair_txt}.")
     else:
         kw = pg.kruskal(data=sub, dv=y, between=x).iloc[0]
         H = float(_col(kw, "H"))
@@ -210,7 +201,7 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
             f"{y} was compared across the {k} levels of {x} (N = {N}) using the "
             f"Kruskal–Wallis test. H({df_b:.0f}) = {H:.2f}, p {_fmt_p(p)}; "
             f"epsilon² = {eps:.2f}. Pairwise differences used Mann–Whitney U with "
-            f"Holm correction: {pair_txt}.{excl_note}")
+            f"Holm correction: {pair_txt}.")
 
     decision = {
         "structural": {
@@ -333,9 +324,9 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     }
 
     nA, nB = len(a), len(b)
-    excl_note = _excl_note(df)
+    pair_note = ""
     if structural_chosen == "paired":
-        excl_note += (f" n counts {nA} complete pairs across "
+        pair_note += (f" n counts {nA} complete pairs across "
                       f"{pairing.get('across')}.")
 
     if test == "paired_t":
@@ -355,7 +346,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             f"t-test on {nA} matched pairs. t({_col(row,'dof'):.0f}) = "
             f"{_col(row,'T'):.2f}, p {_fmt_p(_col(row,'p_val','p-val'))}; "
             f"Hedges' g = {gd:.2f}; mean difference = {md:.2f} "
-            f"(95% CI {ci_lo:.2f} to {ci_hi:.2f}).{excl_note}")
+            f"(95% CI {ci_lo:.2f} to {ci_hi:.2f}).{pair_note}")
     elif test == "wilcoxon":
         ww = pg.wilcoxon(a, b)
         row = ww.iloc[0]
@@ -369,7 +360,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
         methods = (
             f"{y} was compared between {found[0]} and {found[1]} using the "
             f"Wilcoxon signed-rank test on {nA} matched pairs. W = {W:.0f}, "
-            f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{excl_note}")
+            f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{pair_note}")
     elif test == "welch_t":
         tt = pg.ttest(a, b, correction=True)
         row = tt.iloc[0]
@@ -388,7 +379,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
             f"using Welch's t-test. t({_col(row,'dof'):.1f}) = {_col(row,'T'):.2f}, "
             f"p {_fmt_p(_col(row,'p_val','p-val'))}; Hedges' g = {gd:.2f} "
-            f"(95% CI {gd - 1.96 * se_g:.2f} to {gd + 1.96 * se_g:.2f}).{excl_note}")
+            f"(95% CI {gd - 1.96 * se_g:.2f} to {gd + 1.96 * se_g:.2f}).{pair_note}")
     else:
         # scipy's asymptotic U matches pingouin's exactly but skips pingouin's
         # O(nA·nB) CLES brute force, which alone cost ~14 s on 80k-row groups.
@@ -404,7 +395,7 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
         methods = (
             f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
             f"using the Mann–Whitney U test. U = {U:.0f}, "
-            f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{excl_note}")
+            f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{pair_note}")
 
     # per-group summaries for the plot (mean ± 95% CI of the mean), on raw rows
     summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
@@ -440,9 +431,8 @@ def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
     found += sorted(set(sub[x]) - set(levels))
     summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
                  for lv in found]
-    excl = _excl_note(df)
     methods = (f"{y} was summarized by {x} across {len(found)} group(s); "
-               f"no statistical test was run (describe only).{excl}")
+               f"no statistical test was run (describe only).")
     return {
         "levels": found, "checks": [],
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},
@@ -463,11 +453,10 @@ def timeseries(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dict:
     sub = df[[x, y]].dropna()
     n = int(len(sub))
     n_tp = int(sub[x].nunique())
-    excl = _excl_note(df)
     span = (f" over {sub[x].min():g}–{sub[x].max():g}" if n else "")
     methods = (f"{y} was plotted over {x} ({n_tp} timepoint(s){span}, "
                f"{n} observation(s)); no statistical test was run "
-               f"(describe only).{excl}")
+               f"(describe only).")
     return {
         "levels": [], "checks": [],
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},
@@ -482,7 +471,6 @@ def describe_pairs(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dic
     """Scatter of two numeric columns with NO correlation test — the 'describe
     only' path. Raw points only; no regression line, r, or p."""
     sub = df[[x, y]].dropna()
-    excl = _excl_note(df)
     return {
         "levels": [], "checks": [],
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},
@@ -491,7 +479,7 @@ def describe_pairs(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dic
                    "effect": _no_effect()},
         "summaries": [], "alpha": alpha,
         "methods_text": (f"{x} and {y} were plotted without a correlation test "
-                         f"(describe only).{excl}"),
+                         f"(describe only)."),
     }
 
 
@@ -536,13 +524,12 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
     result = {"test": test, "r": r, "p": p, "n": n,
               "effect": {"name": eff_name, "value": r, "ci": ci}}
 
-    excl_note = _excl_note(df)
     symbol = "r" if test == "pearson" else "ρ"
     name = "Pearson correlation" if test == "pearson" else "Spearman rank correlation"
     methods = (
         f"The association between {x} and {y} was assessed using {name} "
         f"(n = {n}). {symbol} = {r:.2f} (95% CI {ci[0]:.2f} to {ci[1]:.2f}), "
-        f"p {_fmt_p(p)}.{excl_note}")
+        f"p {_fmt_p(p)}.")
 
     # OLS line + 95% CI band on the conditional mean, for the figure
     lr = sps.linregress(xa, ya)
@@ -581,7 +568,6 @@ def contingency_counts(df: pd.DataFrame, x: str, y: str,
          for xl in x_levels]
         for yl in y_levels
     ]
-    excl = _excl_note(df)
     return {
         "x_levels": x_levels, "y_levels": y_levels, "counts": counts,
         "total": total,
@@ -593,7 +579,7 @@ def contingency_counts(df: pd.DataFrame, x: str, y: str,
                    "effect": _no_effect()},
         "summaries": [], "alpha": alpha,
         "methods_text": (f"The contingency of {y} × {x} was displayed for "
-                         f"n = {total} observations.{excl}"),
+                         f"n = {total} observations."),
     }
 
 
@@ -613,11 +599,10 @@ def contingency_test(df: pd.DataFrame, x: str, y: str,
     All inferential numbers come from scipy (chi2_contingency / fisher_exact)."""
     base = contingency_counts(df, x, y, x_levels, y_levels, alpha)
     full = np.array(base["counts"], dtype=float)  # rows = y_levels, cols = x_levels
-    excl = _excl_note(df)
 
-    # Drop all-zero rows/cols: a schema level with no observations (e.g. after
-    # exclusions) contributes nothing and makes chi2_contingency raise. The full
-    # matrix is kept in the result for the tile; only the test sees the dense one.
+    # Drop all-zero rows/cols: a schema level with no observations contributes
+    # nothing and makes chi2_contingency raise. The full matrix is kept in the
+    # result for the tile; only the test sees the dense one.
     obs = full[full.sum(axis=1) > 0][:, full.sum(axis=0) > 0]
     if obs.shape[0] < 2 or obs.shape[1] < 2:
         return {"error": "needs at least 2 non-empty levels in each variable for a "
@@ -665,7 +650,7 @@ def contingency_test(df: pd.DataFrame, x: str, y: str,
         methods = (
             f"The association between {x} and {y} was tested with Fisher's exact "
             f"test (n = {n}). Odds ratio = {or_val:.2f} "
-            f"(95% CI {ci[0]:.2f} to {ci[1]:.2f}), p {_fmt_p(p)}.{excl}")
+            f"(95% CI {ci[0]:.2f} to {ci[1]:.2f}), p {_fmt_p(p)}.")
     else:
         result = {"test": "chi_square", "chi2": float(chi2), "dof": int(dof),
                   "p": float(p_chi), "n": n,
@@ -674,7 +659,7 @@ def contingency_test(df: pd.DataFrame, x: str, y: str,
             f"The association between {x} and {y} was tested with Pearson's "
             f"chi-square test of independence (n = {n}). "
             f"χ²({int(dof)}) = {chi2:.2f}, p {_fmt_p(float(p_chi))}; "
-            f"Cramér's V = {cramers_v:.2f}.{excl}")
+            f"Cramér's V = {cramers_v:.2f}.")
 
     return {
         "x_levels": base["x_levels"], "y_levels": base["y_levels"],
@@ -714,10 +699,9 @@ def descriptive(df: pd.DataFrame, y: str, alpha: float = 0.05) -> dict:
               "min": float(v.min()), "max": float(v.max()),
               "effect": _no_effect()}
 
-    excl_note = _excl_note(df)
     center = (f"mean = {result['mean']:.2f} (SD {result['sd']:.2f})" if normal
               else f"median = {med:.2f} (IQR {q1:.2f}–{q3:.2f})")
-    methods = f"{y} was summarized for n = {n} observations: {center}.{excl_note}"
+    methods = f"{y} was summarized for n = {n} observations: {center}."
 
     return {
         "levels": [], "checks": checks,

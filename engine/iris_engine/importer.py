@@ -25,7 +25,7 @@ TRUE_TOKENS = {"true", "t", "yes", "y"}
 FALSE_TOKENS = {"false", "f", "no", "n"}
 BOOL_TOKENS = TRUE_TOKENS | FALSE_TOKENS
 
-RESERVED_NAMES = {"id", "excluded"}  # row bookkeeping fields in the table model
+RESERVED_NAMES = {"id"}  # row bookkeeping fields in the table model
 
 EXCEL_SUFFIXES = (".xlsx", ".xlsm", ".xls")
 
@@ -280,8 +280,7 @@ def _typed_columns(df: pd.DataFrame, columns: list[dict], decimal: str,
     """Per-column value lists with the confirmed types applied and NaN → None.
     The columnar building block shared by the row and columnar emitters."""
     out = df if limit is None else df.head(limit)
-    converted = {"id": [f"r{i + 1}" for i in range(len(out))],
-                 "excluded": [False] * len(out)}
+    converted = {"id": [f"r{i + 1}" for i in range(len(out))]}
     for col in columns:
         s = out[col["name"]]
         if col["type"] == "numeric":

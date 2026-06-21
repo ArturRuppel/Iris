@@ -170,7 +170,7 @@ def _rows(counts):
     out = []
     for yi, yl_ in enumerate(yl):
         for xi, xl_ in enumerate(xl):
-            out += [{"treatment": xl_, "outcome": yl_, "excluded": False}] \
+            out += [{"treatment": xl_, "outcome": yl_}] \
                 * counts[yi][xi]
     return out
 
@@ -178,7 +178,7 @@ def _rows(counts):
 def _spec(chosen_by, test="none"):
     return {
         "spec_version": "2.0", "id": "c", "title": "c",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {"x": {"column": "treatment"}, "y": {"column": "outcome"},
                       "color": None, "size": None, "shape": None},

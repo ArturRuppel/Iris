@@ -12,7 +12,6 @@ SCHEMA = {"schema_version": "1.0", "columns": [
 def _df(n=5):
     return pd.DataFrame({
         "id": [str(i + 1) for i in range(n)],
-        "excluded": [False] * n,
         "g": (["a", "b"] * n)[:n],
         "y": [float(i) for i in range(n)],
     })
@@ -59,13 +58,16 @@ def test_edit_unknown_row_or_column_raises():
         t.edit_cell("1", "nope", 1.0)
 
 
-def test_toggle_exclusion_returns_new_state():
+def test_edit_bool_flag_cell_persists():
+    # The replacement for the removed exclusion toggle: a boolean flag is an
+    # ordinary editable cell on the session table (filtered on downstream).
     store = session.SessionStore()
-    t = store.get(store.create(SCHEMA, _df()))
-    assert t.toggle_exclusion("1") is True
-    assert t.window(0, 1)[0]["excluded"] is True
-    assert t.toggle_exclusion("1") is False
-    assert t.version == 2
+    df = _df()
+    df["flag"] = [False] * 5
+    t = store.get(store.create(SCHEMA, df))
+    t.edit_cell("1", "flag", True)
+    assert t.version == 1
+    assert t.window(0, 1)[0]["flag"] is True
 
 
 def test_distinct_levels_sorted_strings_capped():
@@ -76,9 +78,7 @@ def test_distinct_levels_sorted_strings_capped():
     assert t.distinct("g") == ["a", "b", "c"]
 
 
-def test_counts_reflect_exclusions():
+def test_counts_total():
     store = session.SessionStore()
     t = store.get(store.create(SCHEMA, _df(4)))
-    assert t.counts() == {"total": 4, "excluded": 0}
-    t.toggle_exclusion("1")
-    assert t.counts() == {"total": 4, "excluded": 1}
+    assert t.counts() == {"total": 4}

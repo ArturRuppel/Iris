@@ -85,7 +85,7 @@ def sample_rows() -> list[dict]:
             resp = round(82 - 0.32 * dose + shift + float(rng.normal(0, 6.5)), 1)
             rows.append({"id": f"r{i}", "subject": f"S{i:02d}",
                          "treatment": treatment, "dose": dose,
-                         "response": resp, "excluded": False})
+                         "response": resp})
             i += 1
     return rows
 
@@ -107,7 +107,7 @@ def _leaf_label(name: str) -> str:
 def _infer_schema(df: pd.DataFrame) -> dict:
     cols = []
     for name in df.columns:
-        if name in ("id", "excluded"):
+        if name == "id":
             continue
         s = df[name]
         nun = int(s.nunique(dropna=True))
@@ -138,5 +138,4 @@ def load_sample() -> dict:
     rows = json.loads(df.to_json(orient="records"))
     for i, r in enumerate(rows, 1):
         r["id"] = str(i)
-        r["excluded"] = False
     return {"schema": schema, "rows": rows}

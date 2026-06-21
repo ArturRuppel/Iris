@@ -39,7 +39,7 @@ def _df():
     for grp, subs in (("A", ["s1", "s2"]), ("B", ["s3", "s4"])):
         for s in subs:
             for r in range(3):
-                rows.append({"id": f"r{rid}", "excluded": False, "group": grp,
+                rows.append({"id": f"r{rid}", "group": grp,
                              "subject": s, "rep": r, "y": float(rid)})
                 rid += 1
     return pd.DataFrame(rows)

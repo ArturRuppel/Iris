@@ -171,7 +171,7 @@ _SCHEMA = {"schema_version": "1.0", "columns": [
 
 def _table():
     df = _paired_df(n_subjects=15)
-    rows = [{**rec, "id": f"r{i}", "excluded": False}
+    rows = [{**rec, "id": f"r{i}"}
             for i, rec in enumerate(df.to_dict("records"))]
     return {"schema": _SCHEMA, "rows": rows}
 
@@ -179,7 +179,7 @@ def _table():
 def _spec(spine):
     return {
         "spec_version": "2.0", "id": "p", "title": "p",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "hierarchy": {"spine": spine, "fn": {}},
         "encodings": {"x": {"column": "group"}, "y": {"column": "y"},

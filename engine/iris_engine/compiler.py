@@ -1,9 +1,9 @@
 """Compile an analysis spec to a matplotlib figure.
 
 Dots/scatter draw as plain vector marks: points are not individually clickable
-(item I removed click-to-exclude/select from the figure — exclusion lives in the
-DataTable), so the compiler emits no per-point gids or point_groups and colour is
-vectorized into one scatter call per marker rather than split per colour level.
+(item I removed click-to-select from the figure), so the compiler emits no
+per-point gids or point_groups and colour is vectorized into one scatter call
+per marker rather than split per colour level.
 Draggable artists (title, axis labels, the r/p annotation, the legend) still
 carry their own stable gids — see `_decorate`.
 

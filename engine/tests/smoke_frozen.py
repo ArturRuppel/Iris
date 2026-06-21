@@ -94,7 +94,7 @@ def main() -> None:
 
         saved = req("/document/save", {"table": make_table(),
                                        "analyses": [make_spec()],
-                                       "provenance": {"exclusions": []}})
+                                       "provenance": {}})
         loaded = req("/document/load", {"data_base64": saved["data_base64"]})
         assert len(loaded["rows"]) == 40
         ok(".iris save/load roundtrip")

@@ -136,7 +136,6 @@ def _render(df, geom="box", horizontal=False, show_significance=True):
     rows = json.loads(df.to_json(orient="records"))
     for i, r in enumerate(rows, 1):
         r["id"] = str(i)
-        r["excluded"] = False
     schema = document._infer_schema(df)
     enc = ({"x": {"column": "y"}, "y": {"column": "g"}} if horizontal
            else {"x": {"column": "g"}, "y": {"column": "y"}})

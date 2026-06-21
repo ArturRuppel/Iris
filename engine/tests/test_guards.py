@@ -14,8 +14,7 @@ def frame(n_per_group):
     rows = []
     for g in ("a", "b"):
         for i in range(n_per_group):
-            rows.append({"id": f"{g}{i}", "grp": g, "val": float(i),
-                         "excluded": False})
+            rows.append({"id": f"{g}{i}", "grp": g, "val": float(i)})
     return pd.DataFrame(rows)
 
 
@@ -78,8 +77,7 @@ def test_numeric_color_is_renderable_kept_and_not_palette_warned():
     # Phase 3b: a numeric color resolves through a continuous colormap, so it is
     # kept (not dropped) and never trips channel_unrenderable / palette_exhausted
     # — a colorbar has no discrete palette to exhaust.
-    rows = [{"id": f"r{i}", "grp": "a" if i % 2 else "b", "val": float(i),
-             "excluded": False} for i in range(20)]   # 20 distinct color values
+    rows = [{"id": f"r{i}", "grp": "a" if i % 2 else "b", "val": float(i)} for i in range(20)]   # 20 distinct color values
     df = pd.DataFrame(rows)
     s = _aes_spec("dot", color="val")          # val is numeric → continuous color
     issues = guards.evaluate(df, SCHEMA, s, stat_model=None)
@@ -112,7 +110,7 @@ def test_renderable_aesthetic_channels_are_kept():
 
 def test_high_cardinality_color_warns_palette_exhausted():
     n = guards.COLOR_CAP + 1                # one more level than the palette holds
-    rows = [{"id": f"r{i}", "grp": f"g{i}", "val": float(i), "excluded": False}
+    rows = [{"id": f"r{i}", "grp": f"g{i}", "val": float(i)}
             for i in range(n)]             # distinct color levels > palette → repeat
     df = pd.DataFrame(rows)
     schema = {"schema_version": "1.0", "columns": [
@@ -143,8 +141,7 @@ def _facet_frame(n_row_levels, n_col_levels, n_per_cell=2):
                 for _ in range(n_per_cell):
                     i += 1
                     rows.append({"id": f"r{i}", "grp": g, "val": float(i),
-                                "row_facet": f"r{ri}", "col_facet": f"c{ci}",
-                                "excluded": False})
+                                "row_facet": f"r{ri}", "col_facet": f"c{ci}"})
     return pd.DataFrame(rows)
 
 

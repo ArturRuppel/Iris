@@ -31,10 +31,10 @@ def make_table():
     rows = []
     for i, v in enumerate(A, 1):
         rows.append({"id": f"r{i}", "treatment": "control",
-                     "response": v, "excluded": False})
+                     "response": v})
     for i, v in enumerate(B, 21):
         rows.append({"id": f"r{i}", "treatment": "drug_a",
-                     "response": v, "excluded": False})
+                     "response": v})
     return {"schema": SCHEMA, "rows": rows}
 
 
@@ -44,7 +44,7 @@ def make_horiz_spec(*geom_names):
     return {
         "spec_version": "2.0",
         "id": "h_test", "title": "Horizontal test",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {
             "x": {"column": "response"},    # numeric → value axis
@@ -140,7 +140,7 @@ def test_horizontal_stats_match_vertical_stats():
     # vertical spec
     vert_spec = {
         "spec_version": "2.0", "id": "v", "title": "v",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {"x": {"column": "treatment"}, "y": {"column": "response"},
                       "color": None, "size": None, "shape": None},

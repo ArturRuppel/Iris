@@ -15,7 +15,7 @@ aggregates. Because every grain is a *prefix* of the spine, each level can be
 computed directly from the (reduced) raw frame — the prefixes nest, so the id
 lists chain implicitly.
 
-Pure pandas — no matplotlib, no FastAPI. The caller removes excluded rows first.
+Pure pandas — no matplotlib, no FastAPI.
 """
 from __future__ import annotations
 
@@ -59,7 +59,6 @@ def _level_table(df: pd.DataFrame, schema: dict, grain: list[str],
     out = g.agg(agg).reset_index()
     out = out.rename(columns={"id": "row_ids"})
     out.insert(0, "id", [f"{'_'.join(grain)}#{i + 1}" for i in range(len(out))])
-    out["excluded"] = False
 
     new_cols = ([cols[c] for c in grain] + [cols[c] for c in carried]
                 + [cols[m] for m in measures])

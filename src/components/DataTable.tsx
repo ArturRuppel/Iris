@@ -5,7 +5,7 @@ import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
   type CellEditRequestEvent, type ColDef, type GridApi, type IDatasource,
 } from "ag-grid-community";
-import { schemaAtom, tableHandleAtom, toggleExclusionAtom, typeColorsAtom } from "../state";
+import { schemaAtom, tableHandleAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
 import { engine, type Row } from "../types";
 
@@ -34,12 +34,11 @@ export function DataTable() {
   const schema = useAtomValue(schemaAtom);
   const handle = useAtomValue(tableHandleAtom);
   const setHandle = useSetAtom(tableHandleAtom);
-  const toggle = useSetAtom(toggleExclusionAtom);
   const [typeColors, setTypeColors] = useAtom(typeColorsAtom);
   const gridApiRef = useRef<GridApi<Row> | null>(null);
 
   /* Infinite Row Model datasource: the grid pulls row windows from the engine
-     instead of holding all N rows. A version bump (an edit/exclusion, Phase C)
+     instead of holding all N rows. A version bump (an edit, Phase C)
      rebuilds this so the affected block refetches. */
   const datasource = useMemo<IDatasource>(() => ({
     rowCount: handle?.n,
@@ -57,16 +56,7 @@ export function DataTable() {
 
   const columnDefs = useMemo<ColDef<Row>[]>(() => {
     if (!schema) return [];
-    const defs: ColDef<Row>[] = [{
-      field: "excluded",
-      headerName: "✕",
-      headerTooltip: "excluded from analysis",
-      width: 44,
-      editable: true,
-      cellDataType: "boolean",
-      resizable: false,
-      suppressHeaderMenuButton: true,
-    }];
+    const defs: ColDef<Row>[] = [];
     for (const c of schema.columns) {
       defs.push({
         field: c.name,
@@ -106,14 +96,10 @@ export function DataTable() {
 
   /* readOnlyEdit: the grid never mutates locally. An edit is an op against the
      server-owned table; bumping the handle version refetches the affected block
-     (and re-runs compute). Exclusions go through the provenance-logging atom. */
+     (and re-runs compute). */
   const onCellEditRequest = async (e: CellEditRequestEvent<Row>) => {
     if (!handle) return;
     const field = e.colDef.field!;
-    if (field === "excluded") {
-      await toggle(e.data.id);
-      return;
-    }
     const col = schema.columns.find((c) => c.name === field);
     let value: unknown = e.newValue;
     if (col?.type === "numeric")
@@ -168,7 +154,6 @@ export function DataTable() {
           readOnlyEdit
           onCellEditRequest={onCellEditRequest}
           onGridReady={(e) => { gridApiRef.current = e.api; }}
-          rowClassRules={{ excluded: (p) => !!p.data?.excluded }}
           singleClickEdit
           stopEditingWhenCellsLoseFocus
           suppressCellFocus={false}

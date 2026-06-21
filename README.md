@@ -28,9 +28,14 @@ npm install
 npm run dev                          # http://localhost:5173
 ```
 
-The app loads a sample dataset. Edit cells, click points to exclude them,
-override the recommended test, switch to a journal size preset, export
-SVG/PDF/PNG, save a `.iris` document.
+The app loads a sample dataset. Edit cells, override the recommended test,
+switch to a journal size preset, export SVG/PDF/PNG, save a `.iris` document.
+
+To drop rows from an analysis there is no separate exclusion mechanism: flag the
+rows in a boolean column (the grid edits booleans inline) and add a `filter`
+reduce step on it (`flag == false`). A `.iris` is then a pure function of its
+input table and analysis spec; the curated judgment of *which* rows to flag lives
+upstream, where its own provenance belongs.
 
 ## Desktop shell (Tauri)
 
@@ -80,9 +85,9 @@ Packaging notes, learned the hard way:
 
 Validated end-to-end in CI-like conditions (see `engine/tests/`, 8 tests):
 - Welch t / Mann–Whitney / Shapiro–Wilk / Hedges' g match scipy ground truth
-- SVG contains one `<use>` per data row inside gid-tagged groups
-  (the contract the frontend's click-to-exclude relies on)
-- Exclusions propagate into n, summaries, and the generated methods text
+- A `filter` reduce step on a boolean flag column reproduces, exactly, the stats
+  the removed exclusion mechanism used to produce (validation corpus regression
+  case `filter-flag-equivalence`)
 - PDF export MediaBox measures exactly 89 × 70 mm for `nature_single_column`
 - `.iris` document save/load roundtrip
 - Frontend compiles under strict TypeScript and builds with Vite

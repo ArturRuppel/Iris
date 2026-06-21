@@ -56,7 +56,7 @@ def test_select_keeps_and_orders_columns():
     out, schema = rd.apply_reduction(frame(), SCHEMA, [
         select_step(["response", "treatment"])])
     # meta columns ride along; data columns are exactly the selection, in order
-    assert [c for c in out.columns if c not in ("id", "excluded")] == ["response", "treatment"]
+    assert [c for c in out.columns if c != "id"] == ["response", "treatment"]
     assert [c["name"] for c in schema["columns"]] == ["response", "treatment"]
     # rows preserved
     assert out["response"].tolist() == [80.0, 70.0, 60.0, 50.0]

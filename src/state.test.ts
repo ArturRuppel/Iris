@@ -15,7 +15,7 @@ function makeSpec(id: string, opts: {
 } = {}): AnalysisSpec {
   return {
     spec_version: "2.0", id, title: opts.tag ?? id,
-    data: { filter: [], respect_exclusions: true },
+    data: { filter: [] },
     reduce: { steps: [] },
     encodings: {
       x: opts.xCol ? { column: opts.xCol } : null,

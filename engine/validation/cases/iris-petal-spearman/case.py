@@ -29,7 +29,7 @@ ANALYSES = [
         "spec": {
             "spec_version": "2.0",
             "title": TITLE,
-            "data": {"respect_exclusions": True},
+            "data": {"filter": []},
             "encodings": {"x": {"column": "petal_length"},
                           "y": {"column": "petal_width"},
                           "color": None, "size": None, "shape": None},

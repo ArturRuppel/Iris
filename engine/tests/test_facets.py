@@ -34,8 +34,7 @@ def make_table():
             for v in range(5):
                 i += 1
                 rows.append({"id": f"r{i}", "treatment": treatment, "site": site,
-                            "response": float(v + (3 if treatment == "drug_a" else 0)),
-                            "excluded": False})
+                            "response": float(v + (3 if treatment == "drug_a" else 0))})
     return {"schema": SCHEMA, "rows": rows}
 
 
@@ -43,7 +42,7 @@ def make_spec(*, facet_row=None, facet_col=None, geom="box"):
     return {
         "spec_version": "2.0",
         "id": "facet_test", "title": "Facet test",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {
             "x": {"column": "treatment"}, "y": {"column": "response"},
@@ -116,11 +115,10 @@ def test_facet_cell_cap_trips_end_to_end_via_analyze():
         for treatment in ("control", "drug_a"):
             i += 1
             rows.append({"id": f"r{i}", "treatment": treatment,
-                        "site": f"s{s}", "response": float(i),
-                        "excluded": False})
+                        "site": f"s{s}", "response": float(i)})
     table = {"schema": schema, "rows": rows}
     spec = make_spec(facet_row="site")
-    spec["data"] = {"filter": [], "respect_exclusions": True}
+    spec["data"] = {"filter": []}
     r = client.post("/analyze", json={"table": table, "spec": spec})
     assert r.status_code == 422
     assert "facet" in r.json()["detail"].lower() or "21" in r.json()["detail"]
@@ -139,8 +137,7 @@ def _site_effect_table():
             for v in range(5):
                 i += 1
                 rows.append({"id": f"r{i}", "treatment": treatment, "site": site,
-                            "response": shift + v + (3 if treatment == "drug_a" else 0),
-                            "excluded": False})
+                            "response": shift + v + (3 if treatment == "drug_a" else 0)})
     return pd.DataFrame(rows)
 
 
@@ -205,7 +202,7 @@ def test_faceted_scatter_grid_shape_and_marks_per_cell():
         {"name": "y", "type": "numeric", "label": "Y"},
     ]}
     rows = [{"id": f"r{i}", "site": "north" if i % 2 else "south",
-             "x": float(i), "y": float(i), "excluded": False} for i in range(10)]
+             "x": float(i), "y": float(i)} for i in range(10)]
     df = pd.DataFrame(rows)
     spec = make_spec(facet_row="site")
     spec["encodings"] = {"x": {"column": "x"}, "y": {"column": "y"},
@@ -235,7 +232,7 @@ def test_faceted_tile_grid_shape_and_per_cell_counts():
             for _ in range(3):
                 i += 1
                 rows.append({"id": f"r{i}", "site": site, "treatment": treatment,
-                            "outcome": outcome, "excluded": False})
+                            "outcome": outcome})
     df = pd.DataFrame(rows)
     spec = make_spec(facet_row="site")
     spec["encodings"] = {"x": {"column": "treatment"}, "y": {"column": "outcome"},

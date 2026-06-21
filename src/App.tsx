@@ -12,7 +12,7 @@ import { StatsPanel } from "./components/StatsPanel";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
-  effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom, exclusionLogAtom,
+  effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
   hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
@@ -66,7 +66,6 @@ export default function App() {
   const handle = useAtomValue(tableHandleAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
-  const exclusionLog = useAtomValue(exclusionLogAtom);
   const effectiveSchema = useAtomValue(effectiveSchemaAtom);
   const setRegistry = useSetAtom(registryAtom);
   const setStyleRegistry = useSetAtom(styleRegistryAtom);
@@ -257,8 +256,7 @@ export default function App() {
   };
   const doSave = async () => {
     if (!schema || allSpecs.length === 0 || !handle) return;
-    const f = await engine.saveDocument(handle.id, allSpecs,
-      { exclusions: exclusionLog });
+    const f = await engine.saveDocument(handle.id, allSpecs, {});
     downloadBase64(f.filename, f.data_base64);
   };
   const doLoad = async (file: File) => {
@@ -267,7 +265,6 @@ export default function App() {
       loadDocument({
         schema: doc.schema, rows: doc.rows,
         analyses: doc.analyses.map(migrateSpec),   // tolerate older .viz specs
-        exclusions: doc.provenance?.exclusions ?? [],
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
       });
       setViewMode(doc.analyses.length ? "analyses" : "data");

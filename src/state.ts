@@ -12,8 +12,8 @@ import { applyStyleSheet } from "./style/sheet";
 
 export const schemaAtom = atom<Schema | null>(null);
 /* The browser no longer owns the dataset: the engine does, behind this handle
-   (id + version + schema + row count + included/excluded split). The grid pulls
-   row windows by id; nothing in the browser holds all N rows. */
+   (id + version + schema + row count). The grid pulls row windows by id; nothing
+   in the browser holds all N rows. */
 export const tableHandleAtom = atom<TableHandle | null>(null);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
@@ -130,22 +130,6 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
   timeseries: [],
 };
 
-/* provenance: every exclusion toggle is logged, never silently applied */
-export interface ExclusionEvent { row_id: string; excluded: boolean; at: string }
-export const exclusionLogAtom = atom<ExclusionEvent[]>([]);
-
-/* Exclusion state lives server-side now: toggle the row on the session table,
-   then bump the handle (version drives the grid refetch + a recompute) and log
-   the provenance event with the authoritative new state the server returned. */
-export const toggleExclusionAtom = atom(null, async (get, set, rowId: string) => {
-  const handle = get(tableHandleAtom);
-  if (!handle) return;
-  const { excluded, version, counts } = await engine.toggleExclude(handle.id, rowId);
-  set(tableHandleAtom, { ...handle, version, counts });
-  set(exclusionLogAtom, [...get(exclusionLogAtom),
-    { row_id: rowId, excluded, at: new Date().toISOString() }]);
-});
-
 /* ---- Plottable: one analysis bundled with its visual + reduce config ---- */
 
 export interface Plottable {
@@ -221,7 +205,7 @@ export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 /* Per plottable, the key the cached result in analysisByIdAtom was computed from:
    `${handle.id}:${handle.version}:${JSON.stringify(spec)}` — a complete freshness
    fingerprint (spec embeds encodings/layers/style/reduce/hierarchy/snapshot,
-   handle.version captures data edits + exclusion toggles). Written ONLY on a
+   handle.version captures data edits). Written ONLY on a
    successful render (setAnalysisResultAtom); reset with analysisByIdAtom on data /
    document load. A fresh key means "the cached figure already matches" → no
    re-render. */
@@ -360,7 +344,7 @@ export const setAnalysisByIdAtom = atom(
   });
 
 /* swap in a freshly imported (or loaded) table and reset everything that
-   referred to the old one: plottables, analysis, exclusion log */
+   referred to the old one: plottables, analysis */
 export const loadTableAtom = atom(null, async (get, set,
     table: Table & { token?: string }) => {
   set(schemaAtom, table.schema);
@@ -394,7 +378,6 @@ export const loadTableAtom = atom(null, async (get, set,
   // seed the hierarchy spine from the imported identifier columns (coarsest →
   // finest by schema order); the user refines it in the Data tab.
   set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
-  set(exclusionLogAtom, []);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
@@ -494,7 +477,6 @@ export interface LoadedDoc {
   schema: Schema;
   rows: Row[];                              // first window only (preview)
   analyses: AnalysisSpec[];                 // already migrated to the current spec
-  exclusions: ExclusionEvent[];
   id: string;                              // session handle the loader created
   n: number;
   version: number;
@@ -502,8 +484,8 @@ export interface LoadedDoc {
 }
 
 /* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
-   (rebuilt as editable plottables), the shared hierarchy, and the exclusion log
-   instead of starting blank. */
+   (rebuilt as editable plottables) and the shared hierarchy instead of starting
+   blank. */
 export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   set(schemaAtom, doc.schema);
   // the engine created the session as it read the .iris; adopt its handle.
@@ -516,7 +498,6 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   set(hierarchyAtom, saved && saved.spine?.length
     ? { spine: saved.spine, fn: saved.fn ?? {} }
     : { spine: identifierCols(doc.schema), fn: {} });
-  set(exclusionLogAtom, doc.exclusions);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
@@ -552,7 +533,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     spec_version: "2.0",
     id: p.id,
     title: p.name,
-    data: { filter: [], respect_exclusions: true },
+    data: { filter: [] },
     reduce: p.reduce,
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case

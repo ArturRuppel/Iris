@@ -1,5 +1,5 @@
 """Phase 2 aesthetics: color/size/shape draw on scatter (per-point) and on the
-group geoms (dodged). Item I removed the click-to-exclude point-group contract,
+group geoms (dodged). Item I removed the click-to-select point-group contract,
 so colour is now vectorized into one scatter call per marker (a discrete colour
 no longer splits into per-level series); only a mapped shape still splits."""
 import matplotlib

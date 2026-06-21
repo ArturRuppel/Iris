@@ -27,7 +27,7 @@ def _unpaired_df():
     for grp, subs in (("A", ["s1", "s2"]), ("B", ["s3", "s4"])):
         for s in subs:
             for r in range(3):
-                rows.append({"id": f"r{rid}", "excluded": False, "group": grp,
+                rows.append({"id": f"r{rid}", "group": grp,
                              "subject": s, "rep": r, "y": float(rid)})
                 rid += 1
     return pd.DataFrame(rows)
@@ -38,7 +38,7 @@ def _paired_df():
     for s in ["s1", "s2", "s3"]:
         for grp in ("A", "B"):
             for r in range(3):
-                rows.append({"id": f"r{rid}", "excluded": False, "group": grp,
+                rows.append({"id": f"r{rid}", "group": grp,
                              "subject": s, "rep": r, "y": float(rid)})
                 rid += 1
     return pd.DataFrame(rows)
@@ -144,7 +144,7 @@ def test_pairing_nested_partition_is_unpaired():
         for cell in range(4):                # sub-identity (home); each is one label
             label = "pos" if cell < 2 else "neg"
             for r in range(3):               # finest grain (e.g. frame)
-                rows.append({"id": f"r{rid}", "excluded": False, "label": label,
+                rows.append({"id": f"r{rid}", "label": label,
                              "fov": fov, "cell": f"{fov}c{cell}", "rep": r,
                              "y": float(rid)})
                 rid += 1

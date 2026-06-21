@@ -25,15 +25,15 @@ SCHEMA = {"schema_version": "1.0", "columns": [
 
 # 6 rows × 2 levels → counts should total 6 per treatment for 3 treatments = 18
 ROWS = [
-    {"id": "r1",  "treatment": "ctrl",   "outcome": "responder",     "score": 1.0, "excluded": False},
-    {"id": "r2",  "treatment": "ctrl",   "outcome": "responder",     "score": 2.0, "excluded": False},
-    {"id": "r3",  "treatment": "ctrl",   "outcome": "non_responder", "score": 3.0, "excluded": False},
-    {"id": "r4",  "treatment": "drug_a", "outcome": "responder",     "score": 4.0, "excluded": False},
-    {"id": "r5",  "treatment": "drug_a", "outcome": "non_responder", "score": 5.0, "excluded": False},
-    {"id": "r6",  "treatment": "drug_a", "outcome": "non_responder", "score": 6.0, "excluded": False},
-    {"id": "r7",  "treatment": "drug_b", "outcome": "responder",     "score": 7.0, "excluded": False},
-    {"id": "r8",  "treatment": "drug_b", "outcome": "responder",     "score": 8.0, "excluded": False},
-    {"id": "r9",  "treatment": "drug_b", "outcome": "non_responder", "score": 9.0, "excluded": False},
+    {"id": "r1",  "treatment": "ctrl",   "outcome": "responder",     "score": 1.0},
+    {"id": "r2",  "treatment": "ctrl",   "outcome": "responder",     "score": 2.0},
+    {"id": "r3",  "treatment": "ctrl",   "outcome": "non_responder", "score": 3.0},
+    {"id": "r4",  "treatment": "drug_a", "outcome": "responder",     "score": 4.0},
+    {"id": "r5",  "treatment": "drug_a", "outcome": "non_responder", "score": 5.0},
+    {"id": "r6",  "treatment": "drug_a", "outcome": "non_responder", "score": 6.0},
+    {"id": "r7",  "treatment": "drug_b", "outcome": "responder",     "score": 7.0},
+    {"id": "r8",  "treatment": "drug_b", "outcome": "responder",     "score": 8.0},
+    {"id": "r9",  "treatment": "drug_b", "outcome": "non_responder", "score": 9.0},
 ]
 
 TABLE = {"schema": SCHEMA, "rows": ROWS}
@@ -43,7 +43,7 @@ def tile_spec(**overrides):
     base = {
         "spec_version": "2.0",
         "id": "tile_test", "title": "Tile test",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {
             "x": {"column": "treatment"},
@@ -251,14 +251,17 @@ def test_tile_missing_x_column_raises_422():
 
 
 @pytest.mark.parametrize("excl_id", ["r1", "r4"])
-def test_tile_respects_exclusions(excl_id):
-    """Excluded rows must not be counted in the matrix."""
-    rows = [dict(row) for row in ROWS]
-    for row in rows:
-        if row["id"] == excl_id:
-            row["excluded"] = True
-    table = {"schema": SCHEMA, "rows": rows}
-    r = client.post("/analyze", json={"table": table, "spec": tile_spec()})
+def test_tile_filter_on_flag_drops_row(excl_id):
+    """Filtering on a boolean flag column drops the row from the matrix — the
+    replacement for the removed exclusion mechanism."""
+    schema = {**SCHEMA, "columns": [*SCHEMA["columns"],
+              {"name": "flag", "type": "bool", "label": "Flag"}]}
+    rows = [{**row, "flag": row["id"] == excl_id} for row in ROWS]
+    table = {"schema": schema, "rows": rows}
+    spec = tile_spec()
+    spec["reduce"] = {"steps": [{"kind": "filter", "conditions": [
+        {"column": "flag", "op": "==", "value": False}]}]}
+    r = client.post("/analyze", json={"table": table, "spec": spec})
     assert r.status_code == 200
     total = r.json()["stats"]["total"]
     assert total == len(ROWS) - 1

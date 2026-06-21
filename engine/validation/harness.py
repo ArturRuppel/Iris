@@ -65,13 +65,12 @@ def _build_schema(df: pd.DataFrame, overrides: dict) -> dict:
 
 def build_table(case: ModuleType) -> dict:
     """Read ``data.csv`` → a wire table ({schema, rows}) exactly as an import
-    would produce, including the bookkeeping ``id``/``excluded`` columns."""
+    would produce, including the bookkeeping ``id`` column."""
     df = pd.read_csv(case.__case_dir__ / case.DATA)
     schema = _build_schema(df, getattr(case, "SCHEMA_OVERRIDES", {}) or {})
     rows = json.loads(df.to_json(orient="records"))
     for i, r in enumerate(rows, 1):
         r["id"] = str(i)
-        r["excluded"] = False
     return {"schema": schema, "rows": rows}
 
 

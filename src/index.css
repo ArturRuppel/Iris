@@ -62,13 +62,11 @@ main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 14px;
 
 .table-scroll { max-height: 560px; overflow: auto; }
 .grid-host { height: 560px; }
-.grid-host .ag-row.excluded { opacity: 0.4; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 thead th { position: sticky; top: 0; background: #f8fafc; color: var(--dim);
   text-align: left; font-weight: 500; padding: 6px 8px; }
 thead em { font-style: normal; font-size: 10px; color: var(--faint); }
 tbody td { border-top: 1px solid #f1f5f9; padding: 3px 8px; }
-tr.excluded { opacity: 0.4; background: #f8fafc; }
 td input[type="text"], td input:not([type]) { width: 64px; border: 1px solid transparent;
   border-radius: 4px; padding: 1px 4px; background: transparent; }
 td input:focus { border-color: var(--accent); background: #ecfeff; outline: none; }

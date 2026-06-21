@@ -20,7 +20,7 @@ ANALYSES = [
         "spec": {
             "spec_version": "2.0",
             "title": TITLE,
-            "data": {"respect_exclusions": True},
+            "data": {"filter": []},
             "encodings": {"x": None, "y": {"column": "sepal_length"},
                           "color": None, "size": None, "shape": None},
             "layers": [{"geom": "distribution", "params": {}}],

@@ -11,15 +11,14 @@ export interface ColumnDef {
 export interface Schema { schema_version: string; columns: ColumnDef[] }
 export interface Row {
   id: string;
-  excluded: boolean;
   [col: string]: string | number | boolean | null;
 }
 export interface Table { schema: Schema; rows: Row[] }
 
-export interface TableCounts { total: number; excluded: number }
+export interface TableCounts { total: number }
 
 /* a handle to the server-owned session table: the browser holds this (id +
-   version + schema + row count + included/excluded split), not the N rows. */
+   version + schema + row count), not the N rows. */
 export interface TableHandle {
   id: string;
   n: number;
@@ -286,7 +285,7 @@ export interface AnalysisSpec {
   spec_version: "2.0";
   id: string;
   title: string;
-  data: { filter: unknown[]; respect_exclusions: boolean };
+  data: { filter: unknown[] };
   reduce: ReduceSpec;
   encodings: {
     x: { column: string } | null;
@@ -426,14 +425,14 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
   } as AnalysisSpec;
 }
 
-/* a loaded .viz: table + the analyses (raw specs, pre-migration) + provenance
-   (the exclusion log). Mirrors document.load_document's payload. */
+/* a loaded .viz: table + the analyses (raw specs, pre-migration) + provenance.
+   Mirrors document.load_document's payload. */
 export interface LoadedDocument {
   manifest: unknown;
   schema: Schema;
   rows: Row[];                         // first window only; the engine owns the rest
   analyses: Record<string, unknown>[];
-  provenance: { exclusions?: { row_id: string; excluded: boolean; at: string }[] } | null;
+  provenance: Record<string, unknown> | null;
   id: string;                          // session handle for the loaded table
   n: number;
   version: number;
@@ -561,9 +560,6 @@ export const engine = {
   editCell: (id: string, rowId: string, column: string, value: unknown) =>
     post<{ version: number; counts: TableCounts }>(`/table/${id}/edit`,
       { row_id: rowId, column, value }),
-  toggleExclude: (id: string, rowId: string) =>
-    post<{ excluded: boolean; version: number; counts: TableCounts }>(`/table/${id}/exclude`,
-      { row_id: rowId }),
   distinct: (id: string, column: string) =>
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
   analyze: (t: TableRef, spec: AnalysisSpec) =>

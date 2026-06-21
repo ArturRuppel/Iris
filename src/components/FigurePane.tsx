@@ -2,7 +2,7 @@ import { useAtomValue, useAtom } from "jotai";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   activePlottableAtom, analysisAtom, analyzeStatusAtom, dataLoadingAtom,
-  renderErrorAtom, tableHandleAtom,
+  renderErrorAtom,
 } from "../state";
 import type { StyleOverrides } from "../types";
 import { StylePane } from "./StylePane";
@@ -17,17 +17,16 @@ const PT_PER_MM = 72 / 25.4;
 const PX_PER_PT = 96 / 72;
 
 /** Renders the engine's SVG and attaches interactivity. Item I: dots are not
- *  individually clickable — they draw as plain vector marks and exclusion lives
- *  in the DataTable, so there is no per-point click/select wiring here. Labels
- *  drag (each gets a transparent hit-rect — the glyph strokes alone are
- *  unhittable); the canvas corner handle drag-resizes in real mm; the plot-area
- *  grips move/resize the axes within the canvas. */
+ *  individually clickable — they draw as plain vector marks, so there is no
+ *  per-point click/select wiring here. Labels drag (each gets a transparent
+ *  hit-rect — the glyph strokes alone are unhittable); the canvas corner handle
+ *  drag-resizes in real mm; the plot-area grips move/resize the axes within the
+ *  canvas. */
 export function FigurePane() {
   const analysis = useAtomValue(analysisAtom);
   const status = useAtomValue(analyzeStatusAtom);
   const renderError = useAtomValue(renderErrorAtom);
   const dataLoading = useAtomValue(dataLoadingAtom);
-  const tableHandle = useAtomValue(tableHandleAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
   /* style updater: merges a patch into the active plottable's style.
      We capture active via a ref so the drag closure always sees the latest value. */
@@ -242,7 +241,6 @@ export function FigurePane() {
     window.addEventListener("pointerup", up);
   };
 
-  const nExcluded = tableHandle?.counts?.excluded ?? 0;
   return (
     <section className="pane figure-pane">
       <div className="pane-head">
@@ -250,7 +248,6 @@ export function FigurePane() {
         {analysis && (
           <span className="provenance">
             {resizing ?? (dims && `${dims.w} × ${dims.h} mm`)}
-            {nExcluded > 0 && ` · ${nExcluded} excluded`}
           </span>
         )}
       </div>
@@ -288,7 +285,7 @@ export function FigurePane() {
       <p className="hint">
         Drag labels or the legend to reposition. Drag the canvas corner to resize
         the figure, or the plot-area corners to move/resize the axes within it —
-        exports match. Exclude rows from the Data table.
+        exports match.
       </p>
       <StylePane />
     </section>

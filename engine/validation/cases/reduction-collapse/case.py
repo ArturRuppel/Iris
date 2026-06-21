@@ -68,7 +68,7 @@ ANALYSES = [
         "spec": {
             "spec_version": "2.0",
             "title": TITLE,
-            "data": {"respect_exclusions": True},
+            "data": {"filter": []},
             "encodings": {"x": {"column": "condition"},
                           "y": {"column": "value"},
                           "color": None, "size": None, "shape": None},

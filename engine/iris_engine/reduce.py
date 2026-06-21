@@ -7,8 +7,7 @@ is the data hierarchy's job (pick a level — see hierarchy.materialize_levels),
 so the figure and the statistics read one shared grain instead of a destructive
 collapse mutating the table out from under them.
 
-Quantity-agnostic and pandas-only (no matplotlib, no FastAPI). The caller
-removes excluded rows first; reduction never sees them.
+Quantity-agnostic and pandas-only (no matplotlib, no FastAPI).
 """
 from __future__ import annotations
 
@@ -70,7 +69,7 @@ def _apply_filter(df: pd.DataFrame, schema: dict, conds: list[dict]) -> pd.DataF
 
 def _meta_cols(df: pd.DataFrame) -> list[str]:
     """Bookkeeping columns that ride along but never appear in schema.columns."""
-    return [c for c in ("id", "excluded") if c in df.columns]
+    return [c for c in ("id",) if c in df.columns]
 
 
 def _apply_select(df: pd.DataFrame, schema: dict,
@@ -98,11 +97,7 @@ def _apply_step(df: pd.DataFrame, schema: dict,
 
 def apply_reduction(df: pd.DataFrame, schema: dict,
                     steps: list[dict] | None) -> tuple[pd.DataFrame, dict]:
-    """Fold `steps` over (df, schema) in order. Returns (frame, schema).
-
-    Carries the caller's `n_excluded` provenance through the reduction (pandas
-    drops `.attrs` when it builds a new frame), so the methods text still
-    reports how many raw observations were excluded before reducing."""
+    """Fold `steps` over (df, schema) in order. Returns (frame, schema)."""
     out, schema, _ = reduce_with_trace(df, schema, steps)
     return out, schema
 
@@ -112,12 +107,10 @@ def reduce_with_trace(
 ) -> tuple[pd.DataFrame, dict, list[dict]]:
     """Like `apply_reduction`, but also returns a per-step trace
     `[{n_rows_out, schema_out}]` (in order) for the live preview UI."""
-    n_excluded = df.attrs.get("n_excluded", 0)
     out, sch, trace = df, schema, []
     for step in (steps or []):
         out, sch = _apply_step(out, sch, step)
         out = out.reset_index(drop=True)
         trace.append({"n_rows_out": int(len(out)), "schema_out": sch})
     out = out.reset_index(drop=True)
-    out.attrs["n_excluded"] = n_excluded
     return out, sch, trace

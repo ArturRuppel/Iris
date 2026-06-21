@@ -22,17 +22,17 @@ def make_table():
     rows = []
     for i, v in enumerate(A, 1):
         rows.append({"id": f"r{i}", "subject": f"S{i:02d}", "treatment": "control",
-                     "dose": 1.0, "response": v, "excluded": False})
+                     "dose": 1.0, "response": v})
     for i, v in enumerate(B, 21):
         rows.append({"id": f"r{i}", "subject": f"S{i:02d}", "treatment": "drug_a",
-                     "dose": 1.0, "response": v, "excluded": False})
+                     "dose": 1.0, "response": v})
     return {"schema": document.SAMPLE_SCHEMA, "rows": rows}
 
 
 def make_spec(**stats_extra):
     return {
         "spec_version": "1.0", "id": "an_test", "title": "test",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "mappings": {"x": {"column": "treatment"}, "y": {"column": "response"},
                      "color": {"column": "treatment"}, "pair_by": None,
                      "facet": None},
@@ -101,14 +101,21 @@ def test_analyze_endpoint_svg_draws_marks_without_point_groups():
     assert "<!-- *** -->" in svg
 
 
-def test_exclusion_changes_n_and_methods_text():
+def test_filter_on_flag_drops_rows():
+    # The replacement for the removed exclusion mechanism: flag rows in a bool
+    # column and drop them with a normal filter reduce step.
     table = make_table()
-    table["rows"][0]["excluded"] = True
-    table["rows"][1]["excluded"] = True
-    r = client.post("/analyze", json={"table": table, "spec": make_spec()})
+    table["schema"] = {**document.SAMPLE_SCHEMA, "columns": [
+        *document.SAMPLE_SCHEMA["columns"],
+        {"name": "flag", "type": "bool", "label": "Flag"}]}
+    for i, row in enumerate(table["rows"]):
+        row["flag"] = i < 2                       # flag the first two control rows
+    spec = make_spec()
+    spec["reduce"] = {"steps": [{"kind": "filter", "conditions": [
+        {"column": "flag", "op": "==", "value": False}]}]}
+    r = client.post("/analyze", json={"table": table, "spec": spec})
     s = r.json()["stats"]
-    assert s["summaries"][0]["n"] == 18
-    assert "2 observation(s) were excluded" in s["methods_text"]
+    assert s["summaries"][0]["n"] == 18           # two control rows dropped
 
 
 def test_pdf_export_has_exact_mm_size():
@@ -193,7 +200,7 @@ def make_scatter_table():
         {"name": "response", "type": "numeric", "label": "Response (%)"},
     ]}
     rows = [{"id": f"r{i+1}", "subject": f"S{i+1:02d}", "dose": round(float(xv), 2),
-             "response": round(float(yv), 2), "excluded": False}
+             "response": round(float(yv), 2)}
             for i, (xv, yv) in enumerate(zip(x, y))]
     return {"schema": schema, "rows": rows}
 
@@ -550,7 +557,8 @@ def test_import_reserved_and_duplicate_names():
     body = client.post("/import/preview", json={
         "filename": "t.csv", "data_base64": _b64(csv_data)}).json()
     names = [c["name"] for c in body["columns"]]
-    assert "id" not in names and "excluded" not in names
+    assert "id" not in names              # the bookkeeping id is reserved
+    assert "excluded" in names            # no longer reserved — a normal column now
     assert len(set(names)) == len(names)  # deduplicated
     assert body["rows"][0]["id"] == "r1"  # bookkeeping id untouched
 
@@ -697,20 +705,6 @@ def test_analyze_filter_changes_n():
     assert r.json()["stats"]["result"]["n"] == 20  # only control rows
 
 
-def test_analyze_filter_preserves_exclusion_provenance():
-    # exclusions happen before reduction; the methods text must still report
-    # them even when a reduce clause builds a fresh frame
-    table = make_table()
-    table["rows"][0]["excluded"] = True
-    table["rows"][1]["excluded"] = True
-    spec = _spec_with_steps(
-        [{"kind": "filter",
-          "conditions": [{"column": "response", "op": ">", "value": 0}]}])
-    r = client.post("/analyze", json={"table": table, "spec": spec})
-    assert r.status_code == 200
-    assert "2 observation(s) were excluded" in r.json()["stats"]["methods_text"]
-
-
 def test_analyze_reduce_error_is_422():
     spec = _spec_with_steps(
         [{"kind": "filter",
@@ -733,7 +727,7 @@ def test_reduce_preview_caps_rows_and_reports_total():
     from iris_engine import main as main_mod
     # build a table bigger than the cap
     rows = [{"id": f"r{i}", "subject": f"S{i}", "treatment": "control",
-             "dose": 1.0, "response": float(i), "excluded": False}
+             "dose": 1.0, "response": float(i)}
             for i in range(main_mod.PREVIEW_CAP + 50)]
     table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
     r = client.post("/reduce", json={"table": table, "steps": []})
@@ -824,7 +818,7 @@ def test_blocking_point_cap_returns_422():
     from iris_engine import geoms
     rows = [{"id": f"r{i}", "subject": f"S{i}",
              "treatment": "control" if i % 2 else "drug_a",
-             "dose": 1.0, "response": float(i), "excluded": False}
+             "dose": 1.0, "response": float(i)}
             for i in range(geoms.POINT_CAP * 2 + 10)]
     table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
     r = client.post("/analyze", json={"table": table, "spec": make_spec()})
@@ -880,7 +874,7 @@ def test_describe_only_correlation_has_no_regression_or_r():
 
 
 def test_session_create_window_and_ops():
-    rows = [{"id": str(i + 1), "excluded": False, "treatment": "control",
+    rows = [{"id": str(i + 1), "treatment": "control",
              "dose": float(i), "response": float(i)} for i in range(40)]
     table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
     cid = client.post("/table/create", json={"table": table}).json()
@@ -890,12 +884,9 @@ def test_session_create_window_and_ops():
     win = client.post(f"/table/{tid}/rows", json={"start": 0, "end": 10}).json()
     assert len(win["rows"]) == 10 and win["rows"][0]["id"] == "1"
 
-    ex = client.post(f"/table/{tid}/exclude", json={"row_id": "1"}).json()
-    assert ex["excluded"] is True and ex["version"] == 1
-
     ed = client.post(f"/table/{tid}/edit",
                      json={"row_id": "2", "column": "dose", "value": 7.0}).json()
-    assert ed["version"] == 2
+    assert ed["version"] == 1
 
     dist = client.post(f"/table/{tid}/distinct", json={"column": "treatment"}).json()
     assert dist["values"] == ["control"]
@@ -907,7 +898,7 @@ def test_session_missing_id_is_409():
 
 
 def test_analyze_by_session_id():
-    rows = [{"id": str(i + 1), "excluded": False,
+    rows = [{"id": str(i + 1),
              "treatment": "control" if i < 20 else "drug_a",
              "dose": float(i % 10), "response": float(i)} for i in range(40)]
     table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
@@ -919,11 +910,11 @@ def test_analyze_by_session_id():
 
 
 def test_save_by_session_id_roundtrips():
-    rows = [{"id": str(i + 1), "excluded": False, "treatment": "control",
+    rows = [{"id": str(i + 1), "treatment": "control",
              "dose": float(i), "response": float(i)} for i in range(5)]
     table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
     tid = client.post("/table/create", json={"table": table}).json()["id"]
     saved = client.post("/document/save", json={
         "table_id": tid, "analyses": [make_spec()],
-        "provenance": {"exclusions": []}}).json()
+        "provenance": {}}).json()
     assert saved["filename"] == "document.iris"

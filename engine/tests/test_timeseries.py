@@ -38,7 +38,7 @@ def make_df():
         for cell in (1, 2):
             for frame in range(4):
                 rid += 1
-                rows.append({"id": f"r{rid}", "excluded": False,
+                rows.append({"id": f"r{rid}",
                              "condition": cond, "date": date,
                              "position_id": "p0", "cell_id": cell,
                              "frame": float(frame),
@@ -55,7 +55,7 @@ def make_table():
 def make_spec(*, geoms=("line",), color=None, facet_row=None):
     return {
         "spec_version": "2.0", "id": "ts_test", "title": "TS",
-        "data": {"filter": [], "respect_exclusions": True},
+        "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {
             "x": {"column": "frame"}, "y": {"column": "area"},
@@ -163,7 +163,7 @@ def test_analyze_numeric_numeric_without_ts_geom_is_correlation():
 
 def test_line_over_point_cap_blocks():
     # a single huge curve trips the per-row point cap, like dot/scatter
-    rows = [{"id": f"r{i}", "excluded": False, "condition": "ctrl",
+    rows = [{"id": f"r{i}", "condition": "ctrl",
              "date": "d1", "position_id": "p0", "cell_id": 1,
              "frame": float(i), "area": float(i)}
             for i in range(compiler.geoms_mod.POINT_CAP + 5)]

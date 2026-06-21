@@ -104,10 +104,6 @@ class EditRequest(BaseModel):
     value: object | None = None
 
 
-class ExcludeRequest(BaseModel):
-    row_id: str
-
-
 class DistinctRequest(BaseModel):
     column: str
 
@@ -141,7 +137,7 @@ _STATS_IRRELEVANT = frozenset({"style", "stat_model", "engine_snapshot"})
 def _table_identity(table: dict | None, token: str | None) -> str | None:
     """A cheap, stable id for the resolved data, used as the stats-cache data key.
     The live app references the session table by id, whose `version` bumps on
-    every edit/exclusion — equal ids therefore mean identical data. Returns None
+    every edit — equal ids therefore mean identical data. Returns None
     (caching disabled) for an inline-only table we won't pay to hash."""
     if token:
         sess = _SESSIONS.get(token)
@@ -357,14 +353,9 @@ def frame_from_table(table: dict) -> pd.DataFrame:
     return pd.DataFrame(table.get("rows", []))
 
 
-def _load_frame(table: dict, respect_exclusions: bool) -> tuple[pd.DataFrame, dict]:
+def _load_frame(table: dict) -> tuple[pd.DataFrame, dict]:
     schema = table["schema"]
-    df = frame_from_table(table)
-    n_before = len(df)
-    if respect_exclusions and "excluded" in df:
-        df = df[~df["excluded"].fillna(False)]
-    df = df.copy()
-    df.attrs["n_excluded"] = n_before - len(df)
+    df = frame_from_table(table).copy()
     # A `bool` column (a stochastic-event flag) collapses to numeric 1/0 for every
     # compute path — so a summary/bar of it reads as the fraction of trues — and
     # is presented as numeric to the rest of the engine. Normalize a copy of the
@@ -381,7 +372,7 @@ def _load_frame(table: dict, respect_exclusions: bool) -> tuple[pd.DataFrame, di
 
 
 def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
-    return _load_frame(table, spec.get("data", {}).get("respect_exclusions", True))
+    return _load_frame(table)
 
 
 def _to_table(df: pd.DataFrame, schema: dict) -> dict:
@@ -595,8 +586,6 @@ def table_create(req: CreateSessionRequest):
     df = frame_from_table(table)
     if "id" not in df:
         df.insert(0, "id", [str(i + 1) for i in range(len(df))])
-    if "excluded" not in df:
-        df["excluded"] = False
     tid = _SESSIONS.create(schema, df)
     t = _SESSIONS.get(tid)
     return {"id": tid, "n": t.n, "version": t.version, "schema": schema,
@@ -618,16 +607,6 @@ def table_edit(tid: str, req: EditRequest):
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
     return {"version": t.version, "counts": t.counts()}
-
-
-@app.post("/table/{tid}/exclude")
-def table_exclude(tid: str, req: ExcludeRequest):
-    t = _session_or_409(tid)
-    try:
-        excluded = t.toggle_exclusion(req.row_id)
-    except KeyError as e:
-        raise HTTPException(422, str(e)) from e
-    return {"excluded": excluded, "version": t.version, "counts": t.counts()}
 
 
 @app.post("/table/{tid}/distinct")
@@ -657,7 +636,7 @@ def reduce_preview(req: ReduceRequest):
     table plus a per-step trace, with no figure/stats render. Drives the live
     pipeline editor before any X/Y mapping exists."""
     table = _resolve_table(req.table, req.table_token)
-    df, schema = _load_frame(table, respect_exclusions=True)
+    df, schema = _load_frame(table)
     try:
         out, sch, trace = reduce_mod.reduce_with_trace(df, schema, req.steps)
     except reduce_mod.ReduceError as e:
@@ -682,7 +661,7 @@ def hierarchy_describe(req: HierarchyRequest):
     same home-level logic that drives pairing, so the visualization and the
     inference basis can't disagree."""
     table = _resolve_table(req.table, req.table_token)
-    df, schema = _load_frame(table, respect_exclusions=True)
+    df, schema = _load_frame(table)
     return hierarchy.describe_hierarchy(df, req.spine, req.classifiers)
 
 
