@@ -1,0 +1,55 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "iris-engine"
+version = "0.1.0"
+description = "Headless statistics and figure-rendering engine for Iris SuperPlots and the .iris document format."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "AGPL-3.0"}
+authors = [{name = "Artur Ruppel", email = "artur@ruppel.pro"}]
+keywords = ["statistics", "superplot", "matplotlib", "visualization", "iris"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+
+# Core: the library surface — read a .iris, run the stats, render a figure.
+# The FastAPI HTTP server is an optional extra (see [server]); importing the
+# render/stats path (iris_engine.compiler / .stats / .document …) needs none of it.
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "pyarrow>=15",        # .iris document table (Parquet)
+    "scipy>=1.11",
+    "pingouin>=0.5.4",
+    "matplotlib>=3.8",
+    "seaborn>=0.13",
+]
+
+[project.optional-dependencies]
+# The HTTP service (iris_engine.main / the `iris-engine` console script).
+server = [
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+]
+
+[project.scripts]
+# Runs the FastAPI service; requires the `server` extra installed.
+iris-engine = "iris_engine.main:main"
+
+[project.urls]
+Homepage = "https://github.com/ArturRuppel/Iris"
+Source = "https://github.com/ArturRuppel/Iris"
+
+[tool.hatch.build.targets.wheel]
+packages = ["iris_engine"]
+
+[tool.hatch.build.targets.sdist]
+include = ["iris_engine", "README.md", "LICENSE"]
