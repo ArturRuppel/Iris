@@ -7,7 +7,7 @@ import copy
 
 from fastapi.testclient import TestClient
 
-from iris_engine import main
+from iris_engine import main, stats
 from test_engine import make_table, make_spec
 
 client = TestClient(main.app)
@@ -22,13 +22,16 @@ def _session_token():
 def _count_group_comparison(monkeypatch):
     """Wrap stats.group_comparison with a call counter, returning the counter."""
     calls = {"n": 0}
-    real = main.stats.group_comparison
+    # The inferential stats now run inside iris_engine.render (which does
+    # `from . import stats`), so patch the canonical stats module — render sees
+    # the same module object.
+    real = stats.group_comparison
 
     def counting(*a, **k):
         calls["n"] += 1
         return real(*a, **k)
 
-    monkeypatch.setattr(main.stats, "group_comparison", counting)
+    monkeypatch.setattr(stats, "group_comparison", counting)
     main._STATS_CACHE.clear()
     main._PIPELINE_CACHE.clear()
     main._PIPELINE_CACHE_BYTES = 0
