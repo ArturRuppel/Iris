@@ -24,6 +24,7 @@ import matplotlib.pyplot as plt
 import matplotlib.transforms as mtransforms
 import numpy as np
 import pandas as pd
+from matplotlib import cbook, mlab
 
 from . import geoms as geoms_mod
 from . import hierarchy as hierarchy_mod
@@ -731,19 +732,44 @@ def _groups(level_df, layout):
     return groups
 
 
+def _violin_kde(X, coords):
+    """matplotlib's default violin KDE (Scott bandwidth); constant data → a spike."""
+    X = np.asarray(X)
+    if np.ptp(X) == 0:
+        return (X[0] == coords).astype(float)
+    return mlab.GaussianKDE(X, None).evaluate(coords)
+
+
 def _geom_violin(ax, ctx, layer):
     style, lw = ctx["style"], ctx["lw"]
     gs = resolve_geom_style(style, "violin", layer.get("id"))
     h = ctx["h_orient"]
     width = (gs.get("mark_width") or 0.7) * ctx["wscale"]
     fill_alpha = gs.get("fill_alpha", 0.22)
+    orient = "horizontal" if h else "vertical"
+    # The value axis is x for horizontal violins, y otherwise. When it is log-scaled
+    # the KDE must be estimated in log space: a bandwidth tuned to the bulk otherwise
+    # draws a near-flat sliver across the small-value decades that the log axis
+    # stretches into a long thin tail, cut off abruptly at the single smallest point.
+    # Estimate the density on log10(value) and map the violin coords back to data space.
+    log_value = (style["x_scale"] if h else style["y_scale"]) == "log"
     for grp in ctx["groups"]:
-        ys = grp["ys"]
-        if len(ys) <= 1:
+        ys = np.asarray(grp["ys"], float)
+        if log_value:
+            ys = ys[ys > 0]
+        if len(ys) <= 1 or np.ptp(ys) == 0:
             continue
-        orient = "vertical" if not h else "horizontal"
-        vp = ax.violinplot([ys], positions=[grp["pos"]], widths=width,
+        if log_value:
+            vpstats = cbook.violin_stats(np.log10(ys), _violin_kde, points=200)
+            for s in vpstats:
+                s["coords"] = np.power(10.0, s["coords"])
+                for k in ("mean", "median", "min", "max"):
+                    s[k] = 10.0 ** s[k]
+            vp = ax.violin(vpstats, positions=[grp["pos"]], widths=width,
                            orientation=orient, showextrema=False)
+        else:
+            vp = ax.violinplot([ys], positions=[grp["pos"]], widths=width,
+                               orientation=orient, showextrema=False)
         for body in vp["bodies"]:
             body.set_facecolor(grp["color"]); body.set_alpha(fill_alpha)
             body.set_edgecolor(grp["color"]); body.set_linewidth(lw * 0.6)
