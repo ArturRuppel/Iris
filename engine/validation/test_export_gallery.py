@@ -1,6 +1,8 @@
-"""The bundled gallery assets must stay openable: every .iris named in the
-generated manifest round-trips through document.load_document, and every plot
-SVG it lists exists on disk. Guards against a stale or partial export."""
+"""The bundled gallery assets must stay openable AND byte-deterministic: every
+.iris named in the generated manifest round-trips through document.load_document,
+every plot SVG it lists exists on disk, and re-exporting produces identical
+bytes (so the committed assets never churn). Guards against a stale, partial, or
+non-reproducible export."""
 from __future__ import annotations
 
 import json
@@ -22,3 +24,16 @@ def test_manifest_assets_round_trip():
         for plot in entry["plots"]:
             assert (export_gallery.ASSETS / plot["svgFile"]).exists(), \
                 f"missing {plot['svgFile']}"
+
+
+def test_export_is_byte_deterministic():
+    """Two exports of the same case must yield identical .iris and .svg bytes —
+    committed assets would otherwise churn on every rebuild."""
+    a = export_gallery._export_case("kruskal")
+    iris_a = (export_gallery.ASSETS / a["irisFile"]).read_bytes()
+    svg_a = (export_gallery.ASSETS / a["plots"][0]["svgFile"]).read_text()
+    export_gallery._export_case("kruskal")
+    iris_b = (export_gallery.ASSETS / a["irisFile"]).read_bytes()
+    svg_b = (export_gallery.ASSETS / a["plots"][0]["svgFile"]).read_text()
+    assert iris_a == iris_b, ".iris export is not byte-deterministic"
+    assert svg_a == svg_b, ".svg export is not byte-deterministic"
