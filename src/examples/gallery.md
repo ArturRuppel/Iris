@@ -254,3 +254,33 @@ timepoints and span and draws the curves — with no inferential test yet.
 ![](example:timeseries-growth/timeseries-growth-01)
 
 [Open this example in Iris](iris-open:timeseries-growth)
+
+---
+
+# SuperPlots: nesting & pseudoreplication
+
+Cell-biology data is usually **nested**: many cells measured within each of a
+few biological replicates (subjects, animals, dishes). The cells from one
+replicate are correlated, so treating each cell as an independent observation —
+**pseudoreplication** — inflates *n* and manufactures significance. The fix is
+to test at the *replicate* grain, not the cell grain.
+
+A **SuperPlot** (Lord et al. 2020) shows both grains at once: every cell as a
+faint dot and one bold dot per biological replicate, coloured by replicate. Iris
+composes it as layers bound to a **hierarchy** — a `dot` at the raw (cell) level
+and a `dot` bound to the `subject` level — and runs the comparison on the grain
+the prominent dots sit at.
+
+In this example, three cells are measured in each of three subjects per group.
+Because the bold replicate dots are bound to `subject`, Iris reports **n = 3 per
+group, not n = 9** (see the `n = 9  N = 3` labels under each group) — the
+cell-level spread is visible, but pseudoreplication can't sneak into the test.
+
+![](example:superplot-nested/superplot-nested-01)
+
+[Open this example in Iris](iris-open:superplot-nested)
+
+> Lord SJ, Velle KB, Mullins RD, Fritz-Laylin LK (2020). SuperPlots:
+> Communicating reproducibility and variability in cell biology.
+> *Journal of Cell Biology* 219(6):e202001064.
+> [doi:10.1083/jcb.202001064](https://doi.org/10.1083/jcb.202001064)

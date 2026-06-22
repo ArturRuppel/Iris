@@ -247,5 +247,19 @@
         "geom": "trend"
       }
     ]
+  },
+  {
+    "caseId": "superplot-nested",
+    "title": "Drug effect across biological replicates (SuperPlot)",
+    "source": "Synthetic; SuperPlot pattern after Lord, Velle, Mullins & Fritz-Laylin (2020) J Cell Biol 219(6):e202001064. Welch's t recomputed with scipy.",
+    "irisFile": "superplot-nested.iris",
+    "filename": "superplot-nested.iris",
+    "plots": [
+      {
+        "analysisId": "superplot-nested-01",
+        "svgFile": "superplot-nested-01.svg",
+        "geom": "dot"
+      }
+    ]
   }
 ]

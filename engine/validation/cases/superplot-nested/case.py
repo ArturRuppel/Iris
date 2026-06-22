@@ -3,13 +3,13 @@ grain — the pseudoreplication guard (Lord et al. 2020).
 
 Three cells (technical replicates) measured in each of three subjects
 (biological replicates) per group. The SuperPlot is composed as layers bound to
-different grains: faint dots for every cell (raw), bold dots coloured by subject
-for each biological replicate (the `subject` level), and mean ± SEM of those
-subject means. Because the prominent layers are bound to `subject`, Iris runs
-the comparison on the THREE subject means per group — n = 3, not n = 9 — so
-pseudoreplicating over cells can't inflate significance. The test is pinned to
-Welch's t so the assertion is independent of the small-sample selection
-heuristic; t/df/p are recomputed from the known subject means.
+different grains: faint dots for every cell (raw) and bold dots coloured by
+subject for each biological replicate (the `subject` level). Because the
+prominent dots are bound to `subject`, Iris runs the comparison on the THREE
+subject means per group — n = 3, not n = 9 — so pseudoreplicating over cells
+can't inflate significance. The test is pinned to Welch's t so the assertion is
+independent of the small-sample selection heuristic; t/df/p are recomputed from
+the known subject means.
 """
 
 TITLE = "Drug effect across biological replicates (SuperPlot)"
@@ -49,7 +49,6 @@ ANALYSES = [
             "layers": [
                 {"geom": "dot", "params": {}, "level": ""},
                 {"geom": "dot", "params": {}, "level": "subject"},
-                {"geom": "summary", "params": {"error_type": "sem"}, "level": "subject"},
             ],
             "reduce": {"steps": []},
             "stats": {"alpha": 0.05, "chosen_by": "recommendation_accepted",
@@ -72,6 +71,7 @@ ANALYSES = [
         "expected_figure": {
             "axis_labels": {"y": "value"},
             "xtick_labels": ["ctrl", "drug"],
+            "n_points": 24,                     # 18 cells (raw) + 6 subject dots
         },
     },
 ]

@@ -85,6 +85,7 @@ GALLERY_CASES = [
     "potential-double-well",
     "event-rate-by-group",
     "timeseries-growth",
+    "superplot-nested",
 ]
 
 
