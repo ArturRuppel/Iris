@@ -267,6 +267,12 @@ export interface StyleOverrides {
   /* ---- geom-scoped knobs (keyed by geom name) ---- */
   geoms?: Record<string, Record<string, unknown>>;
 
+  /* ---- per-layer-instance knobs (keyed by Layer.id) ---- item K: a geom may
+     appear more than once (faint raw dots + bold aggregate dots); these override
+     the shared geoms.<geom> defaults for a single layer. Not transferable — tied
+     to specific layer ids, so style sheets drop them. ---- */
+  layers?: Record<string, Record<string, unknown>>;
+
   /* ---- legacy flat mark keys (migration only, never written by new code) ---- */
   marker_size?: number;
   marker_alpha?: number;

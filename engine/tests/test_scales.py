@@ -101,3 +101,27 @@ def test_legend_entries_describe_each_mapped_channel():
     assert by_channel["color"]["swatches"][0]["color"] == PAL[0]
     assert by_channel["shape"]["label"] == "geno"
     assert by_channel["shape"]["swatches"][0]["marker"] == scales.MARKERS[0]
+
+
+def test_color_and_shape_on_same_column_merge_into_one_entry():
+    # Item J: when color and shape map the SAME categorical column, the two
+    # channels collapse to ONE legend block whose every swatch carries both the
+    # color and the marker — not two redundant blocks with the same labels.
+    sc = scales.resolve_scales(_enc(color="cond", shape="cond"), DF, SCHEMA, STYLE)
+    entries = sc.legend_entries()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["channel"] == "color+shape"
+    assert e["label"] == "cond"
+    assert [s["value"] for s in e["swatches"]] == ["wt", "ko"]
+    assert e["swatches"][0]["color"] == PAL[0]
+    assert e["swatches"][0]["marker"] == scales.MARKERS[0]
+
+
+def test_numeric_color_with_shape_on_same_column_does_not_merge():
+    # A numeric color is a colorbar, not discrete swatches — it can't fuse with
+    # the shape markers, so the shape entry stands alone (color → colorbar).
+    sc = scales.resolve_scales(_enc(color="dose", shape="dose"), DF, SCHEMA, STYLE)
+    channels = [e["channel"] for e in sc.legend_entries()]
+    assert channels == ["shape"]
+    assert sc.colorbar_spec() is not None

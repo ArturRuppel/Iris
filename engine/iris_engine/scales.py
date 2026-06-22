@@ -122,18 +122,30 @@ class Scales:
 
     def legend_entries(self) -> list[dict]:
         out: list[dict] = []
+        # Item J: a discrete color and a shape mapping the SAME column collapse to
+        # one combined block — each swatch carries both the color and the marker,
+        # so the reader sees one row per label, not two redundant blocks. A numeric
+        # color is a colorbar and can't fuse, so the shape stands alone there.
+        merged = (self.color_col is not None and not self.color_numeric
+                  and self.shape_col == self.color_col)
         # numeric color is a colorbar (colorbar_spec), not legend swatches
         if self.color_col is not None and not self.color_numeric:
-            out.append({"channel": "color", "label": self.color_col,
-                        "swatches": [{"value": lv, "color": self._color_map[lv]}
-                                     for lv in self.color_levels]})
+            if merged:
+                out.append({"channel": "color+shape", "label": self.color_col,
+                            "swatches": [{"value": lv, "color": self._color_map[lv],
+                                          "marker": self.marker_for(lv)}
+                                         for lv in self.color_levels]})
+            else:
+                out.append({"channel": "color", "label": self.color_col,
+                            "swatches": [{"value": lv, "color": self._color_map[lv]}
+                                         for lv in self.color_levels]})
         if self.size_col is not None:
             ticks = sorted({self.size_lo, (self.size_lo + self.size_hi) / 2,
                             self.size_hi})
             out.append({"channel": "size", "label": self.size_col,
                         "swatches": [{"value": v, "size": self.size_for(v)}
                                      for v in ticks]})
-        if self.shape_col is not None:
+        if self.shape_col is not None and not merged:
             out.append({"channel": "shape", "label": self.shape_col,
                         "swatches": [{"value": lv, "marker": self.marker_for(lv)}
                                      for lv in self.shape_levels]})

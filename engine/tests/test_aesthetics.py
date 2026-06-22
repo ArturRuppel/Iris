@@ -228,6 +228,25 @@ def test_color_scatter_draws_legend_with_level_labels():
     assert {"a", "b"} <= labels                       # one entry per color level
 
 
+def test_color_and_shape_on_same_column_make_one_merged_legend():
+    # Item J: mapping the same column to color AND shape used to draw two
+    # redundant legend blocks (a, b, a, b). They now collapse to one block: a
+    # single title and one row per label whose handle carries both attributes.
+    fig = compiler.build_scatter_figure(
+        DF, SCHEMA, _scatter_spec(color="grp", shape="grp"), RESULT)
+    leg = fig.axes[0].get_legend()
+    assert leg is not None
+    # exactly one row per level — not duplicated across two blocks
+    assert [t.get_text() for t in leg.get_texts()] == ["a", "b"]
+    assert leg.get_title().get_text() == "grp"        # single titled block
+    # each handle shows both the color (from the palette) and a non-default marker
+    handles = leg.legend_handles
+    assert len(handles) == 2
+    assert handles[0].get_marker() == scales.MARKERS[0]
+    assert handles[1].get_marker() == scales.MARKERS[1]
+    compiler.close(fig)
+
+
 def _legend_marker_xy(svg):
     """Display position of the legend's first drawn element in the rendered SVG,
     so we can tell whether the legend moved. With svg.fonttype=none the first

@@ -60,24 +60,35 @@ Analyses sidebar *width* (the list is a single column of rows). Added a 6px
 + tooltip after item A; widening now reveals them in full. Typechecks; visual
 pass folded into the browser-blocked batch.)
 
-### C. Rationalize plot-style specification
-The style controls are currently split inconsistently:
-- Some params live in the Encoding & Layers column, some in the Style tab.
-- Some are missing entirely (e.g. boxplot background/fill color).
-- Some are shown when not applicable (e.g. jitter shown on a beeswarm plot).
-Audit every plot param, give each a single canonical home, add the missing
-ones, and gate each param on the geoms it actually applies to.
-
+(Item C — Rationalize plot-style specification — shipped (engine + frontend).
 Spec'd 2026-06-17 → `docs/superpowers/specs/2026-06-17-rationalize-plot-style-design.md`.
-Decisions: ONE plot-level Style surface (layer cards keep only geom + level);
-per-layer params fold into a geom-keyed section of `style.overrides`, applied per
-geom (no per-instance divergence); a single engine-emitted `style_registry`
-(served on /health, like the geom registry) becomes the source of truth and
-StylePane renders generically from it, killing the 4-way `STYLE_DEFAULTS` /
-`StyleOverrides` / StylePane / `param_specs` drift. Each knob tagged
-`transferable` to define the style-vs-content seam item F builds on. Missing
-knobs to add: box fill + fill_alpha, violin fill_alpha, tile colormap +
-show_counts, regression CI-band toggle. Raw-matplotlib escape hatch deferred.
+The four hand-synced knob lists collapsed to ONE engine-emitted source of truth:
+`engine/iris_engine/style.py` `style_registry_payload()` describes every knob
+(key/label/group/widget/default/scope, plus `applies_to_*`/`visible_when` gating
+and a `transferable` tag), served on `/health` next to the geom registry
+(`main.py:406`). `StylePane.tsx` is now a generic renderer over `styleRegistryAtom`
+— the hand-coded fieldsets, the `D` default const, and the `marks.has(...)`
+conditionals are gone; figure-scope knobs write `style.<key>`, geom-scope knobs
+write `style.geoms.<geom>.<key>`. Per-layer params folded into that geom-keyed
+section; the `_param()` precedence fallback was deleted in favour of
+`resolve_geom_style` (registry default → `geoms.<geom>` → per-layer `layers.<id>`,
+the last tier added by item K). The audited missing knobs were added: box
+`fill`/`fill_alpha` via `patch_artist` (`compiler.py`), violin `fill_alpha`, tile
+`colormap` + `show_counts`, regression/trend `show_band`. The `transferable`
+partition defined here is what item F consumes. Raw-matplotlib escape hatch and
+per-layer-instance divergence were deferred (the latter later un-deferred by K).
+302+ engine + 86 FE tests green.)
+
+(Item F — Loadable / applicable style sheets — shipped. A style sheet is C's
+`transferable` slice of `style.overrides` (`src/style/sheet.ts`: `captureStyle`
+drops content keys — titles/labels/ranges/offsets — keeping look + palette-by-index
++ geom looks). Three persistence tiers exist: in-session clipboard
+(`styleClipboardAtom`), named localStorage library (`styleLibraryAtom`), and
+export/import `.iris-style` JSON v1.0 (`serializeStyleSheet`/`parseStyleSheet`,
+Export/Import buttons in StylePane). Copy/Paste style live on the analysis
+right-click menu (`PlottableSidebar.tsx`, `pasteStyleAtom`). `sheet.test.ts`
+covers the transferable round-trip. NOT browser-verified here — the apply-to-
+multi-selection UX folds into the browser-blocked batch.)
 
 (Item D — superseded 2026-06-17. The user redirected: rather than relocate a
 multi-option size picker, collapse to a single canonical default size and rip
@@ -285,20 +296,81 @@ nudge like the 0/1→bool one), without losing their role as a nesting level.
 
 ## New issues (added 2026-06-22)
 
-### J. Color and shape should be allowed to map the same metric (regression)
-It used to be possible to encode the same column on both Color and Shape; now it
-is blocked. Restore this. When both channels map the same metric, the legend
-must show ONE entry per label that displays the color AND the shape together
-(a single merged legend, not two separate Color and Shape legends with redundant
-rows). Find where the same-column-on-two-channels case is rejected, allow it, and
-make the engine emit a combined color+shape legend keyed on the shared label.
+### L. Scrutinize .iris save / load + style-param text input
+Two distinct problems to work through:
+- **Save/load needs auditing.** Saving a `.iris` works only ONCE — a second save
+  appears to fail. There should be a proper **Save** (write back to the current
+  file) AND **Save As** (choose a new path), which today's single action conflates
+  or breaks. Trace the save path end-to-end and fix the once-only behaviour.
+- (**Style params text-field input — shipped 2026-06-22.** Each registry range
+  knob in `StylePane` now renders a slider PAIRED with an editable numeric field
+  via a new `RangeField` component, replacing the old read-only value span. The
+  field keeps a local text buffer while focused so partial input ("0.0…") isn't
+  clobbered by clamping; it commits a clamped value on each valid keystroke (same
+  cadence as a slider drag) and an empty field clears the override → default.
+  Reuses the existing `.narrow` numeric-input CSS, no new styles. Typecheck +
+  build + 86 FE tests green. Engine untouched. The non-range widgets — `number`
+  (free `auto` fields), `select`, `bool`, `text`, `swatch` — were already typed
+  inputs, so this closes the bullet.)
 
-### K. A geom should be addable multiple times (e.g. dots at two sizes)
-It should be possible to plot the same geom more than once — e.g. small dots for
-all the raw data plus big dots for the per-experiment aggregates. Today the layer
-model appears to allow only one instance of a given geom (dots). Allow repeated
-instances of a geom, each with its own level (raw vs unit/aggregate) and its own
-style (size, etc.), so the classic superplot overlay (fine points + coarse
-aggregate points) can be built directly. NB: per item C's design, per-layer style
-folds into a geom-keyed `style.overrides`, which assumes one section per geom —
-this item needs per-instance style, so reconcile with that decision.
+### M. Show every nesting level in the n/N annotation
+When several nesting levels exist, the figure's count annotation currently shows
+only the coarsest and finest grains (e.g. `N` for units + `n` for raw replicates)
+— intermediate levels are dropped. ALL existing nesting levels should be shown,
+each with its own count.
+
+This reopens item G's deliberate "only the drawn levels" decision: G reports one
+count per grain the LAYERS actually draw at (finest→coarsest, indexed
+`n₀/n₁/…` for >2), so an intermediate level that no layer is bound to never
+appears. The ask here is to surface every level of the hierarchy spine, not just
+the drawn ones. Touch points: `_draw_n_labels` / `_n_label` (formatting, already
+handles ≥3 grains via unicode subscripts) and `build_comparison_figure` (which
+grains it collects — today the distinct `layer.level`s; would need to walk the
+full `spec.hierarchy` instead). Decide whether "all levels" means all spine
+levels or all drawn-plus-intermediate, and how that reads against G's rationale
+(was the per-grain count meant to track what's plotted, or the whole design?).
+
+### Shared-metric / repeated-geoms (spec'd 2026-06-22)
+
+Both spec'd 2026-06-22 → `docs/superpowers/specs/2026-06-22-shared-metric-and-repeated-geoms-design.md`
+(repro/diagnosis notes, the merged-legend approach for J, and the per-instance-style
+reconciliation with item C for K).
+
+(Item J — shipped 2026-06-22. Diagnosis confirmed the spec's hunch: there was
+NO literal block — `EncodingsCard` only cross-excludes the X/Y pair, `buildSpec`
+passes channels straight through, and `_geom_dot` already drew color+shape on one
+column. The symptom was a redundant legend: `Scales.legend_entries()` emitted one
+block per channel, so the same column on Color and Shape produced two blocks with
+identical labels (`a, b, a, b`, no title). Fix is engine-only: `legend_entries()`
+now detects `color_col == shape_col` (categorical color only — a numeric color is
+a colorbar and can't fuse) and emits ONE `channel: "color+shape"` block whose each
+swatch carries both `color` and `marker`; `_draw_legend` builds a combined handle
+(`Line2D` with both `markerfacecolor` and `marker`). Result: one titled block,
+one row per label. Tests: `test_scales.py` (merge + the numeric-color-no-merge
+guard), `test_aesthetics.py` (render-level — one block, both attributes on each
+handle). 307 engine + 86 FE green. No UI change needed.)
+
+(Item K — shipped 2026-06-22 (engine + state + StylePane). The data model already
+supported repeats (`Layer` has a client-stable `id`, `addLayerAtom` mints a fresh
+one); the only block was a UI uniqueness assumption in `LayerRail` — `used`/`notUsed`
+excluded already-added geoms from the add menu and retype list. Removed: any
+type-compatible geom can now be added again, and re-typed to a geom already in the
+stack. The reconciliation with item C (geom-keyed `style.overrides.geoms`, one
+section per geom) was the real work: added a THIRD style tier keyed by layer id —
+`resolve_geom_style(style, geom, layer_id)` now merges registry default →
+`geoms.<geom>` (shared by every instance) → `layers.<id>` (this instance),
+most-specific winning. All per-layer comparison/timeseries geom calls (`dot`, `box`,
+`violin`, `bar`, `summary`, `line`, `trend`) pass `layer.get("id")`; figure-level
+geoms (scatter/distribution/tile) stay on the geom tier (they don't repeat per
+layer). `StyleOverrides.layers` typed and flows through buildSpec/fromSpec and the
+`.iris` round-trip unchanged (layer ids are serialized in `spec.layers`, so the
+keys stay matched on reload; not transferable, so style sheets drop them via the
+existing `captureStyle`). StylePane: a singly-used geom edits the shared
+`geoms.<geom>` tier as before ("<geom> options"); a repeated geom shows one
+fieldset PER layer instance, each editing its own `layers.<id>` and labelled by its
+data level ("dot · Raw (every row)" / "dot · per cell") so the superplot's faint
+small dots + bold big aggregate dots are built directly. Tests: engine 3-tier
+resolution + a two-dot-layer render asserting both marker sizes draw; 307 engine +
+86 FE green, typecheck + build clean. NOT browser-verified here (no Chromium): the
+StylePane per-instance fieldsets and the repeated-geom add-menu UX fold into the
+browser-blocked batch.)

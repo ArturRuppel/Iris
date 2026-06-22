@@ -24,9 +24,12 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
 }) {
   const [open, setOpen] = useState(true);
   /* switching geom keeps the data level — same result as removing the layer
-     and adding the new one in place. Geom knobs live in style.overrides.geoms. */
+     and adding the new one in place. Geom knobs live in style.overrides.geoms.
+     The layer `id` is preserved: it keys this layer's per-instance style
+     (style.overrides.layers.<id>), so dropping it would orphan those overrides
+     and let a repeated geom collapse into the shared tier (item K). */
   const retype = (geom: Geom) =>
-    onChange({ geom, level: layer.level });
+    onChange({ ...layer, geom, level: layer.level });
   return (
     <li className="layer-card">
       <div className="layer-head">
@@ -92,23 +95,22 @@ export function LayerRail() {
   };
 
   const allGeoms = Object.keys(registry.geoms) as Geom[];
-  const used = new Set(layers.map((l) => l.geom));
   /* the add menu offers every geom the current encoding doesn't *rule out* —
      a geom whose mapped axis is the wrong type is hidden (item 6), but an
      UNMAPPED axis no longer hides it (geom-first: pick a geom before any column,
-     then it narrows the encoding). Already-used geoms are excluded; a count
-     tells the user some were hidden as incompatible. */
-  const notUsed = allGeoms.filter((g) => !used.has(g));
-  const addable = notUsed.filter((g) => {
+     then it narrows the encoding). Item K: a geom may be added more than once
+     (e.g. faint raw dots + bold aggregate dots at a coarser level), so the stack
+     no longer excludes already-used geoms; a count tells the user some were
+     hidden as incompatible. */
+  const addable = allGeoms.filter((g) => {
     const meta = registry.geoms[g];
     return meta ? geomAddable(meta, xType, yType) : false;
   });
-  const hiddenCount = notUsed.length - addable.length;
+  const hiddenCount = allGeoms.length - addable.length;
   const noEncoding = xType === null && yType === null;
-  /* retype options: all geoms minus those used by *other* layers, but always
-     keeping this layer's own current geom. */
-  const retypeOptions = (geom: Geom) =>
-    allGeoms.filter((g) => g === geom || !used.has(g));
+  /* retype options: every geom (a geom may now repeat, so re-typing to one
+     already in the stack is allowed). */
+  const retypeOptions = (_geom: Geom) => allGeoms;
 
   return (
     <div className="layer-rail">
@@ -140,8 +142,7 @@ export function LayerRail() {
           <div className="add-layer-menu">
             {addable.length === 0 && (
               <em className="rail-empty">
-                {notUsed.length === 0 ? "all geoms added"
-                  : "No layer fits the current encoding — change X / Y to enable layers."}
+                No layer fits the current encoding — change X / Y to enable layers.
               </em>
             )}
             {addable.length > 0 && noEncoding && (

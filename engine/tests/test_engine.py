@@ -358,6 +358,115 @@ def _draw_into_potential(vals, params):
     return ax
 
 
+def test_geom_style_resolves_in_three_tiers():
+    # Item K: a geom may appear more than once; style resolves
+    # registry default → geoms.<geom> → layers.<id>, most specific winning.
+    style = compiler.resolve_style({"style": {"overrides": {
+        "geoms": {"dot": {"marker_size": 22.0, "alpha": 0.55}},
+        "layers": {"ly_raw": {"marker_size": 8.0},
+                   "ly_agg": {"marker_size": 60.0, "alpha": 1.0}},
+    }}})
+    # no layer id → the shared geom tier
+    base = compiler.resolve_geom_style(style, "dot")
+    assert base["marker_size"] == 22.0 and base["alpha"] == 0.55
+    # raw layer overrides only marker_size; alpha falls back to the geom tier
+    raw = compiler.resolve_geom_style(style, "dot", "ly_raw")
+    assert raw["marker_size"] == 8.0 and raw["alpha"] == 0.55
+    # aggregate layer overrides both
+    agg = compiler.resolve_geom_style(style, "dot", "ly_agg")
+    assert agg["marker_size"] == 60.0 and agg["alpha"] == 1.0
+    # an unknown layer id falls back entirely to the geom tier
+    other = compiler.resolve_geom_style(style, "dot", "ly_missing")
+    assert other["marker_size"] == 22.0 and other["alpha"] == 0.55
+
+
+def test_repeated_dot_layers_draw_at_different_sizes():
+    # The superplot overlay: faint small raw dots + bold big aggregate dots,
+    # two `dot` layers distinguished only by their per-layer style.
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.collections import PathCollection
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "grp", "type": "categorical", "label": "G", "levels": ["a", "b"]},
+        {"name": "y", "type": "numeric", "label": "Y"},
+        {"name": "rep", "type": "identifier", "label": "Rep"}]}
+    df = pd.DataFrame({
+        "id": [f"r{i}" for i in range(8)],
+        "grp": ["a", "a", "a", "a", "b", "b", "b", "b"],
+        "rep": ["1", "1", "2", "2", "1", "1", "2", "2"],
+        "y": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0]})
+    spec = {
+        "encodings": {k: None for k in ("x", "y", "color", "size", "shape")},
+        "layers": [
+            {"id": "ly_raw", "geom": "dot", "level": ""},
+            {"id": "ly_agg", "geom": "dot", "level": "rep"}],
+        "hierarchy": {"spine": ["rep"], "fn": {"rep": "mean"}},
+        "style": {"overrides": {"layers": {
+            "ly_raw": {"marker_size": 6.0, "layout": "jitter"},
+            "ly_agg": {"marker_size": 80.0, "layout": "jitter"}}}}}
+    spec["encodings"]["x"] = {"column": "grp"}
+    spec["encodings"]["y"] = {"column": "y"}
+    fig = compiler.build_comparison_figure(df, schema, spec, {"result": {}})
+    sizes = set()
+    for ax in fig.axes:
+        for c in ax.collections:
+            if isinstance(c, PathCollection):
+                for s in c.get_sizes():
+                    sizes.add(round(float(s), 1))
+    assert 6.0 in sizes and 80.0 in sizes  # both layers drew, at their own sizes
+    compiler.close(fig)
+
+
+def test_repeated_dot_layers_honor_per_layer_layout():
+    # Item K, layout knob: two `dot` layers must pick swarm vs jitter
+    # independently. Swarm packs marks toward the lane centre (a narrow spread);
+    # jitter scatters them across the lane width (a wide spread). So the layer
+    # set to jitter must occupy a visibly wider categorical band than the one set
+    # to swarm — and flipping which layer is which must flip the spreads.
+    import matplotlib
+    matplotlib.use("Agg")
+    import numpy as np
+    from matplotlib.collections import PathCollection
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "grp", "type": "categorical", "label": "G", "levels": ["a", "b"]},
+        {"name": "y", "type": "numeric", "label": "Y"}]}
+    rng = np.random.default_rng(0)
+    df = pd.DataFrame([
+        {"id": f"{g}{i}", "grp": g, "y": float(rng.normal(5, 1))}
+        for g in ("a", "b") for i in range(20)])
+
+    def spreads(layout_small, layout_big):
+        spec = {
+            "encodings": {k: None for k in ("x", "y", "color", "size", "shape")},
+            "layers": [{"id": "small", "geom": "dot", "level": ""},
+                       {"id": "big", "geom": "dot", "level": ""}],
+            "hierarchy": {"spine": [], "fn": {}},
+            "style": {"overrides": {"layers": {
+                "small": {"marker_size": 6.0, "layout": layout_small},
+                "big": {"marker_size": 60.0, "layout": layout_big}}}}}
+        spec["encodings"]["x"] = {"column": "grp"}
+        spec["encodings"]["y"] = {"column": "y"}
+        fig = compiler.build_comparison_figure(df, schema, spec, {"result": {}})
+        compiler._finalize_deferred(fig)
+        by_size: dict[float, float] = {}
+        for c in fig.axes[0].collections:
+            if not isinstance(c, PathCollection):
+                continue
+            offs = np.asarray(c.get_offsets())
+            if not len(offs):
+                continue
+            sz = round(float(c.get_sizes()[0]), 0)
+            xr = float(offs[:, 0].max() - offs[:, 0].min())
+            by_size[sz] = max(by_size.get(sz, 0.0), xr)
+        compiler.close(fig)
+        return by_size[6.0], by_size[60.0]   # (small spread, big spread)
+
+    small_sw, big_ji = spreads("swarm", "jitter")
+    assert big_ji > small_sw * 2     # the jittered (big) layer spreads much wider
+    small_ji, big_sw = spreads("jitter", "swarm")
+    assert small_ji > big_sw * 2     # flipped: now the small layer is the wide one
+
+
 def test_potential_is_neg_log_density():
     rng = np.random.default_rng(0)
     vals = rng.normal(size=400)

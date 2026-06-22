@@ -2,10 +2,11 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom,
-  styleRegistryAtom, styleClipboardAtom, styleLibraryAtom,
+  hierarchyAtom, styleRegistryAtom, styleClipboardAtom, styleLibraryAtom,
 } from "../state";
 import { familyForMappings } from "../channels";
-import type { Geom, StyleKnob, StyleOverrides } from "../types";
+import { levelOptions } from "../levels";
+import type { StyleKnob, StyleOverrides } from "../types";
 import { captureStyle, serializeStyleSheet, parseStyleSheet } from "../style/sheet";
 import type { StyleSheet } from "../style/sheet";
 import { fileToBase64 } from "../types";
@@ -23,6 +24,36 @@ const GROUP_LABELS: Record<string, string> = {
   annotations: "Annotations",
 };
 
+/** A range slider paired with an editable numeric field (item L). The slider is
+ *  for coarse adjustment; the field lets the user type an exact value. While the
+ *  field is focused it keeps a local text buffer so partial input (e.g. "0.0…")
+ *  isn't clobbered by clamping — it commits a clamped value on each valid
+ *  keystroke and drops the buffer on blur, so the displayed text then mirrors the
+ *  committed value. An empty field clears the override (falls back to default). */
+function RangeField({ label, value, min, max, step, onCommit }: {
+  label: string; value: number; min: number; max: number;
+  step: number; onCommit: (n: number | undefined) => void;
+}) {
+  const [buf, setBuf] = useState<string | null>(null);
+  const clamp = (n: number) => Math.min(max, Math.max(min, n));
+  const commit = (s: string) => {
+    if (s.trim() === "") return onCommit(undefined);
+    const n = Number(s);
+    if (!Number.isNaN(n)) onCommit(clamp(n));
+  };
+  return (
+    <label>{label}
+      <input type="range" min={min} max={max} step={step}
+        value={value}
+        onChange={(e) => { setBuf(null); onCommit(Number(e.target.value)); }} />
+      <input type="number" className="narrow" min={min} max={max} step={step}
+        value={buf ?? String(value)}
+        onChange={(e) => { setBuf(e.target.value); commit(e.target.value); }}
+        onBlur={() => setBuf(null)} />
+    </label>
+  );
+}
+
 /** Generic registry-driven style pane.
  *
  *  Every control is rendered from the style_registry served by /health.
@@ -38,9 +69,9 @@ export function StylePane() {
   const style = active?.style ?? {};
   const analysis = useAtomValue(analysisAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
+  const hierarchy = useAtomValue(hierarchyAtom);
   const family = active ? familyForMappings(active.mappings, schema) : "group_comparison";
   const grouped = family === "group_comparison";
-  const marks = new Set((active?.layers ?? []).map((l) => l.geom));
 
   /* ---- style sheet hooks ---- */
   const [clipboard, setClipboard] = useAtom(styleClipboardAtom);
@@ -69,22 +100,42 @@ export function StylePane() {
     setActive({ ...active, style: { ...style, geoms } as StyleOverrides });
   };
 
+  /* item K: a repeated geom edits one instance — writes the per-layer tier
+     (style.layers.<id>), which the engine merges over the shared geoms.<geom>. */
+  const setLayer = (layerId: string, key: string, value: unknown) => {
+    if (!active) return;
+    const layers = { ...(style.layers ?? {}) };
+    const dest = { ...(layers[layerId] ?? {}) };
+    if (value === undefined || value === "") delete dest[key];
+    else dest[key] = value;
+    if (Object.keys(dest).length) layers[layerId] = dest;
+    else delete layers[layerId];
+    setActive({ ...active, style: { ...style, layers } as StyleOverrides });
+  };
+
   /* ---- read helpers ---- */
 
   const figVal = (key: string, def: unknown): unknown =>
     (style as Record<string, unknown>)[key] ?? def;
 
-  const geomVal = (geom: string, key: string, def: unknown): unknown =>
-    style.geoms?.[geom]?.[key] ?? def;
+  /* 3-tier read mirroring the engine's resolve_geom_style: per-layer override
+     wins over the shared geom value wins over the registry default. */
+  const geomVal = (geom: string, key: string, def: unknown, layerId?: string): unknown => {
+    if (layerId && style.layers?.[layerId]?.[key] !== undefined)
+      return style.layers[layerId][key];
+    return style.geoms?.[geom]?.[key] ?? def;
+  };
 
-  const readVal = (knob: StyleKnob, geom?: string): unknown =>
+  const readVal = (knob: StyleKnob, geom?: string, layerId?: string): unknown =>
     knob.scope === "geom" && geom
-      ? geomVal(geom, knob.key, knob.default)
+      ? geomVal(geom, knob.key, knob.default, layerId)
       : figVal(knob.key, knob.default);
 
-  const writeVal = (knob: StyleKnob, value: unknown, geom?: string) => {
-    if (knob.scope === "geom" && geom) setGeom(geom, knob.key, value);
-    else setFigure({ [knob.key]: value } as StyleOverrides);
+  const writeVal = (knob: StyleKnob, value: unknown, geom?: string, layerId?: string) => {
+    if (knob.scope === "geom" && geom) {
+      if (layerId) setLayer(layerId, knob.key, value);
+      else setGeom(geom, knob.key, value);
+    } else setFigure({ [knob.key]: value } as StyleOverrides);
   };
 
   /* ---- color swatch helpers (palette is a special figure-scope knob) ---- */
@@ -111,14 +162,14 @@ export function StylePane() {
 
   /* ---- visibility gating ---- */
 
-  const isVisible = (knob: StyleKnob, geom?: string): boolean => {
+  const isVisible = (knob: StyleKnob, geom?: string, layerId?: string): boolean => {
     const vw = knob.visible_when;
     if (!vw) return true;
     const ref = readVal(
       registry.find((k) => k.key === vw.key
         && k.scope === knob.scope
         && (knob.scope === "figure" || k.group === knob.group)) ?? { key: vw.key, default: undefined } as StyleKnob,
-      geom,
+      geom, layerId,
     );
     if ("equals" in vw) return ref === vw.equals;
     if ("not_equals" in vw) return ref !== vw.not_equals;
@@ -144,9 +195,9 @@ export function StylePane() {
 
   const num = (v: string) => (v === "" ? undefined : Number(v));
 
-  const renderKnob = (knob: StyleKnob, geom?: string) => {
-    if (!isVisible(knob, geom)) return null;
-    const cur = readVal(knob, geom);
+  const renderKnob = (knob: StyleKnob, geom?: string, layerId?: string) => {
+    if (!isVisible(knob, geom, layerId)) return null;
+    const cur = readVal(knob, geom, layerId);
     const w = knob.widget;
 
     if (w.type === "swatch") {
@@ -166,7 +217,7 @@ export function StylePane() {
         <label key={knob.key}>{knob.label}
           <input type="text" placeholder={knob.default === "" ? (knob.key === "title" ? "none" : "auto") : String(knob.default ?? "")}
             value={String(cur ?? "")}
-            onChange={(e) => writeVal(knob, e.target.value || undefined, geom)} />
+            onChange={(e) => writeVal(knob, e.target.value || undefined, geom, layerId)} />
         </label>
       );
     }
@@ -175,7 +226,7 @@ export function StylePane() {
       return (
         <label key={knob.key}>
           <input type="checkbox" checked={Boolean(cur ?? knob.default)}
-            onChange={(e) => writeVal(knob, e.target.checked, geom)} />
+            onChange={(e) => writeVal(knob, e.target.checked, geom, layerId)} />
           {knob.label}
         </label>
       );
@@ -185,7 +236,7 @@ export function StylePane() {
       return (
         <label key={knob.key}>{knob.label}
           <select value={String(cur ?? knob.default ?? "")}
-            onChange={(e) => writeVal(knob, e.target.value, geom)}>
+            onChange={(e) => writeVal(knob, e.target.value, geom, layerId)}>
             {(w.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
         </label>
@@ -197,12 +248,10 @@ export function StylePane() {
       const val = cur != null ? Number(cur) : (knob.default != null ? Number(knob.default) : "");
       if (isRange) {
         return (
-          <label key={knob.key}>{knob.label}
-            <input type="range" min={w.min} max={w.max} step={w.step ?? 1}
-              value={Number(val || 0)}
-              onChange={(e) => writeVal(knob, Number(e.target.value), geom)} />
-            <span className="dim">{typeof val === "number" ? (Number.isInteger(w.step ?? 1) ? val : val.toFixed(2)) : ""}</span>
-          </label>
+          <RangeField key={knob.key} label={knob.label}
+            value={typeof val === "number" ? val : Number(knob.default ?? w.min ?? 0)}
+            min={w.min as number} max={w.max as number} step={w.step ?? 1}
+            onCommit={(n) => writeVal(knob, n, geom, layerId)} />
         );
       }
       return (
@@ -210,7 +259,7 @@ export function StylePane() {
           <input type="number" min={w.min} max={w.max} step={w.step ?? "any"}
             placeholder="auto"
             value={val === "" || val == null ? "" : val}
-            onChange={(e) => writeVal(knob, num(e.target.value), geom)} />
+            onChange={(e) => writeVal(knob, num(e.target.value), geom, layerId)} />
         </label>
       );
     }
@@ -218,19 +267,39 @@ export function StylePane() {
     return null;
   };
 
-  /* ---- determine which geom groups are relevant (active layers) ---- */
+  /* ---- determine which geom fieldsets to show (one per relevant layer) ----
+     A geom used once edits the shared geoms.<geom> tier (label "<geom> options").
+     A geom used more than once (item K — e.g. raw dots + aggregate dots) gets one
+     fieldset per layer instance, each editing its own style.layers.<id> tier and
+     labelled by its data level so the two are distinguishable. */
+  const levels = useMemo(() => levelOptions(hierarchy, schema), [hierarchy, schema]);
 
   const activeGeomGroups = useMemo(() => {
-    const out: { group: string; geom: string; knobs: StyleKnob[] }[] = [];
-    for (const [group, knobs] of Object.entries(geomGroups)) {
-      // group key = the geom name (dot, box, scatter, etc.)
-      const geom = group;
-      if (marks.has(geom as Geom)) {
-        out.push({ group, geom, knobs });
+    const layers = active?.layers ?? [];
+    const counts: Record<string, number> = {};
+    for (const l of layers) counts[l.geom] = (counts[l.geom] ?? 0) + 1;
+    const levelLabel = (lvl: string) =>
+      levels.find((o) => o.value === (lvl ?? ""))?.label ?? (lvl || "Raw");
+    const out: { key: string; geom: string; layerId?: string;
+                 label: string; knobs: StyleKnob[] }[] = [];
+    const seen = new Set<string>();
+    const nth: Record<string, number> = {};
+    for (const l of layers) {
+      const knobs = geomGroups[l.geom];
+      if (!knobs) continue; // this geom exposes no style knobs
+      if (counts[l.geom] > 1 && l.id) {
+        // disambiguate repeated instances: an index always distinguishes them
+        // (two layers can share a level), plus the level for context.
+        nth[l.geom] = (nth[l.geom] ?? 0) + 1;
+        out.push({ key: `${l.geom}:${l.id}`, geom: l.geom, layerId: l.id,
+                   label: `${l.geom} #${nth[l.geom]} · ${levelLabel(l.level)}`, knobs });
+      } else if (!seen.has(l.geom)) {
+        seen.add(l.geom);
+        out.push({ key: l.geom, geom: l.geom, label: `${l.geom} options`, knobs });
       }
     }
     return out;
-  }, [geomGroups, marks]);
+  }, [geomGroups, active?.layers, levels]);
 
   const dirty = Object.keys(style).length > 0;
 
@@ -294,10 +363,10 @@ export function StylePane() {
           </fieldset>
         ))}
 
-        {activeGeomGroups.map(({ group, geom, knobs }) => (
-          <fieldset key={group}>
-            <legend>{group} options</legend>
-            {knobs.map((k) => renderKnob(k, geom))}
+        {activeGeomGroups.map(({ key, geom, layerId, label, knobs }) => (
+          <fieldset key={key}>
+            <legend>{label}</legend>
+            {knobs.map((k) => renderKnob(k, geom, layerId))}
           </fieldset>
         ))}
       </div>

@@ -361,7 +361,12 @@ def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
     handles, labels = [], []
     for e in entries:
         for sw in e["swatches"]:
-            if e["channel"] == "shape":
+            if e["channel"] == "color+shape":
+                # Item J: color and shape share this metric — one handle shows the
+                # colored marker shape together, so the block has one row per label.
+                h = mlines.Line2D([], [], marker=sw["marker"], linestyle="none",
+                                  color=sw["color"], markersize=6)
+            elif e["channel"] == "shape":
                 h = mlines.Line2D([], [], marker=sw["marker"], linestyle="none",
                                   color=INK, markersize=6)
             elif e["channel"] == "size":
@@ -728,7 +733,7 @@ def _groups(level_df, layout):
 
 def _geom_violin(ax, ctx, layer):
     style, lw = ctx["style"], ctx["lw"]
-    gs = resolve_geom_style(style, "violin")
+    gs = resolve_geom_style(style, "violin", layer.get("id"))
     h = ctx["h_orient"]
     width = (gs.get("mark_width") or 0.7) * ctx["wscale"]
     fill_alpha = gs.get("fill_alpha", 0.22)
@@ -748,7 +753,7 @@ def _geom_violin(ax, ctx, layer):
 
 def _geom_box(ax, ctx, layer):
     style, lw = ctx["style"], ctx["lw"]
-    gs = resolve_geom_style(style, "box")
+    gs = resolve_geom_style(style, "box", layer.get("id"))
     h = ctx["h_orient"]
     width = (gs.get("mark_width") or 0.42) * ctx["wscale"]
     outlier_marker = gs.get("outlier_marker", "o")
@@ -786,7 +791,7 @@ def _geom_box(ax, ctx, layer):
 
 def _geom_bar(ax, ctx, layer):
     style, lw = ctx["style"], ctx["lw"]
-    gs = resolve_geom_style(style, "bar")
+    gs = resolve_geom_style(style, "bar", layer.get("id"))
     h = ctx["h_orient"]
     error_type = gs.get("error_type", "ci95")
     width = (gs.get("mark_width") or 0.6) * ctx["wscale"]
@@ -825,7 +830,7 @@ def _geom_dot(ax, ctx, layer):
     emitted. Per-layer `marker_size` and `alpha` params let a raw layer be
     faint/small and an aggregate layer bold/large within one composed figure."""
     style = ctx["style"]
-    gs = resolve_geom_style(style, "dot")
+    gs = resolve_geom_style(style, "dot", layer.get("id"))
     scales = ctx["scales"]
     h = ctx["h_orient"]
     layout = gs.get("layout", "swarm")
@@ -889,7 +894,7 @@ def _geom_dot(ax, ctx, layer):
 
 def _geom_summary(ax, ctx, layer):
     style, lw = ctx["style"], ctx["lw"]
-    gs = resolve_geom_style(style, "summary")
+    gs = resolve_geom_style(style, "summary", layer.get("id"))
     h = ctx["h_orient"]
     error_type = gs.get("error_type", "ci95")
     capsize = gs.get("capsize", 3.0)
@@ -1173,7 +1178,7 @@ def _geom_line(ax, rows, spine, x, y, sc, style, layer):
     missing x leaves a break. Colour styles how curves look per `color` level
     (the legend names conditions, not units) and never decides which rows form a
     line."""
-    gs = resolve_geom_style(style, "line")
+    gs = resolve_geom_style(style, "line", layer.get("id"))
     alpha = gs.get("alpha", 0.35)
     lw = gs.get("linewidth", 0.8)
     color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None
@@ -1198,7 +1203,7 @@ def _geom_trend(ax, rows, x, y, sc, style, layer):
     internally here as `summary` does per category. The band (when `show_band`) is
     drawn first so the mean line sits on top; the half-spread reuses `_err_half`
     with the layer's `error_type` (ci95/sem/sd)."""
-    gs = resolve_geom_style(style, "trend")
+    gs = resolve_geom_style(style, "trend", layer.get("id"))
     error_type = gs.get("error_type", "ci95")
     show_band = gs.get("show_band", True)
     color_col = sc.color_col if (sc.color_col and not sc.color_numeric) else None

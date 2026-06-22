@@ -128,15 +128,15 @@ describe("offeredColumns — selectable vs disabled-with-reason, identifiers exc
     }
   });
 
-  it("shape: identifier excluded — only colour/facets offer identifiers", () => {
+  it("shape: identifier selectable as discrete (a marker per grain, like colour)", () => {
     const { selectable, disabled } = offeredColumns(REG, "shape", COLS);
-    expect(selectable.map((c) => c.name)).not.toContain("id");
+    expect(selectable.map((c) => c.name)).toContain("id");
     expect(disabled.map((d) => d.col.name)).not.toContain("id");
   });
 
-  it("shape: categorical selectable, numeric disabled-with-reason", () => {
+  it("shape: categorical + identifier selectable, numeric disabled-with-reason", () => {
     const { selectable, disabled } = offeredColumns(REG, "shape", COLS);
-    expect(selectable.map((c) => c.name)).toEqual(["grp"]);
+    expect(selectable.map((c) => c.name)).toEqual(["grp", "id"]);
     expect(disabled.map((d) => d.col.name)).toEqual(["val"]);
     expect(disabled[0].reason).toBeTruthy();
   });

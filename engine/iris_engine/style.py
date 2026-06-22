@@ -270,21 +270,33 @@ def resolve_style(spec: dict) -> dict:
             resolved["font_pt"] = v
         elif k in resolved:
             resolved[k] = v
-    # stash the raw geoms overrides for resolve_geom_style callers
+    # stash the raw geoms + per-layer overrides for resolve_geom_style callers
     resolved["_geom_overrides"] = overrides.get("geoms") or {}
+    resolved["_layer_overrides"] = overrides.get("layers") or {}
     return resolved
 
 
-def resolve_geom_style(style: dict, geom: str) -> dict:
+def resolve_geom_style(style: dict, geom: str, layer_id: str | None = None) -> dict:
     """Merge user overrides onto registry defaults for *geom*. ``style`` is the
     resolved figure-level dict (from ``resolve_style``), which carries the
-    ``_geom_overrides`` stash. Returns a flat dict of that geom's knob values."""
+    ``_geom_overrides`` stash. Returns a flat dict of that geom's knob values.
+
+    Item K: a geom may appear more than once in the layer stack (e.g. faint raw
+    dots + bold aggregate dots), so style resolves in three tiers, most specific
+    winning: registry default → ``geoms.<geom>`` (shared by every instance of the
+    geom) → ``layers.<layer_id>`` (this one instance). Passing ``layer_id`` opts
+    into the per-instance tier; without it the behaviour is the old two-tier merge."""
     defaults = GEOM_STYLE_DEFAULTS.get(geom, {})
-    overrides = style.get("_geom_overrides", {}).get(geom) or {}
     merged = {**defaults}
+    overrides = style.get("_geom_overrides", {}).get(geom) or {}
     for k, v in overrides.items():
         if v is not None:
             merged[k] = v
+    if layer_id is not None:
+        per_layer = style.get("_layer_overrides", {}).get(layer_id) or {}
+        for k, v in per_layer.items():
+            if v is not None:
+                merged[k] = v
     return merged
 
 

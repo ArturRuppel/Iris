@@ -231,13 +231,15 @@ export function geomAxisColTypes(
 }
 
 /* channels that treat a spine identifier (a replicate id like `date`) as a
-   discrete categorical: color draws it as a palette (the superplot idiom of
-   coloring per-grain marks by grain), and the facets split a small-multiples
-   grid by it (one panel per date/position). Every other channel excludes
-   identifiers (colType returns null). High-cardinality ids are caught downstream
-   — the palette-exhausted warning for color, the blocking facet-cell cap. */
+   discrete categorical: color draws it as a palette and shape draws it as a
+   marker cycle (both the superplot idiom of distinguishing per-grain marks by
+   grain — and, mapped together, they merge into one per-grain legend), while the
+   facets split a small-multiples grid by it (one panel per date/position). Every
+   other channel excludes identifiers (colType returns null). High-cardinality ids
+   are caught downstream — the palette-exhausted / marker-exhausted warning for
+   color/shape, the blocking facet-cell cap. */
 const ID_AS_CATEGORICAL: ReadonlySet<Channel> =
-  new Set(["color", "facet_row", "facet_col"]);
+  new Set(["color", "shape", "facet_row", "facet_col"]);
 
 /* the columns offerable on a channel, split into selectable (renderable) and
    disabled-with-reason (offerable but not drawn today). */
