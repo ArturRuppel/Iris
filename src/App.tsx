@@ -18,7 +18,7 @@ import {
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom,
 } from "./state";
-import { downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
+import { base64ToBytes, downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
 
 function Section({ title, defaultOpen, children }:
   { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -82,7 +82,12 @@ export default function App() {
   const timer = useRef<number>();
   const previewTimer = useRef<number>();
   const didInit = useRef(false);
-  const loadFileRef = useRef<HTMLInputElement>(null);
+  /* The .iris file the document is bound to: a real OS file handle (File System
+     Access API) so Save writes back to the same file, tagged with the table id it
+     belongs to. Null until saved-as/loaded from disk — then Save falls through to
+     Save As. The tableId guard means that after loading A.iris and importing fresh
+     data, Save prompts for a new file instead of silently overwriting A.iris. */
+  const fileHandleRef = useRef<{ fh: FileSystemFileHandle; tableId: string } | null>(null);
   /* background-render loop: exactly one /analyze in flight at a time (matplotlib
      is treated as not thread-safe, so renders are serialized client-side), and a
      set of `${id}:${key}` configs whose render already failed, so a 422-ing plot
@@ -254,13 +259,50 @@ export default function App() {
     const f = await engine.export({ token: handle.id }, spec, format);
     downloadBase64(f.filename, f.data_base64);
   };
+  const IRIS_FILE_TYPES = [{
+    description: "Iris document",
+    accept: { "application/octet-stream": [".iris"] },
+  }];
+  /* Cancelling a file picker rejects with AbortError — that's a no-op, not a
+     failure to surface. Anything else is a real save/load error for the bar. */
+  const surfaceUnlessAbort = (e: unknown) => {
+    if (e instanceof DOMException && e.name === "AbortError") return;
+    setError(e instanceof Error ? e.message : String(e));
+  };
+  /* Ask the engine for the document bytes, then write them through the OS file
+     handle. The frontend never holds the full table, so save can fail if the
+     session was evicted (409) — that now surfaces instead of being swallowed. */
+  const writeIris = async (fh: FileSystemFileHandle) => {
+    const f = await engine.saveDocument(handle!.id, allSpecs, {});
+    const w = await fh.createWritable();
+    await w.write(new Blob([base64ToBytes(f.data_base64)]));
+    await w.close();
+  };
   const doSave = async () => {
     if (!schema || allSpecs.length === 0 || !handle) return;
-    const f = await engine.saveDocument(handle.id, allSpecs, {});
-    downloadBase64(f.filename, f.data_base64);
-  };
-  const doLoad = async (file: File) => {
     try {
+      const bound = fileHandleRef.current;
+      // Reuse the handle only if it belongs to the table we're looking at;
+      // otherwise the first Save is really a Save As (pick a file).
+      let fh = bound && bound.tableId === handle.id ? bound.fh : null;
+      if (!fh)
+        fh = await window.showSaveFilePicker({ suggestedName: "document.iris", types: IRIS_FILE_TYPES });
+      await writeIris(fh);
+      fileHandleRef.current = { fh, tableId: handle.id };
+    } catch (e) { surfaceUnlessAbort(e); }
+  };
+  const doSaveAs = async () => {
+    if (!schema || allSpecs.length === 0 || !handle) return;
+    try {
+      const fh = await window.showSaveFilePicker({ suggestedName: "document.iris", types: IRIS_FILE_TYPES });
+      await writeIris(fh);
+      fileHandleRef.current = { fh, tableId: handle.id };   // later Save writes back here
+    } catch (e) { surfaceUnlessAbort(e); }
+  };
+  const doLoad = async () => {
+    try {
+      const [fh] = await window.showOpenFilePicker({ types: IRIS_FILE_TYPES, multiple: false });
+      const file = await fh.getFile();
       const doc = await engine.loadDocument(fileToBase64(await file.arrayBuffer()));
       loadDocument({
         schema: doc.schema, rows: doc.rows,
@@ -268,11 +310,8 @@ export default function App() {
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
       });
       setViewMode(doc.analyses.length ? "analyses" : "data");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      if (loadFileRef.current) loadFileRef.current.value = "";   // allow re-pick
-    }
+      fileHandleRef.current = { fh, tableId: doc.id };   // a later Save writes back here
+    } catch (e) { surfaceUnlessAbort(e); }
   };
 
   if (engineUp === false) return (
@@ -303,10 +342,9 @@ export default function App() {
           <button onClick={() => doExport("svg")}>SVG</button>
           <button onClick={() => doExport("pdf")}>PDF</button>
           <button onClick={() => doExport("png")}>PNG</button>
-          <button onClick={() => loadFileRef.current?.click()}>Load .iris</button>
-          <input ref={loadFileRef} type="file" hidden accept=".iris"
-            onChange={(e) => e.target.files?.[0] && void doLoad(e.target.files[0])} />
+          <button onClick={doLoad}>Load .iris</button>
           <button className="primary" onClick={doSave}>Save .iris</button>
+          <button onClick={doSaveAs}>Save As…</button>
         </div>
       </header>
       {error ? <div className="error-bar">{error}</div>

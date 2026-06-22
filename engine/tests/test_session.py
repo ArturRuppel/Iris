@@ -82,3 +82,27 @@ def test_counts_total():
     store = session.SessionStore()
     t = store.get(store.create(SCHEMA, _df(4)))
     assert t.counts() == {"total": 4}
+
+
+def test_get_refreshes_lru_so_active_table_survives_eviction():
+    # Regression: a `get` must count as a use. The "main" table is created first
+    # but stays active (analyze/save touch it every request); a burst of derived
+    # tables must NOT evict it. Before true-LRU `get`, eviction was FIFO and the
+    # first-created (main) table was the first to go — silently breaking re-save.
+    store = session.SessionStore(maxlen=3)
+    main = store.create(SCHEMA, _df())
+    for _ in range(5):                 # well past maxlen
+        derived = store.create(SCHEMA, _df())
+        assert store.get(main) is not None   # touch keeps it alive
+        assert store.get(derived) is not None
+    assert store.get(main) is not None        # survived the whole burst
+
+
+def test_untouched_table_still_evicts_under_pressure():
+    # The bound still holds: an id nobody touches is the one that falls out.
+    store = session.SessionStore(maxlen=2)
+    cold = store.create(SCHEMA, _df())
+    a = store.create(SCHEMA, _df())
+    b = store.create(SCHEMA, _df())   # pushes `cold` out (never touched)
+    assert store.get(cold) is None
+    assert store.get(a) is not None and store.get(b) is not None

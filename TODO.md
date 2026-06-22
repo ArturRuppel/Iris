@@ -298,10 +298,36 @@ nudge like the 0/1→bool one), without losing their role as a nesting level.
 
 ### L. Scrutinize .iris save / load + style-param text input
 Two distinct problems to work through:
-- **Save/load needs auditing.** Saving a `.iris` works only ONCE — a second save
-  appears to fail. There should be a proper **Save** (write back to the current
-  file) AND **Save As** (choose a new path), which today's single action conflates
-  or breaks. Trace the save path end-to-end and fix the once-only behaviour.
+- (**Save/load audit — shipped 2026-06-22.** Root cause of "works only once": there
+  was NO "current file" concept at all. `doSave` shipped the engine's base64 doc to
+  `downloadBase64` (`types.ts`), an `<a download="document.iris">` data-URI click —
+  every save dumped a *new* `document.iris`/`document (1).iris` into Downloads, so
+  "write back to the same file" was impossible. A second, latent failure: `doSave`
+  had no try/catch (unlike `doLoad`), so an engine error was swallowed and the user
+  saw nothing. Fix is three parts. (1) Real OS file handles via the File System
+  Access API (Chromium-only, by decision — no users yet, e2e is Chromium): `doSave`
+  reuses a retained `FileSystemFileHandle` and `createWritable()`s back to it,
+  `doSaveAs` always re-prompts, and `Load .iris` now uses `showOpenFilePicker` and
+  retains the handle so a later Save writes back to the opened file. New `Save As…`
+  button; the hidden `<input type=file>` is gone. The handle is tagged with the
+  table id it belongs to, so after loading A.iris then importing fresh data, Save
+  prompts for a new file instead of silently overwriting A.iris. AbortError (picker
+  cancel) is a no-op; any other error now surfaces in the error bar. (2) New
+  `base64ToBytes` helper + `src/fsaccess.d.ts` for the picker types lib.dom lacks at
+  TS 5.9. (3) The real engine bug behind the 409-on-resave the frontend can't
+  recover (it holds only a 200-row window, never the full table): `SessionStore` was
+  documented as LRU but `get()` never refreshed recency — eviction was FIFO by
+  creation, so the *main* table (created first, touched by every analyze/save) was
+  the first evicted after 8 derived-table creates. `get()` now moves the id to the
+  most-recently-used end, so the actively-used table survives. `test_session.py`
+  gains the active-survives + cold-still-evicts pair. 311 engine + 86 FE green,
+  typecheck + build clean. BROWSER-VERIFIED (Chromium 1223): new
+  `e2e/save_load_test.mjs` stubs the native File System Access pickers with
+  in-memory handles (Playwright can't drive OS dialogs) and drives the real
+  doSave/doSaveAs/doLoad — asserts a SECOND Save writes again (the once-only
+  regression), the bytes are a valid .iris ZIP, Save As writes, and a FRESH page
+  loads the saved doc back (full `/document/load` round trip, plottable restored).
+  Full e2e suite now 12/12.)
 - (**Style params text-field input — shipped 2026-06-22.** Each registry range
   knob in `StylePane` now renders a slider PAIRED with an editable numeric field
   via a new `RangeField` component, replacing the old read-only value span. The

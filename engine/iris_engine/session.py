@@ -100,4 +100,14 @@ class SessionStore:
         if not tid:
             return None
         with self._lock:
-            return self._tables.get(tid)
+            t = self._tables.get(tid)
+            if t is not None:
+                # True LRU: a get IS a use, so refresh recency. The table the
+                # frontend actively analyzes/saves (always the same id) is touched
+                # on every request, so it now never evicts under a burst of
+                # derived-table creates — without refreshing here, eviction was
+                # FIFO-by-creation and the main table (created first) was the first
+                # to go, silently breaking a later save.
+                self._order.remove(tid)
+                self._order.append(tid)
+            return t
