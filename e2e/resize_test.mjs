@@ -5,7 +5,7 @@ import { chromium } from "playwright";
    via an in-memory buffer through the ImportWizard's hidden file input — the
    `.template-pick` dropdown and auto-seeded layers/mappings were removed in
    111243b (see TODO.md), so this follows the documented fix pattern: explicit
-   import, explicit mapping, explicit `.add-layer-btn` flow. A Histogram layer
+   import, explicit mapping, explicit `.add-layer-btn` flow. A Distribution layer
    (aggregates, needs only Y) always renders regardless of sample size. */
 
 const csv = [
@@ -32,7 +32,7 @@ await page.waitForSelector(".layer-rail", { timeout: 60000 });
 
 await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
 await page.click(".add-layer-btn");
-await page.click(".add-layer-menu button:has-text('Histogram')");
+await page.click(".add-layer-menu button:has-text('Distribution')");
 await page.waitForSelector(".figure-host svg", { timeout: 30000 });
 await page.waitForTimeout(600);
 

@@ -4,6 +4,8 @@ categorical x × categorical y → count matrix rendered as a heatmap.
 No inferential test is run (describe-only by the engine); chi-square is
 planned for a later tier.
 """
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -208,16 +210,16 @@ def test_tile_stat_model_is_contingency():
 
 def test_tile_svg_contains_count_cells():
     """show_annotation: cell count numbers should appear in the SVG.
-    Matplotlib renders text as glyph paths but embeds the original string
-    in an SVG comment immediately before each text group (<!-- 2 -->)."""
+    With svg.fonttype=none the labels are real <text> nodes (selectable, not
+    outlined to paths), so the count string is the text element's content."""
     spec = tile_spec()
-    spec["style"] = {"preset": "demo_default", "overrides": {"show_annotation": True}}
+    spec["style"] = {"overrides": {"show_annotation": True}}
     r = client.post("/analyze", json={"table": TABLE, "spec": spec})
     assert r.status_code == 200
     svg = r.json()["figure"]["svg"]
     # counts for the 9-row fixture: ctrl→responder=2, drug_a→responder=1, etc.
-    assert "<!-- 2 -->" in svg
-    assert "<!-- 1 -->" in svg
+    assert re.search(r"<text[^>]*>2</text>", svg)
+    assert re.search(r"<text[^>]*>1</text>", svg)
 
 
 def test_tile_respects_level_order():

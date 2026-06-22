@@ -98,7 +98,8 @@ def test_analyze_endpoint_svg_draws_marks_without_point_groups():
     assert "<use" in svg                       # marks still drawn as vector glyphs
     # The two-group comparison draws its significance bracket on the figure
     # (re-introduced with the multi-comparison work); this fixture is significant.
-    assert "<!-- *** -->" in svg
+    # svg.fonttype=none: the label is a real <text> node, not an outlined path.
+    assert re.search(r"<text[^>]*>\*\*\*</text>", svg)
 
 
 def test_filter_on_flag_drops_rows():
@@ -594,10 +595,11 @@ def test_style_overrides_reach_the_svg():
     svg = r.json()["figure"]["svg"]
     assert "#ff0066" in svg and "#00ff66" in svg  # custom group colors
     assert "n = 20" not in svg  # show_n off
-    # draggable labels are gid-tagged groups carrying the custom text
+    # draggable labels are gid-tagged groups carrying the custom text; with
+    # svg.fonttype=none the text is a real <text> node inside the group.
     for gid, text in [("lbl-title", "My title"), ("lbl-x", "Custom X"),
                       ("lbl-y", "Custom Y")]:
-        m = re.search(rf'<g id="{gid}">\s*<!-- (.*?) -->', svg)
+        m = re.search(rf'<g id="{gid}">.*?<text[^>]*>(.*?)</text>', svg, re.S)
         assert m and m.group(1) == text
 
 

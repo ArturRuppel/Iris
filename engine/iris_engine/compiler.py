@@ -39,14 +39,22 @@ INK = "#0f172a"
 STYLE_DEFAULTS = style_mod.STYLE_DEFAULTS
 
 
+# Output-time rcParams. `svg.fonttype`/`pdf.fonttype` are read by savefig, not at
+# draw time, so they must wrap the savefig call — not `_rc` (which only governs the
+# figure-building rc_context). Set here, text stays real <text>/TrueType (editable,
+# selectable) instead of being outlined to paths.
+_OUTPUT_RC = {
+    "svg.fonttype": "none",          # real text in SVG (editable, selectable)
+    "pdf.fonttype": 42,              # TrueType in PDF (editable in Illustrator)
+}
+
+
 def _rc(style: dict) -> dict:
     font_pt = style["font_pt"]
     closed = style["frame"] == "closed"
     x_top = style["x_tick_side"] == "top"
     y_right = style["y_tick_side"] == "right"
     return {
-        "svg.fonttype": "none",          # real text in SVG (editable, selectable)
-        "pdf.fonttype": 42,              # TrueType in PDF (editable in Illustrator)
         "font.family": "sans-serif",
         "font.size": font_pt,
         "axes.titlesize": font_pt,
@@ -1541,14 +1549,16 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
 def figure_to_svg(fig) -> str:
     _finalize_deferred(fig)
     buf = io.StringIO()
-    fig.savefig(buf, format="svg")
+    with plt.rc_context(_OUTPUT_RC):
+        fig.savefig(buf, format="svg")
     return buf.getvalue()
 
 
 def figure_to_bytes(fig, fmt: str, dpi: int = 300) -> bytes:
     _finalize_deferred(fig)
     buf = io.BytesIO()
-    fig.savefig(buf, format=fmt, dpi=dpi)
+    with plt.rc_context(_OUTPUT_RC):
+        fig.savefig(buf, format=fmt, dpi=dpi)
     return buf.getvalue()
 
 

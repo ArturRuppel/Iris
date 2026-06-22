@@ -229,12 +229,14 @@ def test_color_scatter_draws_legend_with_level_labels():
 
 
 def _legend_marker_xy(svg):
-    """Display position of the legend's first drawn element in the rendered SVG
-    (its first child's translate), so we can tell whether the legend moved."""
+    """Display position of the legend's first drawn element in the rendered SVG,
+    so we can tell whether the legend moved. With svg.fonttype=none the first
+    positioned element is the legend title <text>, which carries x/y attributes
+    (not a translate) — read those."""
     import re
     i = svg.find('id="legend"')
     assert i != -1, "no legend group in SVG"
-    m = re.search(r'translate\(([0-9.]+) ([0-9.]+)\)', svg[i:])
+    m = re.search(r'x="([0-9.]+)" y="([0-9.]+)"', svg[i:])
     assert m, "no positioned element in legend group"
     return float(m.group(1)), float(m.group(2))
 

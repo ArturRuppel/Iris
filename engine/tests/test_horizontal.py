@@ -5,6 +5,8 @@ the encoding has numeric x + categorical y. The compiler swaps axis roles;
 stats still group by the categorical column and measure the numeric one.
 """
 
+import re
+
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
@@ -195,8 +197,8 @@ def test_horizontal_significance_bracket_drawn():
     r = client.post("/analyze", json={"table": make_table(),
                                       "spec": make_horiz_spec("box")})
     assert r.status_code == 200
-    # matplotlib (svg.fonttype=none) emits each label's text as an SVG comment
-    assert "<!-- *** -->" in r.json()["figure"]["svg"]
+    # svg.fonttype=none: the bracket label is a real <text> node, not outlined
+    assert re.search(r"<text[^>]*>\*\*\*</text>", r.json()["figure"]["svg"])
 
 
 def test_horizontal_mixed_layers():

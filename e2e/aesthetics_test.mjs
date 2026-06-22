@@ -54,30 +54,27 @@ if (await colorRow.count() === 0) fail("no Color picker after seeding a box");
 const colorSelect = colorRow.locator("select");
 console.log("color picker present");
 
-// Pick the first categorical option that differs from the current X group.
-const xVal = await page.locator(".enc-row", { hasText: "X" }).locator("select")
-  .inputValue().catch(() => "");
-// only enabled options are selectable: Phase 3 lists numeric columns under
-// Color too, but disabled-with-reason (continuous color isn't drawn yet).
-const options = await colorSelect.locator("option:not([disabled])").evaluateAll(
+// Map the second CATEGORICAL (batch) to color — that's the case that dodges and
+// draws a discrete legend. NB: Phase 3b made numeric columns selectable under
+// Color too (they draw a continuous colorbar, not a legend), so we pick the
+// categorical explicitly rather than "first enabled non-X" to keep asserting the
+// legend path. The categorical option must be enabled.
+const enabled = await colorSelect.locator("option:not([disabled])").evaluateAll(
   (els) => els.map((e) => e.value));
-const second = options.find((v) => v && v !== xVal);
-if (!second) {
-  fail("expected a second categorical (batch) to be offered under Color");
+if (!enabled.includes("batch"))
+  fail("expected the second categorical (batch) to be offered under Color");
+await colorSelect.selectOption("batch");
+await page.waitForTimeout(1800);
+const figure = await page.locator(".iris svg").count();
+const bar = await page.locator(".error-bar").count();
+if (figure === 0 && bar === 0)
+  fail("color set: no figure and no status bar — rendered nothing");
+if (figure > 0) {
+  const legend = await page.locator('.iris svg g[id="legend"]').count();
+  if (legend === 0) fail("color mapped a second categorical but no legend drawn");
+  console.log("dodged figure with legend rendered");
 } else {
-  await colorSelect.selectOption(second);
-  await page.waitForTimeout(1800);
-  const figure = await page.locator(".iris svg").count();
-  const bar = await page.locator(".error-bar").count();
-  if (figure === 0 && bar === 0)
-    fail("color set: no figure and no status bar — rendered nothing");
-  if (figure > 0) {
-    const legend = await page.locator('.iris svg g[id="legend"]').count();
-    if (legend === 0) fail("color mapped a second factor but no legend drawn");
-    console.log("dodged figure with legend rendered");
-  } else {
-    console.log("guard/status bar shown (no crash)");
-  }
+  console.log("guard/status bar shown (no crash)");
 }
 
 if (pageErrors.length) fail("page errors: " + pageErrors.slice(0, 4).join(" | "));

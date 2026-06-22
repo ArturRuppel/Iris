@@ -2,7 +2,9 @@
 
 Open items only, ordered by the agreed sequence: a quick contained bug first,
 then the validation net before the feature it validates, then remaining feature
-work by increasing scope. The two browser-blocked items sit at the end.
+work by increasing scope. The browser-verification batch (previously blocked on
+no Chromium) was RUN on 2026-06-22 — see its section at the end for what it
+found and the two stale tests deferred from it.
 
 (Completed items 1–22, the resolved repetition-key/superplot item, the
 "picking X auto-propagates into Color" bug, the validation corpus, and the
@@ -197,37 +199,67 @@ clean. NOT browser-verified here (no Chromium): the e2e `superplot_test.mjs`
 assertion was updated to the new `PathCollection_N` structure for whoever next
 runs it with a browser — fold into the browser-blocked batch.)
 
-### 1. Facets cannot be plotted — REOPENED (facet ROW) 2026-06-16
-Facet COL is fixed and verified; facet ROW still doesn't work in the running app.
-Everything verifiable headlessly passes, so the remaining bug is app/browser-side
-and not reproducible in this sandbox (no Chromium):
-- Engine renders facet row in isolation (`build_comparison_figure`, 2 axes,
-  tall figsize, no warnings) and via `POST /analyze` (200, both level labels in
-  the SVG), for box/dot/scatter/tile. `tests/test_facets.py` exercises
-  `facet_row="site"` across grid-shape, per-cell data, unique gids, scatter and
-  tile — all green.
-- Frontend wiring is symmetric with facet col (`EncodingsCard` FACET_KEY
-  facet_row→facetRow; `state.buildSpec` facet.row = p.facetRow).
-Likely candidates to check WITH a browser: (a) the per-cell sizing makes a
-facet-row figure very tall (height_mm × n_rows) — it may overflow/clip the
-figure pane or render as an unusable sliver, so the *display* (not the data) is
-the failure; (b) a console error when the facet-row select changes. NEXT: repro
-in the app, capture the console + the produced figure height, and decide whether
-to cap total figure size and/or fix the figure-pane display of very tall
-figures.
+## Browser-verification batch — RAN 2026-06-22
 
-### 2. Phase 3 (Data-First Encodings) e2e coverage — TESTS ADDED, execution pending
-Three UI-wiring e2e tests are written (mirroring the verified
-`aesthetics_test.mjs` pattern: explicit import via the ImportWizard hidden file
-input → switch to Analyses → map X/Y → `.add-layer-btn` flow):
-- `e2e/continuous_color_test.mjs` — categorical X + numeric Y + numeric Color on
-  a Dots layer draws a colorbar (label = column) and NO discrete legend.
-- `e2e/horizontal_test.mjs` — numeric X + categorical Y offers + renders a
-  horizontal Box with the categorical levels as y tick labels.
-- `e2e/tile_test.mjs` — categorical X × categorical Y offers only the Tile geom
-  and renders the contingency figure.
-All three pass `node --check`. NOT executed here — this sandbox has no Chromium
-and no network to download one. Run on a machine with Chromium: start the engine
-(8765) + vite (5173), then `node e2e/continuous_color_test.mjs` (and
-`horizontal_test.mjs`, `tile_test.mjs`); each exits 0 on success. Batch with
-item 1 whenever a browser environment is available.
+Ran the whole `e2e/` suite + facet-row repro on a machine with a real browser
+(Playwright Chromium 1223). The batch cleared, and it surfaced one genuine
+engine bug — write-ups below. Net: 9/11 e2e pass; the two still-red tests are
+*stale tests* needing a UI-selector rewrite, not app bugs (deferred per the
+2026-06-22 decision — see "Deferred" at the end).
+
+(Item 1 — Facet ROW — RESOLVED 2026-06-22. Reproduced in the running app:
+facet row now renders both panels (`site = north` / `site = south`) as a normal
+tall 140×200 mm two-row figure that scrolls in the figure pane — NOT a clipped
+sliver, no console error. The SVG fits within the pane (no overflow). The data
+path was already green via `tests/test_facets.py`; this confirms the *display*
+the earlier note worried about. `e2e/facets_test.mjs` (which maps Facet Row →
+site and asserts a 2-axes grid) passes.)
+
+(Item 2 — Phase 3 e2e coverage — EXECUTED + RESOLVED 2026-06-22. All three
+(`continuous_color_test`, `horizontal_test`, `tile_test`) now pass. They were
+RED on first run, but the cause was the svg.fonttype bug below — once the engine
+emitted real `<text>` again, the colorbar/tick/level-label assertions matched.
+No test-logic change was needed for these three.)
+
+### REAL BUG FOUND + FIXED 2026-06-22 — SVG/PDF text was outlined to paths
+`compiler.figure_to_svg`/`figure_to_bytes` called `fig.savefig(...)` OUTSIDE any
+`rc_context`. `svg.fonttype`/`pdf.fonttype` are read at *savefig* time, not
+figure-build time, so the `_rc(style)` context (which set `svg.fonttype: none`)
+had already exited — and the global default `path` won. Every figure shipped
+with all text OUTLINED to vector glyphs (`<use>` glyph refs + a `<!-- label -->`
+comment), silently breaking the documented "real text in SVG (editable,
+selectable)" promise and bloating output. Fix: hoisted the two output-time font
+params into a module-level `_OUTPUT_RC` and wrapped both savefig calls in
+`plt.rc_context(_OUTPUT_RC)`. Verified: figures now emit real `<text>` nodes.
+
+This had also quietly shaped the TEST suite: `validation/svgstruct.py` and the
+per-test helpers in `test_engine`/`test_tile`/`test_multigroup`/`test_horizontal`
+/`test_aesthetics` parsed label text out of matplotlib's `<!-- … -->` comments
+(a `path`-mode artifact) and even *mislabelled* that as "svg.fonttype=none"
+behaviour — i.e. the whole harness was validating against the bug. Migrated all
+of them to read real `<text>` content (svgstruct gained `_texts`/`_first_text`;
+the legend-position probe reads the title `<text>`'s x/y instead of a
+`translate`). 302 engine + 86 FE tests green after the migration.
+
+### Deferred stale tests (2 e2e) — decided 2026-06-22: flag, don't fix now
+Both fail only on UI selectors/flows that drifted since they were written
+(2026-06-16/17); neither indicates an app bug. Fix when convenient:
+- `e2e/superplot_test.mjs` — uses removed/renamed hooks: `.hierarchy-card`
+  → now `.hierarchy-panel`; `.pairing-badge` is GONE (the pairing verdict moved
+  into StatsPanel's "Inferred model" section, gated on a test being added).
+  Rewrite the spine-building + pairing-verdict assertions against the current UI.
+- `e2e/timeseries_test.mjs` — maps X to a column literally named `frame`, but
+  `frame` is in the importer's `_ID_TOKENS` (with `time`/`timepoint`/`well`/…),
+  so it's classified `identifier` and excluded from axes by design
+  (`channels.ts`: identifiers "never drive axes/stats"). The test must retype
+  `frame` identifier→numeric in the ImportWizard before mapping it to X (the
+  real workflow), or use a non-identifier column name. See the product note.
+
+### PRODUCT NOTE (flag only, no change made) — identifier default vs time-on-X
+A column named `frame`/`time`/`timepoint` defaults to `type: identifier` and is
+therefore NOT axis-mappable without a manual retype — which is friction for the
+core time-lapse-microscopy use case (time on X is the whole point of the
+time-series geom family). Decision 2026-06-22: leave the identifier detection as
+is for now and just record this. If revisited, the fix is to let `time`-like
+tokens stay numeric/axis-mappable by default (or offer a one-click "use as axis"
+nudge like the 0/1→bool one), without losing their role as a nesting level.

@@ -4,9 +4,10 @@ assert against — mark counts, geom layers, axis/label text, tick labels.
 Deliberately structural, never pixel-exact: it reads the gids the engine stamps
 on the figure (``lbl-x``/``lbl-y``/``lbl-title``/``lbl-annot`` draggable labels,
 ``legend``) plus matplotlib's own ``PathCollection_N`` scatter groups, and the
-text matplotlib emits as SVG comments. That survives font-hinting and
-matplotlib-version differences across machines (and the coming macOS/Windows
-packaging), where an image diff would not.
+text matplotlib emits as real ``<text>`` elements (``svg.fonttype=none`` — the
+strings stay live and selectable in the SVG, not outlined to paths). That
+survives font-hinting and matplotlib-version differences across machines (and the
+coming macOS/Windows packaging), where an image diff would not.
 
 Point marks are counted from matplotlib's ``<g id="PathCollection_N">`` scatter
 groups (one ``<use>`` per drawn point). Item I removed the engine's per-point
@@ -63,25 +64,39 @@ def _group_inner(svg: str, gid: str) -> str | None:
     return svg[i:]  # unterminated (shouldn't happen for valid SVG)
 
 
-def _first_comment(fragment: str) -> str | None:
-    m = re.search(r"<!--\s*(.*?)\s*-->", fragment, re.S)
-    return html.unescape(m.group(1)) if m else None
+_TEXT_RE = re.compile(r"<text\b[^>]*>(.*?)</text>", re.S)
+
+
+def _clean_text(raw: str) -> str:
+    """A matplotlib ``<text>`` node's string, minus any nested markup (a tspan
+    on multi-line / mathtext) and with entities unescaped."""
+    return html.unescape(re.sub(r"<[^>]+>", "", raw)).strip()
+
+
+def _texts(fragment: str) -> list[str]:
+    """All real-text strings (``svg.fonttype=none``) in render order."""
+    return [_clean_text(t) for t in _TEXT_RE.findall(fragment)]
+
+
+def _first_text(fragment: str) -> str | None:
+    m = _TEXT_RE.search(fragment)
+    return _clean_text(m.group(1)) if m else None
 
 
 def _label_text(svg: str, gid: str) -> str | None:
     inner = _group_inner(svg, gid)
-    return _first_comment(inner) if inner is not None else None
+    return _first_text(inner) if inner is not None else None
 
 
 def _tick_labels(svg: str, axis: str) -> list[str]:
     """Ordered tick-label text for an axis. matplotlib emits each label's string
-    as a comment inside a nested text group within ``<g id="xtick_N">`` /
+    as a real ``<text>`` inside a nested text group within ``<g id="xtick_N">`` /
     ``ytick_N``; ticks with no text label (numeric gridlines) contribute
     nothing. Uses the depth-aware extractor — the tick group nests the tickline
-    and label groups, so a non-greedy scan would stop short of the comment."""
+    and label groups, so a non-greedy scan would stop short of the text."""
     out = []
     for m in re.finditer(rf'<g id="({axis}tick_\d+)"', svg):
-        txt = _first_comment(_group_inner(svg, m.group(1)) or "")
+        txt = _first_text(_group_inner(svg, m.group(1)) or "")
         if txt:
             out.append(txt)
     return out
@@ -111,8 +126,7 @@ def parse(svg: str) -> SvgFacts:
 
     legend = _group_inner(svg, "legend")
     if legend is not None:
-        f.legend_labels = [html.unescape(t)
-                           for t in re.findall(r"<!--\s*(.*?)\s*-->", legend, re.S)]
+        f.legend_labels = _texts(legend)
 
     f.n_patches = len(re.findall(r'<g id="patch_\d+">', svg))
     return f

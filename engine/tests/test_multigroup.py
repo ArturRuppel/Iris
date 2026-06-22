@@ -151,8 +151,8 @@ def _render(df, geom="box", horizontal=False, show_significance=True):
 
 
 def _bracket_labels(svg):
-    # matplotlib (svg.fonttype=none) emits each text string as an SVG comment
-    return re.findall(r"<!-- (\*{1,3}|ns) -->", svg)
+    # svg.fonttype=none: each bracket's significance string is a real <text> node
+    return re.findall(r"<text[^>]*>(\*{1,3}|ns)</text>", svg)
 
 
 def test_three_groups_draw_one_bracket_per_pair():

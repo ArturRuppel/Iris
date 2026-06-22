@@ -6,7 +6,7 @@ import { chromium } from "playwright";
    imported via an in-memory buffer through the ImportWizard's hidden file
    input — the `.template-pick` dropdown and auto-fetched sample dataset were
    removed in 111243b (see TODO.md), so this follows the documented fix
-   pattern: explicit import before touching `.pipeline-rail`. Needs the
+   pattern: explicit import before touching `.pipeline-section`. Needs the
    engine (port 8765) and the vite dev server (port 5173) running.
 
    AG Grid virtualizes rows, so we assert on the column count via the reduced
@@ -42,13 +42,18 @@ await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000
 // Switch to Analyses mode; the pipeline rail and reduced preview appear.
 await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".analyses-mode", { timeout: 60000 });
-await page.waitForSelector(".pipeline-rail", { timeout: 60000 });
+await page.waitForSelector(".pipeline-section", { timeout: 60000 });
 
 // The reduced-table preview loads (table upload + /reduce round trip).
 await page.waitForSelector(".reduced-note", { timeout: 60000 });
 const noteFull = await page.locator(".reduced-note").innerText();
 if (!/\d+ column/.test(noteFull)) fail("reduced note missing column count: " + noteFull);
 console.log("initial preview:", noteFull.replace(/\s+/g, " "));
+
+// The Data (reduction) section is collapsed by default — expand it so the
+// add-step control renders.
+await page.click(".pipeline-section .card-toggle");
+await page.waitForSelector(".add-step-btn", { timeout: 5000 });
 
 // Add a Select step — it starts blank, projecting every column away.
 await page.click(".add-step-btn");
