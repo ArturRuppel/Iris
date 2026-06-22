@@ -153,10 +153,25 @@ def _drawn_value_max(ax, horizontal: bool) -> float:
     outliers (TODO item 7)."""
     bb = ax.dataLim
     v = bb.x1 if horizontal else bb.y1
-    if np.isfinite(v):
-        return float(v)
     lim = ax.get_xlim() if horizontal else ax.get_ylim()
+    # Never anchor beyond the visible axis: if the value axis is pinned (y_max/
+    # x_max) below the drawn data, an outlier is clipped, so the bracket/star
+    # belongs at the visible top, not floating off-canvas at the clipped value.
+    if np.isfinite(v):
+        return min(float(v), float(lim[1]))
     return float(lim[1])
+
+
+def _pinned_value_range(ax, horizontal: bool, style: dict) -> tuple[float, float]:
+    """The value-axis (lo, hi) the figure will actually show: the style-pinned
+    x_min/x_max (or y_min/y_max) where set, else the current axis limits. The
+    pins are applied later in `_decorate`, so significance placement must read
+    them here to space + clamp against the final view, not the unclipped data."""
+    lo, hi = ax.get_xlim() if horizontal else ax.get_ylim()
+    pmin = style["x_min"] if horizontal else style["y_min"]
+    pmax = style["x_max"] if horizontal else style["y_max"]
+    return (float(pmin) if pmin is not None else float(lo),
+            float(pmax) if pmax is not None else float(hi))
 
 
 def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
@@ -185,8 +200,8 @@ def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
     # short spans lowest, then left-to-right, so nested brackets don't cross
     spans.sort(key=lambda t: (abs(t[1] - t[0]), min(t[0], t[1])))
 
-    base = _drawn_value_max(ax, horizontal)
-    lo, hi = ax.get_xlim() if horizontal else ax.get_ylim()
+    lo, hi = _pinned_value_range(ax, horizontal, style)
+    base = min(_drawn_value_max(ax, horizontal), hi)
     extent = (hi - lo) or 1.0
     step = extent * 0.08          # vertical gap between stacked brackets
     tip = step * 0.3              # length of the little downward end ticks
@@ -297,8 +312,10 @@ def _draw_location_significance(ax, res: dict, levels: list, horizontal: bool,
            if g.get("stars")}
     if not per:
         return
-    base = _drawn_value_max(ax, horizontal)
-    lo, hi = ax.get_xlim() if horizontal else ax.get_ylim()
+    lo, hi = _pinned_value_range(ax, horizontal, style)
+    # The style value-axis cap is applied later (in _decorate), so clamp here too,
+    # else a clipped outlier anchors the star off-canvas above a pinned axis.
+    base = min(_drawn_value_max(ax, horizontal), hi)
     extent = (hi - lo) or 1.0
     step = extent * 0.06
     fs = style["font_pt"] - 1
