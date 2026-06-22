@@ -558,3 +558,26 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .save-style-inline input { border: 1px solid #cbd5e1; border-radius: 5px;
   padding: 2px 6px; font-size: 11px; width: 120px; }
 .save-style-inline button { font-size: 11px; padding: 2px 8px; }
+
+/* Examples gallery: a readable long-form document with inline plots. */
+.examples-mode { flex: 1; overflow: auto; background: var(--bg); }
+.gallery { max-width: 820px; margin: 0 auto; padding: 32px 28px 80px; }
+.gallery-prose { color: var(--ink); line-height: 1.6; }
+.gallery-prose h1 { font-size: 1.9em; margin: 0 0 0.3em; }
+.gallery-prose h2 { font-size: 1.35em; margin: 1.8em 0 0.4em; padding-top: 0.4em;
+  border-top: 1px solid var(--line); }
+.gallery-prose h3 { font-size: 1.1em; margin: 1.4em 0 0.3em; color: var(--dim); }
+.gallery-prose table { border-collapse: collapse; width: 100%; margin: 1em 0;
+  font-size: 0.92em; }
+.gallery-prose th, .gallery-prose td { border: 1px solid var(--line);
+  padding: 6px 10px; text-align: left; }
+.gallery-prose th { background: var(--panel); }
+.gallery-figure { margin: 1.2em 0; padding: 12px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; text-align: center; }
+.gallery-figure svg { max-width: 100%; height: auto; }
+.gallery-open-btn { display: inline-block; margin: 0.4em 0; padding: 6px 14px;
+  font: inherit; color: #fff; background: var(--accent); border: none;
+  border-radius: 5px; cursor: pointer; }
+.gallery-open-btn:hover { filter: brightness(1.08); }
+.gallery-missing { display: inline-block; padding: 8px 12px; color: var(--warn);
+  background: #fff7ed; border: 1px dashed var(--warn); border-radius: 5px; }
