@@ -202,6 +202,9 @@ def assert_figure(facts: svgstruct.SvgFacts, expected: dict) -> None:
         elif key == "min_patches":
             assert facts.n_patches >= want, \
                 f"n_patches {facts.n_patches} < {want}"
+        elif key == "legend_labels":
+            assert facts.legend_labels == want, \
+                f"legend_labels: {facts.legend_labels!r} != {want!r}"
         else:
             raise KeyError(f"unknown expected_figure key {key!r}")
 

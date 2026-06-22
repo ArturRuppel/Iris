@@ -1034,8 +1034,56 @@ def _geom_summary(ax, ctx, layer):
     return None
 
 
+def _geom_pointrange(ax, ctx, layer):
+    """Estimate ± CI, one point per group (item Q). For the `rate` family the
+    point is the GLM rate estimate and the bar is its (asymmetric) model CI,
+    colored by group; otherwise it falls back to a mean ± error of the raw
+    values (so the geom is usable standalone, like `summary`)."""
+    style, lw = ctx["style"], ctx["lw"]
+    gs = resolve_geom_style(style, "pointrange", layer.get("id"))
+    h, capsize = ctx["h_orient"], gs.get("capsize", 3.0)
+    ms = gs.get("marker_size", 6.0)
+    res = ctx.get("stats") or {}
+
+    if res.get("family") == "rate":
+        per = {str(g["level"]): g for g in res.get("per_group", [])}
+        for i, lv in enumerate(ctx["levels"]):
+            g = per.get(str(lv))
+            if not g:
+                continue
+            est = g["rate"]
+            lo, hi = (g["ci"] if g.get("ci") else (est, est))
+            err = [[est - lo], [hi - est]]            # asymmetric model CI
+            color = _group_color(style, i)
+            if h:
+                ax.errorbar(est, i, xerr=err, fmt="none", ecolor=color,
+                            elinewidth=lw, capsize=capsize, zorder=4)
+                ax.plot(est, i, marker="o", ms=ms, color=color, zorder=5)
+            else:
+                ax.errorbar(i, est, yerr=err, fmt="none", ecolor=color,
+                            elinewidth=lw, capsize=capsize, zorder=4)
+                ax.plot(i, est, marker="o", ms=ms, color=color, zorder=5)
+        return None
+
+    error_type = gs.get("error_type", "ci95")
+    for grp in ctx["groups"]:
+        s = grp["summary"]
+        err = _err_half(s, error_type)
+        cpos = grp["pos"] + ctx["summary_dx"]
+        if h:
+            ax.errorbar(s["mean"], cpos, xerr=err, fmt="none", ecolor=INK,
+                        elinewidth=lw, capsize=capsize, zorder=4)
+            ax.plot(s["mean"], cpos, marker="o", ms=ms, color=INK, zorder=5)
+        else:
+            ax.errorbar(cpos, s["mean"], yerr=err, fmt="none", ecolor=INK,
+                        elinewidth=lw, capsize=capsize, zorder=4)
+            ax.plot(cpos, s["mean"], marker="o", ms=ms, color=INK, zorder=5)
+    return None
+
+
 _COMPARISON_GEOMS = {"violin": _geom_violin, "box": _geom_box, "bar": _geom_bar,
-                     "dot": _geom_dot, "summary": _geom_summary}
+                     "dot": _geom_dot, "summary": _geom_summary,
+                     "pointrange": _geom_pointrange}
 
 
 def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
@@ -1070,10 +1118,17 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     # the location family's tested reference (authoring the one-sample test draws
     # the line). A general annotation drawn in every cell of the grid.
     is_location = (stats or {}).get("family") == "location"
+    is_rate = (stats or {}).get("family") == "rate"
     ref_value = style.get("reference_value")
     if ref_value is None and is_location:
         ref_value = (stats or {}).get("reference")
     ref_label = style.get("reference_label") or ""
+    # The value axis of a rate plot is an estimated rate (count per exposure), not
+    # the raw count column — name it so unless the user pinned a label.
+    val_label = layout["cols"].get(val_col, {}).get("label", val_col)
+    if is_rate:
+        expo = (stats or {}).get("exposure")
+        val_label = f"rate ({val_col} / {expo})" if expo else f"rate ({val_col})"
 
     with plt.rc_context(_rc(style)):
         fig, axes = _build_grid(style["width_mm"], style["height_mm"],
@@ -1085,7 +1140,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         for ri, rlevel in enumerate(row_levels):
             for ci, clevel in enumerate(col_levels):
                 ax = axes[ri][ci]
-                ctx = {**layout, "cbar_mappable": None}
+                ctx = {**layout, "cbar_mappable": None, "stats": stats}
                 for layer in layers:
                     render = _COMPARISON_GEOMS.get(layer["geom"])
                     if render is None:
@@ -1102,13 +1157,13 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     ax.set_yticklabels(lv_labels)
                     ax.set_ylim(-0.55, len(levels) - 0.45)
                     if not faceted:
-                        ax.set_xlabel(layout["cols"].get(val_col, {}).get("label", val_col))
+                        ax.set_xlabel(val_label)
                 else:
                     ax.set_xticks(range(len(levels)))
                     ax.set_xticklabels(lv_labels)
                     ax.set_xlim(-0.55, len(levels) - 0.45)
                     if not faceted:
-                        ax.set_ylabel(layout["cols"].get(val_col, {}).get("label", val_col))
+                        ax.set_ylabel(val_label)
 
                 # for horizontal the value axis is X (numeric); grids follow accordingly
                 _apply_axes(ax, style, x_numeric=h,
@@ -1159,7 +1214,9 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         # describe-only (no test), so markers only apply to the single-axes case.
         # The location (one-sample) family draws a per-lane star against the
         # reference; every other family stacks lane-to-lane brackets.
-        if not faceted and style["show_significance"]:
+        # The rate family draws no significance markers — the inference is the
+        # global LR test (in methods_text) plus the visible per-group CIs.
+        if not faceted and style["show_significance"] and not is_rate:
             if is_location:
                 _draw_location_significance(last_ax, stats, layout["levels"],
                                             layout["h_orient"], style)
@@ -1172,7 +1229,6 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
             cbar_ax = axes.ravel().tolist() if faceted else last_ax
             _draw_colorbar(fig, cbar_ax, cbar_mappable, style, cbar["label"])
         if faceted:
-            val_label = layout["cols"].get(val_col, {}).get("label", val_col)
             if h:
                 style["x_label"] = style["x_label"] or val_label
             else:
@@ -1475,6 +1531,27 @@ def _resolve_dist_bins(gs: dict, vals):
     return method or "auto"
 
 
+def _shared_dist_bins(gs: dict, pooled: np.ndarray) -> np.ndarray:
+    """One explicit edge array computed from the POOLED in-scope values (all
+    groups, all facet cells), so overlaid/faceted distribution curves share bins
+    and are directly comparable (item P). For `sinh` the range is made SYMMETRIC
+    about zero (`[-m, m]`, m = max|value|) — the signed reaction-coordinate
+    convention; the per-cell `_sinh_bin_edges` stays range-faithful, the symmetric
+    choice belongs to the shared scope. Other methods resolve their edges from the
+    pooled values via numpy's bin-edge strategies."""
+    if not len(pooled):
+        return np.linspace(0.0, 1.0, 2)
+    method = gs.get("bin_method")
+    if method == "sinh":
+        count = int(gs["hist_bins"]) if gs.get("hist_bins") else 30
+        sharpness = gs.get("bin_sharpness")
+        if sharpness is None:
+            sharpness = _SINH_SHARPNESS
+        m = float(np.max(np.abs(pooled))) or 1.0
+        return _sinh_bin_edges(-m, m, count, sharpness)
+    return np.histogram_bin_edges(pooled, bins=_resolve_dist_bins(gs, pooled))
+
+
 def _kde_curve(ax, vals, scale: float, color: str, style: dict, zorder: int):
     """A gaussian KDE of vals, scaled to the count axis (scale = N·binwidth so
     the curve overlays the bars at comparable height)."""
@@ -1485,16 +1562,24 @@ def _kde_curve(ax, vals, scale: float, color: str, style: dict, zorder: int):
             linewidth=style["line_width"] * 0.93, zorder=zorder)
 
 
-def _draw_distribution(ax, vals, style: dict):
-    """Draw one cell's distribution per the geom's `dist_render`:
+def _draw_distribution(ax, vals, style: dict, *, edges=None, color=None):
+    """Draw one cell/group's distribution per the geom's `dist_render`:
     bars/step/line/points are binned views (counts per bin); "smooth" is a KDE
     curve only; "potential" Boltzmann-inverts the histogram to U(x) = −ln P (the
     log-density, empty bins dropped). `overlay_smooth` adds a KDE on top of a
-    binned render. Mutates ax; aggregates rows."""
+    binned render. Mutates ax; aggregates rows.
+
+    Item P: `edges` (an explicit shared bin-edge array) and `color` (the group's
+    palette color) override the per-cell bins / single palette index so several
+    groups overlay on common bins. For the `potential` render the occupied-bin
+    `(centers, u)` are returned so the caller can place the barrier annotation;
+    every other render returns None."""
     gs = resolve_geom_style(style, "distribution")
     render = gs.get("dist_render", "bars")
-    color = _group_color(style, 0)
-    counts, edges = np.histogram(vals, bins=_resolve_dist_bins(gs, vals))
+    if color is None:
+        color = _group_color(style, 0)
+    bins = edges if edges is not None else _resolve_dist_bins(gs, vals)
+    counts, edges = np.histogram(vals, bins=bins)
     centers = (edges[:-1] + edges[1:]) / 2
     binwidth = edges[1] - edges[0]
     smooth_ok = len(vals) > 2 and np.ptp(vals) > 0
@@ -1504,7 +1589,7 @@ def _draw_distribution(ax, vals, style: dict):
         u = -np.log(counts[occ] / counts.sum())
         ax.plot(centers[occ], u, color=color, marker="o", markersize=4,
                 linewidth=style["line_width"], zorder=2)
-        return
+        return centers[occ], u
 
     if render == "smooth":
         if smooth_ok:
@@ -1529,6 +1614,43 @@ def _draw_distribution(ax, vals, style: dict):
         ax.set_ylim(bottom=0)
     if gs.get("overlay_smooth") and render != "smooth" and smooth_ok:
         _kde_curve(ax, vals, len(vals) * binwidth, INK, style, zorder=3)
+    return None
+
+
+def _annotate_potential_barrier(ax, centers, u, color: str, style: dict,
+                                reference: float, index: int = 0) -> None:
+    """Mark the wells and label the effective barrier of one potential curve
+    (item P). `(centers, u)` are the occupied-bin centers + U = −ln P values
+    returned by `_draw_distribution`'s potential render.
+
+    ΔE = U(reference) − min(U), the engine analogue of CellFlow's
+    `effective_barrier`: interpolate U at the central `reference` (default 0) and
+    subtract the curve's global minimum. The two wells (the minima of U on each
+    side of the reference) get a filled marker, and `ΔE = … kT` is labelled in the
+    curve's color. Skipped cleanly (describe-note, no draw) when the reference is
+    not bracketed by occupied bins — there is no barrier to read. `index` staggers
+    the label vertically so grouped curves don't overprint."""
+    centers = np.asarray(centers, dtype=float)
+    u = np.asarray(u, dtype=float)
+    if len(centers) < 2:
+        return
+    ref = float(reference if reference is not None else 0.0)
+    if ref < centers.min() or ref > centers.max():
+        return  # reference outside the occupied range — no bracketed barrier
+    u_ref = float(np.interp(ref, centers, u))
+    barrier = u_ref - float(np.min(u))
+    # Wells: the minimum of U on each side of the reference.
+    for side in (centers < ref, centers >= ref):
+        if side.any():
+            cs, us = centers[side], u[side]
+            j = int(np.argmin(us))
+            ax.plot([cs[j]], [us[j]], marker="o", markersize=6, color=color,
+                    markeredgecolor="white", markeredgewidth=0.6, zorder=5)
+    top = ax.get_ylim()[1]
+    ax.annotate(f"ΔE = {barrier:.2f} kT", (ref, top),
+                xytext=(3, -3 - index * (style["font_pt"] + 2)),
+                textcoords="offset points", ha="left", va="top",
+                fontsize=style["font_pt"] - 1, color=color, annotation_clip=False)
 
 
 def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
@@ -1539,14 +1661,31 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     Phase 4: when faceted, draws one cell per (row level × col level), each
     with its own marks/KDE/median recomputed from that cell's own values."""
     y = spec["encodings"]["y"]["column"]
+    enc = spec["encodings"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
     alpha = stats.get("alpha", 0.05)
     gs = resolve_geom_style(style, "distribution")
-    count_label = "−ln P" if gs.get("dist_render") == "potential" else "Count"
+    render = gs.get("dist_render", "bars")
+    count_label = "−ln P" if render == "potential" else "Count"
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
+
+    # Item P: a categorical color overlays one curve per group in a single panel.
+    # Numeric color is a colorbar, not curves, so only categorical color groups.
+    color = enc.get("color")
+    color_col = color["column"] if color and color.get("column") else None
+    grouped = bool(color_col) and _is_categorical(schema, color_col)
+    sc = scales_mod.resolve_scales(enc, df, schema, style)
+    color_levels = sc.color_levels if grouped else []
+    # Shared bins span the POOLED in-scope values so overlaid/faceted curves are
+    # comparable; per-cell independent bins stay the default for a single panel.
+    pooled = df[y].dropna().to_numpy(dtype=float)
+    shared_edges = (_shared_dist_bins(gs, pooled)
+                    if (grouped or faceted) and len(pooled) else None)
+    show_barrier = bool(gs.get("show_barrier")) and render == "potential"
+    barrier_ref = style["reference_value"] if style["reference_value"] is not None else 0.0
 
     with plt.rc_context(_rc(style)):
         fig, axes = _build_grid(style["width_mm"], style["height_mm"],
@@ -1558,14 +1697,35 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
             for ci, clevel in enumerate(col_levels):
                 ax = axes[ri][ci]
                 cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
-                vals = cell_df[y].dropna().to_numpy(dtype=float)
-                if len(vals):
-                    _draw_distribution(ax, vals, style)
+                if grouped:
+                    for i, lv in enumerate(color_levels):
+                        gvals = cell_df.loc[cell_df[color_col].astype(str) == lv, y]
+                        gvals = gvals.dropna().to_numpy(dtype=float)
+                        if not len(gvals):
+                            continue
+                        curve = _draw_distribution(ax, gvals, style,
+                                                   edges=shared_edges,
+                                                   color=sc.color_for(lv))
+                        if show_barrier and curve is not None:
+                            _annotate_potential_barrier(ax, *curve, sc.color_for(lv),
+                                                         style, barrier_ref, i)
+                else:
+                    vals = cell_df[y].dropna().to_numpy(dtype=float)
+                    if len(vals):
+                        curve = _draw_distribution(ax, vals, style,
+                                                   edges=shared_edges)
+                        if show_barrier and curve is not None:
+                            _annotate_potential_barrier(ax, *curve,
+                                                         _group_color(style, 0),
+                                                         style, barrier_ref)
 
+                # The pooled median axvline reads a single distribution; over
+                # overlaid group curves it is ambiguous, so it is only drawn
+                # ungrouped (each group has its own distribution).
                 cell_result = (stats_mod.descriptive(cell_df, y, alpha=alpha)
                               if faceted else stats)
                 med = cell_result.get("result", {}).get("median")
-                if style["show_annotation"] and med is not None:
+                if style["show_annotation"] and not grouped and med is not None:
                     ax.axvline(med, color="#475569",
                               linewidth=style["line_width"] * 0.7,
                               linestyle=(0, (4, 2)), zorder=4)
@@ -1574,6 +1734,12 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                         va="top", fontsize=style["font_pt"] - 1, color="#475569")
                     if not faceted:
                         extra["lbl-annot"] = txt
+
+                # Standalone reference line (item N) — the reaction coordinate is
+                # on X here, so a vertical line. Drawn when the user pins a value.
+                if style["reference_value"] is not None:
+                    _draw_reference_line(ax, style["reference_value"],
+                                         style["reference_label"], True, style)
 
                 if not faceted:
                     ax.set_xlabel(_axis_label(cols, y))
@@ -1589,6 +1755,10 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
         if faceted:
             style["x_label"] = style["x_label"] or _axis_label(cols, y)
             style["y_label"] = style["y_label"] or count_label
+        # One shared legend names the overlaid groups (no x encoding to dedupe
+        # against, so color always shows).
+        if grouped:
+            _draw_legend(fig, last_ax, sc, style, None, faceted=faceted)
         _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
     return fig
 

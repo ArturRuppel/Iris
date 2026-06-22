@@ -83,7 +83,9 @@ def render(table: dict, spec: dict, *, memo=None):
         spec["encodings"], schema, spec.get("_override"),
         spec.get("facet"), layers=spec.get("layers"),
         declared_family=stats_block.get("family"),
-        reference=stats_block.get("reference", 0.0))
+        reference=stats_block.get("reference", 0.0),
+        exposure=stats_block.get("exposure"),
+        model=stats_block.get("model"))
     # Data hierarchy (redesign): per-level tables for the group-comparison path,
     # filled in below once the grouping column is known. None elsewhere.
     level_tables = None
@@ -109,7 +111,7 @@ def render(table: dict, spec: dict, *, memo=None):
     # The location (one-sample) family reuses the WHOLE group_comparison data path
     # — same level materialization, inferential-grain resolution, and pairing — and
     # differs only in the terminal stats call, so it shares this branch.
-    if family in ("group_comparison", "location"):
+    if family in ("group_comparison", "location", "rate"):
         enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
         enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
         # Phase 3c: detect horizontal orientation (numeric x + categorical y).
@@ -139,8 +141,13 @@ def render(table: dict, spec: dict, *, memo=None):
         split_cols = list(dict.fromkeys(
             c for c in (cat_col, color_col, frow.get("column"), fcol.get("column"))
             if c and c in df.columns))
+        # The rate family sums counts + exposures to the inferential unit (the GLM
+        # wants per-unit totals, not per-row means), so force a sum aggregation at
+        # every spine level; every other family keeps the spec's per-level fn.
+        agg_fn = ({lv: "sum" for lv in spine} if family == "rate"
+                  else hier.get("fn"))
         level_tables, present_spine = hierarchy.materialize_levels(
-            df, schema, spine, hier.get("fn"), split_cols)
+            df, schema, spine, agg_fn, split_cols)
         model["spine"] = present_spine
         # One source of truth: the test reads the SAME materialized grain the
         # figure draws — never a parallel raw-vs-level route. The inferential grain
@@ -168,6 +175,11 @@ def render(table: dict, spec: dict, *, memo=None):
                 stat_df, cat_col, val_col, levels=levels,
                 reference=model.get("reference", 0.0), alpha=alpha,
                 override=override, pairing=model["pairing"]))
+        elif family == "rate":
+            res = memo(lambda: stats.rate(
+                stat_df, cat_col, val_col, levels=levels,
+                exposure=model.get("exposure"), model=model.get("model", "nb"),
+                alpha=alpha, override=override, pairing=model["pairing"]))
         else:
             res = memo(lambda: stats.group_comparison(
                 stat_df, cat_col, val_col, levels=levels, alpha=alpha,

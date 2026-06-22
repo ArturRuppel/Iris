@@ -29,6 +29,7 @@ dependencies = [
     "pyarrow>=15",        # .iris document table (Parquet)
     "scipy>=1.11",
     "pingouin>=0.5.4",
+    "statsmodels>=0.14",   # Poisson/NB count GLM for the `rate` family (item Q)
     "matplotlib>=3.8",
     "seaborn>=0.13",
 ]

@@ -105,6 +105,27 @@ The shape of a single variable — sepal length across all 150 irises.
 
 [Open this example in Iris](iris-open:iris-sepal-descriptive)
 
+## Grouped potential curves
+
+One density curve per group on shared bins, Boltzmann-inverted to the
+"potential" U = −ln P. A signed reaction coordinate with a double well, drawn
+with adaptive `sinh` bins (tighter near the x = 0 vertex) and the effective
+barrier ΔE = U(0) − min U labelled per curve.
+
+![](example:potential-double-well/potential-double-well-01)
+
+[Open this example in Iris](iris-open:potential-double-well)
+
+## Event rate by group
+
+A per-group event rate estimated from counts with an exposure offset — a
+Poisson / negative-binomial GLM, drawn as each group's rate ± its model CI. A
+global likelihood-ratio test answers whether the group matters.
+
+![](example:event-rate-by-group/event-rate-by-group-01)
+
+[Open this example in Iris](iris-open:event-rate-by-group)
+
 ## Heatmap / contingency tile
 
 Counts for every combination of two categories — the natural picture of a

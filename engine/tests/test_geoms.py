@@ -6,7 +6,8 @@ def test_every_known_geom_is_registered():
     expected = {"dot", "summary", "box", "violin", "bar",
                 "scatter", "regression", "distribution",
                 "tile",  # Phase 3d; distribution = histogram+density unified
-                "line", "trend"}  # time series: per-unit + aggregate
+                "line", "trend",  # time series: per-unit + aggregate
+                "pointrange"}  # item Q: estimate ± CI (rate family)
     assert set(geoms.GEOMS) == expected
 
 

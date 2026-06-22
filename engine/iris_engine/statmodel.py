@@ -40,7 +40,8 @@ def _is_timeseries(layers: list[dict] | None) -> bool:
 def infer(encodings: dict, schema: dict, override: str | None,
           facet: dict | None = None, unit: list[str] | None = None,
           layers: list[dict] | None = None,
-          declared_family: str | None = None, reference: float = 0.0) -> dict:
+          declared_family: str | None = None, reference: float = 0.0,
+          exposure: str | None = None, model: str | None = None) -> dict:
     """encodings + schema -> StatModel. `override` is the user's pinned test
     name carried from the spec's `stats.override`, else None.
     `facet` is the spec's facet block; Phase 4 v1 runs no inferential test
@@ -104,6 +105,31 @@ def infer(encodings: dict, schema: dict, override: str | None,
                 "test": override, "facet_handling": None, "reference": reference,
                 "chosen_by": "inferred", "unit": unit, "issues": []}
 
+    # Rate / count-regression family — opt-in via an explicit `stats.family ==
+    # "rate"`, like `location`. A categorical group on one axis, an integer count
+    # on the other; the rate is estimated from a count GLM with an exposure
+    # offset. The grouping factor is read for either orientation (mirror location).
+    if declared_family == "rate":
+        if xk == "categorical" and yk == "numeric":
+            group, value = x, y
+        elif xk == "numeric" and yk == "categorical":
+            group, value = y, x
+        else:
+            group, value = None, y
+        design = (f"event rate of {value} per group of {group}" if group
+                  else f"event rate of {value}")
+        if exposure:
+            design += f" (per {exposure})"
+        factors = ([{"column": group, "role": "group"}] if group
+                   else [{"column": value, "role": "count"}])
+        faceted = bool((facet or {}).get("row") or (facet or {}).get("col"))
+        return {"design": design, "family": "rate", "factors": factors,
+                "exposure": exposure, "model": model or "nb",
+                "test": None if faceted else override,
+                "facet_handling": None,
+                "chosen_by": "describe_only" if faceted else "inferred",
+                "unit": unit, "issues": []}
+
     if xk == "categorical" and yk == "numeric":
         family = "group_comparison"
         design = f"comparison of {y} between groups of {x}"
@@ -130,6 +156,12 @@ def infer(encodings: dict, schema: dict, override: str | None,
         family = "descriptive"
         design = f"distribution of {y}"
         factors = [{"column": y, "role": "variable"}]
+        # Item P: a categorical color overlays one distribution curve per group in
+        # a single panel (shared bins). Carry it as the grouping factor so the
+        # design sentence names it; the figure splits on this color directly.
+        if color and _kind(schema, color) == "categorical":
+            design += f", one curve per {color}"
+            factors.append({"column": color, "role": "group"})
     else:
         return {"design": "no statistical model — pick X / Y to analyze",
                 "family": "none", "factors": [], "test": None,

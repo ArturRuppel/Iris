@@ -567,6 +567,167 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
     }
 
 
+_RATE_MODELS = ("nb", "poisson", "auto")
+MIN_RATE_N = 1            # a group needs at least one observation to estimate a rate
+_OVERDISPERSION_RATIO = 1.5   # Pearson χ²/df above this → use NB under "auto"
+
+
+def _fit_rate_glm(y: np.ndarray, exog: np.ndarray, offset: np.ndarray, model: str):
+    """Fit one count GLM with a log-exposure offset. `model` is ``"poisson"`` or
+    ``"nb"`` (negative binomial, dispersion estimated). Returns the fitted result
+    (or raises). statsmodels is imported lazily so only the rate family pays for
+    it (the engine's single statsmodels dependency)."""
+    import statsmodels.api as sm
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")    # convergence chatter on small fits
+        if model == "poisson":
+            return sm.GLM(y, exog, family=sm.families.Poisson(),
+                          offset=offset).fit()
+        return sm.NegativeBinomial(y, exog, offset=offset).fit(disp=0, maxiter=200)
+
+
+def _glm_llf(y, exog, offset, model: str) -> float:
+    return float(_fit_rate_glm(y, exog, offset, model).llf)
+
+
+def rate(df: pd.DataFrame, group: str | None, count: str, *,
+         exposure: str | None = None, levels: list[str], model: str = "nb",
+         alpha: float = 0.05, override: str | None = None,
+         pairing: dict | None = None) -> dict:
+    """Per-group event RATE from a count GLM with an exposure offset — the count
+    analogue of `location` (estimate a rate from counts, not a mean from values).
+
+    For each group, fit ``count ~ 1`` with ``offset = log(exposure)`` (Poisson or
+    negative binomial); the rate is ``exp(intercept)`` and the 95% CI is
+    ``exp(intercept ± z·SE)`` (the morphogenesis-on-chip recipe). ``model``:
+    ``"nb"`` (default — robust to overdispersion), ``"poisson"``, or ``"auto"``
+    (fit Poisson, test overdispersion via Pearson χ²/df, refit NB if dispersed).
+    A global likelihood-ratio test of ``count ~ C(group)`` vs ``count ~ 1`` (same
+    family, offset) answers "does group matter" — the single p the prose cites.
+
+    Receives the materialized inferential-grain table (as group_comparison/
+    location do); with a spine the counts and exposures are summed to the unit
+    (render forces a sum aggregation for this family). No automatic
+    multiple-comparison correction — the test count + global LR are stated in
+    `methods_text`. `pairing` is accepted for signature parity, unused.
+
+    Returns a superset of the group_comparison contract (`result`/`summaries`/
+    `decision`) plus `family`/`model`/`exposure`/`per_group`, so existing readers
+    keep working and the compiler can draw each group's estimate ± model CI."""
+    if model not in _RATE_MODELS:
+        model = "nb"
+    cols = [c for c in (group, count, exposure) if c]
+    sub = df[cols].dropna(subset=[count] + ([exposure] if exposure else []))
+    if group:
+        found = [lv for lv in levels if lv in set(sub[group].astype(str))]
+        found += sorted(set(sub[group].astype(str)) - set(map(str, levels)))
+    else:
+        found = ["all"]
+        sub = sub.assign(**{count: sub[count]})
+    if not found or not len(sub):
+        return {"error": "no groups to estimate a rate for", "levels": found}
+
+    expo_all = (sub[exposure].to_numpy(dtype=float) if exposure
+                else np.ones(len(sub)))
+    if np.any(expo_all <= 0):
+        return {"error": "exposure must be positive to use it as a rate offset"}
+
+    import statsmodels.api as sm
+    from scipy import stats as sps
+    z = float(sps.norm.ppf(1 - alpha / 2))
+
+    def _subset(lv):
+        s = sub if not group else sub[sub[group].astype(str) == lv]
+        y = s[count].to_numpy(dtype=float)
+        e = s[exposure].to_numpy(dtype=float) if exposure else np.ones(len(s))
+        return y, e
+
+    # Model selection. "auto": fit the grouped Poisson and read its overdispersion.
+    chosen, auto_note = model, ""
+    if model == "auto":
+        y_all = sub[count].to_numpy(dtype=float)
+        off_all = np.log(expo_all)
+        if group and len(found) > 1:
+            dummies = pd.get_dummies(sub[group].astype(str), drop_first=True).to_numpy(float)
+            exog_full = np.column_stack([np.ones(len(sub)), dummies])
+        else:
+            exog_full = np.ones((len(sub), 1))
+        pois = sm.GLM(y_all, exog_full, family=sm.families.Poisson(),
+                      offset=off_all).fit()
+        ratio = float(pois.pearson_chi2 / pois.df_resid) if pois.df_resid else 1.0
+        chosen = "nb" if ratio > _OVERDISPERSION_RATIO else "poisson"
+        auto_note = (f" Model auto-selected: Pearson χ²/df = {ratio:.2f} "
+                     f"({'>' if chosen == 'nb' else '≤'} {_OVERDISPERSION_RATIO} "
+                     f"→ {'negative binomial' if chosen == 'nb' else 'Poisson'}).")
+
+    per_group, summaries = [], []
+    for lv in found:
+        y, e = _subset(lv)
+        n = len(y)
+        k_sum = float(np.sum(y))
+        e_sum = float(np.sum(e))
+        rate_hat = (k_sum / e_sum) if e_sum else 0.0
+        ci = None
+        if n >= MIN_RATE_N:
+            try:
+                res = _fit_rate_glm(y, np.ones((n, 1)), np.log(e), chosen)
+                b, se = float(res.params[0]), float(res.bse[0])
+                rate_hat = float(np.exp(b))
+                if np.isfinite(se):
+                    ci = [float(np.exp(b - z * se)), float(np.exp(b + z * se))]
+            except Exception:
+                ci = None          # degenerate fit: report the empirical rate, no CI
+        per_group.append({"level": lv, "rate": rate_hat, "ci": ci, "n": n,
+                          "count": k_sum, "exposure": e_sum})
+        half = ((ci[1] - ci[0]) / 2) if ci else 0.0
+        summaries.append({"group": lv, "n": n, "mean": rate_hat, "sd": 0.0,
+                          "ci95_half": half})
+
+    # Global "does group matter" likelihood-ratio test (same family + offset).
+    global_p, lr_stat, lr_df = None, None, None
+    if group and len(found) > 1:
+        y_all = sub[count].to_numpy(dtype=float)
+        off_all = np.log(expo_all)
+        try:
+            dummies = pd.get_dummies(sub[group].astype(str), drop_first=True).to_numpy(float)
+            exog_full = np.column_stack([np.ones(len(sub)), dummies])
+            ll_null = _glm_llf(y_all, np.ones((len(sub), 1)), off_all, chosen)
+            ll_full = _glm_llf(y_all, exog_full, off_all, chosen)
+            lr_stat = float(2 * (ll_full - ll_null))
+            lr_df = int(len(found) - 1)
+            global_p = float(sps.chi2.sf(lr_stat, lr_df)) if lr_stat >= 0 else None
+        except Exception:
+            global_p = None
+
+    model_name = "negative-binomial GLM" if chosen == "nb" else "Poisson GLM"
+    test_id = "nb_glm" if chosen == "nb" else "poisson_glm"
+    decision = {"model": chosen, "global": {
+        "test": "likelihood_ratio", "stat": lr_stat, "df": lr_df, "p": global_p}}
+    result = {"test": test_id, "p": global_p, "n": int(len(sub)),
+              "effect": _no_effect()}
+
+    parts = [f"{g['level']}: rate = {g['rate']:.3g}"
+             + (f" (95% CI {g['ci'][0]:.3g} to {g['ci'][1]:.3g})" if g["ci"] else "")
+             + f", n = {g['n']}" for g in per_group]
+    expo_txt = f" with log({exposure}) as exposure offset" if exposure else ""
+    glob = ("" if global_p is None else
+            f" Global likelihood-ratio test (does {group} matter): "
+            f"χ²({lr_df}) = {lr_stat:.2f}, p {_fmt_p(global_p)}.")
+    methods = (f"{count} was modelled per group of {group} with a {model_name}"
+               f"{expo_txt} ({len(found)} group(s); no multiple-comparison "
+               f"correction). " + "; ".join(parts) + "." + glob + auto_note)
+
+    return {
+        "family": "rate", "model": chosen, "exposure": exposure,
+        "levels": found, "checks": [],
+        "recommendation": {"test": test_id, "reason": f"count regression ({model_name})"},
+        "decision": decision, "chosen_by": "inferred",
+        "per_group": per_group, "result": result,
+        "summaries": summaries, "alpha": alpha, "methods_text": methods,
+    }
+
+
 def _summary(label: str, v: np.ndarray) -> dict:
     n = len(v)
     ci_half = float(sps.t.ppf(0.975, n - 1) * sps.sem(v)) if n > 1 else 0.0

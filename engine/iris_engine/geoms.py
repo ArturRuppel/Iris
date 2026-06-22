@@ -68,6 +68,14 @@ GEOMS: dict[str, GeomDef] = {
         "Bar ± error", "group_comparison", True, ["x", "y"],
         x_type="categorical", y_type="numeric", h_orient=True,
         aes=["color"]),
+    # Estimate ± CI (item Q): one point per group with a model-derived CI bar.
+    # Family group_comparison so it flows through build_comparison_figure like
+    # `summary`; fed by the `rate` GLM when stats.family == "rate", else a plain
+    # mean ± CI on the raw values (usable standalone).
+    "pointrange": GeomDef(
+        "Estimate ± CI", "group_comparison", True, ["x", "y"],
+        x_type="categorical", y_type="numeric", h_orient=True,
+        aes=["color"]),
     "scatter": GeomDef(
         "Scatter", "correlation", False, ["x", "y"],
         x_type="numeric", y_type="numeric",

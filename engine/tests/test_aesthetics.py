@@ -369,3 +369,122 @@ def test_dodged_comparison_draws_legend_but_color_equals_x_does_not():
     fig2 = compiler.build_comparison_figure(
         df, CMP_SCHEMA, _cmp_spec("dot", color="cond"), _cmp_stats())
     assert fig2.axes[0].get_legend() is None          # color == x → no legend
+
+
+# ---------------------------------------------------------------------------
+# Item P — grouped distribution / "potential" curves (color overlay, shared
+# bins, the ΔE barrier annotation).
+# ---------------------------------------------------------------------------
+import numpy as np
+
+DIST_SCHEMA = {"columns": [
+    {"name": "coord", "type": "numeric", "label": "Coord"},
+    {"name": "grp", "type": "categorical", "label": "Group", "levels": ["a", "b"]},
+]}
+
+
+def _dist_df(*, positive=False):
+    rng = np.random.default_rng(0)
+    base = 6.0 if positive else 0.0   # shift wholly positive to un-bracket x=0
+    def well(n):
+        return np.concatenate([rng.normal(base - 2, 0.5, n),
+                               rng.normal(base + 2, 0.5, n)])
+    return pd.DataFrame({"coord": np.concatenate([well(40), well(40)]),
+                         "grp": ["a"] * 80 + ["b"] * 80})
+
+
+def _dist_spec(geom_overrides, *, color=True, fig_overrides=None, facet=None):
+    enc = {"x": None, "y": {"column": "coord"},
+           "color": {"column": "grp"} if color else None,
+           "size": None, "shape": None}
+    ov = {"geoms": {"distribution": dict(geom_overrides)}}
+    if fig_overrides:
+        ov.update(fig_overrides)
+    spec = {"encodings": enc, "layers": [{"geom": "distribution", "level": ""}],
+            "style": {"overrides": ov}}
+    if facet:
+        spec["facet"] = facet
+    return spec
+
+
+def _hist_stats():
+    return {"alpha": 0.05, "result": {}}
+
+
+def test_grouped_potential_one_curve_per_level_on_shared_bins():
+    df = _dist_df()
+    spec = _dist_spec({"dist_render": "potential", "bin_method": "sinh"})
+    fig = compiler.build_histogram_figure(df, DIST_SCHEMA, spec, _hist_stats())
+    ax = fig.axes[0]
+    assert len(fig.axes) == 1                              # one overlaid panel
+    assert len(ax.lines) == 2                              # one curve per group
+    # both curves are histogrammed over the SAME shared edges (pooled values)
+    gs = {"dist_render": "potential", "bin_method": "sinh"}
+    edges = compiler._shared_dist_bins(gs, df["coord"].to_numpy(float))
+    centers = set(np.round((edges[:-1] + edges[1:]) / 2, 9))
+    for line in ax.lines:
+        assert set(np.round(line.get_xdata(), 9)) <= centers
+    compiler.close(fig)
+
+
+def test_grouped_distribution_draws_a_legend():
+    fig = compiler.build_histogram_figure(
+        _dist_df(), DIST_SCHEMA, _dist_spec({"dist_render": "bars"}), _hist_stats())
+    assert fig.axes[0].get_legend() is not None
+    compiler.close(fig)
+
+
+def test_barrier_label_per_group_when_show_barrier_on():
+    df = _dist_df()
+    over = {"dist_render": "potential", "bin_method": "sinh", "show_barrier": True}
+    fig = compiler.build_histogram_figure(
+        df, DIST_SCHEMA, _dist_spec(over), _hist_stats())
+    labels = [t.get_text() for ax in fig.axes for t in ax.texts
+              if t.get_text().startswith("ΔE")]
+    assert len(labels) == 2                               # one per group
+    compiler.close(fig)
+
+    # off by default → no barrier label
+    fig2 = compiler.build_histogram_figure(
+        df, DIST_SCHEMA,
+        _dist_spec({"dist_render": "potential", "bin_method": "sinh"}), _hist_stats())
+    assert not [t for ax in fig2.axes for t in ax.texts
+                if t.get_text().startswith("ΔE")]
+    compiler.close(fig2)
+
+
+def test_barrier_skipped_when_reference_not_bracketed():
+    # all values positive → reference 0 is left of every occupied bin → no ΔE
+    df = _dist_df(positive=True)
+    over = {"dist_render": "potential", "bin_method": "sinh", "show_barrier": True}
+    fig = compiler.build_histogram_figure(
+        df, DIST_SCHEMA, _dist_spec(over), _hist_stats())
+    assert not [t for ax in fig.axes for t in ax.texts
+                if t.get_text().startswith("ΔE")]
+    compiler.close(fig)
+
+
+def test_shared_sinh_bins_are_symmetric_about_zero():
+    vals = np.array([-3.0, -1.0, 0.5, 2.0, 7.0])   # asymmetric pooled range
+    edges = compiler._shared_dist_bins(
+        {"bin_method": "sinh", "hist_bins": 10}, vals)
+    assert edges[0] == pytest.approx(-edges[-1])    # symmetric span [-m, m]
+    assert edges[-1] == pytest.approx(7.0)          # m = max|value|
+
+
+def test_faceted_distribution_shares_bins_across_cells():
+    # two facet cells (by grp), no color overlay; both cells bin over pooled edges
+    df = _dist_df()
+    spec = _dist_spec({"dist_render": "potential", "bin_method": "sinh"},
+                      color=False, fig_overrides={"show_annotation": False},
+                      facet={"row": None, "col": {"column": "grp"},
+                             "share_x": True, "share_y": True})
+    fig = compiler.build_histogram_figure(df, DIST_SCHEMA, spec, _hist_stats())
+    assert len(fig.axes) == 2
+    gs = {"dist_render": "potential", "bin_method": "sinh"}
+    edges = compiler._shared_dist_bins(gs, df["coord"].to_numpy(float))
+    centers = set(np.round((edges[:-1] + edges[1:]) / 2, 9))
+    for ax in fig.axes:
+        for line in ax.lines:
+            assert set(np.round(line.get_xdata(), 9)) <= centers
+    compiler.close(fig)

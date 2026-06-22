@@ -531,3 +531,73 @@ Files: `engine/iris_engine/style.py` (enum values), `engine/iris_engine/compiler
 (`_rc` reads them; decouple from / reconcile with `closed`). Tests: registry
 payload includes the new option; a render asserts mirrored vs one-sided ticks for
 each setting. No bespoke frontend change (generic StylePane).
+
+### Distribution-curve & rate-estimate plot types (spec'd 2026-06-22)
+
+Both spec'd 2026-06-22 → `docs/superpowers/specs/2026-06-22-distribution-curves-and-rate-estimates-design.md`.
+
+(Item P — grouped distribution / "potential" curves — shipped 2026-06-22. An
+extension of the existing `distribution` geom, no new geom. Three gaps closed:
+(1) **group by color** — `_draw_distribution` now takes an `edges`+`color`, and
+`build_histogram_figure` splits each cell's rows by a categorical color encoding
+and overlays one curve per level with a shared legend (`statmodel.infer`'s
+descriptive branch carries the color as the grouping factor, naming it in the
+design sentence). (2) **shared bins** — new `_shared_dist_bins(gs, pooled)`
+computes one edge array from the POOLED in-scope values, used whenever grouping OR
+faceting is active (per-cell bins stay the default for a lone panel); for `sinh`
+the range is made SYMMETRIC about 0 (`[-m, m]`, m = max|value|) — the signed
+reaction-coordinate convention — leaving the `_sinh_bin_edges` primitive
+range-faithful. (3) **barrier annotation** — opt-in `show_barrier` knob (gated to
+`dist_render == "potential"`, transferable); `_annotate_potential_barrier` marks
+the two wells (the minima of U each side of the reference) and labels
+ΔE = U(reference) − min U in the curve's color, skipping cleanly when the
+reference isn't bracketed by occupied bins. The reference reuses item N's
+`reference_value` (default 0) and a standalone reference line draws on the X
+(reaction-coordinate) axis when the knob is pinned. The pooled-median axvline is
+suppressed when grouped (ambiguous over overlaid curves). Files: `compiler.py`,
+`style.py`, `statmodel.py`. Tests: 6 render cases in `test_aesthetics.py` (grouped
+overlay on shared bins, legend, per-group ΔE labels, the not-bracketed skip, the
+symmetric sinh span, faceted shared bins) + gallery/validation case
+`potential-double-well` (descriptive family; validates the y-label "−ln P", the
+two-group legend, and no scatter collections — needed a new `legend_labels`
+assertion key in the validation harness). 363 engine + 91 FE green, typecheck +
+build clean. Browser-verified: `e2e/examples_test.mjs` confirms the new gallery
+section's tokens resolve. The COV2D §5a consumer swap remains the separate
+follow-up the spec describes.)
+
+(Item Q — rate / count-regression estimates — shipped 2026-06-22. A genuinely
+new family + render path, the count analogue of `location`. `stats.rate(df,
+group, count, *, exposure, levels, model, alpha, …)`: per group fit `count ~ 1`
+with `offset = log(exposure)` (statsmodels — the engine's first, lazily imported
+inside the function so only this family pays for it), rate = exp(intercept),
+95% CI = exp(intercept ± z·SE); `model` ∈ {`nb` default / `poisson` / `auto`}
+where auto reads Pearson χ²/df off a grouped Poisson fit and refits NB when
+overdispersed. A global likelihood-ratio test (`count ~ C(group)` vs `~ 1`, same
+family + offset) is the single "does group matter" p. A degenerate fit (no finite
+SE) falls back to the empirical rate with no CI. Returns a superset of the
+group_comparison contract (`result`/`summaries`/`decision`) plus
+`family`/`model`/`exposure`/`per_group`. Declaration is opt-in via explicit
+`stats.family == "rate"` (`statmodel.infer` gained a rate branch reading the group
+factor for either orientation + carrying `exposure`/`model`; `specnorm` preserves
+them and defaults `model` to `nb`). `render.py` folds rate into the SHARED
+group_comparison materialization path, differing only in (a) forcing a SUM
+aggregation at every spine level — the GLM wants per-unit totals, not means — and
+(b) the terminal `stats.rate` call. Rendering: new `pointrange` geom (family
+group_comparison, flows through `build_comparison_figure`); `_geom_pointrange`
+reads `ctx["stats"]["per_group"]` and draws each lane's estimate with an
+ASYMMETRIC model-CI bar colored by group (h_orient honored), falling back to a
+mean ± error of raw values when the family isn't rate (usable standalone).
+Significance brackets are skipped for rate (the CIs + global LR carry it); the
+value axis auto-labels `rate (count / exposure)`. Knobs (capsize / error_type /
+marker_size) live in the style registry → render generically in StylePane, so NO
+bespoke frontend. Files: `stats.py`, `geoms.py`, `compiler.py`, `statmodel.py`,
+`render.py`, `specnorm.py`, `style.py`, `pyproject.toml` (statsmodels>=0.14).
+Tests: `test_rate.py` (12 — rate+CI vs a direct statsmodels fit for Poisson & NB,
+the global LR vs recompute, the auto over/equidispersion switch, the no-exposure
+unit offset, the spine SUM path n=fields with summed counts, the declared-family
+plumbing, and the figure: one pointrange per lane, asymmetric CI, no brackets,
+horizontal) + gallery/validation case `event-rate-by-group` (the first case
+recomputed independently against statsmodels). 363 engine + 91 FE green, typecheck
++ build clean. App-side test-picker controls for the rate design + the observed-
+rate `dot` overlay (rate SuperPlot) remain deferred, per the spec; the COV2D §5b
+consumer swap is the separate follow-up.)

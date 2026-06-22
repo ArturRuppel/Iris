@@ -69,6 +69,11 @@ def _norm_stats(out: dict) -> None:
     out["stats"] = {**st}
     if out["stats"]["family"] == "location":
         out["stats"].setdefault("reference", 0.0)
+    if out["stats"]["family"] == "rate":
+        # exposure (offset column) survives verbatim; default the model to NB
+        # (robust to overdispersion) so render/statmodel can read it directly.
+        out["stats"].setdefault("model", "nb")
+        out["stats"].setdefault("exposure", None)
 
 
 def _migrate_layer_params(spec: dict) -> None:
