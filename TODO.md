@@ -313,22 +313,21 @@ Two distinct problems to work through:
   (free `auto` fields), `select`, `bool`, `text`, `swatch` — were already typed
   inputs, so this closes the bullet.)
 
-### M. Show every nesting level in the n/N annotation
-When several nesting levels exist, the figure's count annotation currently shows
-only the coarsest and finest grains (e.g. `N` for units + `n` for raw replicates)
-— intermediate levels are dropped. ALL existing nesting levels should be shown,
-each with its own count.
-
-This reopens item G's deliberate "only the drawn levels" decision: G reports one
-count per grain the LAYERS actually draw at (finest→coarsest, indexed
-`n₀/n₁/…` for >2), so an intermediate level that no layer is bound to never
-appears. The ask here is to surface every level of the hierarchy spine, not just
-the drawn ones. Touch points: `_draw_n_labels` / `_n_label` (formatting, already
-handles ≥3 grains via unicode subscripts) and `build_comparison_figure` (which
-grains it collects — today the distinct `layer.level`s; would need to walk the
-full `spec.hierarchy` instead). Decide whether "all levels" means all spine
-levels or all drawn-plus-intermediate, and how that reads against G's rationale
-(was the per-grain count meant to track what's plotted, or the whole design?).
+(Item M — Show every nesting level in the n/N annotation — shipped 2026-06-22.
+The decision left open in G ("only the drawn levels" vs every spine level) was
+NOT settled in the engine — it was handed to the USER as a checkbox. New
+annotation knob `show_all_levels` ("Count every nesting level", default OFF,
+`visible_when` show_n is on) in the style registry; it renders generically in
+StylePane's Annotations section (no FE code change beyond the `StyleOverrides`
+type). When ON, `build_comparison_figure` collects grains from ALL
+`level_tables` keys (the full materialized hierarchy spine — RAW + every spine
+level) instead of just the distinct drawn `layer.level`s; the existing
+finest→coarsest size sort and `_n_label` formatting (n / n,N / indexed n₀… for
+≥3) carry it. So a box drawn only at RAW shows `n = 6` by default but
+`n = 6  N = 2` with the toggle — the undrawn `subject` grain now appears.
+`transferable: true` (it's an annotation preference). Engine-only behaviour +
+one bool knob; `test_n_labels.py::test_show_all_levels_toggle_surfaces_undrawn_grains`
+asserts the off/on contrast. 309 engine + 86 FE green, typecheck + build clean.)
 
 ### Shared-metric / repeated-geoms (spec'd 2026-06-22)
 

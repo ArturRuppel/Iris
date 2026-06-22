@@ -260,6 +260,7 @@ export interface StyleOverrides {
   x_max?: number;
   /* annotations */
   show_n?: boolean;
+  show_all_levels?: boolean;
   show_significance?: boolean;
   show_annotation?: boolean;
   show_legend?: boolean;

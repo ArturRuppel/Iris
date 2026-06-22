@@ -80,3 +80,21 @@ def test_superplot_shows_replicates_and_units():
         {"geom": "dot", "params": {}, "level": "subject"},
     ]), df, schema, levels)
     assert "n = 6  N = 2" in svg     # 6 raw reps, 2 subjects per group
+
+
+def test_show_all_levels_toggle_surfaces_undrawn_grains():
+    """Item M: `show_all_levels` reports EVERY hierarchy level, not just the
+    grains a layer draws at (item G's default). A plain box drawn at RAW shows
+    `n = 6` by default; with the toggle the undrawn `subject` grain appears too
+    → `n = 6  N = 2`."""
+    df, schema = _df(), _schema()
+    levels, _ = hierarchy.materialize_levels(df, schema, ["subject"], {}, ["group"])
+    box_raw = [{"geom": "box", "params": {}, "level": hierarchy.RAW}]
+
+    off = _svg(_spec(box_raw), df, schema, levels)
+    assert "n = 6" in off and "N =" not in off   # drawn-only: subject grain hidden
+
+    spec = _spec(box_raw)
+    spec["style"]["overrides"]["show_all_levels"] = True
+    on = _svg(spec, df, schema, levels)
+    assert "n = 6  N = 2" in on                   # toggle surfaces the subject grain

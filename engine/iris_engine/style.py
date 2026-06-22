@@ -116,6 +116,8 @@ STYLE_REGISTRY: list[dict] = [
 
     # ---- annotations (gated by family, transferable) ----
     _bool("show_n", "n per group", "annotations", True),
+    _bool("show_all_levels", "Count every nesting level", "annotations", False,
+          visible_when={"key": "show_n", "equals": True}),
     _bool("show_significance", "Significance bracket", "annotations", True),
     _bool("show_annotation", "Annotation", "annotations", True),
     _bool("show_legend", "Show legend", "annotations", None),

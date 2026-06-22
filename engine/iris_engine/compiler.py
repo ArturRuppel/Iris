@@ -985,24 +985,31 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 _apply_axes(ax, style, x_numeric=h,
                             grid_x_default=h, grid_y_default=not h)
                 if style["show_n"]:
-                    # n reports the grains the LAYERS actually draw at (decision:
-                    # "only the drawn levels"). An unknown/dropped level collapses
-                    # to RAW; grains nest, so a finer one has more rows — order by
-                    # table size, finest (most rows) → coarsest, for n / n,N / n₀…
-                    drawn: list[str] = []
-                    for layer in layers:
-                        if layer["geom"] not in _COMPARISON_GEOMS:
-                            continue
-                        lv = layer.get("level") or hierarchy_mod.RAW
-                        if lv not in level_tables:
-                            lv = hierarchy_mod.RAW
-                        if lv not in drawn:
-                            drawn.append(lv)
-                    drawn.sort(
+                    # n reports one count per grain. By default these are only the
+                    # grains the LAYERS draw at (item G's "only the drawn levels");
+                    # `show_all_levels` (item M) instead reports every level of the
+                    # hierarchy spine — drawn or not — so an intermediate level no
+                    # layer is bound to still gets a count. An unknown/dropped layer
+                    # level collapses to RAW; grains nest, so a finer one has more
+                    # rows — order by table size, finest (most rows) → coarsest, for
+                    # n / n,N / n₀…
+                    if style.get("show_all_levels"):
+                        grains = list(level_tables.keys())
+                    else:
+                        grains = []
+                        for layer in layers:
+                            if layer["geom"] not in _COMPARISON_GEOMS:
+                                continue
+                            lv = layer.get("level") or hierarchy_mod.RAW
+                            if lv not in level_tables:
+                                lv = hierarchy_mod.RAW
+                            if lv not in grains:
+                                grains.append(lv)
+                    grains.sort(
                         key=lambda lv: len(hierarchy_mod.resolve_level(level_tables, lv)[0]),
                         reverse=True)
                     count_dicts = []
-                    for lv in drawn:
+                    for lv in grains:
                         ldf, _ = hierarchy_mod.resolve_level(level_tables, lv)
                         cell = _facet_cell_df(ldf, row_col, col_col, rlevel, clevel)
                         if val_col in cell.columns:
