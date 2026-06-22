@@ -1,64 +1,112 @@
-# Iris — tier 1 walking skeleton
+# Iris
 
-The reactive triad (table ↔ figure ↔ statistics) with a **real** engine:
-every number comes from scipy/pingouin, every figure from matplotlib, and one
-declarative analysis spec (v1.0, frozen) drives both.
+**Publication-grade figures and honest statistics for researchers who don't code.**
+
+Iris is a desktop application built around one idea — the *reactive triad*: a
+typed data table, a figure, and a statistical analysis, linked so that editing
+any one updates the others instantly and honestly. You map columns to a plot,
+optionally add a test, and Iris produces a matplotlib vector figure and a
+citable statistic from the *same* declarative spec, so the plot and the test can
+never disagree about the data.
+
+The audience is the colleague who knows what an ANOVA is but not how to write
+one — and whose p-values and figures will end up in a paper or thesis. The
+promise is never having to re-make a figure in Prism or ggplot afterwards.
+
+Three properties arbitrate every decision:
+
+- **Power** — every inferential number comes from scipy, statsmodels, and
+  pingouin. Battle-tested, citable code, never reimplemented.
+- **Beauty** — every figure is matplotlib vector output with full typographic
+  control. The on-screen preview and the exported PDF are the *same* renderer at
+  the *same* physical size (millimetres, fonttype 42, editable text).
+- **Simplicity** — a one-click installer for users, and an architecture a small
+  team can maintain: boring at the edges, opinionated at the core.
+
+All compute is local; your data never leaves the machine.
+
+## Architecture
 
 ```
-┌─────────────┐   HTTP (localhost:8765)   ┌──────────────────────────┐
-│  React/TS    │ ───────────────────────► │  Python engine (sidecar)  │
-│  Jotai state │  /analyze /export /save  │  pandas · scipy · pingouin│
-│  SVG inject  │ ◄─────────────────────── │  matplotlib (gid-tagged)  │
-└─────────────┘    SVG + stats + spec     └──────────────────────────┘
-        ▲ both hosted by the Tauri shell (spawns/kills the sidecar) ▲
+┌──────────────────────────┐   HTTP (localhost)   ┌──────────────────────────────┐
+│  React + TypeScript       │ ───────────────────► │  iris-engine (Python sidecar) │
+│  Jotai state · AG Grid     │   /analyze /export   │  pandas · scipy · pingouin    │
+│  SVG injection             │ ◄─────────────────── │  matplotlib (vector SVG/PDF)  │
+└──────────────────────────┘   SVG + stats + spec   └──────────────────────────────┘
+        ▲ both hosted by the Tauri shell, which spawns and reaps the sidecar ▲
 ```
 
-## Quickstart (dev mode, no Tauri needed)
+The keystone artifact is the **declarative analysis spec**: grammar-of-graphics
+encodings, an ordered stack of geom layers, a data-`hierarchy` block, and a
+stats clause. It compiles to *both* the plot and the test. The engine ships as a
+pip-installable library (`iris-engine`) whose render/stats core needs no web
+framework; FastAPI is an optional extra used only by the GUI. Documents are
+`.iris` files — a ZIP of a Parquet table plus human-readable JSON (schema,
+analysis specs, provenance).
 
-Terminal 1 — engine:
+## Quickstart (dev mode)
+
+One command starts both halves; open http://localhost:5173 when it's ready:
+
 ```bash
-cd engine
-pip install -r requirements.txt
-python -m iris_engine.main           # serves on 127.0.0.1:8765
-```
-
-Terminal 2 — frontend:
-```bash
+pip install -e "engine[server]"   # engine + FastAPI service
 npm install
-npm run dev                          # http://localhost:5173
+./dev.sh                          # starts the engine, waits for /health, then Vite
 ```
 
-The app loads a sample dataset. Edit cells, override the recommended test,
-switch to a journal size preset, export SVG/PDF/PNG, save a `.iris` document.
+Or run the two halves manually:
 
-To drop rows from an analysis there is no separate exclusion mechanism: flag the
-rows in a boolean column (the grid edits booleans inline) and add a `filter`
-reduce step on it (`flag == false`). A `.iris` is then a pure function of its
-input table and analysis spec; the curated judgment of *which* rows to flag lives
-upstream, where its own provenance belongs.
+```bash
+# Terminal 1 — engine
+cd engine && python -m iris_engine.main          # serves on 127.0.0.1:8765
+
+# Terminal 2 — frontend
+npm run dev                                       # http://localhost:5173
+```
+
+The app opens on a sample dataset. Import a CSV/TSV/Excel file, map columns to a
+plot, compose geom layers, optionally add a statistical test, restyle in
+millimetres, export SVG/PDF/PNG, and save a `.iris` document.
+
+To drop rows from an analysis, add a `filter` step to the reduction pipeline
+(e.g. `flag == false`). A `.iris` is then a pure function of its input table and
+its analysis spec — the judgment of *which* rows to keep lives in the spec,
+where its provenance belongs.
+
+## Using the engine without the GUI
+
+`iris-engine` is an importable library: read an `.iris`, run the stats, and
+render the figures from a script, no browser required.
+
+```python
+from iris_engine import compiler, document, stats   # no FastAPI needed
+```
+
+See [`engine/README.md`](engine/README.md) for the library and HTTP-service
+surface.
 
 ## Desktop shell (Tauri)
 
 Requires the [Tauri 2 prerequisites](https://tauri.app/start/prerequisites/)
-(Rust, plus webkit2gtk on Linux). Then:
+(Rust, plus webkit2gtk on Linux):
 
 ```bash
 npm install
 cargo install tauri-cli --version "^2"
-cargo tauri dev        # spawns engine via system python3; set IRIS_PYTHON to override
+cargo tauri dev        # spawns the engine via system python3; set IRIS_PYTHON to override
 ```
 
-## Packaging (tier 1 exit)
+## Packaging
 
-The engine freezes to a single sidecar binary which the shell bundles via
-`bundle.externalBin` and spawns instead of system Python (`spawn_engine()`
-falls back to system Python when no bundled binary sits next to the shell
-executable, so dev mode is unchanged).
+The engine freezes to a single sidecar binary that the shell bundles via
+`bundle.externalBin` and spawns instead of system Python. `spawn_engine()` falls
+back to system Python when no bundled binary sits next to the shell executable,
+so dev mode is unchanged.
 
 ```bash
 cd engine
 pip install -r requirements-dev.txt
-pyinstaller iris-engine.spec           # → dist/iris-engine (~210 MB)
+pyinstaller iris-engine.spec           # → dist/iris-engine
 python tests/smoke_frozen.py           # protocol + lifecycle against the binary
 
 # Tauri expects the sidecar named with the host target triple:
@@ -69,52 +117,78 @@ cp dist/iris-engine "../src-tauri/binaries/iris-engine-$triple"
 cd .. && npx tauri build               # installers in src-tauri/target/release/bundle/
 ```
 
-Packaging notes, learned the hard way:
+Notes learned the hard way:
+
 - `iris_engine/main.py` uses relative imports, so the spec freezes
   `freeze_entry.py`, not `main.py` directly.
-- `freeze_runtime_hook.py` pins `MPLCONFIGDIR` to a per-user cache dir.
-  Without it, matplotlib's font cache can land somewhere non-persistent and
-  the first launch's full font scan (minutes on a font-heavy machine)
-  repeats every launch. First launch per machine still pays it once; the
-  frontend shows "Starting engine…" and polls health rather than timing out.
-- The shell picks a free port at runtime (8765 first) and the frontend asks
-  for it via the `engine_port` Tauri command; dev mode keeps plain 8765.
-- Code signing/notarization is deferred to tier 3 (installers are unsigned).
+- `freeze_runtime_hook.py` pins `MPLCONFIGDIR` to a per-user cache dir so
+  matplotlib's first-launch font scan isn't repeated every launch.
+- The shell picks a free port at runtime (8765 first) and the frontend asks for
+  it via the `engine_port` Tauri command; dev mode keeps plain 8765.
+- Installers are currently unsigned; signing/notarization is deferred (see
+  [ROADMAP.md](ROADMAP.md)).
 
-## What is validated vs. scaffolded
+## What is validated
 
-Validated end-to-end in CI-like conditions (see `engine/tests/`, 8 tests):
-- Welch t / Mann–Whitney / Shapiro–Wilk / Hedges' g match scipy ground truth
-- A `filter` reduce step on a boolean flag column reproduces, exactly, the stats
-  the removed exclusion mechanism used to produce (validation corpus regression
-  case `filter-flag-equivalence`)
-- PDF export MediaBox measures exactly 89 × 70 mm for `nature_single_column`
-- `.iris` document save/load roundtrip
-- Frontend compiles under strict TypeScript and builds with Vite
+The engine carries a pytest suite (`engine/tests/`, 21 files) plus a per-family
+**validation corpus** (`engine/validation/`) that asserts each statistical
+family against reference values recomputed independently against raw scipy:
 
-Scaffolded, needs a real machine: Tauri shell compile, sidecar lifecycle
-under the shell, installers, signing.
+- Two-group (Welch's t / Mann–Whitney / paired-t / Wilcoxon), multi-group
+  (one-way ANOVA + Tukey HSD / Kruskal–Wallis + Holm), correlation
+  (Pearson/Spearman), and contingency (chi-square / Fisher's exact) match
+  ground truth to four-plus decimals.
+- Effect sizes (Hedges' g, rank-biserial, r/ρ, Cramér's V / odds ratio) are
+  reported with CIs where defined.
+- PDF export measures exact physical dimensions with editable text (fonttype 42).
+- `.iris` documents round-trip losslessly.
+- The frontend compiles under strict TypeScript and builds with Vite.
 
-## Tier 1 exit criterion
-
-A stranger double-clicks an installer, imports a CSV, makes a figure, exports
-a PDF that opens in Illustrator with correct fonts (fonttype 42) and
-dimensions. The engine and frontend halves of that path are done; the
-packaging half is the remaining work.
+Why a validation suite is non-negotiable: pingouin 0.6 once silently renamed its
+result columns and broke the engine. Engine dependency versions are pinned and
+recorded in every document's `engine_snapshot`.
 
 ## Repo map
 
 ```
-engine/iris_engine/    stats.py (pingouin orchestration + recommendation)
-                       compiler.py (spec → matplotlib, gid tagging, mm presets)
-                       document.py (.iris ZIP format + sample data)
-                       main.py (FastAPI protocol surface)
-engine/tests/          validation suite (pytest)
-src/                   React frontend: state.ts (Jotai atoms, derived spec),
-                       types.ts (schema v1.0 types + protocol client),
-                       components/ (DataTable, FigurePane, StatsPanel)
-src-tauri/             desktop shell scaffold
+engine/iris_engine/
+  document.py     .iris ZIP format (Parquet table + JSON parts) + sample data
+  importer.py     CSV/TSV/Excel import: locale sniffing, type inference, wide→long
+  session.py      server-owned table behind a session handle (id/version/schema)
+  hierarchy.py    the data "spine": nested identifier levels + per-layer grain
+  reduce.py       reduction pipeline (select + filter)
+  specnorm.py     spec normalization + migration from older shapes
+  compiler.py     spec → matplotlib figure (layered geoms, mm sizing, vector SVG)
+  geoms.py        geom registry (drives the layer rail and guard pass)
+  scales.py       shared aesthetic scales (color/size/shape, palettes)
+  guards.py       guard pass (point cap, facet-cell cap, actionable messages)
+  stats.py        pingouin/scipy orchestration + the guided test picker
+  statmodel.py    encodings → inferred, overridable stat model
+  style.py        style registry + override resolution (screen == export)
+  render.py       FastAPI-free render core (build a figure/stats from a spec)
+  main.py         optional FastAPI HTTP service
+
+engine/tests/         pytest suite
+engine/validation/    per-family reference corpus
+
+src/
+  state.ts            Jotai atoms, derived spec, analysis cache
+  types.ts            spec schema types + protocol client
+  channels.ts         encoding/geom compatibility logic
+  hierarchy / levels  data-spine UI helpers
+  components/         DataTable, FigurePane, StatsPanel, EncodingsCard,
+                      LayerRail, StylePane, ImportWizard, GuidedTestPicker, …
+
+src-tauri/            desktop shell (spawns/reaps the engine sidecar)
 ```
 
-Tier 2 starts from here: more plot/test families ride on the same spec; the
-table swaps to Glide/AG Grid; the import wizard fronts `pandas.read_csv`.
+## Status & roadmap
+
+Tier 2 — the credible-tool milestone — is mostly complete: the composable
+grammar of graphics, the data-hierarchy model, and the guided test picker are
+built and tested; what remains is breadth, polish, optimization, and real-world
+use. See [ROADMAP.md](ROADMAP.md) for what's next.
+
+## License
+
+[AGPL-3.0](LICENSE).
