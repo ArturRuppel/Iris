@@ -25,39 +25,73 @@ arithmetic.
 """
 SCHEMA_OVERRIDES = {}
 
+_SPEC_BASE = {
+    "spec_version": "2.0",
+    "title": TITLE,
+    "data": {"filter": []},
+    "encodings": {"x": {"column": "species"},
+                  "y": {"column": "petal_length"},
+                  "color": None, "size": None, "shape": None},
+    "reduce": {"steps": [
+        {"kind": "filter",
+         "conditions": [{"column": "species", "op": "in",
+                         "value": ["versicolor", "virginica"]}]}]},
+    "stats": {"alpha": 0.05},
+}
+
+# Welch's t is inferred identically regardless of geom, so every analysis shares
+# this expectation; only the figure structure (below) changes per geom.
+_WELCH_STATS = {
+    "test": "welch_t",
+    "t": (-12.603779, 1e-4),
+    "df": (95.5704, 1e-2),
+    "p": ("<", 1e-18),                  # p = 4.9e-22
+    "mean_diff": (-1.292, 1e-6),
+    "effect.value": (-2.501415, 1e-4),  # Hedges' g
+    "summaries.0.n": 50,
+    "summaries.1.n": 50,
+    "summaries.0.mean": (4.26, 1e-9),
+    "summaries.1.mean": (5.552, 1e-9),
+}
+_WELCH_MODEL = {"family": "group_comparison", "chosen_by": "inferred"}
+
+
+def _analysis(geom, params, figure, style=None):
+    spec = {**_SPEC_BASE, "layers": [{"geom": geom, "params": params}]}
+    if style is not None:
+        spec = {**spec, "style": style}
+    return {
+        "spec": spec,
+        "expected_stats": _WELCH_STATS,
+        "expected_model": _WELCH_MODEL,
+        "expected_figure": figure,
+    }
+
+
 ANALYSES = [
-    {
-        "spec": {
-            "spec_version": "2.0",
-            "title": TITLE,
-            "data": {"filter": []},
-            "encodings": {"x": {"column": "species"},
-                          "y": {"column": "petal_length"},
-                          "color": None, "size": None, "shape": None},
-            "layers": [{"geom": "box", "params": {}}],
-            "reduce": {"steps": [
-                {"kind": "filter",
-                 "conditions": [{"column": "species", "op": "in",
-                                 "value": ["versicolor", "virginica"]}]}]},
-            "stats": {"alpha": 0.05},
-        },
-        "expected_stats": {
-            "test": "welch_t",
-            "t": (-12.603779, 1e-4),
-            "df": (95.5704, 1e-2),
-            "p": ("<", 1e-18),                  # p = 4.9e-22
-            "mean_diff": (-1.292, 1e-6),
-            "effect.value": (-2.501415, 1e-4),  # Hedges' g
-            "summaries.0.n": 50,
-            "summaries.1.n": 50,
-            "summaries.0.mean": (4.26, 1e-9),
-            "summaries.1.mean": (5.552, 1e-9),
-        },
-        "expected_model": {"family": "group_comparison", "chosen_by": "inferred"},
-        "expected_figure": {
-            "axis_labels": {"y": "petal length"},
-            "xtick_labels": ["versicolor", "virginica"],
-            "point_groups": 0,                  # box only — no per-point marks
-        },
-    },
+    _analysis("box", {}, {
+        "axis_labels": {"y": "petal length"},
+        "xtick_labels": ["versicolor", "virginica"],
+        "point_groups": 0,                  # box only — no per-point marks
+    }),
+    _analysis("violin", {}, {
+        "axis_labels": {"y": "petal length"},
+        "xtick_labels": ["versicolor", "virginica"],
+        "point_groups": 0,
+    }),
+    _analysis("bar", {}, {
+        "axis_labels": {"y": "petal length"},
+        "xtick_labels": ["versicolor", "virginica"],
+        "point_groups": 0,
+    }),
+    _analysis("summary", {}, {
+        "axis_labels": {"y": "petal length"},
+        "xtick_labels": ["versicolor", "virginica"],
+        "point_groups": 0,
+    }),
+    _analysis("dot", {}, {                  # show_n is a style key, not a layer param
+        "axis_labels": {"y": "petal length"},
+        "xtick_labels": ["versicolor", "virginica"],
+        "point_groups": 2,                  # dot draws per-point marks per group
+    }, style={"show_n": True}),
 ]
