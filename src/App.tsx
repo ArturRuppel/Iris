@@ -293,6 +293,14 @@ export default function App() {
     const f = await engine.saveDocument(handle!.id, allSpecs, {});
     downloadBase64("document.iris", f.data_base64);
   };
+  // Guard the shipped examples: overwriting one makes the Examples gallery
+  // documentation no longer match the file it links to. True when the target is
+  // an example and the user declines to clobber it. Applies to every save path.
+  const clobbersExample = (fh: FileSystemFileHandle) =>
+    exampleFilenames.has(fh.name) &&
+    !window.confirm(`"${fh.name}" is an example file that ships with Iris. `
+      + `Overwriting it means the Examples documentation will no longer `
+      + `match this file. Save anyway?`);
   const doSave = async () => {
     if (!schema || allSpecs.length === 0 || !handle) return;
     try {
@@ -303,13 +311,7 @@ export default function App() {
       let fh = bound && bound.tableId === handle.id ? bound.fh : null;
       if (!fh)
         fh = await window.showSaveFilePicker({ suggestedName: "document.iris", types: IRIS_FILE_TYPES });
-      // Guard the shipped examples: writing over one makes the Examples gallery
-      // documentation no longer match the file it links to.
-      if (exampleFilenames.has(fh.name) &&
-          !window.confirm(`"${fh.name}" is an example file that ships with Iris. `
-            + `Overwriting it means the Examples documentation will no longer `
-            + `match this file. Save anyway?`))
-        return;
+      if (clobbersExample(fh)) return;
       await writeIris(fh);
       fileHandleRef.current = { fh, tableId: handle.id };
     } catch (e) { surfaceUnlessAbort(e); }
@@ -319,6 +321,7 @@ export default function App() {
     try {
       if (!hasFsAccess()) return void await downloadIris();
       const fh = await window.showSaveFilePicker({ suggestedName: "document.iris", types: IRIS_FILE_TYPES });
+      if (clobbersExample(fh)) return;
       await writeIris(fh);
       fileHandleRef.current = { fh, tableId: handle.id };   // later Save writes back here
     } catch (e) { surfaceUnlessAbort(e); }

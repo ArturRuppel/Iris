@@ -97,8 +97,10 @@ def _export_case(case_name: str) -> dict:
     for spec in doc["analyses"]:
         analysis_id = spec.get("id") or case_name
         fig, *_ = main._run(table, spec)
-        svg = _normalize_svg(compiler.figure_to_svg(fig))
-        compiler.close(fig)
+        try:
+            svg = _normalize_svg(compiler.figure_to_svg(fig))
+        finally:
+            compiler.close(fig)   # never leak the figure, even on a render error
         svg_file = f"{analysis_id}.svg"
         (ASSETS / svg_file).write_text(svg)
         geom = (spec.get("layers") or [{}])[0].get("geom", "")
