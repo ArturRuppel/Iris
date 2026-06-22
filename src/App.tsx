@@ -1,5 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
+import irisMark from "./assets/iris-mark.svg";
 import { DataEntry } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
 import { HierarchyPanel } from "./components/HierarchyPanel";
@@ -329,7 +330,10 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Iris <span className="tag">tier 2</span></h1>
+        <h1 className="brand">
+          <img className="brand-mark" src={irisMark} alt="" width="26" height="26" />
+          Iris <span className="tag">tier 2</span>
+        </h1>
         <div className="mode-toggle">
           <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
           <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
