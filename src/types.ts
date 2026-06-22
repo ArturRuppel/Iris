@@ -620,6 +620,24 @@ export function downloadBase64(filename: string, b64: string) {
   a.click();
 }
 
+/* The File System Access API (showOpenFilePicker/showSaveFilePicker) ships only
+   in Chromium-based browsers in a secure context. Elsewhere it's undefined, so
+   feature-detect before reaching for it and fall back to plain download/input. */
+export const hasFsAccess = () => typeof window.showSaveFilePicker === "function";
+
+/* Fallback open for browsers without the FS Access API: a throwaway <input>.
+   Resolves to the chosen File, or null when the dialog is dismissed. */
+export function pickFileFallback(accept: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = accept;
+    input.onchange = () => resolve(input.files?.[0] ?? null);
+    input.oncancel = () => resolve(null);   // 'cancel' fires on dismissal
+    input.click();
+  });
+}
+
 export function base64ToBytes(b64: string): Uint8Array<ArrayBuffer> {
   const bin = atob(b64);
   const bytes = new Uint8Array(bin.length);

@@ -19,7 +19,7 @@ import {
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom,
 } from "./state";
-import { base64ToBytes, downloadBase64, engine, fileToBase64, migrateSpec } from "./types";
+import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 
 function Section({ title, defaultOpen, children }:
   { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -279,9 +279,16 @@ export default function App() {
     await w.write(new Blob([base64ToBytes(f.data_base64)]));
     await w.close();
   };
+  // No FS Access API (Firefox/Safari): we can't write back to a bound file, so
+  // every save is just a download. Both Save and Save As funnel through here.
+  const downloadIris = async () => {
+    const f = await engine.saveDocument(handle!.id, allSpecs, {});
+    downloadBase64("document.iris", f.data_base64);
+  };
   const doSave = async () => {
     if (!schema || allSpecs.length === 0 || !handle) return;
     try {
+      if (!hasFsAccess()) return void await downloadIris();
       const bound = fileHandleRef.current;
       // Reuse the handle only if it belongs to the table we're looking at;
       // otherwise the first Save is really a Save As (pick a file).
@@ -295,6 +302,7 @@ export default function App() {
   const doSaveAs = async () => {
     if (!schema || allSpecs.length === 0 || !handle) return;
     try {
+      if (!hasFsAccess()) return void await downloadIris();
       const fh = await window.showSaveFilePicker({ suggestedName: "document.iris", types: IRIS_FILE_TYPES });
       await writeIris(fh);
       fileHandleRef.current = { fh, tableId: handle.id };   // later Save writes back here
@@ -302,8 +310,18 @@ export default function App() {
   };
   const doLoad = async () => {
     try {
-      const [fh] = await window.showOpenFilePicker({ types: IRIS_FILE_TYPES, multiple: false });
-      const file = await fh.getFile();
+      // Prefer the FS Access API (lets a later Save write back to the same file);
+      // otherwise fall back to a plain <input>, which yields no reusable handle.
+      let file: File;
+      let fh: FileSystemFileHandle | null = null;
+      if (hasFsAccess()) {
+        [fh] = await window.showOpenFilePicker({ types: IRIS_FILE_TYPES, multiple: false });
+        file = await fh.getFile();
+      } else {
+        const picked = await pickFileFallback(".iris");
+        if (!picked) return;   // user dismissed the dialog
+        file = picked;
+      }
       const doc = await engine.loadDocument(fileToBase64(await file.arrayBuffer()));
       loadDocument({
         schema: doc.schema, rows: doc.rows,
@@ -311,7 +329,7 @@ export default function App() {
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
       });
       setViewMode(doc.analyses.length ? "analyses" : "data");
-      fileHandleRef.current = { fh, tableId: doc.id };   // a later Save writes back here
+      if (fh) fileHandleRef.current = { fh, tableId: doc.id };   // a later Save writes back here
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
