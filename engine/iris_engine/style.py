@@ -96,8 +96,8 @@ STYLE_REGISTRY: list[dict] = [
     # ---- axes & ticks (always shown) ----
     _sel("tick_direction", "Tick direction", "axes", ["out", "in", "inout"], "out"),
     _num("tick_length", "Tick length", "axes", 3.5, lo=0, hi=8, step=0.5),
-    _sel("x_tick_side", "X ticks on", "axes", ["bottom", "top"], "bottom"),
-    _sel("y_tick_side", "Y ticks on", "axes", ["left", "right"], "left"),
+    _sel("x_tick_side", "X ticks on", "axes", ["bottom", "top", "both"], "bottom"),
+    _sel("y_tick_side", "Y ticks on", "axes", ["left", "right", "both"], "left"),
     _num("x_tick_spacing", "X tick every", "axes", None, lo=0, step=1, transferable=False),
     _num("y_tick_spacing", "Y tick every", "axes", None, lo=0, step=1, transferable=False),
     _bool("minor_ticks", "Minor ticks", "axes", False),
@@ -283,6 +283,11 @@ def resolve_style(spec: dict) -> dict:
     # stash the raw geoms + per-layer overrides for resolve_geom_style callers
     resolved["_geom_overrides"] = overrides.get("geoms") or {}
     resolved["_layer_overrides"] = overrides.get("layers") or {}
+    # item O: whether the user explicitly picked a tick side (vs left it at the
+    # default). A closed frame auto-mirrors ticks UNLESS a side was chosen, so
+    # _rc needs to tell "untouched default" from "deliberately bottom/top".
+    resolved["_x_tick_side_set"] = overrides.get("x_tick_side") is not None
+    resolved["_y_tick_side_set"] = overrides.get("y_tick_side") is not None
     return resolved
 
 

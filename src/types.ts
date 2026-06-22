@@ -246,8 +246,8 @@ export interface StyleOverrides {
   /* axes & ticks */
   tick_direction?: "out" | "in" | "inout";
   tick_length?: number;
-  x_tick_side?: "bottom" | "top";
-  y_tick_side?: "left" | "right";
+  x_tick_side?: "bottom" | "top" | "both";
+  y_tick_side?: "left" | "right" | "both";
   x_tick_spacing?: number;
   y_tick_spacing?: number;
   minor_ticks?: boolean;

@@ -53,8 +53,18 @@ _OUTPUT_RC = {
 def _rc(style: dict) -> dict:
     font_pt = style["font_pt"]
     closed = style["frame"] == "closed"
-    x_top = style["x_tick_side"] == "top"
-    y_right = style["y_tick_side"] == "right"
+    x_side = style["x_tick_side"]
+    y_side = style["y_tick_side"]
+    x_top = x_side == "top"
+    y_right = y_side == "right"
+    # item O: tick mirroring is now an independent control. "both" always mirrors;
+    # a closed frame still DEFAULTS to mirrored ticks (the publication-box look)
+    # unless the user explicitly picked a single side, in which case the side knob
+    # is authoritative — so a closed frame can carry one-sided ticks and an open
+    # frame can carry mirrored ticks. Mirrored ticks need no extra spine: on an
+    # open frame the far-side ticks float at the axis edge with no spine line.
+    x_both = x_side == "both" or (closed and not style.get("_x_tick_side_set"))
+    y_both = y_side == "both" or (closed and not style.get("_y_tick_side_set"))
     return {
         "font.family": "sans-serif",
         "font.size": font_pt,
@@ -77,12 +87,12 @@ def _rc(style: dict) -> dict:
         "ytick.major.size": style["tick_length"],
         "xtick.minor.size": style["tick_length"] * 0.55,
         "ytick.minor.size": style["tick_length"] * 0.55,
-        # A closed frame carries ticks on BOTH sides (labels stay on the primary
-        # side only, so there are no duplicate tick labels) — the publication-box
-        # look. An open frame is unchanged: ticks + labels on one side each.
-        "xtick.bottom": closed or not x_top, "xtick.top": closed or x_top,
+        # Ticks: mirror when x_both/y_both (see above), otherwise on the chosen
+        # side. Labels always stay on the primary side only, so a mirrored axis
+        # never shows duplicate tick labels.
+        "xtick.bottom": x_both or not x_top, "xtick.top": x_both or x_top,
         "xtick.labelbottom": not x_top, "xtick.labeltop": x_top,
-        "ytick.left": closed or not y_right, "ytick.right": closed or y_right,
+        "ytick.left": y_both or not y_right, "ytick.right": y_both or y_right,
         "ytick.labelleft": not y_right, "ytick.labelright": y_right,
         "axes.edgecolor": "#475569",
         "xtick.color": "#475569",

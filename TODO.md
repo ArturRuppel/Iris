@@ -477,6 +477,26 @@ path (reproducible but not Iris-app editable). App-side test-picker controls for
 choosing the one-sample design + reference value are also still open (engine-first
 authoring works today via the analysis JSON).
 
+(Item O — shipped 2026-06-22. The enum-extension approach was taken (not the
+`tick_mirror` bool). `x_tick_side`/`y_tick_side` gained a `"both"` option
+(`style.py:99-100`); because StylePane renders the registry generically, the new
+option appears in the GUI with no bespoke frontend code — only the `StyleOverrides`
+TS union widened to include `"both"`. Decoupling from the frame: mirroring is now
+`x_side == "both" or (closed and not explicitly_set)`. A closed frame still
+DEFAULTS to mirrored ticks (the publication-box look), but an explicit one-sided
+pick is authoritative — so a closed frame can now carry one-sided ticks AND an open
+frame can carry mirrored ticks, the two combinations that were previously
+inexpressible. To tell "untouched default bottom" from "deliberately bottom",
+`resolve_style` stashes `_x_tick_side_set`/`_y_tick_side_set` from the raw (sparse)
+overrides; `_rc` reads them. Mirrored ticks need no extra spine — on an open frame
+the far-side ticks float at the axis edge with no spine line (verified by direct
+render: open+both draws top ticks with no top spine; closed+bottom draws no top
+ticks but keeps the box). Labels always stay on the primary side (no duplicate tick
+labels). `tests/test_tick_mirror.py` (7 cases — registry options, the open/closed ×
+default/both/explicit matrix, spine independence). 338 engine + 86 FE green,
+typecheck + build clean. Generic StylePane = no browser pass needed for the control
+to appear; the new option renders like any other select.)
+
 ### O. Expose tick placement / mirroring as a first-class style knob
 
 Context: 2026-06-22 a closed frame was made to carry ticks on BOTH sides (engine
