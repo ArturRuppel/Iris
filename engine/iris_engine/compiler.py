@@ -77,9 +77,12 @@ def _rc(style: dict) -> dict:
         "ytick.major.size": style["tick_length"],
         "xtick.minor.size": style["tick_length"] * 0.55,
         "ytick.minor.size": style["tick_length"] * 0.55,
-        "xtick.bottom": not x_top, "xtick.top": x_top,
+        # A closed frame carries ticks on BOTH sides (labels stay on the primary
+        # side only, so there are no duplicate tick labels) — the publication-box
+        # look. An open frame is unchanged: ticks + labels on one side each.
+        "xtick.bottom": closed or not x_top, "xtick.top": closed or x_top,
         "xtick.labelbottom": not x_top, "xtick.labeltop": x_top,
-        "ytick.left": not y_right, "ytick.right": y_right,
+        "ytick.left": closed or not y_right, "ytick.right": closed or y_right,
         "ytick.labelleft": not y_right, "ytick.labelright": y_right,
         "axes.edgecolor": "#475569",
         "xtick.color": "#475569",
@@ -239,6 +242,71 @@ def _draw_n_labels(ax, count_dicts: list[dict], levels: list, horizontal: bool,
                         xytext=(0, -26), textcoords="offset points",
                         ha="center", fontsize=fs,
                         color="#94a3b8", annotation_clip=False)
+
+
+_REF_DASHES = {"dashed": (0, (5, 4)), "solid": "-", "dotted": (0, (1, 2))}
+
+
+def _draw_reference_line(ax, value, label, horizontal: bool, style: dict) -> None:
+    """A faint reference line on the VALUE axis at `value` (chance/control/unity).
+    Vertical plot → value axis is Y → axhline; horizontal → axvline. Drawn below
+    the marks (zorder 1, above the grid). Skipped on a log value axis when
+    `value <= 0` (can't place a non-positive value on a log scale)."""
+    if value is None:
+        return
+    value = float(value)
+    value_log = (ax.get_xscale() == "log") if horizontal else (ax.get_yscale() == "log")
+    if value_log and value <= 0:
+        return
+    ls = _REF_DASHES.get(style.get("reference_line_style", "dashed"), _REF_DASHES["dashed"])
+    color = "#94a3b8"   # the same faint ink-grey as the n labels
+    fs = style["font_pt"] - 2
+    if horizontal:
+        ax.axvline(value, color=color, linestyle=ls, lw=1.0, zorder=1)
+        if label:
+            ax.annotate(label, (value, 1), xycoords=("data", "axes fraction"),
+                        xytext=(2, -3), textcoords="offset points",
+                        ha="left", va="top", fontsize=fs, color=color,
+                        annotation_clip=False)
+    else:
+        ax.axhline(value, color=color, linestyle=ls, lw=1.0, zorder=1)
+        if label:
+            ax.annotate(label, (1, value), xycoords=("axes fraction", "data"),
+                        xytext=(-2, 2), textcoords="offset points",
+                        ha="right", va="bottom", fontsize=fs, color=color,
+                        annotation_clip=False)
+
+
+def _draw_location_significance(ax, res: dict, levels: list, horizontal: bool,
+                                style: dict) -> None:
+    """One-sample (location family) significance: a compact star per LANE just
+    above that lane's drawn data, marking each group's test against the reference.
+    No brackets or arches — the comparison is group-vs-constant, not lane-to-lane.
+    Reads ``res['per_group']`` (one entry per group, carrying its ``stars``)."""
+    per = {str(g["level"]): g.get("stars") for g in (res or {}).get("per_group", [])
+           if g.get("stars")}
+    if not per:
+        return
+    base = _drawn_value_max(ax, horizontal)
+    lo, hi = ax.get_xlim() if horizontal else ax.get_ylim()
+    extent = (hi - lo) or 1.0
+    step = extent * 0.06
+    fs = style["font_pt"] - 1
+    v = base + step
+    for i, lv in enumerate(levels):
+        lbl = per.get(str(lv))
+        if not lbl:
+            continue
+        if horizontal:
+            ax.text(v, i, lbl, ha="left", va="center", fontsize=fs, clip_on=False)
+        else:
+            ax.text(i, v, lbl, ha="center", va="bottom", fontsize=fs, clip_on=False)
+    headroom = v + step
+    if horizontal:
+        if style["x_max"] is None:
+            ax.set_xlim(right=max(ax.get_xlim()[1], headroom))
+    elif style["y_max"] is None:
+        ax.set_ylim(top=max(ax.get_ylim()[1], headroom))
 
 
 def _err_half(s: dict, error_type: str) -> float:
@@ -971,6 +1039,14 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
     layers = spec.get("layers", [])
+    # Reference-line annotation (item N): an explicit `reference_value` knob, else
+    # the location family's tested reference (authoring the one-sample test draws
+    # the line). A general annotation drawn in every cell of the grid.
+    is_location = (stats or {}).get("family") == "location"
+    ref_value = style.get("reference_value")
+    if ref_value is None and is_location:
+        ref_value = (stats or {}).get("reference")
+    ref_label = style.get("reference_label") or ""
 
     with plt.rc_context(_rc(style)):
         fig, axes = _build_grid(style["width_mm"], style["height_mm"],
@@ -1010,6 +1086,8 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 # for horizontal the value axis is X (numeric); grids follow accordingly
                 _apply_axes(ax, style, x_numeric=h,
                             grid_x_default=h, grid_y_default=not h)
+                if ref_value is not None:
+                    _draw_reference_line(ax, ref_value, ref_label, h, style)
                 if style["show_n"]:
                     # n reports one count per grain. By default these are only the
                     # grains the LAYERS draw at (item G's "only the drawn levels");
@@ -1050,11 +1128,17 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 cbar_mappable = ctx.get("cbar_mappable") or cbar_mappable
                 last_ax = ax
 
-        # Significance brackets read the inferential result. Faceted figures are
-        # describe-only (no test), so brackets only apply to the single-axes case.
+        # Significance markers read the inferential result. Faceted figures are
+        # describe-only (no test), so markers only apply to the single-axes case.
+        # The location (one-sample) family draws a per-lane star against the
+        # reference; every other family stacks lane-to-lane brackets.
         if not faceted and style["show_significance"]:
-            _draw_significance(last_ax, stats, layout["levels"],
-                               layout["h_orient"], style)
+            if is_location:
+                _draw_location_significance(last_ax, stats, layout["levels"],
+                                            layout["h_orient"], style)
+            else:
+                _draw_significance(last_ax, stats, layout["levels"],
+                                   layout["h_orient"], style)
 
         cbar = sc_global.colorbar_spec()
         if cbar:

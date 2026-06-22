@@ -412,6 +412,161 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     }
 
 
+# One-sample (vs-reference) location family: each group tested against a constant
+# rather than against another group. The assumption axis (parametric vs robust)
+# picks one of these two; an override pins it for every group.
+_LOCATION_TESTS = {"one_sample_t", "wilcoxon_signed"}
+MIN_LOCATION_N = 3   # below this per group, the one-sample test is skipped
+
+
+def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
+             *, reference: float = 0.0, alpha: float = 0.05,
+             override: str | None = None, pairing: dict | None = None) -> dict:
+    """One-sample (vs-reference) location test: per group, test whether the
+    per-replicate values differ from a constant `reference` (default 0) — each
+    group against its OWN null, not against another group. The correct design
+    when groups are not mutually independent (e.g. fractions that sum to 1), where
+    a between-group comparison would be partly tautological.
+
+    Receives the materialized inferential-grain table (as `group_comparison`
+    does), so the values tested are per-replicate summaries when a spine is
+    declared and raw rows otherwise. The assumption axis (parametric one-sample t
+    vs robust Wilcoxon signed-rank) is decided ONCE across groups from the
+    per-group Shapiro–Wilk on the differences (the least-normal group wins, as in
+    the multi-group omnibus), confirmable via `override`; the chosen test is then
+    applied to every group. No automatic multiple-comparison correction — the test
+    count is stated in `methods_text` (groups are usually few and the nulls are
+    independent). `pairing` is accepted for signature parity but unused (a
+    one-sample test has no structural axis).
+
+    Returns a superset of the `group_comparison` contract (`result`/`summaries`/
+    `decision`/…) plus `family`/`reference`/`per_group`, so existing readers keep
+    working and the compiler can place a per-lane star against the reference."""
+    if x:
+        sub = df[[x, y]].dropna(subset=[y])
+        found = [lv for lv in levels if lv in set(sub[x])]
+        found += sorted(set(sub[x]) - set(levels))
+        arrays = {lv: sub.loc[sub[x] == lv, y].to_numpy(dtype=float) for lv in found}
+    else:
+        sub = df[[y]].dropna()
+        found = ["all"]
+        arrays = {"all": sub[y].to_numpy(dtype=float)}
+    if not found:
+        return {"error": "no groups to test against the reference", "levels": found}
+
+    n_min = min((len(a) for a in arrays.values()), default=0)
+    # Assumption axis — Shapiro–Wilk on each group's differences from the
+    # reference, decided once for the figure (the least-normal group wins).
+    checks = [{"check": "shapiro_wilk", "group": lv,
+               **shapiro_check(arrays[lv] - reference)} for lv in found]
+    small = n_min < MIN_N_FOR_NORMALITY_RULE
+    normal = all(c.get("ok") and c["p"] > alpha for c in checks)
+    if small:
+        assumption_rec, assume_reason = "robust", (
+            f"the smallest group (n = {n_min}) is < {MIN_N_FOR_NORMALITY_RULE}; "
+            "the normality check is underpowered, so the rank-based one-sample "
+            "test is the safe default")
+    elif normal:
+        assumption_rec, assume_reason = "parametric", (
+            "Shapiro–Wilk is consistent with normal differences in every group")
+    else:
+        assumption_rec, assume_reason = "robust", (
+            "Shapiro–Wilk indicates non-normal differences in at least one group")
+    recommended = "one_sample_t" if assumption_rec == "parametric" else "wilcoxon_signed"
+    pinned = override if override in _LOCATION_TESTS else None
+    test = pinned or recommended
+
+    per_group = []
+    for lv in found:
+        v = arrays[lv]
+        n = len(v)
+        diff = v - reference
+        if n < MIN_LOCATION_N:
+            # too few units to test this group; report n but no inferential
+            # numbers (guards.py warns about the small group separately).
+            per_group.append({"level": lv, "test": "none", "p": None, "stars": "",
+                              "effect": _no_effect(), "n": n,
+                              "center": float(np.mean(v)) if n else 0.0,
+                              "center_ci": None})
+            continue
+        if test == "one_sample_t":
+            row = pg.ttest(v, reference).iloc[0]
+            t = float(_col(row, "T"))
+            dof = float(_col(row, "dof"))
+            p = float(_col(row, "p_val", "p-val"))
+            # Cohen's dz = mean(diff)/sd(diff), computed directly so it keeps its
+            # SIGN (the direction of the effect); pingouin's one-sample cohen_d
+            # reports only the magnitude.
+            sd_diff = float(np.std(diff, ddof=1))
+            dz = float(np.mean(diff) / sd_diff) if sd_diff > 0 else 0.0
+            ci = [float(c) for c in _col(row, "CI95", "CI95%")]  # CI of the mean
+            md = float(np.mean(diff))
+            per_group.append({
+                "level": lv, "test": "one_sample_t", "t": t, "df": dof, "p": p,
+                "stars": _p_stars(p),
+                "effect": {"name": "cohens_dz", "value": dz, "ci": None},
+                "n": n, "center": float(np.mean(v)),
+                "center_ci": ci, "mean_diff": md,
+                "mean_diff_ci": [ci[0] - reference, ci[1] - reference]})
+        else:
+            row = pg.wilcoxon(diff).iloc[0]
+            W = float(_col(row, "W_val", "W-val"))
+            p = float(_col(row, "p_val", "p-val"))
+            rbc = float(_col(row, "RBC"))
+            per_group.append({
+                "level": lv, "test": "wilcoxon_signed", "W": W, "p": p,
+                "stars": _p_stars(p),
+                "effect": {"name": "rank_biserial", "value": rbc, "ci": None},
+                "n": n, "center": float(np.median(v)), "center_ci": None,
+                "median_diff": float(np.median(diff))})
+
+    tested = [g for g in per_group if g.get("p") is not None]
+    decision = {
+        "assumption": {
+            "recommended": assumption_rec,
+            "chosen": "parametric" if test == "one_sample_t" else "robust",
+            "chosen_by": "recommendation_accepted", "reason": assume_reason,
+            "options": ["parametric", "robust"]},
+    }
+    summaries = [_summary(lv, arrays[lv]) for lv in found]
+    # the top-level `result` mirrors the two-group shape so generic readers keep
+    # working: the first tested group, tagged with the chosen test + reference.
+    head = tested[0] if tested else (per_group[0] if per_group else {})
+    result = {"test": test, "reference": reference,
+              "p": head.get("p"), "n": head.get("n", int(len(sub))),
+              "effect": head.get("effect", _no_effect())}
+
+    name = "one-sample t-test" if test == "one_sample_t" else "Wilcoxon signed-rank test"
+    parts = []
+    for g in per_group:
+        if g.get("p") is None:
+            parts.append(f"{g['level']}: n = {g['n']} (too few to test)")
+        elif test == "one_sample_t":
+            parts.append(
+                f"{g['level']}: t({g['df']:.0f}) = {g['t']:.2f}, p {_fmt_p(g['p'])}; "
+                f"dz = {g['effect']['value']:.2f}; mean difference = {g['mean_diff']:.2f} "
+                f"(95% CI {g['mean_diff_ci'][0]:.2f} to {g['mean_diff_ci'][1]:.2f})")
+        else:
+            parts.append(
+                f"{g['level']}: W = {g['W']:.0f}, p {_fmt_p(g['p'])}; "
+                f"rank-biserial r = {g['effect']['value']:.2f}")
+    grp_label = (f"each of the {len(found)} groups of {x}" if x and len(found) > 1
+                 else (str(found[0]) if x else y))
+    methods = (
+        f"{y} in {grp_label} was tested against {reference:g} using a {name} "
+        f"({len(tested)} test(s); no multiple-comparison correction applied). "
+        + "; ".join(parts) + ".")
+
+    return {
+        "family": "location", "reference": reference,
+        "levels": found, "checks": checks,
+        "recommendation": {"test": recommended, "reason": assume_reason},
+        "decision": decision, "chosen_by": "recommendation_accepted",
+        "per_group": per_group, "result": result,
+        "summaries": summaries, "alpha": alpha, "methods_text": methods,
+    }
+
+
 def _summary(label: str, v: np.ndarray) -> dict:
     n = len(v)
     ci_half = float(sps.t.ppf(0.975, n - 1) * sps.sem(v)) if n > 1 else 0.0

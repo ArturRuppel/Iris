@@ -78,8 +78,12 @@ def render(table: dict, spec: dict, *, memo=None):
         raise RenderError(f"reduction failed: {e}") from e
 
     describe_only = bool(spec.get("_describe_only"))
-    model = statmodel.infer(spec["encodings"], schema, spec.get("_override"),
-                            spec.get("facet"), layers=spec.get("layers"))
+    stats_block = spec.get("stats") or {}
+    model = statmodel.infer(
+        spec["encodings"], schema, spec.get("_override"),
+        spec.get("facet"), layers=spec.get("layers"),
+        declared_family=stats_block.get("family"),
+        reference=stats_block.get("reference", 0.0))
     # Data hierarchy (redesign): per-level tables for the group-comparison path,
     # filled in below once the grouping column is known. None elsewhere.
     level_tables = None
@@ -102,7 +106,10 @@ def render(table: dict, spec: dict, *, memo=None):
     alpha = spec.get("stats", {}).get("alpha", 0.05)
     override = spec.get("_override")
     family = model["family"]
-    if family == "group_comparison":
+    # The location (one-sample) family reuses the WHOLE group_comparison data path
+    # — same level materialization, inferential-grain resolution, and pairing — and
+    # differs only in the terminal stats call, so it shares this branch.
+    if family in ("group_comparison", "location"):
         enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
         enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
         # Phase 3c: detect horizontal orientation (numeric x + categorical y).
@@ -151,15 +158,20 @@ def render(table: dict, spec: dict, *, memo=None):
         model["pairing"] = hierarchy.pairing(
             df, present_spine, cat_col, inferential_level=inf_level)
         stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
-        res = memo(lambda: (
-               stats.describe_groups(
-                   stat_df, cat_col, val_col,
-                   levels=cat_schema.get("levels", []), alpha=alpha)
-               if describe_only else
-               stats.group_comparison(
-                   stat_df, cat_col, val_col,
-                   levels=cat_schema.get("levels", []), alpha=alpha,
-                   override=override, pairing=model["pairing"])))
+        levels = cat_schema.get("levels", [])
+        if describe_only:
+            # faceted / describe-only: no inferential test, for either family.
+            res = memo(lambda: stats.describe_groups(
+                stat_df, cat_col, val_col, levels=levels, alpha=alpha))
+        elif family == "location":
+            res = memo(lambda: stats.location(
+                stat_df, cat_col, val_col, levels=levels,
+                reference=model.get("reference", 0.0), alpha=alpha,
+                override=override, pairing=model["pairing"]))
+        else:
+            res = memo(lambda: stats.group_comparison(
+                stat_df, cat_col, val_col, levels=levels, alpha=alpha,
+                override=override, pairing=model["pairing"]))
     elif family == "correlation":
         res = memo(lambda: (
                stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],

@@ -17,6 +17,7 @@ from . import geoms
 from .scales import MARKERS, PALETTE
 
 MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
+MIN_LOCATION_N = 3   # below this per group, the one-sample location test is underpowered
 COLOR_CAP = len(PALETTE)  # the default palette length; above it, colors repeat
 
 # Phase 3 "model now, build later" safeguard: the (channel, column-type) pairings
@@ -166,6 +167,20 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
                         "warning", "min_observations",
                         f"a group has fewer than {MIN_BOX_N} observations — the "
                         f"{name} summary is unreliable.", geom=name))
+
+    # Location (one-sample) family: warn — not block — when a group has too few
+    # units for a meaningful one-sample test (mirrors the box/violin small-n
+    # warning above). Counted on the rows the guard can see; the test itself
+    # additionally skips any group below the threshold.
+    if stat_model and stat_model.get("family") == "location":
+        cat_col, val_col = _cat_val_cols(spec, schema)
+        if cat_col and val_col and cat_col in df and val_col in df:
+            sizes = df.dropna(subset=[val_col]).groupby(cat_col)[val_col].size()
+            if len(sizes) and int(sizes.min()) < MIN_LOCATION_N:
+                issues.append(_issue(
+                    "warning", "min_observations",
+                    f"a group has fewer than {MIN_LOCATION_N} units — the "
+                    f"one-sample location test is underpowered."))
 
     issues.extend(_aesthetic_issues(df, schema, spec))
     return issues

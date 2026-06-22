@@ -264,6 +264,11 @@ export interface StyleOverrides {
   show_significance?: boolean;
   show_annotation?: boolean;
   show_legend?: boolean;
+  /* reference line (item N): a constant on the value axis (chance/control/unity).
+     The location family defaults reference_value to its tested reference. */
+  reference_value?: number | null;
+  reference_label?: string;
+  reference_line_style?: "dashed" | "solid" | "dotted";
 
   /* ---- geom-scoped knobs (keyed by geom name) ---- */
   geoms?: Record<string, Record<string, unknown>>;

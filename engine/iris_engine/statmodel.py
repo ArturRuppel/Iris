@@ -39,7 +39,8 @@ def _is_timeseries(layers: list[dict] | None) -> bool:
 
 def infer(encodings: dict, schema: dict, override: str | None,
           facet: dict | None = None, unit: list[str] | None = None,
-          layers: list[dict] | None = None) -> dict:
+          layers: list[dict] | None = None,
+          declared_family: str | None = None, reference: float = 0.0) -> dict:
     """encodings + schema -> StatModel. `override` is the user's pinned test
     name carried from the spec's `stats.override`, else None.
     `facet` is the spec's facet block; Phase 4 v1 runs no inferential test
@@ -71,6 +72,37 @@ def infer(encodings: dict, schema: dict, override: str | None,
                             {"column": y, "role": "response"}],
                 "test": None, "facet_handling": None,
                 "chosen_by": "describe_only", "unit": unit, "issues": []}
+
+    # One-sample (vs-reference) location test — opt-in via an explicit
+    # `stats.family == "location"`, like a geom's declared `timeseries` family,
+    # because a categorical-x + numeric-y spec otherwise infers `group_comparison`
+    # (and most such plots genuinely are group comparisons). The grouping factor
+    # is read exactly as group_comparison does (x for vertical, y for horizontal);
+    # `reference` rides on the model so render/compiler can draw the line.
+    if declared_family == "location":
+        if xk == "categorical" and yk == "numeric":
+            group, value = x, y
+        elif xk == "numeric" and yk == "categorical":
+            group, value = y, x
+        else:
+            group, value = None, y  # single unnamed group (degenerate)
+        if group:
+            design = f"location of {value} per group of {group} vs reference {reference:g}"
+            factors = [{"column": group, "role": "group"}]
+        else:
+            design = f"location of {value} vs reference {reference:g}"
+            factors = [{"column": value, "role": "variable"}]
+        if unit and group:
+            design += f"; n counts independent units ({' × '.join(unit)})"
+        faceted = bool((facet or {}).get("row") or (facet or {}).get("col"))
+        if faceted:
+            design += " — describe-only per facet (Phase 4 v1 runs no per-facet test)"
+            return {"design": design, "family": "location", "factors": factors,
+                    "test": None, "facet_handling": None, "reference": reference,
+                    "chosen_by": "describe_only", "unit": unit, "issues": []}
+        return {"design": design, "family": "location", "factors": factors,
+                "test": override, "facet_handling": None, "reference": reference,
+                "chosen_by": "inferred", "unit": unit, "issues": []}
 
     if xk == "categorical" and yk == "numeric":
         family = "group_comparison"

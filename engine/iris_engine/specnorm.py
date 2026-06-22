@@ -22,6 +22,7 @@ def normalize(spec: dict) -> dict:
         _migrate_layer_params(out)
         out.setdefault("_override", _override_of(spec))
         out.setdefault("_describe_only", _describe_only_of(spec))
+        _norm_stats(out)
         return out
 
     out = dict(spec)
@@ -53,7 +54,21 @@ def normalize(spec: dict) -> dict:
     out["hierarchy"] = {"spine": [], "fn": {}}
     out["_override"] = _override_of(spec)
     out["_describe_only"] = _describe_only_of(spec)
+    _norm_stats(out)
     return out
+
+
+def _norm_stats(out: dict) -> None:
+    """Preserve an explicitly declared `stats.family` (e.g. ``location``) and give
+    its companions a default. The block already survives normalization (it's
+    copied verbatim); this only guarantees `stats.reference` exists for a declared
+    `location` family, so render/statmodel can read it without a per-call default."""
+    st = out.get("stats")
+    if not isinstance(st, dict) or not st.get("family"):
+        return
+    out["stats"] = {**st}
+    if out["stats"]["family"] == "location":
+        out["stats"].setdefault("reference", 0.0)
 
 
 def _migrate_layer_params(spec: dict) -> None:

@@ -121,6 +121,14 @@ STYLE_REGISTRY: list[dict] = [
     _bool("show_significance", "Significance bracket", "annotations", True),
     _bool("show_annotation", "Annotation", "annotations", True),
     _bool("show_legend", "Show legend", "annotations", None),
+    # Reference line: a horizontal/vertical line on the value axis at a constant
+    # (chance, control level, unity). A standalone annotation usable by any family;
+    # the location (one-sample) family defaults it on at its tested reference.
+    _num("reference_value", "Reference line", "annotations", None),
+    _text("reference_label", "Reference label", "annotations", "", transferable=True),
+    _sel("reference_line_style", "Reference style", "annotations",
+         ["dashed", "solid", "dotted"], "dashed",
+         visible_when={"key": "reference_value", "not_equals": None}),
 
     # ---- geom-scoped: dot ----
     _sel("layout", "Layout", "dot", ["swarm", "jitter"], "swarm",

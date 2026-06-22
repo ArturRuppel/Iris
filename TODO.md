@@ -416,64 +416,98 @@ resolution + a two-dot-layer render asserting both marker sizes draw; 307 engine
 StylePane per-instance fieldsets and the repeated-geom add-menu UX fold into the
 browser-blocked batch.)
 
-### N. One-sample (vs-reference) test family + reference-line annotation (spec'd 2026-06-22)
+(Item N — One-sample (vs-reference) test family + reference-line annotation —
+shipped 2026-06-22 (engine + FE type). Full design →
+`docs/superpowers/specs/2026-06-22-one-sample-location-test-and-reference-line-design.md`.
+Both gaps closed exactly as spec'd.
 
-Full design → `docs/superpowers/specs/2026-06-22-one-sample-location-test-and-reference-line-design.md`
-(result/spec shapes, the `statmodel`/`render`/`compiler` wiring, the reference-line
-annotation, testing, and the consumer change). Summary below.
+Gap 1 — the `location` family. New `stats.location(df, x, y, levels, *, reference,
+alpha, override, pairing)`: per group, tests the per-replicate values against a
+constant (default 0) — each group vs its OWN null, the honest design when groups
+aren't independent (fractions summing to 1). It receives the materialized
+inferential-grain table (so n = replicates when a spine is declared, raw rows
+otherwise — verified by `test_spine_counts_replicates_not_raw_rows`). The
+assumption axis is decided ONCE across groups from per-group Shapiro–Wilk on the
+differences (least-normal wins, like the multi-group omnibus): parametric
+`one_sample_t` (pingouin) vs robust `wilcoxon_signed` (one-sample signed-rank),
+`override`-pinnable. Effect = SIGNED Cohen's dz (`mean(diff)/sd(diff)`, computed
+directly — pingouin's one-sample `cohen_d` is magnitude-only) for t, rank-biserial
+for Wilcoxon; per-group n/center/CI + a per-group `stars`. Groups with n < 3 are
+reported but untested. Result is a superset of the `group_comparison` contract
+(`result`/`summaries`/`decision`) plus `family`/`reference`/`per_group`. No auto
+multiplicity correction (test count stated in `methods_text`). `statmodel.infer`
+honours an explicit `stats.family == "location"` (opt-in, like the `timeseries`
+geom family — a plain cat/numeric plot still infers `group_comparison`, guarded),
+reading the grouping factor for either orientation and carrying `reference` on the
+model. `render.py` folds location into the SHARED group_comparison data path
+(same level materialization / inferential-grain / pairing), branching only on the
+terminal stats call; `specnorm._norm_stats` preserves the declared family and
+defaults `reference` to 0.0. `guards.py` adds a per-group min-n WARNING (≥3 units,
+mirroring the box/violin small-n warn — never blocks).
 
-Motivation: the COV2D NLS-subpopulation report's "do same-label cells cluster?"
-analysis asks, per contact type (VimKO–VimKO, VimKO–NLS, NLS–NLS), whether the
-log₂(observed/expected) contact enrichment differs from **chance** — i.e. each
-group vs a constant, with a chance reference line at 0. Iris can't express this
-today, so that figure is currently hand-built in matplotlib in the report
-notebook (`reports/2026-06-21_COV2D-NLS-subpopulation/report.ipynb`,
-`clustering_figure`) instead of being an editable `.iris`. Extending Iris makes it
-a normal SuperPlot-style `.iris` and lands two generally-useful capabilities.
+Gap 2 — reference-line annotation. Three registry knobs in the annotations group
+(`reference_value` number / `reference_label` text / `reference_line_style`
+select, all `transferable`); the `location` family defaults `reference_value` to
+its tested reference when the knob is unset, so authoring the test draws the line.
+`compiler._draw_reference_line` draws a faint (#94a3b8) dashed axhline (vertical
+plot) / axvline (horizontal) at zorder 1 below the marks, with a log-axis
+`value<=0` skip guard; `_draw_location_significance` places one compact star per
+LANE against the reference (no lane-to-lane brackets), dispatched in
+`build_comparison_figure` by `stats.family == "location"`. `StyleOverrides` (TS)
+gained the three keys; StylePane renders them generically (no bespoke FE), the
+line-style picker `visible_when` the value is set. App-side test-picker controls
+remain deferred (engine-first authoring in the notebook), per the spec.
 
-Why one-sample is the *correct* design here (not a workaround for a missing
-two-group test): the three contact fractions sum to 1, so homotypic and
-heterotypic enrichment are not independent — if same-label is enriched, opposite
--label is mechanically depleted. A "homotypic vs heterotypic" `group_comparison`
-(which fits Iris today) is therefore partly tautological. The honest test is each
-contact type against its **own** permutation/analytic null = one-sample vs chance.
+Tests: `tests/test_location.py` (19 — selection, scipy-matched t/dz/p, the
+reference-centred null p≈1, the spine grain, override, guards, and the figure:
+one star per lane, dashed line, label, horizontal, show_significance off, log
+guard) + validation case `one-sample-location` (3 contact types, n=12, one-sample
+t recomputed against raw scipy; NLS-NLS is the not-significant chance-centred
+group). 331 engine + 86 FE green, typecheck + build clean. NOT browser-verified
+(no app UI yet for the family). The COV2D consumer change — replacing
+`clustering_figure` with this `.iris` — remains the separate follow-up the spec's
+last section describes.)
 
-What ALREADY fits (no change needed): categorical x (the 3 contact types), numeric
-y (log₂ enrichment), `dot`/`violin` geoms, and the spine/level hierarchy that
-draws the big per-replicate dots (spine `experiment_id→position_id`, dots bound at
-`experiment_id`) — the same SuperPlot machinery §1–§2 use. The per-position
-enrichment *value* is a domain reduction the notebook precomputes into a tidy
-column (like `per_cell_values`); Iris consumes the tidy table, it does not compute
-enrichment.
+Follow-up (separate task, not part of the engine work): the COV2D
+NLS-subpopulation report (`reports/2026-06-21_COV2D-NLS-subpopulation/report.ipynb`,
+`clustering_figure`) still hand-builds its chance figure in matplotlib. Replacing
+it with a `location`-family `.iris` (the motivating consumer, see the spec's last
+section) is now unblocked — until that swap, the notebook keeps the matplotlib
+path (reproducible but not Iris-app editable). App-side test-picker controls for
+choosing the one-sample design + reference value are also still open (engine-first
+authoring works today via the analysis JSON).
 
-The two gaps (verified against the code 2026-06-22):
-1. **No one-sample / location test family.** `stats.py` families are
-   `group_comparison` (lane-vs-lane, 2-group), `multi_group_comparison`,
-   `correlation`, `contingency`, `timeseries`, `descriptive`. None tests a group's
-   location against a constant. Missing cell in the §5 design grid; broadly useful
-   for any "is this Δ / ratio / enrichment ≠ baseline?" question.
-2. **No reference-line annotation.** `compiler.py` draws significance brackets,
-   `show_n`, and the correlation r/p note, but there is no configurable
-   horizontal/vertical line at a value (chance, control level, unity). The only
-   axhline/axvline is the histogram median. Generally useful.
+### O. Expose tick placement / mirroring as a first-class style knob
 
-Proposed implementation:
-- `stats.py`: a `location` (one-sample) family — per group, test the per-replicate
-  values (the inferential grain from the existing spine materialization) against a
-  reference (default 0); one-sample t (parametric) / Wilcoxon signed-rank (robust);
-  effect size = mean Δ (or Cohen's d_z) with CI; n = replicates. For N groups,
-  one test per group vs the reference (note the multiple-comparison count).
-- `statmodel.py` / `render.py` / `specnorm.py` / `guards.py`: declare + dispatch
-  the family. Trigger via an explicit `stats.family`/override plus a `reference`
-  value (on the encoding or stats block), since a categorical-x + numeric-y spec
-  currently infers `group_comparison`.
-- `compiler.py`: a reference-line annotation (value + optional label e.g.
-  "chance"), and per-group significance stars placed against that line instead of
-  lane-to-lane brackets.
-- Frontend (optional / later): Iris-app controls to choose the one-sample design
-  and set the reference value. Engine-first is enough to author the §3 `.iris` by
-  hand in the notebook; the GUI makes it discoverable.
+Context: 2026-06-22 a closed frame was made to carry ticks on BOTH sides (engine
+`compiler.py` `_rc`: the `xtick.top`/`ytick.right` rcParams now read `closed or …`,
+with labels staying on the primary side). That gives the publication-box look, but
+"ticks on both sides" is now an **implicit side-effect of `frame == "closed"`**,
+not an independently controllable option. The frontend StylePane is a generic
+renderer over `style_registry_payload()`, so it already exposes the existing tick
+knobs — `tick_direction` (out/in/inout), `x_tick_side` (bottom/top), `y_tick_side`
+(left/right), `tick_length` — but there is NO knob for mirroring, so you cannot
+express: a closed frame with one-sided ticks, or an open frame with mirrored
+ticks. The placement is coupled to the frame.
 
-Until shipped, the report keeps the matplotlib `clustering_figure` (per-position
-small dots + count-pooled per-replicate dots + chance line), which is fully
-reproducible from the notebook but not Iris-app editable.
+Gap: tick mirroring should be a discoverable, GUI-exposed, independent control.
+
+Proposed (recommended): extend the existing per-axis side enums rather than add a
+new knob — `x_tick_side: ["bottom", "top", "both"]`, `y_tick_side: ["left",
+"right", "both"]` (`style.py:99-100`). The `_rc` block (`compiler.py:53-89`) reads
+"both" to enable `xtick.bottom`+`xtick.top` (labels on the primary side only).
+Because StylePane renders the registry generically, the new "both" option appears
+in the GUI with no bespoke frontend code (same as item M's knob). Decide whether
+`frame == "closed"` should still DEFAULT to mirrored ticks (convention, current
+behaviour) or be fully decoupled so the side enums are the only control — leaning
+toward keeping the closed-frame default for the common case while letting the
+explicit side knob override it.
+
+Alternative: a separate `tick_mirror` bool ("Ticks on both sides", default off).
+Simpler conceptually but adds surface and duplicates what the side enums could
+carry; the enum-extension is preferred.
+
+Files: `engine/iris_engine/style.py` (enum values), `engine/iris_engine/compiler.py`
+(`_rc` reads them; decouple from / reconcile with `closed`). Tests: registry
+payload includes the new option; a render asserts mirrored vs one-sided ticks for
+each setting. No bespoke frontend change (generic StylePane).
