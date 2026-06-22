@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import galleryMd from "./gallery.md?raw";
 import { parseExampleToken, parseOpenToken } from "./tokens";
 
@@ -22,6 +23,7 @@ export function ExamplesGallery({
     <div className="gallery">
       <div className="gallery-prose">
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           urlTransform={(url) => url}
           components={{
             img(props) {
