@@ -10,6 +10,8 @@ import { LayerRail } from "./components/LayerRail";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
+import { ExamplesGallery } from "./examples/ExamplesGallery";
+import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
@@ -20,6 +22,10 @@ import {
   touchAnalysisAtom, viewModeAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
+
+const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
+  query: "?url", import: "default", eager: true,
+}) as Record<string, string>;
 
 function Section({ title, defaultOpen, children }:
   { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -264,6 +270,8 @@ export default function App() {
     description: "Iris document",
     accept: { "application/octet-stream": [".iris"] },
   }];
+  const exampleFilenames = new Set(
+    (exampleManifest as { filename: string }[]).map((e) => e.filename));
   /* Cancelling a file picker rejects with AbortError — that's a no-op, not a
      failure to surface. Anything else is a real save/load error for the bar. */
   const surfaceUnlessAbort = (e: unknown) => {
@@ -295,6 +303,13 @@ export default function App() {
       let fh = bound && bound.tableId === handle.id ? bound.fh : null;
       if (!fh)
         fh = await window.showSaveFilePicker({ suggestedName: "document.iris", types: IRIS_FILE_TYPES });
+      // Guard the shipped examples: writing over one makes the Examples gallery
+      // documentation no longer match the file it links to.
+      if (exampleFilenames.has(fh.name) &&
+          !window.confirm(`"${fh.name}" is an example file that ships with Iris. `
+            + `Overwriting it means the Examples documentation will no longer `
+            + `match this file. Save anyway?`))
+        return;
       await writeIris(fh);
       fileHandleRef.current = { fh, tableId: handle.id };
     } catch (e) { surfaceUnlessAbort(e); }
@@ -333,6 +348,26 @@ export default function App() {
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
+  /* Open a bundled example into the current session. Unlike doLoad there is no
+     OS file handle, and we explicitly clear any retained one, so the next Save
+     prompts for a location (Save As) — the shipped example is never overwritten
+     in place. */
+  const handleOpenExample = async (caseId: string) => {
+    try {
+      const url = EXAMPLE_IRIS[`./examples/assets/${caseId}.iris`];
+      if (!url) throw new Error(`example "${caseId}" is not bundled`);
+      const buf = await (await fetch(url)).arrayBuffer();
+      const doc = await engine.loadDocument(fileToBase64(buf));
+      loadDocument({
+        schema: doc.schema, rows: doc.rows,
+        analyses: doc.analyses.map(migrateSpec),
+        id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
+      });
+      fileHandleRef.current = null;                 // force Save -> Save As
+      setViewMode(doc.analyses.length ? "analyses" : "data");
+    } catch (e) { surfaceUnlessAbort(e); }
+  };
+
   if (engineUp === false) return (
     <div className="engine-down">
       <h1>Engine not reachable</h1>
@@ -355,6 +390,7 @@ export default function App() {
         <div className="mode-toggle">
           <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
           <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
+          <button className={viewMode === "examples" ? "active" : ""} onClick={() => setViewMode("examples")}>Examples</button>
         </div>
         <div className="controls">
           <ImportWizard />
@@ -375,7 +411,9 @@ export default function App() {
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
       <main>
-        {viewMode === "data" ? (
+        {viewMode === "examples" ? (
+          <div className="examples-mode"><ExamplesGallery onOpen={handleOpenExample} /></div>
+        ) : viewMode === "data" ? (
           <div className="data-mode"><HierarchyPanel /><DataTable /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">
