@@ -1,0 +1,223 @@
+[
+  {
+    "caseId": "iris-species-comparison",
+    "title": "Petal length: versicolor vs virginica (Fisher's iris)",
+    "source": "Fisher 1936; Welch's t recomputed with scipy.stats.ttest_ind (see NOTES)",
+    "irisFile": "iris-species-comparison.iris",
+    "filename": "iris-species-comparison.iris",
+    "plots": [
+      {
+        "analysisId": "iris-species-comparison-01",
+        "svgFile": "iris-species-comparison-01.svg",
+        "geom": "box"
+      },
+      {
+        "analysisId": "iris-species-comparison-02",
+        "svgFile": "iris-species-comparison-02.svg",
+        "geom": "violin"
+      },
+      {
+        "analysisId": "iris-species-comparison-03",
+        "svgFile": "iris-species-comparison-03.svg",
+        "geom": "bar"
+      },
+      {
+        "analysisId": "iris-species-comparison-04",
+        "svgFile": "iris-species-comparison-04.svg",
+        "geom": "summary"
+      },
+      {
+        "analysisId": "iris-species-comparison-05",
+        "svgFile": "iris-species-comparison-05.svg",
+        "geom": "dot"
+      }
+    ]
+  },
+  {
+    "caseId": "mann-whitney",
+    "title": "Two-group comparison \u2014 Mann\u2013Whitney U (synthetic)",
+    "source": "synthetic \u2014 known by construction; recomputed with scipy.stats.mannwhitneyu",
+    "irisFile": "mann-whitney.iris",
+    "filename": "mann-whitney.iris",
+    "plots": [
+      {
+        "analysisId": "mann-whitney-01",
+        "svgFile": "mann-whitney-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "sleep-paired-t",
+    "title": "Extra sleep by drug \u2014 paired t (Cushny\u2013Peebles 1905 / Student 1908)",
+    "source": "Cushny & Peebles 1905; Student (Gosset) 1908; R datasets::sleep. Paired t recomputed with scipy.stats.ttest_rel / pingouin.ttest (see NOTES)",
+    "irisFile": "sleep-paired-t.iris",
+    "filename": "sleep-paired-t.iris",
+    "plots": [
+      {
+        "analysisId": "sleep-paired-t-01",
+        "svgFile": "sleep-paired-t-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "sleep-wilcoxon",
+    "title": "Extra sleep by drug \u2014 Wilcoxon signed-rank (Cushny\u2013Peebles)",
+    "source": "Cushny & Peebles 1905; R datasets::sleep. Wilcoxon signed-rank recomputed with scipy.stats.wilcoxon / pingouin.wilcoxon (see NOTES)",
+    "irisFile": "sleep-wilcoxon.iris",
+    "filename": "sleep-wilcoxon.iris",
+    "plots": [
+      {
+        "analysisId": "sleep-wilcoxon-01",
+        "svgFile": "sleep-wilcoxon-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "iris-species-anova",
+    "title": "Petal length across species (Fisher's iris, one-way ANOVA)",
+    "source": "Fisher 1936; one-way ANOVA recomputed with scipy.stats.f_oneway (see NOTES)",
+    "irisFile": "iris-species-anova.iris",
+    "filename": "iris-species-anova.iris",
+    "plots": [
+      {
+        "analysisId": "iris-species-anova-01",
+        "svgFile": "iris-species-anova-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "kruskal",
+    "title": "Three-group comparison \u2014 Kruskal\u2013Wallis (synthetic)",
+    "source": "synthetic \u2014 known by construction; omnibus recomputed with scipy.stats.kruskal, pairwise with pingouin Mann\u2013Whitney + Holm",
+    "irisFile": "kruskal.iris",
+    "filename": "kruskal.iris",
+    "plots": [
+      {
+        "analysisId": "kruskal-01",
+        "svgFile": "kruskal-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "one-sample-location",
+    "title": "Contact enrichment vs chance (one-sample location)",
+    "source": "Synthetic log2 contact-enrichment values; one-sample t recomputed with scipy.stats.ttest_1samp (see NOTES)",
+    "irisFile": "one-sample-location.iris",
+    "filename": "one-sample-location.iris",
+    "plots": [
+      {
+        "analysisId": "one-sample-location-01",
+        "svgFile": "one-sample-location-01.svg",
+        "geom": "violin"
+      }
+    ]
+  },
+  {
+    "caseId": "one-sample-wilcoxon",
+    "title": "Measure vs reference (Wilcoxon signed-rank, small n)",
+    "source": "Synthetic; W/p recomputed with scipy.stats.wilcoxon (see NOTES)",
+    "irisFile": "one-sample-wilcoxon.iris",
+    "filename": "one-sample-wilcoxon.iris",
+    "plots": [
+      {
+        "analysisId": "one-sample-wilcoxon-01",
+        "svgFile": "one-sample-wilcoxon-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "iris-petal-correlation",
+    "title": "Petal length vs petal width (Fisher's iris)",
+    "source": "Fisher 1936; Pearson r recomputed with scipy.stats.pearsonr (see NOTES)",
+    "irisFile": "iris-petal-correlation.iris",
+    "filename": "iris-petal-correlation.iris",
+    "plots": [
+      {
+        "analysisId": "iris-petal-correlation-01",
+        "svgFile": "iris-petal-correlation-01.svg",
+        "geom": "scatter"
+      }
+    ]
+  },
+  {
+    "caseId": "iris-petal-spearman",
+    "title": "Petal length vs petal width \u2014 Spearman (Fisher's iris)",
+    "source": "Fisher 1936; Spearman \u03c1 recomputed with scipy.stats.spearmanr (see NOTES)",
+    "irisFile": "iris-petal-spearman.iris",
+    "filename": "iris-petal-spearman.iris",
+    "plots": [
+      {
+        "analysisId": "iris-petal-spearman-01",
+        "svgFile": "iris-petal-spearman-01.svg",
+        "geom": "scatter"
+      }
+    ]
+  },
+  {
+    "caseId": "contingency-2x2",
+    "title": "Aspirin vs myocardial infarction (Physicians' Health Study)",
+    "source": "Steering Committee of the Physicians' Health Study Research Group, NEJM 1988 (the textbook 2x2, Agresti, Categorical Data Analysis); chi-square recomputed with scipy.stats.chi2_contingency (see NOTES)",
+    "irisFile": "contingency-2x2.iris",
+    "filename": "contingency-2x2.iris",
+    "plots": [
+      {
+        "analysisId": "contingency-2x2-01",
+        "svgFile": "contingency-2x2-01.svg",
+        "geom": "tile"
+      }
+    ]
+  },
+  {
+    "caseId": "fisher-exact-tea",
+    "title": "The lady tasting tea \u2014 Fisher's exact test (Fisher 1935)",
+    "source": "Fisher, The Design of Experiments (1935); p recomputed with scipy.stats.fisher_exact (see NOTES)",
+    "irisFile": "fisher-exact-tea.iris",
+    "filename": "fisher-exact-tea.iris",
+    "plots": [
+      {
+        "analysisId": "fisher-exact-tea-01",
+        "svgFile": "fisher-exact-tea-01.svg",
+        "geom": "tile"
+      }
+    ]
+  },
+  {
+    "caseId": "iris-sepal-descriptive",
+    "title": "Sepal length distribution (Fisher's iris)",
+    "source": "Fisher 1936; summaries recomputed with numpy (see NOTES)",
+    "irisFile": "iris-sepal-descriptive.iris",
+    "filename": "iris-sepal-descriptive.iris",
+    "plots": [
+      {
+        "analysisId": "iris-sepal-descriptive-01",
+        "svgFile": "iris-sepal-descriptive-01.svg",
+        "geom": "distribution"
+      }
+    ]
+  },
+  {
+    "caseId": "timeseries-growth",
+    "title": "Orange tree growth over time",
+    "source": "Draper & Smith (1998), Applied Regression Analysis; R datasets::Orange",
+    "irisFile": "timeseries-growth.iris",
+    "filename": "timeseries-growth.iris",
+    "plots": [
+      {
+        "analysisId": "timeseries-growth-01",
+        "svgFile": "timeseries-growth-01.svg",
+        "geom": "line"
+      },
+      {
+        "analysisId": "timeseries-growth-02",
+        "svgFile": "timeseries-growth-02.svg",
+        "geom": "trend"
+      }
+    ]
+  }
+]
