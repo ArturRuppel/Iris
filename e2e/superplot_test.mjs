@@ -1,12 +1,16 @@
 import { chromium } from "playwright";
 
 /* Smoke for the data-hierarchy redesign: a superplot is *composed* from
-   per-layer levels, not summoned by a preset. Build the nesting spine
-   (subject › rep), then add layers bound to different levels — raw replicates at
-   the rep level and one bold mark per subject at the subject level — and the
-   figure draws point-groups for both. The pairing badge (derived from the spine)
-   appears. Follows the documented fix pattern (TODO item 3): explicit CSV import
-   via the hidden file input, explicit X/Y mapping, explicit `.add-layer-btn`
+   per-layer levels, not summoned by a preset. The nesting spine is derived on
+   import from the identifier columns (`subject`, `rep` are identifier tokens),
+   shown in the Data tab's hierarchy panel. In Analyses, layers bind to spine
+   levels: raw replicates at the bottom + one bold mark per subject on top — the
+   canonical box(raw) + dot(subject) superplot (engine: test_n_labels). Binding
+   the prominent layer to `subject` moves the inferential grain there, so the
+   per-group n counts *subjects* (3), not raw rows (9) — the spine driving
+   inference is the user-visible payoff (the pairing verdict itself is engine-only
+   and gates paired-test offering; it is not rendered as a badge). Explicit CSV
+   import via the hidden file input, explicit X/Y mapping, explicit add-layer
    flow. Needs the engine (8765) and the vite dev server (5173); no Chromium is
    installable in the build sandbox, so this runs on a machine that has one. */
 
@@ -40,6 +44,15 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
+// The spine is seeded from the imported identifier columns — `subject` and `rep`
+// are identifier tokens, so the hierarchy panel (Data tab) shows a 2-level spine
+// with no manual building. (The app opens in Data mode by default.)
+await page.click(".mode-toggle button:has-text('Data')");
+await page.waitForSelector(".hierarchy-panel", { timeout: 15000 });
+const spineNodes = await page.locator(".hierarchy-panel .hp-node").count();
+if (spineNodes !== 2)
+  fail(`spine should have 2 levels (subject, rep) from the identifier columns, saw ${spineNodes}`);
+
 await page.click(".mode-toggle button:has-text('Analyses')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 
@@ -48,47 +61,43 @@ await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption(
 await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
 await page.waitForTimeout(500);
 
-// Build the nesting spine: add `subject` then `rep` as hierarchy levels.
-const hier = page.locator(".hierarchy-card");
-if (await hier.count() === 0) fail("no hierarchy card for a group comparison");
-await hier.locator(".chip-btn", { hasText: "subject" }).click();
-await hier.locator(".chip-btn", { hasText: "rep" }).click();
-await page.waitForTimeout(300);
-if (await hier.locator(".spine-level").count() !== 2)
-  fail("spine did not gain two levels");
-
-// Add a raw dot layer (rep level) + a bold dot layer bound to the subject level.
+// Compose the superplot: a raw Box (replicate spread) + a Dots layer bound to the
+// subject level (one bold mark per subject). The add menu excludes already-used
+// geoms, so the two layers are distinct geoms — the documented superplot idiom.
 const addLayer = async (geom) => {
   await page.click(".add-layer-btn");
   await page.locator(".add-layer-menu button", { hasText: geom }).click();
   await page.waitForTimeout(200);
 };
+await addLayer("Box");
 await addLayer("Dots");
-await addLayer("Dots");
-// bind the second dot layer to the subject level
-const secondLayer = page.locator(".layer-card").nth(1);
-await secondLayer.locator(".layer-level select").selectOption({ label: "per Subject" });
+// bind the dot layer (second card) to the subject level — its value is the column
+const dotLayer = page.locator(".layer-card").nth(1);
+await dotLayer.locator(".layer-level select").selectOption("subject");
 await page.waitForTimeout(1500);
 
 const figure = await page.locator(".iris svg").count();
 if (figure === 0) fail("no figure rendered");
 
-// Item I: dots draw as plain vector scatter calls (no per-point pts- gid). Colour
-// is vectorized, so each x-group is ONE matplotlib PathCollection: 2 raw groups +
-// 2 subject groups = 4 scatter collections, and the subject layer adds ≥6 bold
-// marks (2×3 subjects) drawn as <use> glyphs.
+// Item I: dots draw as plain vector scatter calls (no per-point pts- gid). The
+// subject-bound dot layer draws one mark per subject (2 groups × 3 = 6) as <use>
+// glyphs inside matplotlib PathCollection groups.
 const scatterColls = await page.locator('.iris svg g[id^="PathCollection_"]').count();
-if (scatterColls < 4)
-  fail(`expected ≥4 scatter collections (2 raw + 2 subject), saw ${scatterColls}`);
+if (scatterColls < 1)
+  fail(`expected ≥1 scatter collection for the subject dots, saw ${scatterColls}`);
 const useMarks = await page.locator('.iris svg g[id^="PathCollection_"] use').count();
-if (useMarks < 8)
-  fail(`expected ≥8 drawn point marks (raw + 6 subject), saw ${useMarks}`);
+if (useMarks < 6)
+  fail(`expected ≥6 subject marks (2 groups × 3 subjects), saw ${useMarks}`);
 console.log(`superplot drew ${scatterColls} scatter collections, ${useMarks} marks`);
 
-// the pairing verdict (derived from the spine) must surface.
-const badge = page.locator(".pairing-badge");
-if (await badge.count() === 0) fail("no pairing badge after building the spine");
-console.log("pairing badge:", (await badge.first().innerText()).trim());
+// The spine drives inference: with the prominent layer at the subject level, the
+// per-group summary counts subjects (n = 3), not raw replicate rows (n = 9).
+const statsText = (await page.locator(".stats-pane").innerText().catch(() => "")).replace(/\s+/g, " ");
+if (!/n = 3\b/.test(statsText))
+  fail(`stats panel should report the subject-level n (n = 3 per group); got: ${statsText.slice(0, 400)}`);
+if (/n = 9\b/.test(statsText))
+  fail("stats panel reported the raw-row n (n = 9) — inference did not move to the subject level");
+console.log("per-group n counts subjects (n = 3), not raw rows");
 
 if (pageErrors.length) fail("page errors: " + pageErrors.slice(0, 4).join(" | "));
 

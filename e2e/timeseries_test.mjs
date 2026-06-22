@@ -8,6 +8,8 @@ import { chromium } from "playwright";
    through the UI — see tile_test.mjs). Follows the post-111243b pattern
    (explicit import / mapping / add-layer). The geoms are offered on
    numeric/numeric like scatter (registry-driven, no offer-logic change).
+   `frame` is an identifier token, so the test retypes it numeric in the import
+   wizard before mapping it to X (the real time-on-X workflow).
    Needs the engine (8765) and the vite dev server (5173). */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
@@ -34,6 +36,18 @@ await page.setInputFiles("input[type=file]", {
   name: "timeseries_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
 await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
+
+// `frame` is in the importer's identifier tokens, so it imports as an
+// `identifier` and is excluded from axes by design. Time-on-X is the whole point
+// of the time-series geoms, so retype it numeric in the wizard first — the real
+// workflow a user follows for a frame/time column they want on an axis.
+const frameCol = page.locator(".wizard-col", {
+  has: page.locator("strong", { hasText: /^frame$/i }),
+});
+if (await frameCol.count() === 0) fail("no `frame` column in the import wizard");
+await frameCol.locator("select").selectOption("numeric");
+// the retype re-previews; wait for the commit button to re-enable, then import
+await page.waitForSelector(".modal-foot button.primary:not([disabled])", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 

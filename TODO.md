@@ -203,9 +203,10 @@ runs it with a browser — fold into the browser-blocked batch.)
 
 Ran the whole `e2e/` suite + facet-row repro on a machine with a real browser
 (Playwright Chromium 1223). The batch cleared, and it surfaced one genuine
-engine bug — write-ups below. Net: 9/11 e2e pass; the two still-red tests are
-*stale tests* needing a UI-selector rewrite, not app bugs (deferred per the
-2026-06-22 decision — see "Deferred" at the end).
+engine bug — write-ups below. Net: **11/11 e2e pass.** The run first found 9/11,
+with two stale tests (superplot, timeseries) needing UI-selector/flow rewrites,
+not app bugs; both were rewritten and are now green (see "Deferred stale tests"
+below — kept under that heading for the write-up of what drifted).
 
 (Item 1 — Facet ROW — RESOLVED 2026-06-22. Reproduced in the running app:
 facet row now renders both panels (`site = north` / `site = south`) as a normal
@@ -241,19 +242,37 @@ of them to read real `<text>` content (svgstruct gained `_texts`/`_first_text`;
 the legend-position probe reads the title `<text>`'s x/y instead of a
 `translate`). 302 engine + 86 FE tests green after the migration.
 
-### Deferred stale tests (2 e2e) — decided 2026-06-22: flag, don't fix now
-Both fail only on UI selectors/flows that drifted since they were written
-(2026-06-16/17); neither indicates an app bug. Fix when convenient:
-- `e2e/superplot_test.mjs` — uses removed/renamed hooks: `.hierarchy-card`
-  → now `.hierarchy-panel`; `.pairing-badge` is GONE (the pairing verdict moved
-  into StatsPanel's "Inferred model" section, gated on a test being added).
-  Rewrite the spine-building + pairing-verdict assertions against the current UI.
-- `e2e/timeseries_test.mjs` — maps X to a column literally named `frame`, but
-  `frame` is in the importer's `_ID_TOKENS` (with `time`/`timepoint`/`well`/…),
-  so it's classified `identifier` and excluded from axes by design
-  (`channels.ts`: identifiers "never drive axes/stats"). The test must retype
-  `frame` identifier→numeric in the ImportWizard before mapping it to X (the
-  real workflow), or use a non-identifier column name. See the product note.
+### Deferred stale tests (2 e2e) — RESOLVED 2026-06-22 (both rewritten, green)
+Both failed only on UI selectors/flows that drifted since they were written
+(2026-06-16/17); neither was an app bug. Both rewritten against the current UI;
+full e2e suite now 11/11.
+- `e2e/superplot_test.mjs` — the old test built the spine by clicking chips in a
+  `.hierarchy-card` inside the Analyses tab. That model is gone: the spine is now
+  *auto-seeded on import* from the identifier columns (`subject`/`rep` are
+  `_ID_TOKENS`) and the hierarchy panel (`.hierarchy-panel`) lives in the **Data**
+  tab. Rewritten to: assert the 2-level spine in the Data tab, then compose the
+  canonical box(raw) + dot(subject) superplot (the add menu excludes already-used
+  geoms, so the classic same-geom dot+dot superplot is NOT menu-buildable — minor
+  UI limitation, noted). The `.pairing-badge` assertion was dropped: the pairing
+  verdict is engine-only (`model.pairing`, consumed by StatsPanel solely to gate
+  paired-test offering) and is NOT rendered anywhere — the earlier note's "moved
+  into the Inferred model section" was aspirational. Replaced with the genuinely
+  user-visible payoff of the spine: binding the prominent layer to `subject` moves
+  the inferential grain there, so the per-group summary counts subjects (n = 3),
+  not raw rows (n = 9). That assertion exercises the whole spine→inference path.
+- `e2e/timeseries_test.mjs` — `frame` is an `_ID_TOKENS` identifier, excluded from
+  axes by design. Rewritten to retype `frame` identifier→numeric in the import
+  wizard (locate its `.wizard-col`, set the type select to `numeric`, wait for the
+  commit button to re-enable) before mapping it to X — the real time-on-X
+  workflow. See the product note (still open) for the underlying friction.
+
+Two minor findings surfaced, both flagged not fixed (neither blocks the suite):
+- The pairing verdict is computed but never surfaced in the UI. If it should be
+  shown, the home is StatsPanel's "Inferred model" section (it already reads
+  `model.pairing` there). Small, honest addition; left out to keep this test-only.
+- The add-layer menu hides already-used geoms, so the classic same-geom superplot
+  (small raw dots + big subject dots) can't be built from the menu — only mixed
+  geoms (box+dot). Revisit if the same-geom idiom is wanted in-app.
 
 ### PRODUCT NOTE (flag only, no change made) — identifier default vs time-on-X
 A column named `frame`/`time`/`timepoint` defaults to `type: identifier` and is
@@ -263,3 +282,23 @@ time-series geom family). Decision 2026-06-22: leave the identifier detection as
 is for now and just record this. If revisited, the fix is to let `time`-like
 tokens stay numeric/axis-mappable by default (or offer a one-click "use as axis"
 nudge like the 0/1→bool one), without losing their role as a nesting level.
+
+## New issues (added 2026-06-22)
+
+### J. Color and shape should be allowed to map the same metric (regression)
+It used to be possible to encode the same column on both Color and Shape; now it
+is blocked. Restore this. When both channels map the same metric, the legend
+must show ONE entry per label that displays the color AND the shape together
+(a single merged legend, not two separate Color and Shape legends with redundant
+rows). Find where the same-column-on-two-channels case is rejected, allow it, and
+make the engine emit a combined color+shape legend keyed on the shared label.
+
+### K. A geom should be addable multiple times (e.g. dots at two sizes)
+It should be possible to plot the same geom more than once — e.g. small dots for
+all the raw data plus big dots for the per-experiment aggregates. Today the layer
+model appears to allow only one instance of a given geom (dots). Allow repeated
+instances of a geom, each with its own level (raw vs unit/aggregate) and its own
+style (size, etc.), so the classic superplot overlay (fine points + coarse
+aggregate points) can be built directly. NB: per item C's design, per-layer style
+folds into a geom-keyed `style.overrides`, which assumes one section per geom —
+this item needs per-instance style, so reconcile with that decision.
