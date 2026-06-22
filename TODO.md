@@ -163,14 +163,30 @@ shows only `n=`, superplot shows `n = 6  N = 2`). 294 engine + 65 FE green.
 NB: this is the figure annotation; the StatsPanel's own n (test/unit n) is
 separate and untouched.)
 
-### H. Pan / zoom / home interaction in the figure pane (investigate first)
-It would be nice to pan and zoom within a plot and reset with a "home" button,
-like Plotly. INVESTIGATE COMPLEXITY FIRST before committing: the engine renders
-static SVG via matplotlib, so this is not free — options to weigh are (a) a
-client-side pan/zoom of the SVG viewBox (cheap, but axes ticks/labels won't
-re-flow), (b) re-rendering on the engine per view change (accurate, but a round
-trip per gesture), or (c) swapping the figure pane to an interactive renderer.
-Scope the trade-offs before building.
+(Item H — Pan / zoom / home — shipped 2026-06-22. Investigated first, then the
+USER reframed the scope decisively: this is NOT a data-domain zoom (re-scoping
+axes) but a pure VIEWING magnify — "like you would zoom a PDF to look at the data
+more closely." That reframe collapsed the (a)/(b)/(c) trade-off: it's option (a),
+client-side only, and the usual (a) objection (ticks/labels don't re-flow) is the
+*correct* PDF behaviour here, not a defect. So the whole engine side dropped out —
+no re-render, no `/analyze` round trip, no axis-limit overrides, nothing persisted
+to `.iris`, no effect on exports. Frontend-only in `FigurePane.tsx`: a transient
+`view = {z, x, y}` (scale ≥1 — a magnifier can't zoom out past fit — plus pan in
+host px) applied as a CSS `transform: translate() scale()` (origin top-left) on the
+already-injected SVG; `.figure-host` gained `overflow:hidden` to clip the scaled
+overflow (safe — at z=1 the host is the SVG's natural size, so tall figures still
+grow the host and scroll the outer `.iris` pane as before). UX (user's call): a
+pane-head zoom toolbar (mode toggle ⤧ + −/%/+ + Fit ⤢); in zoom mode plain wheel
+zooms toward the cursor and drag pans, Ctrl/⌘-wheel zooms in ANY mode, buttons
+anchor on the host centre. Editing (label drag + canvas/plot-area grips) is
+suspended while z !== 1 — grips are hidden and the label `pointerdown` bails (no
+`stopPropagation`, so the drag bubbles to the pane's pan handler instead). The
+label-offset ratio maths is self-correcting under the transform (it reads the live
+`getBoundingClientRect`), so editing at z=1 is untouched. BROWSER-VERIFIED
+(Chromium 1223): new `e2e/zoom_test.mjs` drives the real toolbar +, Fit,
+Ctrl-scroll, plain-wheel zoom and drag-pan, and asserts the grips hide while
+zoomed; `drag_test`/`resize_test` confirm editing didn't regress. 86 FE +
+**13/13 e2e** green, typecheck + build clean.)
 
 (Item I — shipped 2026-06-17. Click-to-exclude AND click-to-select were removed
 from the figure; exclusion stays via the DataTable `excluded` checkbox (the
@@ -399,3 +415,65 @@ resolution + a two-dot-layer render asserting both marker sizes draw; 307 engine
 86 FE green, typecheck + build clean. NOT browser-verified here (no Chromium): the
 StylePane per-instance fieldsets and the repeated-geom add-menu UX fold into the
 browser-blocked batch.)
+
+### N. One-sample (vs-reference) test family + reference-line annotation (spec'd 2026-06-22)
+
+Full design → `docs/superpowers/specs/2026-06-22-one-sample-location-test-and-reference-line-design.md`
+(result/spec shapes, the `statmodel`/`render`/`compiler` wiring, the reference-line
+annotation, testing, and the consumer change). Summary below.
+
+Motivation: the COV2D NLS-subpopulation report's "do same-label cells cluster?"
+analysis asks, per contact type (VimKO–VimKO, VimKO–NLS, NLS–NLS), whether the
+log₂(observed/expected) contact enrichment differs from **chance** — i.e. each
+group vs a constant, with a chance reference line at 0. Iris can't express this
+today, so that figure is currently hand-built in matplotlib in the report
+notebook (`reports/2026-06-21_COV2D-NLS-subpopulation/report.ipynb`,
+`clustering_figure`) instead of being an editable `.iris`. Extending Iris makes it
+a normal SuperPlot-style `.iris` and lands two generally-useful capabilities.
+
+Why one-sample is the *correct* design here (not a workaround for a missing
+two-group test): the three contact fractions sum to 1, so homotypic and
+heterotypic enrichment are not independent — if same-label is enriched, opposite
+-label is mechanically depleted. A "homotypic vs heterotypic" `group_comparison`
+(which fits Iris today) is therefore partly tautological. The honest test is each
+contact type against its **own** permutation/analytic null = one-sample vs chance.
+
+What ALREADY fits (no change needed): categorical x (the 3 contact types), numeric
+y (log₂ enrichment), `dot`/`violin` geoms, and the spine/level hierarchy that
+draws the big per-replicate dots (spine `experiment_id→position_id`, dots bound at
+`experiment_id`) — the same SuperPlot machinery §1–§2 use. The per-position
+enrichment *value* is a domain reduction the notebook precomputes into a tidy
+column (like `per_cell_values`); Iris consumes the tidy table, it does not compute
+enrichment.
+
+The two gaps (verified against the code 2026-06-22):
+1. **No one-sample / location test family.** `stats.py` families are
+   `group_comparison` (lane-vs-lane, 2-group), `multi_group_comparison`,
+   `correlation`, `contingency`, `timeseries`, `descriptive`. None tests a group's
+   location against a constant. Missing cell in the §5 design grid; broadly useful
+   for any "is this Δ / ratio / enrichment ≠ baseline?" question.
+2. **No reference-line annotation.** `compiler.py` draws significance brackets,
+   `show_n`, and the correlation r/p note, but there is no configurable
+   horizontal/vertical line at a value (chance, control level, unity). The only
+   axhline/axvline is the histogram median. Generally useful.
+
+Proposed implementation:
+- `stats.py`: a `location` (one-sample) family — per group, test the per-replicate
+  values (the inferential grain from the existing spine materialization) against a
+  reference (default 0); one-sample t (parametric) / Wilcoxon signed-rank (robust);
+  effect size = mean Δ (or Cohen's d_z) with CI; n = replicates. For N groups,
+  one test per group vs the reference (note the multiple-comparison count).
+- `statmodel.py` / `render.py` / `specnorm.py` / `guards.py`: declare + dispatch
+  the family. Trigger via an explicit `stats.family`/override plus a `reference`
+  value (on the encoding or stats block), since a categorical-x + numeric-y spec
+  currently infers `group_comparison`.
+- `compiler.py`: a reference-line annotation (value + optional label e.g.
+  "chance"), and per-group significance stars placed against that line instead of
+  lane-to-lane brackets.
+- Frontend (optional / later): Iris-app controls to choose the one-sample design
+  and set the reference value. Engine-first is enough to author the §3 `.iris` by
+  hand in the notebook; the GUI makes it discoverable.
+
+Until shipped, the report keeps the matplotlib `clustering_figure` (per-position
+small dots + count-pooled per-replicate dots + chance line), which is fully
+reproducible from the notebook but not Iris-app editable.

@@ -47,6 +47,19 @@ export function FigurePane() {
   const [plotRect, setPlotRect] =
     useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
+  /* View-only zoom (item H): a PDF-style magnify of the already-rendered SVG —
+     a pure presentation transform, never sent to the engine, never saved/exported.
+     `z` = scale (≥1, can't zoom out past fit), `x`/`y` = pan offset in host px.
+     `zoomMode` toggles the wheel/drag gestures (see the toolbar): when on, plain
+     wheel zooms and drag pans; when off, only Ctrl/Cmd-wheel zooms and drag edits
+     labels as before. Editing (label drag + grips) is suspended while z !== 1. */
+  const [view, setView] = useState({ z: 1, x: 0, y: 0 });
+  const [zoomMode, setZoomMode] = useState(false);
+  const viewRef = useRef(view); viewRef.current = view;
+  const zoomModeRef = useRef(zoomMode); zoomModeRef.current = zoomMode;
+  const HOST_PAD = 8; /* .figure-host padding, so cursor maths is in svg-local px */
+  const clampZ = (z: number) => Math.max(1, Math.min(8, z));
+
   /* keep the resize handle glued to the SVG's bottom-right corner */
   const placeHandle = () => {
     const el = host.current, h = handle.current;
@@ -121,6 +134,9 @@ export function FigurePane() {
       g.insertBefore(hit, g.firstChild);
       g.style.cursor = "move";
       g.addEventListener("pointerdown", (e0) => {
+        /* zoomed in for viewing: don't edit, let the drag bubble to the pane's
+           pan handler instead (no stopPropagation/preventDefault here) */
+        if (viewRef.current.z !== 1) return;
         e0.preventDefault();
         const s = scale();
         let dx = 0, dy = 0;
@@ -144,6 +160,70 @@ export function FigurePane() {
     }
     return () => ro.disconnect();
   }, [analysis]);
+
+  /* apply the view-only zoom transform to the rendered SVG (top-left origin so
+     the pan/zoom-to-cursor maths is in plain host px). Runs after the injection
+     effect re-creates the SVG, and on every pan/zoom change. The grips track the
+     transform via getBoundingClientRect, so reposition them too. */
+  useEffect(() => {
+    const svg = host.current?.querySelector("svg") as SVGSVGElement | null;
+    if (!svg) return;
+    svg.style.transformOrigin = "0 0";
+    svg.style.transform = `translate(${view.x}px, ${view.y}px) scale(${view.z})`;
+    placeHandle();
+    placePlotHandles();
+  }, [view, analysis]);
+
+  /* wheel zoom (toward the cursor). Non-passive so we can preventDefault the
+     browser/page zoom-scroll. Plain wheel zooms only in zoom mode; Ctrl/Cmd-wheel
+     zooms in any mode (the universal gesture). */
+  useEffect(() => {
+    const el = host.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!zoomModeRef.current && !e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      const cx = e.clientX - r.left - HOST_PAD, cy = e.clientY - r.top - HOST_PAD;
+      setView((v) => {
+        const z = clampZ(v.z * Math.exp(-e.deltaY * 0.0015));
+        const k = z / v.z;
+        return { z, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k };
+      });
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
+  /* zoom from the toolbar buttons: anchored on the host centre */
+  const zoomBy = (factor: number) => {
+    const el = host.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const cx = r.width / 2 - HOST_PAD, cy = r.height / 2 - HOST_PAD;
+    setView((v) => {
+      const z = clampZ(v.z * factor);
+      const k = z / v.z;
+      return { z, x: cx - (cx - v.x) * k, y: cy - (cy - v.y) * k };
+    });
+  };
+  const resetView = () => setView({ z: 1, x: 0, y: 0 });
+
+  /* drag to pan once zoomed in. Label/grip drags bubble here (they bail when
+     z !== 1), so a drag anywhere in the figure pans. */
+  const onPanStart = (e0: ReactPointerEvent) => {
+    if (viewRef.current.z <= 1) return;
+    e0.preventDefault();
+    const v0 = viewRef.current, sx = e0.clientX, sy = e0.clientY;
+    const move = (e: PointerEvent) =>
+      setView((v) => ({ ...v, x: v0.x + (e.clientX - sx), y: v0.y + (e.clientY - sy) }));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   /* corner handle: drag → live preview in px, commit in mm on release */
   const onResizeStart = (e0: ReactPointerEvent) => {
@@ -246,18 +326,35 @@ export function FigurePane() {
       <div className="pane-head">
         <h2>Figure</h2>
         {analysis && (
-          <span className="provenance">
-            {resizing ?? (dims && `${dims.w} × ${dims.h} mm`)}
-          </span>
+          <div className="figure-head-right">
+            <div className="figure-tools" role="toolbar" aria-label="Zoom">
+              <button type="button" className={zoomMode ? "on" : ""}
+                aria-pressed={zoomMode} onClick={() => setZoomMode((m) => !m)}
+                title="Zoom mode — drag to pan, scroll to zoom (Ctrl/⌘-scroll works anytime)">⤧</button>
+              <button type="button" onClick={() => zoomBy(1 / 1.25)}
+                disabled={view.z <= 1} title="Zoom out">−</button>
+              <span className="zoom-pct" title="Current zoom (view only)">{Math.round(view.z * 100)}%</span>
+              <button type="button" onClick={() => zoomBy(1.25)}
+                disabled={view.z >= 8} title="Zoom in">+</button>
+              <button type="button" onClick={resetView}
+                disabled={view.z === 1 && view.x === 0 && view.y === 0}
+                title="Fit — reset zoom">⤢</button>
+            </div>
+            <span className="provenance">
+              {resizing ?? (dims && `${dims.w} × ${dims.h} mm`)}
+            </span>
+          </div>
         )}
       </div>
       <div className="figure-frame">
-        <div ref={host} className="figure-host" />
-        {analysis && (
+        <div ref={host}
+          className={`figure-host${zoomMode && view.z > 1 ? " pannable" : ""}`}
+          onPointerDown={onPanStart} />
+        {analysis && view.z === 1 && (
           <div ref={handle} className="resize-handle" title="drag to resize the canvas (mm)"
             onPointerDown={onResizeStart} />
         )}
-        {analysis && plotRect && (
+        {analysis && plotRect && view.z === 1 && (
           <>
             <div className="plot-move" title="drag to move the plot area"
               style={{ left: plotRect.left - 7, top: plotRect.top - 7 }}
@@ -285,7 +382,8 @@ export function FigurePane() {
       <p className="hint">
         Drag labels or the legend to reposition. Drag the canvas corner to resize
         the figure, or the plot-area corners to move/resize the axes within it —
-        exports match.
+        exports match. Use the zoom toolbar (or Ctrl/⌘-scroll) to magnify for a
+        closer look — view only, it doesn't change the figure or exports.
       </p>
       <StylePane />
     </section>

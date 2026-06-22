@@ -78,7 +78,25 @@ td select { border: none; background: transparent; padding: 0; }
 .dim { color: var(--faint); }
 
 .figure-frame { position: relative; }
-.figure-host { padding: 8px; }
+/* overflow:hidden clips only the transform-scaled overflow when zoomed (item H);
+   at zoom 1 the host is the SVG's natural size, so tall figures still grow the
+   host and scroll the outer pane as before. */
+.figure-host { padding: 8px; overflow: hidden; }
+.figure-host.pannable { cursor: grab; }
+.figure-host.pannable:active { cursor: grabbing; }
+
+/* view-only zoom toolbar in the figure pane head */
+.figure-head-right { display: flex; align-items: center; gap: 10px; }
+.figure-tools { display: flex; align-items: center; gap: 2px; }
+.figure-tools button { font-size: 12px; line-height: 1; width: 22px; height: 22px;
+  padding: 0; border: 1px solid var(--line); background: var(--panel);
+  color: var(--dim); border-radius: 5px; cursor: pointer; }
+.figure-tools button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.figure-tools button.on { border-color: var(--accent); color: var(--accent);
+  background: #ecfeff; }
+.figure-tools button:disabled { opacity: 0.4; cursor: default; }
+.zoom-pct { font-size: 11px; color: var(--faint); font-family: var(--mono);
+  min-width: 34px; text-align: center; }
 .resize-handle { position: absolute; width: 14px; height: 14px;
   cursor: nwse-resize; border-right: 2px solid var(--accent);
   border-bottom: 2px solid var(--accent); border-radius: 0 0 3px 0;
