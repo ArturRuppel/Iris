@@ -600,8 +600,8 @@ export const engine = {
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
   analyze: (t: TableRef, spec: AnalysisSpec) =>
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
-  reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string) =>
-    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level }),
+  reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number) =>
+    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step }),
   hierarchy: (t: TableRef, spine: string[], classifiers: string[]) =>
     post<HierarchyInfo>("/hierarchy", { ...tableField(t), spine, classifiers }),
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
