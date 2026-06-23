@@ -9,11 +9,19 @@ down to and including L and aggregates everything finer (numeric measures by the
 level's ``fn``, default mean). "Average away frames" is just *pick level
 ``cell_id``* — no complement to declare.
 
-`materialize_levels` produces one table per level **once**, each carrying a
-``row_ids`` column — the provenance list of raw row ids each coarse unit
-aggregates. Because every grain is a *prefix* of the spine, each level can be
-computed directly from the (reduced) raw frame — the prefixes nest, so the id
-lists chain implicitly.
+Collapsing is **sequential (nested)**, not a single pool of raw leaves: each
+level is built by aggregating the table of the *immediately finer* level, which
+was itself built from the level below. So a coarse value is a summary *of
+summaries* — ``median`` at every level means median-of-medians, with each child
+weighted equally regardless of how many leaves it holds. This is the
+pseudoreplication-correct reduction (the nested-means a mixed model with random
+intercepts for each spine level computes implicitly); pooling raw leaves at the
+coarsest grain would instead weight a unit by its descendant count, which an
+unbalanced design (uneven cells/field, fields/experiment) silently distorts.
+
+`materialize_levels` produces one table per level **once**, finest → coarsest,
+each carrying a ``row_ids`` column — the provenance list of raw row ids each
+coarse unit aggregates (unioned up the chain, so it still resolves to raw).
 
 Pure pandas — no matplotlib, no FastAPI.
 """
@@ -34,30 +42,39 @@ def spine_present(df: pd.DataFrame, spine: list[str]) -> list[str]:
     return [s for s in (spine or []) if s in df.columns]
 
 
-def _level_table(df: pd.DataFrame, schema: dict, grain: list[str],
+def _concat_ids(lists) -> list:
+    """Flatten a group's ``row_ids`` (a column of lists) into one list — the raw
+    ids the coarse unit aggregates, chained up from the finer level."""
+    return [i for sub in lists for i in sub]
+
+
+def _level_table(src: pd.DataFrame, schema: dict, grain: list[str],
                  agg_fn: str) -> tuple[pd.DataFrame, dict]:
-    """One grain's table: group `df` by `grain`, aggregate finer numeric measures
-    by `agg_fn`, carry categorical/identifier columns that stay single-valued
-    within the grain (drop the rest — you can't average a category), and collect
-    each group's raw ids into `row_ids`."""
+    """One grain's table, built from the *immediately finer* source table `src`
+    (which already carries one row per finer unit plus a ``row_ids`` provenance
+    column). Group `src` by `grain`, aggregate its numeric measures by `agg_fn`
+    (so coarsening a level that was itself aggregated gives a nested summary —
+    e.g. median-of-medians), carry categorical/identifier columns that stay
+    single-valued within the grain (drop the rest — you can't average a
+    category), and union each group's `row_ids` so provenance still resolves to
+    raw."""
     cols = {c["name"]: c for c in schema["columns"]}
     measures = [c["name"] for c in schema["columns"]
-                if c["type"] == "numeric" and c["name"] in df and c["name"] not in grain]
+                if c["type"] == "numeric" and c["name"] in src and c["name"] not in grain]
     others = [c["name"] for c in schema["columns"]
               if c["type"] in ("categorical", "identifier")
-              and c["name"] in df and c["name"] not in grain]
+              and c["name"] in src and c["name"] not in grain]
 
-    g = df.groupby(grain, observed=True, sort=False)
+    g = src.groupby(grain, observed=True, sort=False)
     # a qualifier "carries" iff it is single-valued within every grain group;
     # otherwise it is multi-valued at this grain and is dropped.
     carried = [c for c in others if int(g[c].nunique(dropna=False).max() or 0) <= 1]
 
     agg: dict[str, object] = {m: _AGG.get(agg_fn, "mean") for m in measures}
-    agg["id"] = list
+    agg["row_ids"] = _concat_ids
     for c in carried:
         agg[c] = "first"
     out = g.agg(agg).reset_index()
-    out = out.rename(columns={"id": "row_ids"})
     out.insert(0, "id", [f"{'_'.join(grain)}#{i + 1}" for i in range(len(out))])
 
     new_cols = ([cols[c] for c in grain] + [cols[c] for c in carried]
@@ -75,6 +92,11 @@ def materialize_levels(
     the grain so a coarse level can still be split horizontally — without them a
     coarse table would have averaged the comparison away.
 
+    Tables are built **finest → coarsest**: each level aggregates the table of
+    the next-finer level (the finest aggregates RAW), so collapsing is sequential
+    — a coarse value summarizes the finer summaries (median-of-medians, each
+    child equally weighted), not a pool of raw leaves.
+
     Returns (levels, present_spine)."""
     fn = fn or {}
     split = [c for c in (split_cols or []) if c in df.columns]
@@ -84,13 +106,15 @@ def materialize_levels(
     raw["row_ids"] = [[i] for i in raw["id"].tolist()]
     levels: dict[str, tuple[pd.DataFrame, dict]] = {RAW: (raw, schema)}
 
-    for i, lv in enumerate(present):
-        prefix = present[: i + 1]
+    src, src_schema = raw, schema
+    for i in range(len(present) - 1, -1, -1):   # finest → coarsest, nesting upward
         # dict.fromkeys dedupes split against the prefix *and* against itself, so a
         # column used for several encodings can't land in the grain twice (which
         # would make reset_index fail to re-insert a duplicated index level).
-        grain = list(dict.fromkeys(prefix + split))
-        levels[lv] = _level_table(df, schema, grain, fn.get(lv, "mean"))
+        grain = list(dict.fromkeys(present[: i + 1] + split))
+        tbl = _level_table(src, src_schema, grain, fn.get(present[i], "mean"))
+        levels[present[i]] = tbl
+        src, src_schema = tbl   # the next (coarser) level nests on this one
     return levels, present
 
 

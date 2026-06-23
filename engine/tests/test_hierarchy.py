@@ -99,6 +99,55 @@ def test_mean_aggregation():
     assert s1 == df[df["subject"] == "s1"]["y"].mean()
 
 
+def _unbalanced_three_level_df():
+    """A 3-level spine (field ⊃ cell ⊃ frame) with *unbalanced* fan-out: one cell
+    has a long track of small values, the rest one big value each. Pooling raw
+    leaves and nesting sequentially then give different coarse summaries, so this
+    pins which one materialize_levels does."""
+    rows, rid = [], 0
+    data = [("f1", "A", [1, 1, 1, 1, 1]), ("f1", "B", [100]),
+            ("f2", "C", [100]), ("f2", "D", [100])]
+    for fov, cell, vals in data:
+        for fr, v in enumerate(vals):
+            rows.append({"id": f"r{rid}", "fov": fov, "cell": f"{fov}{cell}",
+                         "frame": fr, "y": float(v)})
+            rid += 1
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "fov", "type": "identifier", "label": "FOV"},
+        {"name": "cell", "type": "identifier", "label": "Cell"},
+        {"name": "frame", "type": "numeric", "label": "Frame"},
+        {"name": "y", "type": "numeric", "label": "Y"}]}
+    return pd.DataFrame(rows), schema
+
+
+def test_collapse_is_sequential_nested_not_pooled():
+    """Coarsening nests: each level summarizes the finer level's summaries
+    (median-of-medians), each child weighted equally — NOT a pool of raw leaves
+    (which the long small-valued track would dominate)."""
+    df, schema = _unbalanced_three_level_df()
+    spine = ["fov", "cell", "frame"]
+    levels, _ = hierarchy.materialize_levels(
+        df, schema, spine, {lv: "median" for lv in spine}, [])
+    cell = levels["cell"][0].set_index("cell")["y"].to_dict()
+    assert cell == {"f1A": 1.0, "f1B": 100.0, "f2C": 100.0, "f2D": 100.0}
+    fov = levels["fov"][0].set_index("fov")["y"].to_dict()
+    assert fov == {"f1": 50.5, "f2": 100.0}     # median(1,100)=50.5 ; median(100,100)=100
+    # pooling the 8 raw leaves would give median = 1.0 (five 1s, three 100s) — not this
+    assert fov["f1"] != float(df[df["fov"] == "f1"]["y"].median())
+
+
+def test_row_ids_union_up_the_chain():
+    """A coarse unit's row_ids is the union of its children's — provenance still
+    resolves to the exact raw rows even though levels build finest → coarsest."""
+    df, schema = _unbalanced_three_level_df()
+    levels, _ = hierarchy.materialize_levels(
+        df, schema, ["fov", "cell", "frame"], {}, [])
+    fov = levels["fov"][0]
+    for _, row in fov.iterrows():
+        want = set(df[df["fov"] == row["fov"]]["id"])
+        assert set(row["row_ids"]) == want
+
+
 def test_resolve_level_fallback():
     df = _unpaired_df()
     levels, _ = hierarchy.materialize_levels(df, _schema(), SPINE, {}, [])
