@@ -8,7 +8,8 @@ import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
 import { LayerRail } from "./components/LayerRail";
 import { PlottableSidebar } from "./components/PlottableSidebar";
-import { ReducedTable } from "./components/ReducedTable";
+import { DataTab } from "./components/DataTab";
+import { TransformExplorer } from "./components/TransformExplorer";
 import { StatsPanel } from "./components/StatsPanel";
 import { Guide } from "./examples/Guide";
 import exampleManifest from "./examples/assets/manifest.json";
@@ -17,7 +18,7 @@ import {
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
   hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
-  reducePreviewByIdAtom, renderErrorAtom, schemaAtom, setAnalysisByIdAtom,
+  reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom,
 } from "./state";
@@ -221,6 +222,11 @@ export default function App() {
     }, 200);
     return () => window.clearTimeout(previewTimer.current);
   }, [handle?.id, handle?.version, stepsKey, activeId]);
+
+  /* clear the explorer's selected node when the active analysis changes, so a
+     node id from a different analysis never drives the wrong data tab. */
+  const setSelectedNode = useSetAtom(selectedNodeIdAtom);
+  useEffect(() => { setSelectedNode(null); }, [activeId, setSelectedNode]);
 
   /* background loop: a self-draining sequential queue that warms every OTHER
      plottable's cache so even a never-opened analysis is instant on first visit.
@@ -432,7 +438,10 @@ export default function App() {
             <PlottableSidebar />
             <LayerRail />
             <div className="iris">
-              <Section title="Reduced table" defaultOpen><ReducedTable /></Section>
+              <Section title="Transformation" defaultOpen>
+                <TransformExplorer />
+                <DataTab />
+              </Section>
               <Section title="Figure" defaultOpen><FigurePane /></Section>
               <Section title="Statistics" defaultOpen><StatsPanel /></Section>
             </div>
