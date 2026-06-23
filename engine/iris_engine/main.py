@@ -85,6 +85,12 @@ class ShapeCountsRequest(BaseModel):
     table_token: str | None = None
     steps: list[dict] = []
     hierarchy: dict | None = None
+    # un-forcing the nesting: the per-analysis plan (grain-list), chosen test
+    # grain, and the comparison qualifier (for the pairing-flip guard). Absent
+    # collapse -> default chain.
+    collapse: list[dict] | None = None
+    test_grain: str | None = None
+    qualifier: str | None = None
 
 
 class TablePutRequest(BaseModel):
@@ -570,7 +576,24 @@ def shape_counts(req: ShapeCountsRequest):
         for lvl in spine:
             lout, _lsch = hierarchy.resolve_level(levels, lvl)
             levels_out[lvl] = {"rows": int(len(lout)), "cols": _cols(lout)}
-    return {"source": out_source, "steps": steps_counts, "levels": levels_out}
+    # grain-keyed counts + guards for the routing graph (un-forcing the nesting)
+    present = hierarchy.spine_present(full, (req.hierarchy or {}).get("spine") or [])
+    plan = req.collapse or hierarchy.default_plan(present, (req.hierarchy or {}).get("fn") or {})
+    grains: dict[str, dict] = {}
+    guards: dict = {"pseudoreplication": None, "pairing_flip": None, "identity_merge": []}
+    if present:
+        gmats = hierarchy.materialize_plan(full, full_sch, plan, [])
+        for key, (gdf, _gsch) in gmats.items():
+            grains[key] = {"rows": int(len(gdf)), "cols": _cols(gdf)}
+        coarsest = hierarchy._coarsest_grain(gmats)
+        test_grain = req.test_grain if req.test_grain is not None else coarsest
+        guards["pseudoreplication"] = hierarchy.pseudoreplication(full, plan, test_grain)
+        guards["identity_merge"] = hierarchy.identity_merge(full, full_sch, present, plan)
+        if req.qualifier:
+            guards["pairing_flip"] = hierarchy.pairing_flip(
+                full, present, req.qualifier, coarsest, test_grain)
+    return {"source": out_source, "steps": steps_counts,
+            "levels": levels_out, "grains": grains, "guards": guards}
 
 
 @app.post("/hierarchy")
