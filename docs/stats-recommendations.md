@@ -6,9 +6,9 @@ of answered questions you can override. This document is the single source of tr
 for those rules: each rule, its threshold, its rationale, its sources, and its
 known failure modes.
 
-The logic lives in `engine/iris_engine/stats.py`; this doc and the in-app
-[stats glossary](../src/components/statsGlossary.ts) are its prose face. If you
-change a threshold in the code, change it here too.
+The logic lives in `engine/iris_engine/stats.py`; this document and the in-app
+stats glossary (`src/components/statsGlossary.ts`) are its prose face. If you change
+a threshold in the code, change it here too.
 
 > **Recommendations are defaults, not verdicts.** Every rule below can be
 > overridden. A pick that differs from the recommendation is recorded as *your*
@@ -26,8 +26,8 @@ with a recommended answer:
 1. **Structural — independent or paired?** Read from the data's hierarchy, not
    declared. Paired tests are offered *only* when a shared coarser unit spans both
    groups (e.g. two measurements of the same cell/animal). This axis is
-   structural: it comes from the spine ([SuperPlots / the replicate as the unit of
-   inference][superplots]), never from the values.
+   structural: it comes from the spine — the replicate is the unit of inference [1]
+   — never from the values.
 2. **Assumption — parametric or robust?** Proposed from a normality check on
    exactly what the chosen test will see (each group when independent, the paired
    differences when paired), and confirmable.
@@ -46,7 +46,7 @@ own family, but reuse the same assumption axis where it applies.
 |---|---|
 | **Default** | Independent, unless the spine shows a shared unit across both groups |
 | **Threshold** | A paired test needs ≥ 3 *complete* pairs; partial pairs are dropped |
-| **Source** | Read from `hierarchy.pairing`; the replicate-as-unit principle follows [Lord et al. 2020, *SuperPlots*][superplots] |
+| **Source** | Read from `hierarchy.pairing`; the replicate-as-unit principle follows SuperPlots [1] |
 
 Pairing is never inferred from how similar the numbers look — only from whether the
 data model says the same unit appears in both groups. A paired test is more
@@ -63,18 +63,16 @@ large enough for that check to mean anything.**
 
 ### 2a. The normality check (Shapiro–Wilk)
 
-Iris runs the [Shapiro–Wilk test][shapiro] on each group (or the paired
-differences). `p > α` → "consistent with normality" → parametric is eligible;
-`p ≤ α` → evidence of non-normality → robust.
+Iris runs the Shapiro–Wilk test [2] on each group (or the paired differences).
+`p > α` → "consistent with normality" → parametric is eligible; `p ≤ α` → evidence
+of non-normality → robust.
 
-- **Source:** [Shapiro & Wilk 1965][shapiro]. Shapiro–Wilk is the standard
-  general-purpose normality test and is among the most powerful for small samples
-  ([Razali & Wah 2011][razali]).
-- **Failure mode — large N:** significance-based normality tests (Shapiro–Wilk
+- **Source.** Shapiro & Wilk [2]. Shapiro–Wilk is the standard general-purpose
+  normality test and is among the most powerful for small samples [3].
+- **Failure mode — large N.** Significance-based normality tests (Shapiro–Wilk
   included) over-reject at large N — a large sample yields a significant result
   even for a small, practically irrelevant deviation from normality, one that would
-  not affect a parametric test ([Ghasemi & Zahediasl 2012][ghasemi], §3, restating
-  [Field 2009][field] and [Oztuna et al. 2006][oztuna]). Iris caps the sample the
+  not affect a parametric test [4] (§3, restating [5, 6]). Iris caps the sample the
   check sees at **`NORMALITY_CAP = 5000`** (a fixed-seed subsample, so the
   recommendation is reproducible) to keep it informative rather than
   always-rejecting.
@@ -84,11 +82,10 @@ differences). `p > α` → "consistent with normality" → parametric is eligibl
 Below **`MIN_N_FOR_NORMALITY_RULE = 12`**, Iris recommends the robust test
 *regardless of the Shapiro–Wilk result*.
 
-- **Rationale:** normality tests have low power at small n — they cannot *see* a
+- **Rationale.** Normality tests have low power at small n — they cannot *see* a
   departure from normality, so a "passing" Shapiro–Wilk at n = 6 is not evidence of
-  normality, just absence of power ([Ghasemi & Zahediasl 2012][ghasemi];
-  [Razali & Wah 2011][razali]). The rank-based test makes no normality assumption,
-  so it is the conservative default when normality is unverifiable.
+  normality, just absence of power [3, 4]. The rank-based test makes no normality
+  assumption, so it is the conservative default when normality is unverifiable.
 - **The threshold (12) is a pragmatic convention, not a theorem.** It is in the
   range commonly cited for "small sample"; Iris fixes it so the default is
   predictable. Override when you have a field convention or a pre-registered plan.
@@ -124,8 +121,7 @@ p the test can ever report is **2 · 2⁻ⁿ**:
 So at n ≤ 5 the signed-rank test has **zero power** at α = 0.05 — it cannot cross
 0.05 until n ≥ 6. GraphPad Prism documents exactly this and *reports* the limit
 rather than recommending the test: "With five or fewer data pairs, the Wilcoxon
-matched pairs test has zero power" ([Prism FAQ 1684][prism-faq];
-[Prism Statistics Guide][prism-guide]).
+matched pairs test has zero power" [7, 8].
 
 **The fix.** When the recommended rank test cannot attain α at the data's n, Iris
 does **not** recommend it. It falls back to the parametric counterpart and says so
@@ -165,16 +161,15 @@ over-claims. The implementation is `_signed_rank_min_p` / `_mann_whitney_min_p` 
 ### Two independent groups → Welch's *t* (parametric) / Mann–Whitney U (robust)
 Welch's *t* (unequal-variance) is the parametric default rather than Student's *t*:
 it controls Type I error across unequal variances and sample sizes at no real cost
-when variances *are* equal ([Delacre, Lakens & Leys 2017][delacre]). Effect sizes:
-[Hedges' g][hedges] (small-sample-corrected Cohen's d) for the *t*; rank-biserial r
-for Mann–Whitney.
+when variances *are* equal [9]. Effect sizes: Hedges' g [10] (small-sample-corrected
+Cohen's d) for the *t*; rank-biserial r for Mann–Whitney.
 
 ### Three or more groups → omnibus + corrected pairwise
 Parametric: one-way ANOVA with **Tukey's HSD** pairwise (HSD controls the
-family-wise error, so each pairwise p is already adjusted; [Tukey 1949][tukey]).
-Robust: **Kruskal–Wallis** ([Kruskal & Wallis 1952][kruskal]) with **Holm-adjusted**
-pairwise Mann–Whitney ([Holm 1979][holm]). Paired multi-group designs (RM-ANOVA /
-Friedman) are not yet supported — this path treats the groups as independent.
+family-wise error, so each pairwise p is already adjusted) [11]. Robust:
+**Kruskal–Wallis** [12] with **Holm-adjusted** pairwise Mann–Whitney [13]. Paired
+multi-group designs (RM-ANOVA / Friedman) are not yet supported — this path treats
+the groups as independent.
 
 ### One-sample (vs-reference) location → one-sample *t* / Wilcoxon signed-rank
 Each group is tested against a constant reference (default 0), not against another
@@ -188,24 +183,22 @@ methods text.
 ### Correlation → Pearson / Spearman
 Same normality rule as the comparison axis. With a hierarchy spine the inferential
 unit is the replicate, not the row: a per-unit coefficient is computed and the
-association tested across units (Fisher-z one-sample *t*) — the
-[SuperPlots][superplots] principle, which avoids the pseudoreplicated pooled fit
-whose sign can invert (Simpson's paradox). Subject to the
-[rank-floor guard](#the-rank-floor-guard) (Spearman's floor is 2/n!).
+association tested across units (Fisher-z one-sample *t*) — the SuperPlots [1]
+principle, which avoids the pseudoreplicated pooled fit whose sign can invert
+(Simpson's paradox). Subject to the [rank-floor guard](#the-rank-floor-guard)
+(Spearman's floor is 2/n!).
 
 ### Categorical × categorical → chi-square / Fisher's exact
 Pearson's chi-square is the default; **Fisher's exact** is recommended for a 2×2
 table when any expected cell count < 5 — the standard small-expected-count rule
-([Cochran 1954][cochran]). Effect size: Cramér's V (general) or the odds ratio with
-a 95% CI (2×2).
+[14]. Effect size: Cramér's V (general) or the odds ratio with a 95% CI (2×2).
 
 ### Count / rate → negative-binomial / Poisson GLM
 Per-group event rates from a count GLM with a log-exposure offset. The default is
 **negative binomial** (robust to overdispersion); `auto` fits Poisson, reads the
 overdispersion (Pearson χ²/df, with **`_OVERDISPERSION_RATIO = 1.5`** as the
-switch), and refits NB if dispersed — the standard count-model choice
-([Cameron & Trivedi 2013][cameron]). A global likelihood-ratio test answers "does
-group matter".
+switch), and refits NB if dispersed — the standard count-model choice [15]. A
+global likelihood-ratio test answers "does group matter".
 
 ---
 
@@ -227,7 +220,7 @@ accepted.
 | Rank test cannot reach α at small n | signed-rank n ≤ 5, MW small n, Spearman n ≤ 4, KW tiny groups | [Rank-floor guard](#the-rank-floor-guard): recommend the parametric test with an "unverifiable normality" caveat |
 | Shapiro–Wilk rejects on trivial deviations | large N (10⁴+) | Subsample cap `NORMALITY_CAP = 5000` |
 | Normality test has no power | small n (< 12) | Default to robust (Rule 2b) — *then* re-checked by the rank-floor guard |
-| Pseudoreplication inflates n | nested/replicate data | Collapse to the spine's inferential unit before testing ([SuperPlots][superplots]) |
+| Pseudoreplication inflates n | nested/replicate data | Collapse to the spine's inferential unit before testing [1] |
 | Pooled correlation sign inverts | nested data (Simpson's paradox) | Replicate-level coefficient + per-unit regression lines |
 | Many pairwise comparisons inflate error | k > 2 groups | Tukey HSD (ANOVA) / Holm (Kruskal) adjustment |
 | Chi-square unreliable at small expected counts | 2×2, expected < 5 | Recommend Fisher's exact |
@@ -237,238 +230,23 @@ accepted.
 
 ## References
 
-The bracketed tags (e.g. **[shapiro]**) are the inline citation keys used above;
-each links to its DOI where one exists. Machine-readable BibTeX for every reference
-is in `stats-recommendations.bib` (DOI entries produced by doi2bib.org's transform)
-and embedded in the [BibTeX appendix](#bibtex) below.
+References are cited above by number in square brackets. A machine-readable
+bibliography is provided alongside this document in
+[`stats-recommendations.bib`](stats-recommendations.bib); its DOI-bearing entries
+were generated from each DOI with [doi2bib.org](https://www.doi2bib.org/).
 
-- **[shapiro]** Shapiro, S. S., & Wilk, M. B. (1965). *An analysis of variance test
-  for normality (complete samples).* Biometrika 52(3–4), 591–611.
-  <https://doi.org/10.1093/biomet/52.3-4.591>
-- **[razali]** Razali, N. M., & Wah, Y. B. (2011). *Power comparisons of
-  Shapiro–Wilk, Kolmogorov–Smirnov, Lilliefors and Anderson–Darling tests.* Journal
-  of Statistical Modeling and Analytics 2(1), 21–33.
-- **[ghasemi]** Ghasemi, A., & Zahediasl, S. (2012). *Normality tests for
-  statistical analysis: a guide for non-statisticians.* International Journal of
-  Endocrinology and Metabolism 10(2), 486–489. <https://doi.org/10.5812/ijem.3505>
-- **[field]** Field, A. (2009). *Discovering Statistics Using SPSS* (3rd ed.). SAGE
-  Publications. (The large-N over-rejection point Ghasemi & Zahediasl restate.)
-- **[oztuna]** Öztuna, D., Elhan, A. H., & Tüccar, E. (2006). *Investigation of four
-  different normality tests in terms of type 1 error rate and power under different
-  distributions.* Turkish Journal of Medical Sciences 36(3), 171–176.
-- **[prism-faq]** GraphPad Prism FAQ 1684 — *Why can't the Wilcoxon matched pair
-  test ever report a P value less than 0.05 (two tailed) with five or fewer pairs of
-  data?* <https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/>
-- **[prism-guide]** GraphPad Prism Statistics Guide — *Interpreting results: Wilcoxon
-  signed rank test.* <https://www.graphpad.com/guides/prism/latest/statistics/stat_interpreting_results_wilcoxon_.htm>
-- **[delacre]** Delacre, M., Lakens, D., & Leys, C. (2017). *Why psychologists should
-  by default use Welch's t-test instead of Student's t-test.* International Review of
-  Social Psychology 30(1), 92–101. <https://doi.org/10.5334/irsp.82>
-- **[hedges]** Hedges, L. V. (1981). *Distribution theory for Glass's estimator of
-  effect size and related estimators.* Journal of Educational Statistics 6(2),
-  107–128. <https://doi.org/10.3102/10769986006002107>
-- **[tukey]** Tukey, J. W. (1949). *Comparing individual means in the analysis of
-  variance.* Biometrics 5(2), 99–114. <https://doi.org/10.2307/3001913>
-- **[kruskal]** Kruskal, W. H., & Wallis, W. A. (1952). *Use of ranks in
-  one-criterion variance analysis.* Journal of the American Statistical Association
-  47(260), 583–621. <https://doi.org/10.1080/01621459.1952.10483441>
-- **[holm]** Holm, S. (1979). *A simple sequentially rejective multiple test
-  procedure.* Scandinavian Journal of Statistics 6(2), 65–70.
-- **[cochran]** Cochran, W. G. (1954). *Some methods for strengthening the common χ²
-  tests.* Biometrics 10(4), 417–451. <https://doi.org/10.2307/3001616>
-- **[cameron]** Cameron, A. C., & Trivedi, P. K. (2013). *Regression Analysis of
-  Count Data* (2nd ed.). Cambridge University Press.
-- **[superplots]** Lord, S. J., Velle, K. B., Mullins, R. D., & Fritz-Laylin, L. K.
-  (2020). *SuperPlots: Communicating reproducibility and variability in cell
-  biology.* Journal of Cell Biology 219(6), e202001064.
-  <https://doi.org/10.1083/jcb.202001064>
-
-[shapiro]: https://doi.org/10.1093/biomet/52.3-4.591
-[razali]: https://www.researchgate.net/publication/267205556
-[ghasemi]: https://doi.org/10.5812/ijem.3505
-[field]: https://www.discoveringstatistics.com/books/discovering-statistics-using-spss/
-[oztuna]: https://journals.tubitak.gov.tr/medical/vol36/iss3/7/
-[prism-faq]: https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/
-[prism-guide]: https://www.graphpad.com/guides/prism/latest/statistics/stat_interpreting_results_wilcoxon_.htm
-[delacre]: https://doi.org/10.5334/irsp.82
-[hedges]: https://doi.org/10.3102/10769986006002107
-[tukey]: https://doi.org/10.2307/3001913
-[kruskal]: https://doi.org/10.1080/01621459.1952.10483441
-[holm]: https://www.jstor.org/stable/4615733
-[cochran]: https://doi.org/10.2307/3001616
-[cameron]: https://doi.org/10.1017/CBO9781139013567
-[superplots]: https://doi.org/10.1083/jcb.202001064
-
----
-
-## BibTeX
-
-A copyable mirror of `stats-recommendations.bib`. DOI-bearing entries were produced
-by doi2bib.org's transform (DOI content negotiation, `Accept: application/x-bibtex`);
-entries with no DOI (Field 2009; Öztuna et al. 2006; Razali & Wah 2011; Holm 1979)
-and the two GraphPad web resources are hand-written. Cite keys match the [tags] above.
-
-```bibtex
-@article{shapiro,
-  title     = {An analysis of variance test for normality (complete samples)},
-  author    = {Shapiro, S. S. and Wilk, M. B.},
-  journal   = {Biometrika},
-  volume    = {52},
-  number    = {3-4},
-  pages     = {591--611},
-  year      = {1965},
-  publisher = {Oxford University Press},
-  doi       = {10.1093/biomet/52.3-4.591}
-}
-
-@article{razali,
-  title     = {Power comparisons of Shapiro--Wilk, Kolmogorov--Smirnov, Lilliefors and Anderson--Darling tests},
-  author    = {Razali, Nornadiah Mohd and Wah, Yap Bee},
-  journal   = {Journal of Statistical Modeling and Analytics},
-  volume    = {2},
-  number    = {1},
-  pages     = {21--33},
-  year      = {2011}
-}
-
-@article{ghasemi,
-  title     = {Normality Tests for Statistical Analysis: A Guide for Non-Statisticians},
-  author    = {Ghasemi, Asghar and Zahediasl, Saleh},
-  journal   = {International Journal of Endocrinology and Metabolism},
-  volume    = {10},
-  number    = {2},
-  pages     = {486--489},
-  year      = {2012},
-  publisher = {Brieflands},
-  doi       = {10.5812/ijem.3505}
-}
-
-@book{field,
-  title     = {Discovering Statistics Using SPSS},
-  author    = {Field, Andy},
-  edition   = {3},
-  year      = {2009},
-  publisher = {SAGE Publications},
-  address   = {London}
-}
-
-@article{oztuna,
-  title     = {Investigation of four different normality tests in terms of type 1 error rate and power under different distributions},
-  author    = {{\"O}ztuna, Derya and Elhan, Atilla Halil and T{\"u}{\c{c}}car, Ers{\"o}z},
-  journal   = {Turkish Journal of Medical Sciences},
-  volume    = {36},
-  number    = {3},
-  pages     = {171--176},
-  year      = {2006}
-}
-
-@misc{prism-faq,
-  title        = {Why can't the {Wilcoxon} matched pair test ever report a {P} value less than 0.05 (two tailed) with five or fewer pairs of data?},
-  author       = {{GraphPad Software}},
-  howpublished = {GraphPad Prism FAQ 1684},
-  url          = {https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/},
-  note         = {Accessed 2026-06-23}
-}
-
-@misc{prism-guide,
-  title        = {Interpreting results: {Wilcoxon} signed rank test},
-  author       = {{GraphPad Software}},
-  howpublished = {GraphPad Prism Statistics Guide},
-  url          = {https://www.graphpad.com/guides/prism/latest/statistics/stat_interpreting_results_wilcoxon_.htm},
-  note         = {Accessed 2026-06-23}
-}
-
-@article{delacre,
-  title     = {Why Psychologists Should by Default Use {Welch's} t-test Instead of {Student's} t-test},
-  author    = {Delacre, Marie and Lakens, Dani{\"e}l and Leys, Christophe},
-  journal   = {International Review of Social Psychology},
-  volume    = {30},
-  number    = {1},
-  pages     = {92--101},
-  year      = {2017},
-  publisher = {Ubiquity Press, Ltd.},
-  doi       = {10.5334/irsp.82}
-}
-
-@article{hedges,
-  title     = {Distribution Theory for Glass's Estimator of Effect Size and Related Estimators},
-  author    = {Hedges, Larry V.},
-  journal   = {Journal of Educational Statistics},
-  volume    = {6},
-  number    = {2},
-  pages     = {107--128},
-  year      = {1981},
-  publisher = {American Educational Research Association},
-  doi       = {10.3102/10769986006002107}
-}
-
-@article{tukey,
-  title     = {Comparing Individual Means in the Analysis of Variance},
-  author    = {Tukey, John W.},
-  journal   = {Biometrics},
-  volume    = {5},
-  number    = {2},
-  pages     = {99--114},
-  year      = {1949},
-  publisher = {JSTOR},
-  doi       = {10.2307/3001913}
-}
-
-@article{kruskal,
-  title     = {Use of Ranks in One-Criterion Variance Analysis},
-  author    = {Kruskal, William H. and Wallis, W. Allen},
-  journal   = {Journal of the American Statistical Association},
-  volume    = {47},
-  number    = {260},
-  pages     = {583--621},
-  year      = {1952},
-  publisher = {Informa UK Limited},
-  doi       = {10.1080/01621459.1952.10483441}
-}
-
-@article{holm,
-  title     = {A simple sequentially rejective multiple test procedure},
-  author    = {Holm, Sture},
-  journal   = {Scandinavian Journal of Statistics},
-  volume    = {6},
-  number    = {2},
-  pages     = {65--70},
-  year      = {1979},
-  publisher = {Wiley},
-  note      = {JSTOR 4615733}
-}
-
-@article{cochran,
-  title     = {Some Methods for Strengthening the Common $\chi^2$ Tests},
-  author    = {Cochran, William G.},
-  journal   = {Biometrics},
-  volume    = {10},
-  number    = {4},
-  pages     = {417--451},
-  year      = {1954},
-  publisher = {JSTOR},
-  doi       = {10.2307/3001616}
-}
-
-@book{cameron,
-  title     = {Regression Analysis of Count Data},
-  author    = {Cameron, A. Colin and Trivedi, Pravin K.},
-  edition   = {2},
-  year      = {2013},
-  publisher = {Cambridge University Press},
-  isbn      = {9781139013567},
-  doi       = {10.1017/CBO9781139013567}
-}
-
-@article{superplots,
-  title     = {SuperPlots: Communicating reproducibility and variability in cell biology},
-  author    = {Lord, Samuel J. and Velle, Katrina B. and Mullins, R. Dyche and Fritz-Laylin, Lillian K.},
-  journal   = {Journal of Cell Biology},
-  volume    = {219},
-  number    = {6},
-  pages     = {e202001064},
-  year      = {2020},
-  publisher = {Rockefeller University Press},
-  doi       = {10.1083/jcb.202001064}
-}
-```
+1. Lord SJ, Velle KB, Mullins RD, Fritz-Laylin LK. SuperPlots: communicating reproducibility and variability in cell biology. *Journal of Cell Biology*. 2020;219(6):e202001064. doi:[10.1083/jcb.202001064](https://doi.org/10.1083/jcb.202001064)
+2. Shapiro SS, Wilk MB. An analysis of variance test for normality (complete samples). *Biometrika*. 1965;52(3–4):591–611. doi:[10.1093/biomet/52.3-4.591](https://doi.org/10.1093/biomet/52.3-4.591)
+3. Razali NM, Wah YB. Power comparisons of Shapiro–Wilk, Kolmogorov–Smirnov, Lilliefors and Anderson–Darling tests. *Journal of Statistical Modeling and Analytics*. 2011;2(1):21–33.
+4. Ghasemi A, Zahediasl S. Normality tests for statistical analysis: a guide for non-statisticians. *International Journal of Endocrinology and Metabolism*. 2012;10(2):486–489. doi:[10.5812/ijem.3505](https://doi.org/10.5812/ijem.3505)
+5. Field A. *Discovering Statistics Using SPSS*. 3rd ed. London: SAGE Publications; 2009.
+6. Öztuna D, Elhan AH, Tüccar E. Investigation of four different normality tests in terms of type 1 error rate and power under different distributions. *Turkish Journal of Medical Sciences*. 2006;36(3):171–176.
+7. GraphPad Software. Why can't the Wilcoxon matched pairs test ever report a P value less than 0.05 (two tailed) with five or fewer pairs of data? *GraphPad Prism FAQ 1684*. Accessed June 23, 2026. <https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/>
+8. GraphPad Software. Interpreting results: Wilcoxon signed rank test. *GraphPad Prism Statistics Guide*. Accessed June 23, 2026. <https://www.graphpad.com/guides/prism/latest/statistics/stat_interpreting_results_wilcoxon_.htm>
+9. Delacre M, Lakens D, Leys C. Why psychologists should by default use Welch's t-test instead of Student's t-test. *International Review of Social Psychology*. 2017;30(1):92–101. doi:[10.5334/irsp.82](https://doi.org/10.5334/irsp.82)
+10. Hedges LV. Distribution theory for Glass's estimator of effect size and related estimators. *Journal of Educational Statistics*. 1981;6(2):107–128. doi:[10.3102/10769986006002107](https://doi.org/10.3102/10769986006002107)
+11. Tukey JW. Comparing individual means in the analysis of variance. *Biometrics*. 1949;5(2):99–114. doi:[10.2307/3001913](https://doi.org/10.2307/3001913)
+12. Kruskal WH, Wallis WA. Use of ranks in one-criterion variance analysis. *Journal of the American Statistical Association*. 1952;47(260):583–621. doi:[10.1080/01621459.1952.10483441](https://doi.org/10.1080/01621459.1952.10483441)
+13. Holm S. A simple sequentially rejective multiple test procedure. *Scandinavian Journal of Statistics*. 1979;6(2):65–70.
+14. Cochran WG. Some methods for strengthening the common χ² tests. *Biometrics*. 1954;10(4):417–451. doi:[10.2307/3001616](https://doi.org/10.2307/3001616)
+15. Cameron AC, Trivedi PK. *Regression Analysis of Count Data*. 2nd ed. Cambridge: Cambridge University Press; 2013. doi:[10.1017/CBO9781139013567](https://doi.org/10.1017/CBO9781139013567)
