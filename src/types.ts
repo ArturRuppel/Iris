@@ -446,7 +446,11 @@ export interface StatsResult {
 export interface ShapeCounts {
   source: { rows: number; cols: number };
   steps: { rows: number; cols: number }[];
-  levels: Record<string, { rows: number; cols: number }>;
+  /* grain-keyed counts: key "" = raw, else dims joined by "/" — matches the
+     graph's grain node ids (`grain:<key>`). Replaces the old `levels` map. */
+  grains: Record<string, { rows: number; cols: number }>;
+  /* the integrity guard verdicts the frontend places on graph edges. */
+  guards: ShapeCountsGuards;
 }
 export interface AnalyzeResponse {
   /* Item I: dots are not individually clickable, so the figure payload is
@@ -649,8 +653,11 @@ export const engine = {
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
   reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number) =>
     post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step }),
-  shapeCounts: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy) =>
-    post<ShapeCounts>("/shape_counts", { ...tableField(t), steps, hierarchy }),
+  shapeCounts: (
+    t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy,
+    extra?: { collapse?: CollapsePlan; test_grain?: GrainKey; qualifier?: string | null },
+  ) =>
+    post<ShapeCounts>("/shape_counts", { ...tableField(t), steps, hierarchy, ...extra }),
   hierarchy: (t: TableRef, spine: string[], classifiers: string[]) =>
     post<HierarchyInfo>("/hierarchy", { ...tableField(t), spine, classifiers }),
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>

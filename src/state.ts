@@ -1,11 +1,12 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
-  AnalysisSpec, AnalyzeResponse, ColumnDef, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
+  AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, GrainKey, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec,
   ReduceStep, ReduceStepKind, ReducePreview,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
+import { defaultPlan, grainKey } from "./collapse";
 import { familyForMappingsRef } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
@@ -172,6 +173,10 @@ export interface Plottable {
   previewLevel: string;
   style: StyleOverrides;
   reduce: ReduceSpec;
+  /* un-forcing the nesting: per-analysis collapse plan + chosen test grain.
+     Absent -> the default chain generated from the table-level spine. */
+  collapse?: CollapsePlan;
+  testGrain?: GrainKey;
 }
 
 let _pid = 0;
@@ -815,6 +820,35 @@ export const setLevelFnAtom = atom(null,
     const h = get(hierarchyAtom);
     set(hierarchyAtom, { ...h, fn: { ...h.fn, [arg.level]: arg.fn } });
   });
+
+/* ---- per-analysis collapse plan + test grain (un-forcing the nesting) ----
+   The plan lives on the active plottable; absent -> the default prefix chain
+   generated from the table-level spine. The effective atoms resolve that fallback
+   so consumers (the graph, the /shape_counts caller) never branch on presence. */
+export const effectivePlanAtom = atom<CollapsePlan>((get) => {
+  const p = get(activePlottableAtom);
+  const h = get(hierarchyAtom);
+  return p?.collapse ?? defaultPlan(h.spine, h.fn);
+});
+export const effectiveTestGrainAtom = atom<GrainKey>((get) => {
+  const p = get(activePlottableAtom);
+  const plan = get(effectivePlanAtom);
+  return p?.testGrain ?? (plan.length ? grainKey(plan[plan.length - 1].keep) : "");
+});
+const patchActive = (
+  get: (a: typeof activePlottableAtom) => Plottable | null,
+  set: (a: typeof activePlottableAtom, v: Plottable) => void,
+  patch: Partial<Plottable>,
+) => {
+  const p = get(activePlottableAtom);
+  if (p) set(activePlottableAtom, { ...p, ...patch });
+};
+export const setCollapsePlanAtom = atom(null, (get, set, next: CollapsePlan) =>
+  patchActive(get, set, { collapse: next }));
+export const setTestGrainAtom = atom(null, (get, set, grain: GrainKey) =>
+  patchActive(get, set, { testGrain: grain }));
+export const resetCollapseAtom = atom(null, (get, set) =>
+  patchActive(get, set, { collapse: undefined, testGrain: undefined }));
 
 /* ---- transformation explorer: the selected node's id (UI-only) ---- */
 

@@ -6,6 +6,9 @@ import {
   analysisRecencyAtom, buildSpec, cacheBudgetAtom, cacheKey, estimateBytes,
   isSpecRenderable, makeDefaultPlottable, pickStaleSpec, plottableFromSpec,
   selectedNodeIdAtom, setAnalysisResultAtom,
+  schemaAtom, hierarchyAtom, plottablesAtom, activePlottableAtom,
+  effectivePlanAtom, effectiveTestGrainAtom,
+  setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
 } from "./state";
 import { EMPTY_HIERARCHY } from "./types";
 
@@ -284,5 +287,46 @@ describe("selectedNodeIdAtom", () => {
     expect(store.get(selectedNodeIdAtom)).toBeNull();
     store.set(selectedNodeIdAtom, "flatten:experiment");
     expect(store.get(selectedNodeIdAtom)).toBe("flatten:experiment");
+  });
+});
+
+describe("per-analysis collapse plan + test grain", () => {
+  /* a store with the given spine: a schema whose columns include the spine dims
+     as identifiers + a numeric measure, a hierarchy of that spine, and one active
+     plottable. Mirrors makeDefaultPlottable for the plottable defaults. */
+  function makeStoreWithSpine(spine: string[]) {
+    const store = createStore();
+    const schema: Schema = { schema_version: "1.0", columns: [
+      ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
+      { name: "val", type: "numeric" as const, label: "Value" },
+    ] };
+    store.set(schemaAtom, schema);
+    store.set(hierarchyAtom, { spine, fn: {} });
+    const p = makeDefaultPlottable(schema);
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, p.id);
+    return store;
+  }
+
+  it("effectivePlanAtom defaults to the full-spine prefix chain", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    expect(store.get(effectivePlanAtom)).toEqual([
+      { keep: ["experiment", "cell"], fn: "mean" },
+      { keep: ["experiment"], fn: "mean" },
+    ]);
+  });
+
+  it("effectiveTestGrainAtom defaults to the coarsest (last) node", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    expect(store.get(effectiveTestGrainAtom)).toBe("experiment");
+  });
+
+  it("setTestGrain/setCollapsePlan write the active plottable; reset clears them", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    store.set(setTestGrainAtom, "experiment/cell");
+    expect(store.get(activePlottableAtom)?.testGrain).toBe("experiment/cell");
+    store.set(resetCollapseAtom);
+    expect(store.get(activePlottableAtom)?.collapse).toBeUndefined();
+    expect(store.get(activePlottableAtom)?.testGrain).toBeUndefined();
   });
 });
