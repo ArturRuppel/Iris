@@ -598,14 +598,14 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 }
 .tx-node.on { outline: 2px solid #0e7490; outline-offset: 1px; }
 .tx-node-label { font-weight: 500; }
-/* color code (spec): source=slate, filter=rose, drop=amber, flatten=violet,
-   outputs=dashed-neutral. */
-.tx-source  { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
-.tx-filter  { background: #ffe4e6; border-color: #fda4af; color: #9f1239; }
-.tx-drop    { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
-.tx-flatten { background: #ede9fe; border-color: #c4b5fd; color: #5b21b6; }
-.tx-outputs { background: #f8fafc; border: 1px dashed #94a3b8; color: #475569; }
-/* literal fan-in arrows: each grain a layer reads → the figure/stats node */
+.tx-node-count { font-size: 11px; color: #64748b; font-variant-numeric: tabular-nums; }
+/* nodes ARE DATA: table=slate, plot/stats=dashed-neutral terminals. */
+.tx-table { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
+.tx-plot  { background: #f8fafc; border: 1px dashed #94a3b8; color: #475569; }
+.tx-stats { background: #f8fafc; border: 1px dashed #94a3b8; color: #475569; }
+/* edges ARE TRANSFORMATIONS: colored arrows (above for chain hops, below for
+   geom/test spans), stroke/fill set inline per edge kind. */
 .tx-fanin-svg { position: absolute; inset: 0; width: 100%; height: 100%;
   pointer-events: none; overflow: visible; }
-.tx-fanin-path { fill: none; stroke: #7c3aed; stroke-width: 1.5; opacity: 0.7; }
+.tx-fanin-path { fill: none; stroke-width: 1.5; opacity: 0.85; }
+.tx-edge-label { font-size: 10px; font-weight: 500; }

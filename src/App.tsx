@@ -23,6 +23,7 @@ import {
   touchAnalysisAtom, viewModeAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
+import { shapeCountsAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
@@ -89,6 +90,7 @@ export default function App() {
   const [showSpec, setShowSpec] = useState(false);
   const timer = useRef<number>();
   const previewTimer = useRef<number>();
+  const shapeTimer = useRef<number>();
   const didInit = useRef(false);
   /* The .iris file the document is bound to: a real OS file handle (File System
      Access API) so Save writes back to the same file, tagged with the table id it
@@ -221,6 +223,29 @@ export default function App() {
       }
     }, 200);
     return () => window.clearTimeout(previewTimer.current);
+  }, [handle?.id, handle?.version, stepsKey, activeId]);
+
+  /* per-node row×col counts for the transformation explorer, fetched in one shot
+     via /shape_counts. Advisory only: on error we clear the counts and NEVER
+     surface it, so a failed count never blocks or alarms. Mirrors the preview
+     effect's deps + debounce. */
+  const setShapeCounts = useSetAtom(shapeCountsAtom);
+  useEffect(() => {
+    if (!handle || !active) return;
+    window.clearTimeout(shapeTimer.current);
+    const steps = active.reduce.steps;
+    shapeTimer.current = window.setTimeout(async () => {
+      try {
+        const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy);
+        const counts: Record<string, { rows: number; cols: number }> = { source: sc.source };
+        sc.steps.forEach((c, i) => { counts[`step:${i}`] = c; });
+        for (const [lvl, c] of Object.entries(sc.levels)) counts[`level:${lvl}`] = c;
+        setShapeCounts(counts);
+      } catch {
+        setShapeCounts(null);
+      }
+    }, 200);
+    return () => window.clearTimeout(shapeTimer.current);
   }, [handle?.id, handle?.version, stepsKey, activeId]);
 
   /* clear the explorer's selected node when the active analysis changes, so a
