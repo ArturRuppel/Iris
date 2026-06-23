@@ -821,6 +821,14 @@ export const setPreviewLevelAtom = atom(null, (get, set, level: string) => {
   set(activePlottableAtom, { ...p, previewLevel: level });
 });
 
+/* ---- transformation explorer: the selected node's id (UI-only) ---- */
+
+/* The explorer node the data tab is showing. null = no explicit selection; the
+   data tab then defaults to the final reduced table (the outputs node). Reset
+   when the active plottable changes so a stale id from another analysis never
+   sticks. UI-only: never persisted to a .iris. */
+export const selectedNodeIdAtom = atom<string | null>(null);
+
 export const updateLayerAtom = atom(null,
   (get, set, arg: { index: number; layer: Layer }) => {
     const p = get(activePlottableAtom); if (!p) return;
