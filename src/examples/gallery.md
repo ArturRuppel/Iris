@@ -222,6 +222,18 @@ monotone-but-nonlinear relationships.
 
 [Open this example in Iris](iris-open:iris-petal-spearman)
 
+**Stratified — one coefficient per group.** Put a categorical variable on the
+colour channel and Iris computes the association *within each group* rather than
+pooling them. This is the textbook Simpson's paradox: pooled across the three
+species, sepal length and width look slightly **negatively** associated, but
+*within* every species the association is clearly **positive**. Each species gets
+its own regression line and *r*/*p* readout, so the structure the pooled number
+hides is read straight off the figure.
+
+![](example:iris-sepal-stratified/iris-sepal-stratified-01)
+
+[Open this example in Iris](iris-open:iris-sepal-stratified)
+
 ## Two categorical variables
 
 **Parametric — chi-square.** Independence in a contingency table: aspirin versus
@@ -284,3 +296,19 @@ cell-level spread is visible, but pseudoreplication can't sneak into the test.
 > Communicating reproducibility and variability in cell biology.
 > *Journal of Cell Biology* 219(6):e202001064.
 > [doi:10.1083/jcb.202001064](https://doi.org/10.1083/jcb.202001064)
+
+## The same trap in a correlation
+
+Pseudoreplication is not only about comparing groups — it distorts an
+**association** just as badly. Here 20 cells are measured in each of three
+replicates; within every replicate *x* and *y* are strongly **negatively**
+correlated, but the replicates are offset so pooling all 60 cells manufactures a
+strong **positive** correlation (ρ = +0.79). Declare the **hierarchy spine**
+(`replicate`) and Iris computes the coefficient within each replicate and tests
+across the three — recovering the honest negative association (mean ρ = -0.91,
+**n = 3**). The same spine that fixes the SuperPlot fixes the correlation; without
+it, pooling doesn't just inflate *n*, it points the wrong way.
+
+![](example:nested-correlation/nested-correlation-01)
+
+[Open this example in Iris](iris-open:nested-correlation)

@@ -79,6 +79,7 @@ GALLERY_CASES = [
     "one-sample-wilcoxon",
     "iris-petal-correlation",
     "iris-petal-spearman",
+    "iris-sepal-stratified",
     "contingency-2x2",
     "fisher-exact-tea",
     "iris-sepal-descriptive",
@@ -86,6 +87,7 @@ GALLERY_CASES = [
     "event-rate-by-group",
     "timeseries-growth",
     "superplot-nested",
+    "nested-correlation",
 ]
 
 

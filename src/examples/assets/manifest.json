@@ -160,6 +160,20 @@
     ]
   },
   {
+    "caseId": "iris-sepal-stratified",
+    "title": "Sepal length vs width, by species (Fisher's iris)",
+    "source": "Fisher 1936; pooled and per-species Pearson r recomputed with scipy.stats.pearsonr (see NOTES).",
+    "irisFile": "iris-sepal-stratified.iris",
+    "filename": "iris-sepal-stratified.iris",
+    "plots": [
+      {
+        "analysisId": "iris-sepal-stratified-01",
+        "svgFile": "iris-sepal-stratified-01.svg",
+        "geom": "scatter"
+      }
+    ]
+  },
+  {
     "caseId": "contingency-2x2",
     "title": "Aspirin vs myocardial infarction (Physicians' Health Study)",
     "source": "Steering Committee of the Physicians' Health Study Research Group, NEJM 1988 (the textbook 2x2, Agresti, Categorical Data Analysis); chi-square recomputed with scipy.stats.chi2_contingency (see NOTES)",
@@ -259,6 +273,20 @@
         "analysisId": "superplot-nested-01",
         "svgFile": "superplot-nested-01.svg",
         "geom": "dot"
+      }
+    ]
+  },
+  {
+    "caseId": "nested-correlation",
+    "title": "x vs y across biological replicates (nested)",
+    "source": "Synthetic (seeded); pooled and replicate-level Spearman recomputed with scipy.stats.spearmanr / ttest_1samp (see NOTES).",
+    "irisFile": "nested-correlation.iris",
+    "filename": "nested-correlation.iris",
+    "plots": [
+      {
+        "analysisId": "nested-correlation-01",
+        "svgFile": "nested-correlation-01.svg",
+        "geom": "scatter"
       }
     ]
   }
