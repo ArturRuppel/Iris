@@ -103,6 +103,20 @@ _DERIVE_BINOPS = {
     ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b,
     ast.Pow: lambda a, b: a ** b,
 }
+# string-producing casts: single-arg calls whose result is a string Series
+_DERIVE_CASTS = {"str": lambda x: x.astype(str) if hasattr(x, "astype") else str(x)}
+_DERIVE_CMPOPS = {
+    ast.Eq: lambda a, b: a == b, ast.NotEq: lambda a, b: a != b,
+    ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b,
+    ast.Gt: lambda a, b: a > b, ast.GtE: lambda a, b: a >= b,
+}
+
+
+def _is_numeric_operand(x) -> bool:
+    """A bare number, or a Series of numeric dtype — anything else is a string."""
+    if isinstance(x, pd.Series):
+        return pd.api.types.is_numeric_dtype(x)
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
 
 
 def _eval_derive(node, df: pd.DataFrame):
@@ -111,15 +125,33 @@ def _eval_derive(node, df: pd.DataFrame):
     if (isinstance(node, ast.Constant) and not isinstance(node.value, bool)
             and isinstance(node.value, (int, float))):
         return node.value
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
     if isinstance(node, ast.Name):
         if node.id not in df.columns:
             raise ReduceError(f"derive: unknown column {node.id!r}")
         return df[node.id]
     if isinstance(node, ast.BinOp) and type(node.op) in _DERIVE_BINOPS:
-        return _DERIVE_BINOPS[type(node.op)](
-            _eval_derive(node.left, df), _eval_derive(node.right, df))
+        left = _eval_derive(node.left, df)
+        right = _eval_derive(node.right, df)
+        # `+` over a non-numeric (string) operand is pandas string concat; the
+        # `a + b` lambda already concatenates object Series, so no branch needed
+        if (isinstance(node.op, ast.Add)
+                and not (_is_numeric_operand(left) and _is_numeric_operand(right))):
+            return left + right
+        return _DERIVE_BINOPS[type(node.op)](left, right)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1:
+        op = type(node.ops[0])
+        if op in _DERIVE_CMPOPS:
+            left = _eval_derive(node.left, df)
+            right = _eval_derive(node.comparators[0], df)
+            return _DERIVE_CMPOPS[op](left, right).astype(int)
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
         return -_eval_derive(node.operand, df)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in _DERIVE_CASTS
+            and len(node.args) == 1 and not node.keywords):
+        return _DERIVE_CASTS[node.func.id](_eval_derive(node.args[0], df))
     if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
             and node.func.id in _DERIVE_FUNCS
             and len(node.args) == 1 and not node.keywords):
