@@ -393,7 +393,7 @@ def _geom_box(ax, ctx, params):
 def _geom_bar(ax, ctx, params):
     style, lw = ctx["style"], ctx["lw"]
     error_type = _param(params, "error_type", style, "error_type")
-    width = (style["mark_width"] or 0.6) * ctx["wscale"]
+    width = (_param(params, "mark_width", style, "mark_width") or 0.6) * ctx["wscale"]
     for grp in ctx["groups"]:
         s = grp["summary"]
         err = _err_half(s, error_type)

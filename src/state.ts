@@ -28,8 +28,11 @@ export const dataLoadingAtom = atom<boolean>(false);
 /* the geom registry, fetched once from /health at startup; drives the rail */
 export const registryAtom = atom<Registry | null>(null);
 
-/* must match compiler.PALETTE; the style panel edits copies of it */
-export const DEFAULT_PALETTE = ["#0e7490", "#c2410c", "#4d7c0f", "#7c3aed"];
+/* must match compiler.PALETTE (Okabe–Ito, colourblind-safe); the style panel
+   edits copies of it. Keep these in lockstep with the engine default so the
+   palette swatches show the colours the figure actually draws. */
+export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
+                                "#0072B2", "#D55E00", "#CC79A7", "#000000"];
 
 /* figure-side point selection (click); exclusion goes via right-click menu */
 export const selectedRowIdAtom = atom<string | null>(null);
@@ -117,6 +120,20 @@ export type Channel = "color" | "size" | "shape";
 let _pid = 0;
 const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
 
+/* stable client-only key for steps/layers so React list state (e.g. a card's
+   collapsed/expanded toggle) follows the item across reorder and delete rather
+   than its slot index. Stripped from the spec in buildSpec — never serialized. */
+let _key = 0;
+const nextKey = () => `k_${(_key++).toString(36)}`;
+/* drop the client-only _key at runtime so it never lands in a serialized spec.
+   Returns T (the field stays optional on the type, but the value omits it),
+   which keeps the discriminated ReduceStep union intact for the caller. */
+const stripKey = <T extends { _key?: string }>(o: T): T => {
+  const copy = { ...o };
+  delete copy._key;
+  return copy;
+};
+
 export function makeDefaultPlottable(schema: Schema): Plottable {
   const cats = schema.columns.filter((c) => c.type === "categorical");
   const nums = schema.columns.filter((c) => c.type === "numeric");
@@ -134,7 +151,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
        start unmapped. */
     color: t.family === "group_comparison" ? x : "", size: "", shape: "",
     family: t.family,
-    layers: t.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    layers: t.layers.map((l) => ({ _key: nextKey(), geom: l.geom, params: { ...l.params } })),
     override: null, describeOnly: false,
     preset: "demo_default", style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
@@ -211,7 +228,7 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
     id: p.id,
     title: p.name,
     data: { filter: [], respect_exclusions: true },
-    reduce: p.reduce,
+    reduce: { steps: p.reduce.steps.map(stripKey) },
     encodings: {
       x: p.family === "descriptive" ? null : { column: p.mappings.x },
       y: { column: p.mappings.y },
@@ -220,7 +237,7 @@ export function buildSpec(p: Plottable, rec: TestName | undefined,
       shape: p.shape ? { column: p.shape } : null,
     },
     facet: { row: null, col: null, share_x: true, share_y: true },
-    layers: p.layers,
+    layers: p.layers.map(stripKey),
     stats: {
       family: p.family, test, chosen_by,
       alternatives_offered: tests.filter((t) => t !== test),
@@ -277,9 +294,9 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     mappings: { ...src.mappings },
-    layers: src.layers.map((l) => ({ geom: l.geom, params: { ...l.params } })),
+    layers: src.layers.map((l) => ({ _key: nextKey(), geom: l.geom, params: { ...l.params } })),
     style: structuredClone(src.style),
-    reduce: { steps: structuredClone(src.reduce.steps) },
+    reduce: { steps: structuredClone(src.reduce.steps).map((s) => ({ ...s, _key: nextKey() })) },
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
   set(activePlottableIdAtom, copy.id);
@@ -307,9 +324,9 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
 
 export function makeStep(kind: ReduceStepKind): ReduceStep {
-  if (kind === "select") return { kind, columns: [] };  // starts blank, by design
-  if (kind === "filter") return { kind, conditions: [] };
-  return { kind: "collapse", group_by: [], aggregate: {} };
+  if (kind === "select") return { _key: nextKey(), kind, columns: [] };  // starts blank, by design
+  if (kind === "filter") return { _key: nextKey(), kind, conditions: [] };
+  return { _key: nextKey(), kind: "collapse", group_by: [], aggregate: {} };
 }
 
 export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) => {
@@ -377,7 +394,7 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
   const p = get(activePlottableAtom); if (!p) return;
   const reg = get(registryAtom);
   const params = { ...(reg?.geoms[geom]?.params ?? {}) };
-  set(activePlottableAtom, { ...p, layers: [...p.layers, { geom, params }] });
+  set(activePlottableAtom, { ...p, layers: [...p.layers, { _key: nextKey(), geom, params }] });
 });
 
 export const updateLayerAtom = atom(null,
@@ -413,6 +430,6 @@ export const seedPrimitiveAtom = atom(null, (get, set, geom: Geom) => {
   const nextOverride = prim.family !== p.family ? null : p.override;
   set(activePlottableAtom, {
     ...p, family: prim.family, override: nextOverride, describeOnly: false,
-    layers: [{ geom, params }],
+    layers: [{ _key: nextKey(), geom, params }],
   });
 });

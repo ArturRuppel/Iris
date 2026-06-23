@@ -6,3 +6,4 @@ scipy>=1.11
 pingouin>=0.5.4
 matplotlib>=3.8
 seaborn>=0.13
+openpyxl>=3.1      # pandas Excel engine for .xlsx/.xlsm import (ImportWizard)

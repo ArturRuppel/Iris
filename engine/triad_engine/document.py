@@ -32,10 +32,19 @@ def save_document(schema: dict, rows: list[dict], analyses: list[dict],
     return buf.getvalue()
 
 
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Parse a dotted version to ints so "10.0" > "2.0" compares numerically
+    (a plain string compare would order them lexicographically)."""
+    try:
+        return tuple(int(p) for p in str(v).split("."))
+    except ValueError:
+        return (0,)
+
+
 def load_document(data: bytes) -> dict:
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         manifest = json.loads(z.read("manifest.json"))
-        if manifest.get("format_version", "0") > FORMAT_VERSION:
+        if _version_tuple(manifest.get("format_version", "0")) > _version_tuple(FORMAT_VERSION):
             raise ValueError("document was saved by a newer version")
         schema = json.loads(z.read("data/schema.json"))
         df = pd.read_csv(io.TextIOWrapper(z.open("data/table.csv")))
@@ -79,9 +88,10 @@ def sample_rows() -> list[dict]:
     return rows
 
 
-# ----- wide real-world sample (cells_by_frame): drives the reduction pipeline -----
+# ----- optional wide real-world sample: drives the reduction pipeline -----
+# Off by default — the synthetic dataset above is the shipped sample. Point
+# TRIAD_SAMPLE_CSV at a wide CSV (e.g. cells_by_frame.csv) to serve it instead.
 
-DEFAULT_SAMPLE_CSV = "/home/aruppel/Data/aggregate_quantification/cells_by_frame.csv"
 # columns to treat as identifiers even though they parse as numbers/strings
 _ID_COLS = {"cell_id"}
 _CAT_MAX_CARD = 50  # object columns with <= this many distinct values -> categorical
@@ -114,10 +124,14 @@ def _infer_schema(df: pd.DataFrame) -> dict:
 
 
 def load_sample() -> dict:
-    """Serve the wide cells_by_frame dataset as the sample table. Falls back to
-    the small synthetic dataset if the CSV is not present (e.g. CI, other
-    machines). Override the path with TRIAD_SAMPLE_CSV."""
-    path = Path(os.environ.get("TRIAD_SAMPLE_CSV", DEFAULT_SAMPLE_CSV))
+    """Serve the synthetic sample table by default. If TRIAD_SAMPLE_CSV points
+    at a readable CSV, serve that wide dataset instead (opt-in; useful for
+    exercising the reduction pipeline on real data). Falls back to the synthetic
+    dataset when the env var is unset or the path is missing."""
+    override = os.environ.get("TRIAD_SAMPLE_CSV")
+    if not override:
+        return {"schema": SAMPLE_SCHEMA, "rows": sample_rows()}
+    path = Path(override)
     if not path.exists():
         return {"schema": SAMPLE_SCHEMA, "rows": sample_rows()}
     df = pd.read_csv(path)

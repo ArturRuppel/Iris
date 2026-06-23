@@ -62,6 +62,10 @@ export function FigurePane() {
   useEffect(() => {
     const el = host.current;
     if (!el || !analysis) return;
+    /* The SVG comes from our own localhost matplotlib sidecar (CORS-bound, not a
+       remote origin), and matplotlib XML-escapes all data-derived text, so this
+       injection is trusted. If the figure source ever becomes untrusted, sanitize
+       here before assigning. */
     el.innerHTML = analysis.figure.svg;
     setMenu(null);
     useByRow.current.clear();

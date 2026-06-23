@@ -123,11 +123,12 @@ def reduce_with_trace(
     return out, sch, trace
 
 
+# "count" is intentionally absent: it is handled separately below (the shared
+# group-size `n` column), so it never reaches a per-column `.agg(_AGG[fn])`.
 _AGG = {
     "mean": "mean",
     "median": "median",
     "sum": "sum",
-    "count": "size",
     "sem": lambda s: _scipy_sem(s.to_numpy(dtype=float), nan_policy="omit"),
 }
 

@@ -25,7 +25,13 @@ export type Mark =
 
 export type Geom = Mark; // geom name == existing mark string (dot, box, …)
 
-export interface Layer { geom: Geom; params: Record<string, unknown> }
+export interface Layer {
+  geom: Geom;
+  params: Record<string, unknown>;
+  /* client-only stable React key (see state.nextKey); stripped before the
+     spec is built, so it never reaches the engine or a saved .viz. */
+  _key?: string;
+}
 
 export interface ParamSpec {
   key: string; label: string;
@@ -64,15 +70,18 @@ export interface FilterCond {
 }
 export type AggFn = "mean" | "median" | "count" | "sum" | "sem";
 
+/* _key: client-only stable React key (see state.nextKey); stripped before the
+   spec is built, so it never reaches the engine or a saved .viz. */
 /* keep only these columns, in this order (projection). */
-export interface SelectStep { kind: "select"; columns: string[] }
+export interface SelectStep { kind: "select"; columns: string[]; _key?: string }
 /* drop rows that fail every condition (AND-ed). */
-export interface FilterStep { kind: "filter"; conditions: FilterCond[] }
+export interface FilterStep { kind: "filter"; conditions: FilterCond[]; _key?: string }
 /* group rows, replacing the table with one row per group. */
 export interface CollapseStep {
   kind: "collapse";
   group_by: string[];
   aggregate: Record<string, AggFn>;   // numeric column -> fn; unlisted numerics default to mean
+  _key?: string;
 }
 export type ReduceStep = SelectStep | FilterStep | CollapseStep;
 export type ReduceStepKind = ReduceStep["kind"];

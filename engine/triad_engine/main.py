@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -73,19 +74,23 @@ PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
 
 # In-memory cache of recently-seen tables, keyed by a content hash. Bounds the
 # repeated transfer of large master tables. LRU-ish: keep the last few.
+# Guarded by a lock: uvicorn runs these sync endpoints in a threadpool, so the
+# dict + order-list mutations (and the eviction loop) can otherwise interleave.
 _TABLE_CACHE: dict[str, dict] = {}
 _TABLE_CACHE_ORDER: list[str] = []
 _TABLE_CACHE_MAX = 4
+_TABLE_CACHE_LOCK = threading.Lock()
 
 
 def _cache_table(table: dict) -> str:
     raw = json.dumps(table, separators=(",", ":")).encode()
     token = hashlib.sha1(raw).hexdigest()
-    if token not in _TABLE_CACHE:
-        _TABLE_CACHE[token] = table
-        _TABLE_CACHE_ORDER.append(token)
-        while len(_TABLE_CACHE_ORDER) > _TABLE_CACHE_MAX:
-            _TABLE_CACHE.pop(_TABLE_CACHE_ORDER.pop(0), None)
+    with _TABLE_CACHE_LOCK:
+        if token not in _TABLE_CACHE:
+            _TABLE_CACHE[token] = table
+            _TABLE_CACHE_ORDER.append(token)
+            while len(_TABLE_CACHE_ORDER) > _TABLE_CACHE_MAX:
+                _TABLE_CACHE.pop(_TABLE_CACHE_ORDER.pop(0), None)
     return token
 
 
@@ -94,10 +99,12 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
     Inlining also refreshes the cache so a follow-up token request hits."""
     if table is not None:
         if token:
-            _TABLE_CACHE.setdefault(token, table)
+            with _TABLE_CACHE_LOCK:
+                _TABLE_CACHE.setdefault(token, table)
         return table
-    if token and token in _TABLE_CACHE:
-        return _TABLE_CACHE[token]
+    with _TABLE_CACHE_LOCK:
+        if token and token in _TABLE_CACHE:
+            return _TABLE_CACHE[token]
     raise HTTPException(409, "table not cached; resend full table")
 
 
@@ -308,8 +315,6 @@ def _exit_when_stdin_closes():
 
 
 def main():
-    import threading
-
     import uvicorn
     if os.environ.get("TRIAD_WATCH_STDIN") == "1":
         threading.Thread(target=_exit_when_stdin_closes, daemon=True).start()

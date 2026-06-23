@@ -20,7 +20,7 @@ function LayerItem({ layer, registry, i, last, geomOptions, onMove, onRemove, on
   /* switching geom resets params to that geom's defaults — same result as
      removing the layer and adding the new one, just in place. */
   const retype = (geom: Geom) =>
-    onChange({ geom, params: { ...(registry.geoms[geom]?.params ?? {}) } });
+    onChange({ _key: layer._key, geom, params: { ...(registry.geoms[geom]?.params ?? {}) } });
   return (
     <li className="layer-card">
       <div className="layer-head">
@@ -92,7 +92,7 @@ export function LayerRail() {
 
       <ol className="layer-list">
         {layers.map((layer, i) => (
-          <LayerItem key={i} layer={layer} registry={registry} i={i}
+          <LayerItem key={layer._key ?? i} layer={layer} registry={registry} i={i}
             last={i === layers.length - 1} geomOptions={retypeOptions(layer.geom)}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}

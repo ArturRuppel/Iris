@@ -44,6 +44,20 @@ export function StepFilter(
   const conds = step.conditions;
   const set = (i: number, patch: Partial<FilterStep["conditions"][number]>) =>
     onChange({ ...step, conditions: conds.map((c, j) => (j === i ? { ...c, ...patch } : c)) });
+  /* in/not-in take a list, the scalar ops take a single value. Coerce the value
+     when the op crosses that boundary so the engine never sees a scalar where it
+     wants a list (which 422s) just because the user changed the operator first. */
+  const changeOp = (i: number, op: FilterOp) => {
+    const cur = conds[i];
+    const wasList = cur.op === "in" || cur.op === "not-in";
+    const isList = op === "in" || op === "not-in";
+    let value = cur.value;
+    if (isList && !wasList)
+      value = String(cur.value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    else if (!isList && wasList)
+      value = Array.isArray(cur.value) ? (cur.value[0] ?? "") : cur.value;
+    set(i, { op, value });
+  };
   const add = () => onChange({ ...step,
     conditions: [...conds, { column: columns[0]?.name ?? "", op: "==", value: "" }] });
   const rm = (i: number) =>
@@ -55,7 +69,7 @@ export function StepFilter(
           <select value={f.column} onChange={(e) => set(i, { column: e.target.value })}>
             {columns.map((c) => <option key={c.name} value={c.name}>{c.label}</option>)}
           </select>
-          <select value={f.op} onChange={(e) => set(i, { op: e.target.value as FilterOp })}>
+          <select value={f.op} onChange={(e) => changeOp(i, e.target.value as FilterOp)}>
             {OPS.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
           <input
