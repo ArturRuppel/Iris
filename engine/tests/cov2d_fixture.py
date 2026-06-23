@@ -44,15 +44,19 @@ RIGHT_SCHEMA = {
 
 
 def _build():
-    """Deterministic rows: value = base(class) + experiment offset + small
-    per-cell/frame wiggle, so VimentinKO sits clearly above NLS-mCherry in every
-    replicate (a stable paired separation, no RNG)."""
+    """Deterministic rows: value = base(class) + experiment offset + a
+    per-experiment class lift + small per-cell/frame wiggle. The lift widens the
+    VimentinKO-vs-NLS gap differently per replicate, so the paired differences
+    VARY across the N=3 experiments (a non-degenerate paired t: finite t, p<0.05)
+    rather than being identical (which gives zero variance, t=inf). No RNG."""
     left_rows, right_rows, rid = [], [], 0
     base = {"negative": 100.0, "positive": 60.0}     # negative -> VimentinKO (higher)
+    exp_gap = {"E1": 0.0, "E2": 6.0, "E3": 12.0}     # extra lift on 'negative' per experiment
     for ei, exp in enumerate(["E1", "E2", "E3"]):
         exp_off = 5.0 * ei
         for pos in ["P1", "P2"]:
             for cls in ["negative", "positive"]:
+                lift = exp_gap[exp] if cls == "negative" else 0.0
                 for c in [0, 1]:
                     cell = f"{exp}_{pos}_{cls}_{c}"
                     right_rows.append({"experiment_id": exp, "position_id": pos,
@@ -63,7 +67,7 @@ def _build():
                         left_rows.append({
                             "id": f"r{rid}", "experiment_id": exp,
                             "position_id": pos, "cell_id": cell, "frame": fr,
-                            "value": base[cls] + exp_off + wiggle})
+                            "value": base[cls] + exp_off + lift + wiggle})
     return pd.DataFrame(left_rows), pd.DataFrame(right_rows)
 
 
