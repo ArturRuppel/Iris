@@ -74,6 +74,10 @@ class ReduceRequest(BaseModel):
     # level's grain (e.g. one row per cell) instead of the raw reduced rows.
     hierarchy: dict | None = None
     level: str | None = None
+    # when set, return the table AFTER step index `at_step` (slicing steps[:at_step+1]);
+    # -1 means the raw table before any step. Drives the explorer data tab. Takes
+    # precedence over `level` (flatten-level inspection is a separate node kind).
+    at_step: int | None = None
 
 
 class TablePutRequest(BaseModel):
@@ -493,13 +497,15 @@ def reduce_preview(req: ReduceRequest):
     pipeline editor before any X/Y mapping exists."""
     table = _resolve_table(req.table, req.table_token)
     df, schema = _load_frame(table)
+    steps = req.steps if req.at_step is None else req.steps[: req.at_step + 1]
     try:
-        out, sch, trace = reduce_mod.reduce_with_trace(df, schema, req.steps)
+        out, sch, trace = reduce_mod.reduce_with_trace(df, schema, steps)
     except reduce_mod.ReduceError as e:
         raise HTTPException(422, f"reduction failed: {e}") from e
-    # collapse to the requested hierarchy level (RAW = the reduced rows as-is)
+    # collapse to the requested hierarchy level (RAW = the reduced rows as-is).
+    # Skipped when inspecting an intermediate step: flatten is a separate node.
     spine = hierarchy.spine_present(out, (req.hierarchy or {}).get("spine") or [])
-    if req.level and req.level != hierarchy.RAW and spine:
+    if req.at_step is None and req.level and req.level != hierarchy.RAW and spine:
         levels, _ = hierarchy.materialize_levels(
             out, sch, spine, (req.hierarchy or {}).get("fn"), [])
         out, sch = hierarchy.resolve_level(levels, req.level)

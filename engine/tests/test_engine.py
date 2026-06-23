@@ -879,6 +879,33 @@ def test_reduce_preview_trace_per_step():
     assert "subject" not in cols and "dose" not in cols
 
 
+def test_reduce_preview_at_step_returns_intermediate_table():
+    table = make_table()  # 40 rows, 20 per treatment
+    steps = [
+        {"kind": "filter",
+         "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
+        {"kind": "drop", "columns": ["dose"]},
+    ]
+
+    def cols(body):
+        return [c["name"] for c in body["preview"]["schema"]["columns"]]
+
+    # at_step = -1 → raw table, before any step
+    r0 = client.post("/reduce", json={"table": table, "steps": steps, "at_step": -1})
+    assert r0.status_code == 200 and r0.json()["n_total"] == 40
+    assert "dose" in cols(r0.json())
+
+    # at_step = 0 → after the filter only
+    r1 = client.post("/reduce", json={"table": table, "steps": steps, "at_step": 0})
+    assert r1.json()["n_total"] == 20
+    assert "dose" in cols(r1.json())
+
+    # at_step = 1 → after the drop
+    r2 = client.post("/reduce", json={"table": table, "steps": steps, "at_step": 1})
+    assert r2.json()["n_total"] == 20
+    assert "dose" not in cols(r2.json())
+
+
 def test_reduce_preview_summary_counts():
     table = make_table()
     r = client.post("/reduce", json={"table": table, "steps": []})
