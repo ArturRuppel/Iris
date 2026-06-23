@@ -11,6 +11,9 @@ Quantity-agnostic and pandas-only (no matplotlib, no FastAPI).
 """
 from __future__ import annotations
 
+import ast
+
+import numpy as np
 import pandas as pd
 
 
@@ -90,6 +93,59 @@ def _apply_drop(df: pd.DataFrame, schema: dict,
     return out, new_schema
 
 
+# derive: a deliberately small expression language — arithmetic over column
+# names plus a whitelist of element-wise numpy funcs. No eval/exec; an explicit
+# AST walk so an unsupported construct fails loudly rather than silently.
+_DERIVE_FUNCS = {"log": np.log, "log2": np.log2, "log10": np.log10,
+                 "sqrt": np.sqrt, "exp": np.exp, "abs": np.abs}
+_DERIVE_BINOPS = {
+    ast.Add: lambda a, b: a + b, ast.Sub: lambda a, b: a - b,
+    ast.Mult: lambda a, b: a * b, ast.Div: lambda a, b: a / b,
+    ast.Pow: lambda a, b: a ** b,
+}
+
+
+def _eval_derive(node, df: pd.DataFrame):
+    if isinstance(node, ast.Expression):
+        return _eval_derive(node.body, df)
+    if (isinstance(node, ast.Constant) and not isinstance(node.value, bool)
+            and isinstance(node.value, (int, float))):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id not in df.columns:
+            raise ReduceError(f"derive: unknown column {node.id!r}")
+        return df[node.id]
+    if isinstance(node, ast.BinOp) and type(node.op) in _DERIVE_BINOPS:
+        return _DERIVE_BINOPS[type(node.op)](
+            _eval_derive(node.left, df), _eval_derive(node.right, df))
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_eval_derive(node.operand, df)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and node.func.id in _DERIVE_FUNCS
+            and len(node.args) == 1 and not node.keywords):
+        return _DERIVE_FUNCS[node.func.id](_eval_derive(node.args[0], df))
+    raise ReduceError("derive: unsupported expression")
+
+
+def _apply_derive(df: pd.DataFrame, schema: dict,
+                  step: dict) -> tuple[pd.DataFrame, dict]:
+    col, expr = step.get("column"), step.get("expr")
+    if not col or not expr:
+        raise ReduceError("derive needs a `column` and an `expr`")
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        raise ReduceError(f"derive: malformed expr {expr!r}") from e
+    series = _eval_derive(tree, df)
+    out = df.copy()
+    out[col] = series
+    names = {c["name"] for c in schema["columns"]}
+    if col in names:                       # overwrite: type stays whatever it was
+        return out, schema
+    new_cols = [*schema["columns"], {"name": col, "type": "numeric", "label": col}]
+    return out, {**schema, "columns": new_cols}
+
+
 def _apply_step(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     kind = step.get("kind")
@@ -98,6 +154,8 @@ def _apply_step(df: pd.DataFrame, schema: dict,
     if kind == "filter":
         out = _apply_filter(df, schema, step.get("conditions") or [])
         return out.reset_index(drop=True), schema
+    if kind == "derive":
+        return _apply_derive(df, schema, step)
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
