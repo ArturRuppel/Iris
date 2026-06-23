@@ -53,7 +53,7 @@ def _no_effect() -> dict:
 # for each rank test we recommend, so the picker can refuse to recommend one that
 # cannot resolve and fall back to the parametric counterpart (with a caveat that
 # its normality assumption is unverifiable at this n). See
-# docs/stats-recommendations.md §"The rank-floor guard" for the derivation +
+# docs/guide.md §"The rank-floor guard" for the derivation +
 # sources (GraphPad Prism documents the n ≤ 5 signed-rank case verbatim).
 #
 # Floors (smallest two-sided p attainable):

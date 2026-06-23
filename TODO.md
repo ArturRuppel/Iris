@@ -627,28 +627,40 @@ to n=8 — it had encoded the bug. New validation case `one-sample-rank-floor`
 (3 contacts × 3 reps, one-sample t recomputed against raw scipy) pins the n=3
 recommendation. 363 engine + 24 validation + 91 FE green, typecheck clean.
 
-Docs: `docs/stats-recommendations.md` is the new single source of truth for the
-recommendation rules — structural axis, the Shapiro–Wilk + large-N cap + n<12
-rule, the rank-floor guard (with the derivation, the floor table, and the
+Docs: the recommendation rules — structural axis, the Shapiro–Wilk + large-N cap
++ n<12 rule, the rank-floor guard (with the derivation, the floor table, and the
 equal/unequal-size Kruskal note), the per-family specifics, the override channel,
 a known-failure-modes table, and a full References section with sources for EVERY
 recommendation (Shapiro–Wilk 1965; Ghasemi/Razali on small-n power; GraphPad Prism
 FAQ 1684 + Statistics Guide for the Wilcoxon floor; Delacre/Lakens/Leys for Welch
 default; Hedges, Tukey, Kruskal–Wallis, Holm, Cochran, Cameron–Trivedi,
-SuperPlots/Lord). Surfaced in-app three ways: (1) the floor-aware reason already
-flows to the StatsPanel (GuidedTestPicker shows `decision.assumption.reason`; the
-fallback shows `recommendation.reason`); (2) the stats glossary gained a
-`rank_floor` entry plus floor caveats on the parametric_vs_robust / normality /
-wilcoxon / mann_whitney / spearman / kruskal info-tips; (3) the DOC ITSELF is now
-reachable in the app — a new `StatsMethods` component renders
-`docs/stats-recommendations.md` (bundled via `?raw`, the Examples-gallery
-mechanism; external citation links open in a new tab, dev-facing relative paths
-render as plain text) behind a new top-level **Methods** tab AND a contextual
-"Why this test?" link in the stats pane head (`viewModeAtom` gained `"methods"`).
-BROWSER-VERIFIED (Chromium): new `e2e/methods_test.mjs` drives the Methods tab
-(asserts the rank-floor section, the GraphPad source, and an external link with
-target=_blank) and the stats-pane "Why this test?" link → doc. Full e2e suite
-15/15 green (14 prior + the new one), build clean.
+SuperPlots/Lord) — now live as the "How Iris chooses the test" part of the single
+**Guide** doc (`docs/guide.md`; see the doc-merge note below). Surfaced in-app
+three ways: (1) the floor-aware reason already flows to the StatsPanel
+(GuidedTestPicker shows `decision.assumption.reason`; the fallback shows
+`recommendation.reason`); (2) the stats glossary gained a `rank_floor` entry plus
+floor caveats on the parametric_vs_robust / normality / wilcoxon / mann_whitney /
+spearman / kruskal info-tips; (3) the DOC ITSELF is reachable in the app behind
+the **Guide** tab, with a contextual "Why this test?" link in the stats pane head
+that deep-links to the rules section. BROWSER-VERIFIED (Chromium):
+`e2e/guide_test.mjs` drives the Guide tab (asserts the rank-floor section, the
+GraphPad source, an external link with target=_blank, and the deep-link slug) and
+the stats-pane "Why this test?" link → rules section.
+
+Doc merge (2026-06-23, follow-up): the Examples gallery and the stats Methods doc
+were folded into ONE doc, `docs/guide.md`, rendered by a single `Guide` component
+(`src/examples/Guide.tsx`) behind one **Guide** tab — `StatsMethods.tsx`,
+`ExamplesGallery.tsx`, `src/examples/gallery.md` and `docs/stats-recommendations.md`
+were deleted (no legacy). The doc is reorganised into four topical pillars over a
+shared example pool: Plot types · Data types (what you measured → which family,
+incl. count-of-events vs continuous measurement) · How Iris chooses the test (the
+rules) · Experimental design and nesting (unit of inference, **which level are we
+pairing at?** — within-subject vs shared-session block — pseudoreplication /
+SuperPlots, Simpson). `viewModeAtom` collapsed to `data | analyses | guide`; a new
+`guideAnchorAtom` carries the deep-link target; `rehype-slug` was added so every
+heading gets an id (fixes the previously-dead in-page anchors and powers the
+deep-link). `e2e/methods_test.mjs` → `e2e/guide_test.mjs`; `examples_test.mjs`
+retargeted to the Guide tab.
 
 Still open (separate, pre-existing follow-ups, NOT part of item R): the COV2D
 notebook can now drop its `one_sample_t` override workaround once it adopts the

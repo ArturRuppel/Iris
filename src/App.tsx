@@ -10,8 +10,7 @@ import { LayerRail } from "./components/LayerRail";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
-import { ExamplesGallery } from "./examples/ExamplesGallery";
-import { StatsMethods } from "./components/StatsMethods";
+import { Guide } from "./examples/Guide";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
@@ -394,8 +393,7 @@ export default function App() {
         <div className="mode-toggle">
           <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
           <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
-          <button className={viewMode === "examples" ? "active" : ""} onClick={() => setViewMode("examples")}>Examples</button>
-          <button className={viewMode === "methods" ? "active" : ""} onClick={() => setViewMode("methods")}>Methods</button>
+          <button className={viewMode === "guide" ? "active" : ""} onClick={() => setViewMode("guide")}>Guide</button>
         </div>
         <div className="controls">
           <ImportWizard />
@@ -416,10 +414,8 @@ export default function App() {
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
       <main>
-        {viewMode === "methods" ? (
-          <div className="examples-mode"><StatsMethods /></div>
-        ) : viewMode === "examples" ? (
-          <div className="examples-mode"><ExamplesGallery onOpen={handleOpenExample} /></div>
+        {viewMode === "guide" ? (
+          <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
         ) : viewMode === "data" ? (
           <div className="data-mode"><HierarchyPanel /><DataTable /></div>
         ) : dataLoading ? (

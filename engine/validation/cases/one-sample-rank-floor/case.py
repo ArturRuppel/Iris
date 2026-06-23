@@ -14,7 +14,7 @@ clearly-enriched lanes star, while the chance-centred lane stays n.s. Under the
 old (buggy) recommendation all three lanes would have read n.s.
 
 Ground truth recomputed independently with raw scipy (never echoing Iris) — see
-NOTES. The rank-floor arithmetic (2/2ⁿ) is documented in docs/stats-recommendations.md
+NOTES. The rank-floor arithmetic (2/2ⁿ) is documented in docs/guide.md
 and by GraphPad Prism (FAQ 1684), which reports the floor rather than recommending
 the test at this N.
 """

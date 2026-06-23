@@ -35,13 +35,13 @@ const page = await browser.newPage();
 await page.addInitScript(installSavePickerStub);
 await page.goto(URL);
 
-// Switch to the Examples view.
-await page.getByRole("button", { name: "Examples" }).click();
+// Switch to the Guide view.
+await page.getByRole("button", { name: "Guide" }).click();
 
 // An inline plot SVG must render (no unknown-example placeholders).
 await page.waitForSelector(".gallery-figure svg", { timeout: 10_000 });
 const missing = await page.locator(".gallery-missing").count();
-if (missing > 0) fail(`${missing} unresolved example token(s) in gallery.md`);
+if (missing > 0) fail(`${missing} unresolved example token(s) in guide.md`);
 
 // Open the first example into the session.
 await page.locator(".gallery-open-btn").first().click();

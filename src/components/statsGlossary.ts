@@ -3,7 +3,7 @@
    `read` render as labelled lines when present. See the design spec:
    docs/superpowers/specs/2026-06-17-stats-info-boxes-design.md
    The full recommendation rules (thresholds, rationale, sources, failure modes)
-   live in docs/stats-recommendations.md — keep this copy consistent with it.
+   live in docs/guide.md — keep this copy consistent with it.
    Copy lives here (not inline in JSX) so the prose is reviewable in one place. */
 
 export interface GlossaryEntry {
@@ -24,7 +24,7 @@ export const STATS_GLOSSARY = {
     term: "Parametric vs robust",
     what: "Parametric tests (t-test, ANOVA, Pearson) assume the data follow a normal distribution and compare means. Robust / rank-based tests (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon) make no normality assumption — they compare ranks, so they tolerate skew and outliers.",
     read: "Iris recommends parametric when the normality check passes and the sample is large enough to trust it; otherwise robust. Either is valid to report — the override lets you switch.",
-    assumes: "At very small n a rank test can't reach significance no matter the data (e.g. Wilcoxon needs ≥ 6 pairs to cross p = 0.05). When that happens Iris recommends the parametric test instead and flags that normality is unverifiable — the “rank-floor guard”. Full rules + sources are in the Methods tab.",
+    assumes: "At very small n a rank test can't reach significance no matter the data (e.g. Wilcoxon needs ≥ 6 pairs to cross p = 0.05). When that happens Iris recommends the parametric test instead and flags that normality is unverifiable — the “rank-floor guard”. Full rules + sources are in the Guide tab.",
   },
   rank_floor: {
     term: "Rank-floor guard",

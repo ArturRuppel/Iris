@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { activePlottableAtom, analysisAtom, viewModeAtom } from "../state";
+import { activePlottableAtom, analysisAtom, guideAnchorAtom, viewModeAtom } from "../state";
 import type { StatsResult, TestName } from "../types";
 import { InfoTip } from "./InfoTip";
 import { GuidedTestPicker, overrideFor } from "./GuidedTestPicker";
@@ -156,6 +156,7 @@ export function StatsPanel() {
   const analysis = useAtomValue(analysisAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
   const setViewMode = useSetAtom(viewModeAtom);
+  const setGuideAnchor = useSetAtom(guideAnchorAtom);
   const setOverride = (t: TestName | null) => active && setActive({ ...active, override: t });
   const setDescribeOnly = (v: boolean) =>
     active && setActive({ ...active, describeOnly: v });
@@ -182,7 +183,7 @@ export function StatsPanel() {
         <h2>Statistics</h2>
         <button type="button" className="link-btn methods-link"
           title="How Iris recommends a test — rules, thresholds, and sources"
-          onClick={() => setViewMode("methods")}>
+          onClick={() => { setGuideAnchor("how-iris-chooses-the-test"); setViewMode("guide"); }}>
           Why this test?
         </button>
       </div>

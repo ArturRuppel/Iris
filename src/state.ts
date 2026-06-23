@@ -194,7 +194,12 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
 
 export const plottablesAtom = atom<Plottable[]>([]);
 export const activePlottableIdAtom = atom<string | null>(null);
-export const viewModeAtom = atom<"data" | "analyses" | "examples" | "methods">("data");
+export const viewModeAtom = atom<"data" | "analyses" | "guide">("data");
+
+/* a pending in-page jump for the Guide tab: set by the stats pane's "Why this
+   test?" link to a heading slug, consumed (and cleared) by the Guide once it
+   mounts so it scrolls straight to the relevant rules section. */
+export const guideAnchorAtom = atom<string | null>(null);
 
 export const activePlottableAtom = atom(
   (get): Plottable | null => {
