@@ -66,3 +66,26 @@ def test_pairing_flip_none_when_verdict_unchanged():
     v = hierarchy.pairing_flip(df, PSPINE, "group",
         default_grain="subject", chosen_grain="subject")
     assert v["flipped"] is False
+
+def test_identity_merge_flags_dropping_field_keeping_cell():
+    df = _df()
+    plan = [{"keep": ["experiment", "field", "cell"], "fn": "median"},
+            {"keep": ["experiment", "cell"], "fn": "median"}]
+    out = hierarchy.identity_merge(df, _schema(), SPINE, plan)
+    assert len(out) == 1
+    m = out[0]
+    assert m["dim"] == "field"
+    assert m["before"] == df.groupby(["experiment", "cell", "field"]).ngroups  # 24
+    assert m["after"] == df.groupby(["experiment", "cell"]).ngroups            # 12
+    assert m["after"] < m["before"]
+
+def test_identity_merge_exempts_numeric_coordinate():
+    df = _df()
+    plan = [{"keep": ["experiment", "field", "cell", "frame"], "fn": "mean"},
+            {"keep": ["experiment", "field", "frame"], "fn": "mean"}]
+    assert hierarchy.identity_merge(df, _schema(), SPINE, plan) == []
+
+def test_identity_merge_clear_for_default_chain():
+    df = _df()
+    assert hierarchy.identity_merge(
+        df, _schema(), SPINE, hierarchy.default_plan(SPINE, {})) == []

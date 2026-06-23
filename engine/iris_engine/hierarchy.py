@@ -332,3 +332,35 @@ def pairing_flip(df: pd.DataFrame, spine: list[str], qualifier: str | None,
                      inferential_level=_grain_inferential_level(chosen_grain))
     return {"flipped": frm is not None and to is not None and frm != to,
             "from": frm, "to": to, "across": (chosen or {}).get("across")}
+
+
+def identity_merge(df: pd.DataFrame, schema: dict, spine: list[str],
+                   plan: list[dict]) -> list[dict]:
+    """#4: dropping a dim D merges distinct units ONLY when a KEPT dim finer than
+    D is an `identifier` (its labels may repeat across D) and loses distinctness.
+    Numeric/coordinate kept dims never trigger it; dropping a dim with no finer
+    kept identifier (the default chain, or pooling with nothing finer kept) is
+    exempt. Detection is exact: distinct count of (kept identifiers) with vs
+    without D."""
+    types = {c["name"]: c["type"] for c in schema["columns"]}
+    present = spine_present(df, spine)
+    pos = {d: i for i, d in enumerate(present)}
+    merges: list[dict] = []
+    prev = list(present)            # raw carries the full spine identity
+    for step in plan:
+        keep = [c for c in step["keep"] if c in present]
+        removed = [d for d in prev if d not in keep]
+        kept_ids = [d for d in keep if types.get(d) == "identifier"]
+        for dim in removed:
+            if dim not in pos:
+                continue
+            finer_kept_ids = [c for c in kept_ids if pos[c] > pos[dim]]
+            if not finer_kept_ids:
+                continue            # nothing finer kept -> intentional pooling
+            before = df.groupby(kept_ids + [dim], observed=True).ngroups
+            after = df.groupby(kept_ids, observed=True).ngroups
+            if after < before:
+                merges.append({"dim": dim, "kept": kept_ids,
+                               "before": int(before), "after": int(after)})
+        prev = keep
+    return merges
