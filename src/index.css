@@ -597,10 +597,9 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background: #fafbfc;
   border-bottom: 1px solid #e2e8f0;
 }
-.tx-explorer { position: relative; padding: 8px 4px 46px; overflow-x: auto; }
-.tx-line { display: flex; align-items: center; gap: 6px; list-style: none; margin: 0; padding: 0; }
-.tx-node-wrap { display: flex; align-items: center; gap: 6px; }
-.tx-arrow { color: #94a3b8; font-size: 14px; user-select: none; }
+.tx-explorer { position: relative; padding: 10px 8px 56px; overflow-x: auto; }
+.tx-line { display: flex; align-items: center; gap: 64px; list-style: none; margin: 0; padding: 0; width: max-content; }
+.tx-node-wrap { display: flex; align-items: center; }
 .tx-node {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 5px 10px; border-radius: 6px; font-size: 12px; line-height: 1;

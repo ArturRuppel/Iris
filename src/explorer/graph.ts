@@ -57,6 +57,17 @@ const GEOM_LABEL: Record<string, string> = {
 };
 const geomLabel = (geom: string): string => GEOM_LABEL[geom] ?? geom;
 
+/* engine test id -> readable edge label. Unknown ids fall back to a de-snaked
+   form ("foo_bar" -> "foo bar") so a new test still reads sensibly. */
+const TEST_LABEL: Record<string, string> = {
+  welch_t: "Welch's t-test", students_t: "Student's t-test",
+  student_t: "Student's t-test", paired_t: "paired t-test",
+  mann_whitney: "Mann–Whitney", wilcoxon: "Wilcoxon",
+  anova: "ANOVA", welch_anova: "Welch ANOVA", kruskal: "Kruskal–Wallis",
+};
+const testLabel = (test: string): string =>
+  TEST_LABEL[test] ?? test.replace(/_/g, " ");
+
 export function buildGraph(
   steps: ReduceStep[],
   hierarchy: Hierarchy,
@@ -117,7 +128,7 @@ export function buildGraph(
     .filter((i) => i >= 0);
   const testFromId = boundIdx.length ? levelId(spine[Math.min(...boundIdx)]) : rawNodeId;
   edges.push({ id: "t:test", kind: "test",
-    label: stats?.describeOnly ? "describe" : (stats?.test ?? "describe"),
+    label: stats?.describeOnly ? "describe" : (stats?.test ? testLabel(stats.test) : "describe"),
     fromId: testFromId, toId: STATS_ID });
 
   return { nodes, edges };

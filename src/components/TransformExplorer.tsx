@@ -40,10 +40,6 @@ export function TransformExplorer() {
 
     const measure = () => {
       const cb = cont.getBoundingClientRect();
-      // index of each node on the line, to detect immediate-neighbor (chain) edges.
-      const order = new Map<string, number>();
-      graph.nodes.forEach((n, i) => order.set(n.id, i));
-
       const next: DrawnEdge[] = [];
       let belowIdx = 0;  // staggers below-line edges so they don't overlap.
 
@@ -54,32 +50,31 @@ export function TransformExplorer() {
         const fb = from.getBoundingClientRect();
         const tb = to.getBoundingClientRect();
 
-        const fi = order.get(e.fromId) ?? 0;
-        const ti = order.get(e.toId) ?? 0;
-        const isChain = ti - fi === 1;  // immediate left neighbor
         const color = EDGE_COLOR[e.kind];
+        // Classify by KIND, not position: filter/drop/collapse run along the
+        // line (table -> table); geom/test branch down to the terminals.
+        const isBranch = e.kind === "geom" || e.kind === "test";
 
-        if (isChain) {
-          // short hop ABOVE the row: right-edge-of-from -> left-edge-of-to.
+        if (!isBranch) {
+          // chain: a horizontal connector in the gap, right-edge-of-from ->
+          // left-edge-of-to at the nodes' vertical centre, label above it.
           const sx = fb.right - cb.left;
-          const sy = fb.top - cb.top;
           const ex = tb.left - cb.left;
-          const ey = tb.top - cb.top;
-          const lift = Math.min(sy, ey) - 14;  // bow up above the line
+          const cy = (fb.top + fb.bottom) / 2 - cb.top;
           const mx = (sx + ex) / 2;
           next.push({
             id: e.id, kind: e.kind, color, label: e.label,
-            d: `M ${sx} ${sy} C ${sx} ${lift} ${ex} ${lift} ${ex} ${ey}`,
-            lx: mx, ly: lift - 3,
+            d: `M ${sx} ${cy} L ${ex} ${cy}`,
+            lx: mx, ly: cy - 7,
           });
         } else {
-          // long span (geom/test, often skipping nodes): bow BELOW the line,
-          // staggered by belowIdx so multiple paths/labels don't overlap.
+          // branch (geom -> plot, test -> stats): bow BELOW the line, staggered
+          // by belowIdx so multiple paths/labels don't overlap.
           const sx = fb.left - cb.left + fb.width / 2;
           const sy = fb.bottom - cb.top;
           const ex = tb.left - cb.left + tb.width / 2;
           const ey = tb.bottom - cb.top;
-          const dip = Math.max(sy, ey) + 22 + belowIdx * 14;
+          const dip = Math.max(sy, ey) + 20 + belowIdx * 17;
           belowIdx += 1;
           const mx = (sx + ex) / 2;
           next.push({
