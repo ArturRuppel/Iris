@@ -360,14 +360,10 @@ Expected: FAIL — no attribute `pseudoreplication`.
 Add to `engine/iris_engine/hierarchy.py`. The guard only counts rows, so a minimal numeric schema over the present columns is enough (grouping identity comes from the column values, not schema types):
 
 ```python
-def _grain_n(grains: dict, key: str) -> int:
-    tbl = grains.get(key)
-    return int(len(tbl[0])) if tbl else 0
-
-
-def _coarsest_grain(grains: dict) -> str:
+def _coarsest_grain(grains) -> str:
     """The grain with the fewest kept dims, excluding raw ('' is the finest, not
-    the coarsest, so it only wins when it is the only node)."""
+    the coarsest, so it only wins when it is the only node). `grains` is any
+    iterable of grain keys (a dict or a list)."""
     non_raw = [k for k in grains if k]
     return min(non_raw, key=lambda k: len(k.split("/"))) if non_raw else RAW
 
@@ -375,15 +371,20 @@ def _coarsest_grain(grains: dict) -> str:
 def pseudoreplication(df: pd.DataFrame, plan: list[dict], test_grain: str) -> dict:
     """#1: the test reads a grain finer than the coarsest available node, so its
     units are nested in a coarser one (correlated measurements treated as
-    independent). Returns the risk flag with n at the chosen grain vs the
-    coarsest, plus the coarsest grain key — enough to name the safer option."""
-    cols = [{"name": c, "type": "numeric", "label": c}
-            for c in df.columns if c != "id"]
-    grains = materialize_plan(df, {"schema_version": "1.0", "columns": cols}, plan, [])
-    coarsest = _coarsest_grain(grains)
+    independent). n at a grain is its distinct-group count — path-independent, so
+    we count directly with groupby (no aggregation, no schema, so string spine
+    columns can't trip an aggregate). Returns the risk flag, n at the chosen vs
+    coarsest grain, and the coarsest grain key — enough to name the safer option."""
+    keys = [RAW] + [_grain_key([c for c in s["keep"] if c in df.columns]) for s in plan]
+
+    def n_for(key: str) -> int:
+        dims = [d for d in key.split("/") if d in df.columns] if key else []
+        return int(df.groupby(dims, observed=True).ngroups) if dims else int(len(df))
+
+    coarsest = _coarsest_grain(keys)
     return {"risk": test_grain != coarsest,
-            "n_test": _grain_n(grains, test_grain),
-            "n_coarsest": _grain_n(grains, coarsest),
+            "n_test": n_for(test_grain),
+            "n_coarsest": n_for(coarsest),
             "coarsest_grain": coarsest}
 ```
 
