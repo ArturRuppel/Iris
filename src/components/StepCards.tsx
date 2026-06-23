@@ -3,6 +3,8 @@ import type {
   ColumnDef, FilterOp, DropStep, FilterStep,
 } from "../types";
 
+// is-null/not-null are valid FilterOps but not yet offered in the UI
+// (spec-authored only) — deferred with the inline-editing follow-up.
 const OPS: FilterOp[] = ["==", "!=", "<", "<=", ">", ">=", "in", "not-in"];
 
 const orderBy = (cols: ColumnDef[], chosen: Set<string>) =>
@@ -54,7 +56,7 @@ export function StepFilter(
     if (isList && !wasList)
       value = String(cur.value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (!isList && wasList)
-      value = Array.isArray(cur.value) ? (cur.value[0] ?? "") : cur.value;
+      value = Array.isArray(cur.value) ? (cur.value[0] ?? "") : (cur.value ?? "");
     set(i, { op, value });
   };
   const add = () => onChange({ ...step,
@@ -72,7 +74,7 @@ export function StepFilter(
             {OPS.map((o) => <option key={o} value={o}>{o}</option>)}
           </select>
           <input
-            value={Array.isArray(f.value) ? f.value.join(",") : String(f.value)}
+            value={Array.isArray(f.value) ? f.value.join(",") : String(f.value ?? "")}
             placeholder={f.op === "in" || f.op === "not-in" ? "a, b, c" : "value"}
             onChange={(e) => set(i, {
               value: f.op === "in" || f.op === "not-in"

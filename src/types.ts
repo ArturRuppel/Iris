@@ -184,12 +184,15 @@ export interface Issue {
 }
 
 /* ---- reduction: an ordered pipeline of steps applied top-to-bottom ----
-   each step transforms the output of the one above (spec_version 1.3). */
-export type FilterOp = "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in";
+   each step transforms the output of the one above (the spec_version 2.0
+   reduce steps: drop / filter / derive / recode / join). */
+export type FilterOp =
+  | "==" | "!=" | "<" | "<=" | ">" | ">=" | "in" | "not-in"
+  | "is-null" | "not-null";
 export interface FilterCond {
   column: string;
   op: FilterOp;
-  value: string | number | (string | number)[]; // array only for in / not-in
+  value?: string | number | (string | number)[]; // absent for is-null / not-null
 }
 
 /* _key on the step types is a client-only stable React key (see state.nextStepKey);
@@ -198,10 +201,19 @@ export interface FilterCond {
 export interface DropStep { kind: "drop"; columns: string[]; _key?: string }
 /* drop rows that fail every condition (AND-ed). */
 export interface FilterStep { kind: "filter"; conditions: FilterCond[]; _key?: string }
+/* derive a new (or overwritten) numeric column from a row-wise scalar expr
+   over existing columns: "log(value)", "perimeter / sqrt(area)". Raw-grain. */
+export interface DeriveStep { kind: "derive"; column: string; expr: string; _key?: string }
+/* relabel a categorical column's values (level -> level); unmapped pass through. */
+export interface RecodeStep { kind: "recode"; column: string; map: Record<string, string>; _key?: string }
+/* inner, spine-aligned, coarse->fine broadcast join; the right table rides inline. */
+export interface JoinStep {
+  kind: "join"; on: string[]; how: "inner"; right: Table; _key?: string;
+}
 /* Reduction only filters/projects rows — it never aggregates. Coarsening to a
    grain is the data hierarchy's job (pick a level), so the figure and the stats
    read one shared grain rather than a destructive collapse. */
-export type ReduceStep = DropStep | FilterStep;
+export type ReduceStep = DropStep | FilterStep | DeriveStep | RecodeStep | JoinStep;
 export type ReduceStepKind = ReduceStep["kind"];
 
 export interface ReduceSpec { steps: ReduceStep[] } // [] means the full table

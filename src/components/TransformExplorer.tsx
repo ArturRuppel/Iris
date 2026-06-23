@@ -8,10 +8,10 @@ import type { EdgeKind } from "../explorer/graph";
    TRANSFORMATIONS (filter/drop/collapse/geom/test). Edges are drawn as colored,
    labeled SVG arrows measured from the live DOM. */
 const EDGE_COLOR: Record<EdgeKind, string> = {
-  filter: "#e11d48", drop: "#d97706", collapse: "#7c3aed",
-  geom: "#0e7490", test: "#4f46e5",
+  filter: "#e11d48", drop: "#d97706", derive: "#16a34a", recode: "#ca8a04", join: "#0891b2",
+  collapse: "#7c3aed", geom: "#0e7490", test: "#4f46e5",
 };
-const EDGE_KINDS: EdgeKind[] = ["filter", "drop", "collapse", "geom", "test"];
+const EDGE_KINDS: EdgeKind[] = ["filter", "drop", "derive", "recode", "join", "collapse", "geom", "test"];
 
 /* A laid-out edge: its `d` path, its color, and the label + label position. */
 interface DrawnEdge {
