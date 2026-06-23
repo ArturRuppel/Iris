@@ -5,10 +5,11 @@ import {
   AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef,
 } from "ag-grid-community";
 import {
-  activePlottableAtom, effectiveSchemaAtom, hierarchyAtom, reducePreviewAtom,
+  activePlottableAtom, hierarchyAtom, reducePreviewAtom,
   selectedNodeIdAtom, tableHandleAtom,
 } from "../state";
-import { buildGraph, type ExplorerNode } from "../explorer/graph";
+import { explorerGraphAtom } from "../explorer/graphAtom";
+import type { ExplorerNode } from "../explorer/graph";
 import { engine, type Table } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -69,46 +70,50 @@ function Grid({ table, total }: { table: Table; total: number }) {
 export function DataTab() {
   const active = useAtomValue(activePlottableAtom);
   const hierarchy = useAtomValue(hierarchyAtom);
-  const schemaFull = useAtomValue(effectiveSchemaAtom);
   const handle = useAtomValue(tableHandleAtom);
   const preview = useAtomValue(reducePreviewAtom);
   const selectedId = useAtomValue(selectedNodeIdAtom);
 
   /* the same graph TransformExplorer renders, so node ids line up exactly. */
-  const graph = useMemo(
-    () => active
-      ? buildGraph(active.reduce.steps, hierarchy, active.layers, schemaFull)
-      : null,
-    [active, hierarchy, schemaFull],
-  );
+  const graph = useAtomValue(explorerGraphAtom);
 
-  /* the selected node, falling back to outputs (the final reduced table) when
-     nothing is selected or the id is stale. */
+  /* the selected node, falling back to the plot node (the final reduced table)
+     when nothing is selected or the id is stale. */
   const node: ExplorerNode | null = useMemo(() => {
     if (!graph) return null;
     return graph.nodes.find((n) => n.id === selectedId)
-      ?? graph.nodes.find((n) => n.kind === "outputs")
+      ?? graph.nodes.find((n) => n.kind === "plot")
       ?? null;
   }, [graph, selectedId]);
 
-  /* fetched intermediate table for source/filter/drop/flatten nodes. The outputs
-     node uses the live reducePreviewAtom instead (no fetch). */
+  /* fetched intermediate table for source/step/collapse nodes. The terminal
+     plot/stats nodes use the live reducePreviewAtom instead (no fetch). */
   const [table, setTable] = useState<Table | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  /* Clear the fetched table the instant the selected node changes — during
+     render, before paint — so the previous node's rows never flash for a frame
+     under the new node's label (the async fetch effect runs only after paint). */
+  const fetchableId = node && node.table.via !== "none" ? node.id : null;
+  const [shownFor, setShownFor] = useState<string | null>(fetchableId);
+  if (fetchableId !== shownFor) {
+    setShownFor(fetchableId);
+    setTable(null);
+  }
+
   const fetchKey = node && node.table.via !== "none"
-    ? JSON.stringify([node.table, active?.reduce.steps, hierarchy])
+    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, hierarchy])
     : null;
 
   useEffect(() => {
     if (!handle || !active || !node || node.table.via === "none") {
-      setTable(null); setErr(null); return;
+      setTable(null); setLoading(false); setErr(null); return;
     }
     let cancelled = false;
     const steps = active.reduce.steps;
-    setLoading(true); setErr(null);
+    setTable(null); setLoading(true); setErr(null);
     void (async () => {
       try {
         const tbl = node.table;
@@ -134,7 +139,7 @@ export function DataTab() {
 
   if (!active || !node) return <div className="reduced-empty">Building preview…</div>;
 
-  // outputs (or a no-table node) → the live final reduced table.
+  // plot/stats (or a no-table node) → the live final reduced table.
   if (node.table.via === "none") {
     if (!preview) return <div className="reduced-empty">Building preview…</div>;
     return <Grid table={preview.preview} total={preview.n_total} />;
