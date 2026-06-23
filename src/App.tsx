@@ -29,11 +29,11 @@ const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
 }) as Record<string, string>;
 
-function Section({ title, defaultOpen, children }:
-  { title: string; defaultOpen?: boolean; children: React.ReactNode }) {
+function Section({ title, defaultOpen, id, children }:
+  { title: string; defaultOpen?: boolean; id?: string; children: React.ReactNode }) {
   const [open, setOpen] = useState(!!defaultOpen);
   return (
-    <section className="iris-section">
+    <section className="iris-section" id={id}>
       <button className="section-header" onClick={() => setOpen((o) => !o)}>
         <span className="chevron">{open ? "▾" : "▸"}</span> {title}
       </button>
@@ -444,6 +444,9 @@ export default function App() {
         : renderError ? <div className="error-bar">{renderError}</div>
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
+      {viewMode === "analyses" && !dataLoading && active && (
+        <div className="tx-strip"><TransformExplorer /></div>
+      )}
       <main>
         {viewMode === "guide" ? (
           <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
@@ -463,12 +466,9 @@ export default function App() {
             <PlottableSidebar />
             <LayerRail />
             <div className="iris">
-              <Section title="Transformation" defaultOpen>
-                <TransformExplorer />
-                <DataTab />
-              </Section>
-              <Section title="Figure" defaultOpen><FigurePane /></Section>
-              <Section title="Statistics" defaultOpen><StatsPanel /></Section>
+              <Section title="Table" defaultOpen><DataTab /></Section>
+              <Section title="Figure" defaultOpen id="section-figure"><FigurePane /></Section>
+              <Section title="Statistics" defaultOpen id="section-stats"><StatsPanel /></Section>
             </div>
           </div>
         )}

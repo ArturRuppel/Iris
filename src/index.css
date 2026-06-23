@@ -587,6 +587,16 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background: #fff7ed; border: 1px dashed var(--warn); border-radius: 5px; }
 
 /* ---- transformation explorer node line ---- */
+/* Full-bleed strip directly under the header/error-bar: a direct child of the
+   `.app` flex column, so it spans the full app width like <header>/.error-bar.
+   Horizontal scroll lets a long node line overflow without widening the page. */
+.tx-strip {
+  flex: none;
+  overflow-x: auto;
+  padding: 0.6rem 1rem;
+  background: #fafbfc;
+  border-bottom: 1px solid #e2e8f0;
+}
 .tx-explorer { position: relative; padding: 8px 4px 46px; overflow-x: auto; }
 .tx-line { display: flex; align-items: center; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .tx-node-wrap { display: flex; align-items: center; gap: 6px; }
