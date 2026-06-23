@@ -82,39 +82,61 @@ def _level_table(src: pd.DataFrame, schema: dict, grain: list[str],
     return out.reset_index(drop=True), {**schema, "columns": new_cols}
 
 
+def _grain_key(kept: list[str]) -> str:
+    """Kept dims (already in spine order) joined by '/'; '' = raw."""
+    return "/".join(kept)
+
+
+def default_plan(spine: list[str], fn: dict | None = None) -> list[dict]:
+    """The forced chain as a plan: full-spine prefix chain, finest -> coarsest.
+    Step i keeps the prefix spine[:i] for i = len..1; fn from the finest kept dim."""
+    fn = fn or {}
+    return [{"keep": list(spine[:i]), "fn": fn.get(spine[i - 1], "mean")}
+            for i in range(len(spine), 0, -1)]
+
+
+def materialize_plan(
+    df: pd.DataFrame, schema: dict, plan: list[dict],
+    split_cols: list[str] | None = None,
+) -> dict[str, tuple[pd.DataFrame, dict]]:
+    """General collapse: walk `plan` (ordered steps `{keep, fn}`) from raw. Each
+    step groups the *previous* table by its `keep` dims (+ split) and aggregates
+    with the step's `fn` via `_level_table` — so collapsing stays nested
+    (median-of-medians), the step list is the routing, and a step may drop several
+    dims (a pooled skip) or keep a finer dim while dropping a coarser one (a
+    non-prefix grain). Returns one (df, schema) per step, keyed by grain key
+    (kept dims joined by '/', '' = raw)."""
+    split = [c for c in (split_cols or []) if c in df.columns]
+    raw = df.copy()
+    raw["row_ids"] = [[i] for i in raw["id"].tolist()]
+    grains: dict[str, tuple[pd.DataFrame, dict]] = {RAW: (raw, schema)}
+
+    src, src_schema = raw, schema
+    for step in plan:
+        keep = [c for c in step["keep"] if c in df.columns]
+        if not keep:
+            continue
+        grain = list(dict.fromkeys(keep + split))
+        agg = step.get("fn") if step.get("fn") in _AGG else "mean"
+        tbl = _level_table(src, src_schema, grain, agg)
+        grains[_grain_key(keep)] = tbl
+        src, src_schema = tbl
+    return grains
+
+
 def materialize_levels(
     df: pd.DataFrame, schema: dict, spine: list[str],
     fn: dict[str, str] | None = None, split_cols: list[str] | None = None,
 ) -> tuple[dict[str, tuple[pd.DataFrame, dict]], list[str]]:
-    """All level tables, keyed by level name. `RAW` ("") is the unaggregated
-    reduced frame; each spine column maps to its prefix grain. `split_cols`
-    (the qualifiers a figure compares/colours/facets by) are always retained in
-    the grain so a coarse level can still be split horizontally — without them a
-    coarse table would have averaged the comparison away.
-
-    Tables are built **finest → coarsest**: each level aggregates the table of
-    the next-finer level (the finest aggregates RAW), so collapsing is sequential
-    — a coarse value summarizes the finer summaries (median-of-medians, each
-    child equally weighted), not a pool of raw leaves.
-
-    Returns (levels, present_spine)."""
-    fn = fn or {}
-    split = [c for c in (split_cols or []) if c in df.columns]
+    """The forced finest -> coarsest chain, kept for callers that key levels by a
+    single spine-column name. Thin adapter over `materialize_plan` + the default
+    plan."""
     present = spine_present(df, spine)
-
-    raw = df.copy()
-    raw["row_ids"] = [[i] for i in raw["id"].tolist()]
-    levels: dict[str, tuple[pd.DataFrame, dict]] = {RAW: (raw, schema)}
-
-    src, src_schema = raw, schema
-    for i in range(len(present) - 1, -1, -1):   # finest → coarsest, nesting upward
-        # dict.fromkeys dedupes split against the prefix *and* against itself, so a
-        # column used for several encodings can't land in the grain twice (which
-        # would make reset_index fail to re-insert a duplicated index level).
-        grain = list(dict.fromkeys(present[: i + 1] + split))
-        tbl = _level_table(src, src_schema, grain, fn.get(present[i], "mean"))
-        levels[present[i]] = tbl
-        src, src_schema = tbl   # the next (coarser) level nests on this one
+    grains = materialize_plan(df, schema, default_plan(present, fn or {}), split_cols)
+    levels: dict[str, tuple[pd.DataFrame, dict]] = {}
+    for key, tbl in grains.items():
+        kept = key.split("/") if key else []
+        levels[kept[-1] if kept else RAW] = tbl
     return levels, present
 
 
