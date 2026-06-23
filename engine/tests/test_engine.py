@@ -918,7 +918,16 @@ def test_reduce_preview_summary_counts():
 def test_reduce_preview_error_is_422():
     r = client.post("/reduce", json={
         "table": make_table(),
-        "steps": [{"kind": "select", "columns": ["ghost"]}]})
+        "steps": [{"kind": "drop", "columns": ["ghost"]}]})
+    assert r.status_code == 422
+
+
+def test_reduce_preview_at_step_below_minus_one_is_422():
+    r = client.post("/reduce", json={
+        "table": make_table(),
+        "steps": [{"kind": "filter",
+                   "conditions": [{"column": "treatment", "op": "==", "value": "control"}]}],
+        "at_step": -2})
     assert r.status_code == 422
 
 

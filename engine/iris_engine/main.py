@@ -495,6 +495,8 @@ def reduce_preview(req: ReduceRequest):
     """Preview-only: apply the reduction steps and return the (capped) reduced
     table plus a per-step trace, with no figure/stats render. Drives the live
     pipeline editor before any X/Y mapping exists."""
+    if req.at_step is not None and req.at_step < -1:
+        raise HTTPException(422, "at_step must be >= -1")
     table = _resolve_table(req.table, req.table_token)
     df, schema = _load_frame(table)
     steps = req.steps if req.at_step is None else req.steps[: req.at_step + 1]

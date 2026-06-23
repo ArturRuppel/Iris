@@ -412,7 +412,7 @@ export interface AnalyzeResponse {
 }
 
 /* Upgrade a serialized analysis to spec_version 2.0. Legacy reduce shapes become
-   the ordered steps[] pipeline (filter/select only — aggregation moved to the
+   the ordered steps[] pipeline (filter/drop only — aggregation moved to the
    data hierarchy); legacy mappings become encodings; legacy {mark, options|stat}
    layers become {geom, params}. Lossless: the engine does the same normalization
    server-side. */
