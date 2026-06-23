@@ -25,6 +25,27 @@ Three properties arbitrate every decision:
 
 All compute is local; your data never leaves the machine.
 
+## Why Iris exists
+
+Tools that turn data into a publication figure and a defensible statistic tend
+to offer one way in or the other: a point-and-click interface, approachable but
+closed to scripting, or a code library, scriptable but closed to anyone who
+doesn't program. A researcher who starts in one is stuck there — the work can't
+later be automated, and an analysis produced by a pipeline can't be opened up and
+adjusted by hand.
+
+Iris is built around a single declarative document that is equally at home in
+both. A pipeline can generate a batch of analyses; a researcher can finish them
+in the GUI; the file reads back into code unchanged. The artifact is data, not
+executable code, so it stays safe to share and re-render, and the figure and the
+statistic always come from the same spec.
+
+To our knowledge no existing tool — and, in particular, no open-source one —
+brings these together: publication-grade vector figures, validated and citable
+statistics, produced and edited from either code or a GUI, with all computation
+local. Each piece exists somewhere; the combination, as far as we know, does
+not. That gap is the reason Iris is being built.
+
 ## Architecture
 
 ```
