@@ -146,6 +146,27 @@ def _apply_derive(df: pd.DataFrame, schema: dict,
     return out, {**schema, "columns": new_cols}
 
 
+def _apply_recode(df: pd.DataFrame, schema: dict,
+                  step: dict) -> tuple[pd.DataFrame, dict]:
+    col = step.get("column")
+    mapping = step.get("map") or {}
+    if not col:
+        raise ReduceError("recode needs a `column`")
+    if col not in df:
+        raise ReduceError(f"recode: unknown column {col!r}")
+    out = df.copy()
+    # relabel mapped values; unmapped values (incl. NaN) pass through unchanged
+    out[col] = out[col].map(lambda v: mapping.get(v, v))
+    new_cols = []
+    for c in schema["columns"]:
+        if c["name"] == col and c.get("type") == "categorical":
+            relabeled = [mapping.get(v, v) for v in (c.get("levels") or [])]
+            new_cols.append({**c, "levels": list(dict.fromkeys(relabeled))})
+        else:
+            new_cols.append(c)
+    return out, {**schema, "columns": new_cols}
+
+
 def _apply_step(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     kind = step.get("kind")
@@ -156,6 +177,8 @@ def _apply_step(df: pd.DataFrame, schema: dict,
         return out.reset_index(drop=True), schema
     if kind == "derive":
         return _apply_derive(df, schema, step)
+    if kind == "recode":
+        return _apply_recode(df, schema, step)
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
