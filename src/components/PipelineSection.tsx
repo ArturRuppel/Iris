@@ -6,12 +6,12 @@ import {
 } from "../state";
 import type {
   ColumnDef, ReduceStep, ReduceStepKind, Schema,
-  SelectStep, FilterStep,
+  DropStep, FilterStep,
 } from "../types";
-import { StepFilter, StepSelect } from "./StepCards";
+import { StepFilter, StepDrop } from "./StepCards";
 
 const KIND_LABEL: Record<ReduceStepKind, string> = {
-  select: "Select columns", filter: "Filter rows",
+  drop: "Drop columns", filter: "Filter rows",
 };
 const fmt = (n: number) => n.toLocaleString();
 
@@ -42,8 +42,8 @@ function StepItem({ step, cols, out, i, last, onMove, onRemove, onChange }: {
       </div>
       {open && (
         <div className="step-body">
-          {step.kind === "select" && (
-            <StepSelect step={step as SelectStep} columns={cols} onChange={onChange} />
+          {step.kind === "drop" && (
+            <StepDrop step={step as DropStep} columns={cols} onChange={onChange} />
           )}
           {step.kind === "filter" && (
             <StepFilter step={step as FilterStep} columns={cols} onChange={onChange} />
@@ -54,7 +54,7 @@ function StepItem({ step, cols, out, i, last, onMove, onRemove, onChange }: {
   );
 }
 
-/* The data pipeline (filter rows / select columns) as a collapsible section of
+/* The data pipeline (filter rows / drop columns) as a collapsible section of
    the Encoding & layers rail — Collapse moved to the data hierarchy, leaving
    this too small to justify its own column (TODO #19). It still reduces the
    table that flows to the figure; the live row counts come from the /reduce
@@ -98,7 +98,7 @@ export function PipelineSection() {
           <span className="chevron">{open ? "▾" : "▸"}</span>
           <strong>Data</strong>
         </button>
-        <span className="dim" title="Filter rows / select columns before plotting">
+        <span className="dim" title="Filter rows / drop columns before plotting">
           {summary}
         </span>
       </div>
@@ -126,7 +126,7 @@ export function PipelineSection() {
               <div className="add-step-menu">
                 {/* reduction only filters/projects; aggregating to a grain is the
                     data hierarchy's job (pick a level), not a reduce step. */}
-                {(["select", "filter"] as ReduceStepKind[]).map((k) => (
+                {(["drop", "filter"] as ReduceStepKind[]).map((k) => (
                   <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
                     {KIND_LABEL[k]}
                   </button>
@@ -135,7 +135,7 @@ export function PipelineSection() {
               </div>
             ) : (
               <button className="add-step-btn" onClick={() => setAdding(true)}>
-                + Filter / Select
+                + Filter / Drop
               </button>
             )}
           </div>

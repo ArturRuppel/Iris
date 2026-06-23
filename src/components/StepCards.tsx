@@ -1,6 +1,6 @@
 import { ColumnPicker } from "./ColumnPicker";
 import type {
-  ColumnDef, FilterOp, SelectStep, FilterStep,
+  ColumnDef, FilterOp, DropStep, FilterStep,
 } from "../types";
 
 const OPS: FilterOp[] = ["==", "!=", "<", "<=", ">", ">=", "in", "not-in"];
@@ -8,10 +8,10 @@ const OPS: FilterOp[] = ["==", "!=", "<", "<=", ">", ">=", "in", "not-in"];
 const orderBy = (cols: ColumnDef[], chosen: Set<string>) =>
   cols.map((c) => c.name).filter((n) => chosen.has(n));
 
-/* ---- Select: keep only specific columns (projection) ---- */
-export function StepSelect(
+/* ---- Drop: remove the named columns (everything else passes through) ---- */
+export function StepDrop(
   { step, columns, onChange }:
-  { step: SelectStep; columns: ColumnDef[]; onChange: (s: SelectStep) => void },
+  { step: DropStep; columns: ColumnDef[]; onChange: (s: DropStep) => void },
 ) {
   const toggle = (name: string) => {
     const has = step.columns.includes(name);
@@ -26,8 +26,8 @@ export function StepSelect(
   return (
     <>
       <div className="step-meta">
-        {step.columns.length} of {columns.length} columns kept
-        {step.columns.length === 0 && <em> — pick columns to keep</em>}
+        {step.columns.length} of {columns.length} columns dropped
+        {step.columns.length === 0 && <em> — pick columns to drop</em>}
       </div>
       <ColumnPicker columns={columns} selected={step.columns}
         onToggle={toggle} onToggleGroup={toggleGroup} />

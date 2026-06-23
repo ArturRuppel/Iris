@@ -697,7 +697,7 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
 
 export function makeStep(kind: ReduceStepKind): ReduceStep {
-  if (kind === "select") return { _key: nextStepKey(), kind, columns: [] };  // starts blank, by design
+  if (kind === "drop") return { _key: nextStepKey(), kind, columns: [] };  // starts blank, by design
   return { _key: nextStepKey(), kind: "filter", conditions: [] };
 }
 
