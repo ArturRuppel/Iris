@@ -70,11 +70,14 @@ differences). `p > α` → "consistent with normality" → parametric is eligibl
 - **Source:** [Shapiro & Wilk 1965][shapiro]. Shapiro–Wilk is the standard
   general-purpose normality test and is among the most powerful for small samples
   ([Razali & Wah 2011][razali]).
-- **Failure mode — large N:** Shapiro–Wilk is *hypersensitive* at large N: with
-  tens of thousands of points it rejects normality for trivially small, irrelevant
-  deviations ([Ghasemi & Zahediasl 2012][ghasemi]). Iris caps the sample the check
-  sees at **`NORMALITY_CAP = 5000`** (a fixed-seed subsample, so the recommendation
-  is reproducible) to keep it informative rather than always-rejecting.
+- **Failure mode — large N:** significance-based normality tests (Shapiro–Wilk
+  included) over-reject at large N — a large sample yields a significant result
+  even for a small, practically irrelevant deviation from normality, one that would
+  not affect a parametric test ([Ghasemi & Zahediasl 2012][ghasemi], §3, restating
+  [Field 2009][field] and [Oztuna et al. 2006][oztuna]). Iris caps the sample the
+  check sees at **`NORMALITY_CAP = 5000`** (a fixed-seed subsample, so the
+  recommendation is reproducible) to keep it informative rather than
+  always-rejecting.
 
 ### 2b. The small-sample rule (`n < 12 → robust`)
 
@@ -245,6 +248,11 @@ The bracketed tags (e.g. **[shapiro]**) are the inline citation keys used above.
 - **[ghasemi]** Ghasemi, A., & Zahediasl, S. (2012). *Normality tests for
   statistical analysis: a guide for non-statisticians.* International Journal of
   Endocrinology and Metabolism 10(2), 486–489. <https://doi.org/10.5812/ijem.3505>
+- **[field]** Field, A. (2009). *Discovering Statistics Using SPSS* (3rd ed.). SAGE
+  Publications. (The large-N over-rejection point Ghasemi & Zahediasl restate.)
+- **[oztuna]** Öztuna, D., Elhan, A. H., & Tüccar, E. (2006). *Investigation of four
+  different normality tests in terms of type 1 error rate and power under different
+  distributions.* Turkish Journal of Medical Sciences 36(3), 171–176.
 - **[prism-faq]** GraphPad Prism FAQ 1684 — *Why can't the Wilcoxon matched pair
   test ever report a P value less than 0.05 (two tailed) with five or fewer pairs of
   data?* <https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/>
@@ -275,6 +283,8 @@ The bracketed tags (e.g. **[shapiro]**) are the inline citation keys used above.
 [shapiro]: https://doi.org/10.1093/biomet/52.3-4.591
 [razali]: https://www.researchgate.net/publication/267205556
 [ghasemi]: https://doi.org/10.5812/ijem.3505
+[field]: https://www.discoveringstatistics.com/books/discovering-statistics-using-spss/
+[oztuna]: https://journals.tubitak.gov.tr/medical/vol36/iss3/7/
 [prism-faq]: https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/
 [prism-guide]: https://www.graphpad.com/guides/prism/latest/statistics/stat_interpreting_results_wilcoxon_.htm
 [delacre]: https://doi.org/10.5334/irsp.82
