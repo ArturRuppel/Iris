@@ -5,7 +5,7 @@ import {
   activePlottableIdAtom, analysisByIdAtom, analysisKeyByIdAtom,
   analysisRecencyAtom, buildSpec, cacheBudgetAtom, cacheKey, estimateBytes,
   isSpecRenderable, makeDefaultPlottable, pickStaleSpec, plottableFromSpec,
-  setAnalysisResultAtom,
+  selectedNodeIdAtom, setAnalysisResultAtom,
 } from "./state";
 import { EMPTY_HIERARCHY } from "./types";
 
@@ -275,5 +275,14 @@ describe("setAnalysisResultAtom — byte-budget LRU eviction", () => {
     expect(store.get(analysisByIdAtom).a).toBeDefined();
     expect(store.get(analysisByIdAtom).b).toBeUndefined();
     expect(store.get(analysisByIdAtom).c).toBeDefined();
+  });
+});
+
+describe("selectedNodeIdAtom", () => {
+  it("defaults to null and round-trips a set", () => {
+    const store = createStore();
+    expect(store.get(selectedNodeIdAtom)).toBeNull();
+    store.set(selectedNodeIdAtom, "flatten:experiment");
+    expect(store.get(selectedNodeIdAtom)).toBe("flatten:experiment");
   });
 });
