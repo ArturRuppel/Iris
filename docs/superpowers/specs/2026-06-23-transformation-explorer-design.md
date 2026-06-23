@@ -57,11 +57,16 @@ The pipeline becomes a **directed acyclic graph** of typed nodes:
   nested-median collapse, made visible step by step).
 - *(reserved, later)* `derive` · `recode` · `join`.
 
-Edges are data flow. Most documents are a single chain — for one source and a
-nested design the graph **is a line**, and renders as the legible linear pipeline.
-It only branches when the user opts into something genuinely branchy (a SuperPlot
-fan-out, a join, a crossed factor), where the added visual complexity is paid for
-by capability.
+Edges are data flow. The transformation *chain* (source → filter → drop →
+flatten levels) is linear for one source and a nested design, and renders as the
+legible linear pipeline. But the **output (figure/stats) node is a fan-in**: it
+draws an incoming arrow from *each grain level it consumes*. A plain plot reads one
+level (one arrow); a **SuperPlot reads several** (per-cell points *and*
+per-experiment means → an arrow from each flatten node). So even the common case
+makes the figure's provenance explicit — you can see, at a glance, exactly which
+data each layer is showing. The chain branches further only when the user opts into
+something genuinely branchy (a join, a crossed factor), where the added visual
+complexity is paid for by capability.
 
 ### Nesting is the default, not the law
 
@@ -137,13 +142,19 @@ the table **at the clicked node**.
   `ReducedTable` is subsumed by clicking flatten nodes. Clicking a node also
   surfaces that step's existing editor inline, so the explorer unifies the three
   places shaping currently lives.
+- **Outputs show their provenance (fan-in arrows).** The figure/stats node draws
+  an incoming arrow from each flatten level its layers/stats read — one arrow for
+  a plain plot, several for a SuperPlot. The edges are derived from each `Layer`'s
+  `level`, so this needs no new authoring; it just makes the existing per-layer
+  level selection visible as "which data is being shown."
 
 ### Scope
 
 **In (MVP):** the linear default graph over `filter · drop · flatten`; node→table
-data tab; `select`→`drop` rename; inline editors on node click; the data structure
-modelled as a graph from day one (even though the MVP renders/edits only the
-canonical default path).
+data tab; `select`→`drop` rename; inline editors on node click; **fan-in arrows
+from each consumed grain level into the figure/stats node (SuperPlot provenance),
+derived from the layer stack**; the data structure modelled as a graph from day
+one (even though the MVP renders/edits only the canonical default path).
 
 **Out (deferred, plugs into the same frame):** `derive` / `recode` / `join`
 nodes; drag-and-drop authoring of new steps; multi-table sources; editable-grain
