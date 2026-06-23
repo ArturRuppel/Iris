@@ -105,6 +105,36 @@ export interface Hierarchy { spine: string[]; fn: Record<string, LevelFn> }
 export const EMPTY_HIERARCHY: Hierarchy = { spine: [], fn: {} };
 export const RAW_LEVEL = "";
 
+/* Un-forcing the nesting: a per-analysis collapse plan. Each step names the grain
+   it produces (the dims it KEEPS, in spine order) and the fn that aggregates into
+   it. Raw is a separate source node; each step's source is the previous step
+   (the first step's source is raw). The default plan (full-spine prefix chain,
+   finest -> coarsest) reproduces the forced chain exactly. */
+export interface CollapseStep { keep: string[]; fn: LevelFn }
+export type CollapsePlan = CollapseStep[];
+
+/* A grain key: kept dims in spine order joined by "/", "" = raw. Matches the
+   engine's grain keys so node counts/fetches line up. */
+export type GrainKey = string;
+
+/* One guard verdict surfaced on a graph edge. "caution" = yellow (a detectable
+   integrity risk: pseudoreplication / pairing-flip / identity-merge); "info" =
+   white (the always-on flattening consequence). Never blocks. */
+export interface GuardVerdict {
+  id: "pseudoreplication" | "pairing_flip" | "identity_merge" | "flatten_info";
+  severity: "caution" | "info";
+  text: string;
+}
+
+/* The raw guard verdicts /shape_counts returns (the frontend turns these into
+   GuardVerdicts placed on the right edges via mergeGuards). null = guard not run
+   (e.g. no qualifier for pairing-flip). */
+export interface ShapeCountsGuards {
+  pseudoreplication: { risk: boolean; n_test: number; n_coarsest: number; coarsest_grain: GrainKey } | null;
+  pairing_flip: { flipped: boolean; from: string | null; to: string | null; across: string | null } | null;
+  identity_merge: { dim: string; kept: string[]; before: number; after: number }[];
+}
+
 /* /hierarchy describe response: per-level grain cardinalities and where each
    classifier attaches (its home level), for the Data-tab editor + visualization. */
 export interface HierarchyInfo {
