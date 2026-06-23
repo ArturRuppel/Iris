@@ -43,10 +43,19 @@ def save_document(schema: dict, rows: list[dict], analyses: list[dict],
     return buf.getvalue()
 
 
+def _version_tuple(v: str) -> tuple[int, ...]:
+    """Parse a dotted version to ints so "10.0" > "2.0" compares numerically
+    (a plain string compare would order them lexicographically)."""
+    try:
+        return tuple(int(p) for p in str(v).split("."))
+    except ValueError:
+        return (0,)
+
+
 def load_document(data: bytes) -> dict:
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         manifest = json.loads(z.read("manifest.json"))
-        if manifest.get("format_version", "0") > FORMAT_VERSION:
+        if _version_tuple(manifest.get("format_version", "0")) > _version_tuple(FORMAT_VERSION):
             raise ValueError("document was saved by a newer version")
         schema = json.loads(z.read("data/schema.json"))
         df = pd.read_parquet(io.BytesIO(z.read("data/table.parquet")),

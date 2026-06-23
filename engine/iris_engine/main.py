@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 from collections import OrderedDict
 
 import pandas as pd
@@ -113,9 +114,12 @@ PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
 
 # In-memory cache of recently-seen tables, keyed by a content hash. Bounds the
 # repeated transfer of large master tables. LRU-ish: keep the last few.
+# Guarded by a lock: uvicorn runs these sync endpoints in a threadpool, so the
+# dict + order-list mutations (and the eviction loop) can otherwise interleave.
 _TABLE_CACHE: dict[str, dict] = {}
 _TABLE_CACHE_ORDER: list[str] = []
 _TABLE_CACHE_MAX = 4
+_TABLE_CACHE_LOCK = threading.Lock()
 
 _SESSIONS = session_mod.SessionStore()
 
@@ -144,8 +148,9 @@ def _table_identity(table: dict | None, token: str | None) -> str | None:
         sess = _SESSIONS.get(token)
         if sess is not None:
             return f"sess:{token}:{sess.version}"
-        if token in _TABLE_CACHE:
-            return f"tok:{token}"          # token is itself a content hash
+        with _TABLE_CACHE_LOCK:
+            if token in _TABLE_CACHE:
+                return f"tok:{token}"      # token is itself a content hash
     return None
 
 
@@ -229,11 +234,12 @@ def _pipeline_put(key: str | None, payload: tuple, level_tables: dict) -> None:
 
 
 def _store_table(token: str, table: dict) -> str:
-    if token not in _TABLE_CACHE:
-        _TABLE_CACHE[token] = table
-        _TABLE_CACHE_ORDER.append(token)
-        while len(_TABLE_CACHE_ORDER) > _TABLE_CACHE_MAX:
-            _TABLE_CACHE.pop(_TABLE_CACHE_ORDER.pop(0), None)
+    with _TABLE_CACHE_LOCK:
+        if token not in _TABLE_CACHE:
+            _TABLE_CACHE[token] = table
+            _TABLE_CACHE_ORDER.append(token)
+            while len(_TABLE_CACHE_ORDER) > _TABLE_CACHE_MAX:
+                _TABLE_CACHE.pop(_TABLE_CACHE_ORDER.pop(0), None)
     return token
 
 
@@ -249,7 +255,8 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
     a follow-up token request hits."""
     if table is not None:
         if token:
-            _TABLE_CACHE.setdefault(token, table)
+            with _TABLE_CACHE_LOCK:
+                _TABLE_CACHE.setdefault(token, table)
         return table
     sess = _SESSIONS.get(token)
     if sess is not None:
@@ -257,8 +264,9 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
         # to rebuild a DataFrame in `frame_from_table` was ~0.6 s of per-cell
         # boxing for an 80k-row table on every request; the `frame` key skips it.
         return {"schema": sess.schema, "frame": sess.snapshot()}
-    if token and token in _TABLE_CACHE:
-        return _TABLE_CACHE[token]
+    with _TABLE_CACHE_LOCK:
+        if token and token in _TABLE_CACHE:
+            return _TABLE_CACHE[token]
     raise HTTPException(409, "table not cached; resend full table")
 
 

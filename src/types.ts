@@ -188,10 +188,12 @@ export interface FilterCond {
   value: string | number | (string | number)[]; // array only for in / not-in
 }
 
+/* _key on the step types is a client-only stable React key (see state.nextStepKey);
+   stripped before the spec is built, so it never reaches the engine or a saved .viz. */
 /* keep only these columns, in this order (projection). */
-export interface SelectStep { kind: "select"; columns: string[] }
+export interface SelectStep { kind: "select"; columns: string[]; _key?: string }
 /* drop rows that fail every condition (AND-ed). */
-export interface FilterStep { kind: "filter"; conditions: FilterCond[] }
+export interface FilterStep { kind: "filter"; conditions: FilterCond[]; _key?: string }
 /* Reduction only filters/projects rows — it never aggregates. Coarsening to a
    grain is the data hierarchy's job (pick a level), so the figure and the stats
    read one shared grain rather than a destructive collapse. */

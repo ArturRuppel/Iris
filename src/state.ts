@@ -166,6 +166,12 @@ const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
    local state (collapsed/expanded) glued to its own layer. Client-only. */
 let _lid = 0;
 export const nextLayerId = () => `ly_${Date.now().toString(36)}_${_lid++}`;
+/* stable per-step key for React lists, so reordering/deleting steps keeps each
+   card's local state (collapsed/expanded) glued to its own step. Client-only:
+   stripped in buildSpec, so it never reaches the engine or a saved .viz. */
+let _sk = 0;
+const nextStepKey = () => `sk_${Date.now().toString(36)}_${_sk++}`;
+const stripStepKey = ({ _key, ...s }: ReduceStep): ReduceStep => s;
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
    preselected geom. The user picks x/y and adds layers explicitly. */
@@ -469,7 +475,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     describeOnly: s?.chosen_by === "describe_only",
     previewLevel: RAW_LEVEL,
     style,
-    reduce: spec.reduce ?? { steps: [] },
+    reduce: { steps: (spec.reduce?.steps ?? []).map((s) => ({ ...s, _key: nextStepKey() })) },
   };
 }
 
@@ -534,7 +540,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: p.reduce,
+    reduce: { steps: p.reduce.steps.map(stripStepKey) },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -624,7 +630,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
     layers: src.layers.map((l) => ({ id: nextLayerId(), geom: l.geom,
                                      level: l.level })),
     style: structuredClone(src.style),
-    reduce: { steps: structuredClone(src.reduce.steps) },
+    reduce: { steps: structuredClone(src.reduce.steps).map((s) => ({ ...s, _key: nextStepKey() })) },
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
   set(activePlottableIdAtom, copy.id);
@@ -655,8 +661,8 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
 
 export function makeStep(kind: ReduceStepKind): ReduceStep {
-  if (kind === "select") return { kind, columns: [] };  // starts blank, by design
-  return { kind: "filter", conditions: [] };
+  if (kind === "select") return { _key: nextStepKey(), kind, columns: [] };  // starts blank, by design
+  return { _key: nextStepKey(), kind: "filter", conditions: [] };
 }
 
 export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) => {

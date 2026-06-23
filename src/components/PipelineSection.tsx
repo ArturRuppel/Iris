@@ -113,7 +113,7 @@ export function PipelineSection() {
 
           <ol className="step-list">
             {steps.map((step, i) => (
-              <StepItem key={i} step={step} cols={inputColumnsFor(i)} out={rowsOut(i)}
+              <StepItem key={step._key ?? i} step={step} cols={inputColumnsFor(i)} out={rowsOut(i)}
                 i={i} last={i === steps.length - 1}
                 onMove={(dir) => moveStep({ index: i, dir })}
                 onRemove={() => removeStep(i)}
