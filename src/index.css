@@ -648,6 +648,10 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   cursor: pointer; padding: 4px; text-align: left; align-self: flex-start; }
 
 /* graph edge badges (Task 11): amber caution + neutral info, + node dot. */
+.tx-edge-badges { display: flex; gap: 2px; pointer-events: auto; z-index: 2; }
+.edge-badge { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 14px; height: 14px; font-size: 10px; line-height: 1;
+  border: 1px solid; border-radius: 4px; padding: 0 2px; cursor: help; }
 .edge-badge.caution { color: #d97706; border-color: #f59e0b;
   background: #fffbeb; }
 .edge-badge.info { color: #475569; border-color: var(--line);

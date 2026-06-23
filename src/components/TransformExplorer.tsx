@@ -3,6 +3,7 @@ import { useAtom, useAtomValue } from "jotai";
 import { selectedNodeIdAtom } from "../state";
 import { explorerGraphAtom } from "../explorer/graphAtom";
 import type { EdgeKind } from "../explorer/graph";
+import type { GuardVerdict } from "../types";
 
 /* Honest dataflow: NODES ARE DATA (table/plot/stats), EDGES ARE
    TRANSFORMATIONS (filter/drop/collapse/geom/test). Edges are drawn as colored,
@@ -22,6 +23,7 @@ interface DrawnEdge {
   label: string;
   lx: number;
   ly: number;
+  guards?: GuardVerdict[];
 }
 
 export function TransformExplorer() {
@@ -63,7 +65,7 @@ export function TransformExplorer() {
           const cy = (fb.top + fb.bottom) / 2 - cb.top;
           const mx = (sx + ex) / 2;
           next.push({
-            id: e.id, kind: e.kind, color, label: e.label,
+            id: e.id, kind: e.kind, color, label: e.label, guards: e.guards,
             d: `M ${sx} ${cy} L ${ex} ${cy}`,
             lx: mx, ly: cy - 7,
           });
@@ -78,7 +80,7 @@ export function TransformExplorer() {
           belowIdx += 1;
           const mx = (sx + ex) / 2;
           next.push({
-            id: e.id, kind: e.kind, color, label: e.label,
+            id: e.id, kind: e.kind, color, label: e.label, guards: e.guards,
             d: `M ${sx} ${sy} C ${sx} ${dip} ${ex} ${dip} ${ex} ${ey}`,
             lx: mx, ly: dip + 4,
           });
@@ -112,6 +114,11 @@ export function TransformExplorer() {
     }
   };
 
+  /* the stats node carries a caution dot if any edge INTO it (the test edge)
+     bears a caution guard (e.g. pseudoreplication / pairing-flip). */
+  const cautionOnTest = graph.edges.some((e) => e.toId === "stats"
+    && e.guards?.some((g) => g.severity === "caution"));
+
   const title = (kind: string) =>
     kind === "plot" ? "Show & scroll to the figure"
       : kind === "stats" ? "Show & scroll to the stats"
@@ -131,6 +138,10 @@ export function TransformExplorer() {
               title={title(node.kind)}
               onClick={() => onClickNode(node.id, node.kind)}>
               <span className="tx-node-label">{node.label}</span>
+              {node.id === "stats" && cautionOnTest && (
+                <span className="node-caution-dot"
+                  title="A guard flagged this test — see the test edge." />
+              )}
               {node.count && (
                 <span className="tx-node-count">
                   {node.count.rows}×{node.count.cols}
@@ -159,6 +170,20 @@ export function TransformExplorer() {
           </g>
         ))}
       </svg>
+      {/* guard badges: HTML overlay (border/background-styled) anchored to each
+          edge's label coordinate, since the SVG label is aria-hidden text. */}
+      {drawn.map((e) =>
+        e.guards?.length ? (
+          <div key={`b-${e.id}`} className="tx-edge-badges"
+            style={{ position: "absolute", left: e.lx, top: e.ly, transform: "translate(6px, -50%)" }}>
+            {e.guards.map((g) => (
+              <span key={g.id} className={`edge-badge ${g.severity}`} title={g.text}>
+                {g.severity === "caution" ? "⚠" : "ⓘ"}
+              </span>
+            ))}
+          </div>
+        ) : null
+      )}
     </div>
   );
 }
