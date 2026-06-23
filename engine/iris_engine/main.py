@@ -80,6 +80,13 @@ class ReduceRequest(BaseModel):
     at_step: int | None = None
 
 
+class ShapeCountsRequest(BaseModel):
+    table: dict | None = None
+    table_token: str | None = None
+    steps: list[dict] = []
+    hierarchy: dict | None = None
+
+
 class TablePutRequest(BaseModel):
     table: dict
 
@@ -516,6 +523,52 @@ def reduce_preview(req: ReduceRequest):
             "n_total": int(len(out)),
             "trace": trace,
             "summary": _column_summary(out, sch)}
+
+
+@app.post("/shape_counts")
+def shape_counts(req: ShapeCountsRequest):
+    """Row x column counts for every explorer node in one call: the source
+    (pre-step raw table), the table after each step prefix, and each spine
+    collapse level. Same slicing/materialize path as /reduce; drives the
+    per-node counts in the transformation explorer."""
+    table = _resolve_table(req.table, req.table_token)
+    df, schema = _load_frame(table)
+
+    def _cols(frame):
+        return len([c for c in frame.columns if c != "row_ids"])
+
+    src, src_sch, _ = reduce_mod.reduce_with_trace(df, schema, [])
+    out_source = {"rows": int(len(src)), "cols": _cols(src)}
+
+    steps_counts = []
+    for i in range(len(req.steps)):
+        try:
+            out, _sch, _ = reduce_mod.reduce_with_trace(df, schema, req.steps[: i + 1])
+        except reduce_mod.ReduceError as e:
+            raise HTTPException(422, f"reduction failed: {e}") from e
+        steps_counts.append({"rows": int(len(out)), "cols": _cols(out)})
+
+    # materialize_levels needs the canonical `id` provenance column; a raw table
+    # carries one through ingestion, so inject it (same idiom as /table) for a
+    # caller-supplied table that omits it. It's folded into `row_ids` and never
+    # surfaces in the counts below.
+    id_df = df
+    if "id" not in id_df.columns:
+        id_df = id_df.copy()
+        id_df.insert(0, "id", [str(i + 1) for i in range(len(id_df))])
+    try:
+        full, full_sch, _ = reduce_mod.reduce_with_trace(id_df, schema, req.steps)
+    except reduce_mod.ReduceError as e:
+        raise HTTPException(422, f"reduction failed: {e}") from e
+    spine = hierarchy.spine_present(full, (req.hierarchy or {}).get("spine") or [])
+    levels_out: dict[str, dict] = {}
+    if spine:
+        levels, _ = hierarchy.materialize_levels(
+            full, full_sch, spine, (req.hierarchy or {}).get("fn"), [])
+        for lvl in spine:
+            lout, _lsch = hierarchy.resolve_level(levels, lvl)
+            levels_out[lvl] = {"rows": int(len(lout)), "cols": _cols(lout)}
+    return {"source": out_source, "steps": steps_counts, "levels": levels_out}
 
 
 @app.post("/hierarchy")
