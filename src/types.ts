@@ -390,6 +390,10 @@ export interface AnalysisSpec {
   annotations: { significance_brackets: "auto"; show_n: boolean };
   style: { overrides: StyleOverrides };
   engine_snapshot: Record<string, string>;
+  /* un-forcing the nesting: recorded as-is (full plan + chosen grain), not a
+     deviation from the default. Absent -> regenerate from the spine on load. */
+  collapse?: CollapsePlan;
+  test_grain?: GrainKey;
 }
 
 export interface Check {

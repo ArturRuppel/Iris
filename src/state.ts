@@ -507,6 +507,8 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     previewLevel: RAW_LEVEL,
     style,
     reduce: { steps: (spec.reduce?.steps ?? []).map((s) => ({ ...s, _key: nextStepKey() })) },
+    collapse: spec.collapse,
+    testGrain: spec.test_grain,
   };
 }
 
@@ -612,6 +614,8 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     annotations: { significance_brackets: "auto", show_n: true },
     style: { overrides: style },
     engine_snapshot: snapshot,
+    ...(p.collapse ? { collapse: p.collapse } : {}),
+    ...(p.testGrain ? { test_grain: p.testGrain } : {}),
   };
 }
 

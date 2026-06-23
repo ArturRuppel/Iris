@@ -329,4 +329,24 @@ describe("per-analysis collapse plan + test grain", () => {
     expect(store.get(activePlottableAtom)?.collapse).toBeUndefined();
     expect(store.get(activePlottableAtom)?.testGrain).toBeUndefined();
   });
+
+  it("buildSpec records the collapse plan + test grain as-is; plottableFromSpec reads them back", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    const plan = [{ keep: ["experiment", "cell"], fn: "median" as const }];
+    store.set(setCollapsePlanAtom, plan);
+    store.set(setTestGrainAtom, "experiment/cell");
+    const p = store.get(activePlottableAtom)!;
+    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom));
+    expect(spec.collapse).toEqual(plan);
+    expect(spec.test_grain).toBe("experiment/cell");
+    const back = plottableFromSpec(spec);
+    expect(back.collapse).toEqual(plan);
+    expect(back.testGrain).toBe("experiment/cell");
+  });
+
+  it("plottableFromSpec leaves collapse/testGrain undefined when the spec omits them", () => {
+    const back = plottableFromSpec(makeSpec("plain"));
+    expect(back.collapse).toBeUndefined();
+    expect(back.testGrain).toBeUndefined();
+  });
 });
