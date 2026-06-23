@@ -11,6 +11,7 @@ import { PlottableSidebar } from "./components/PlottableSidebar";
 import { ReducedTable } from "./components/ReducedTable";
 import { StatsPanel } from "./components/StatsPanel";
 import { ExamplesGallery } from "./examples/ExamplesGallery";
+import { StatsMethods } from "./components/StatsMethods";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
@@ -394,6 +395,7 @@ export default function App() {
           <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
           <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
           <button className={viewMode === "examples" ? "active" : ""} onClick={() => setViewMode("examples")}>Examples</button>
+          <button className={viewMode === "methods" ? "active" : ""} onClick={() => setViewMode("methods")}>Methods</button>
         </div>
         <div className="controls">
           <ImportWizard />
@@ -414,7 +416,9 @@ export default function App() {
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
       <main>
-        {viewMode === "examples" ? (
+        {viewMode === "methods" ? (
+          <div className="examples-mode"><StatsMethods /></div>
+        ) : viewMode === "examples" ? (
           <div className="examples-mode"><ExamplesGallery onOpen={handleOpenExample} /></div>
         ) : viewMode === "data" ? (
           <div className="data-mode"><HierarchyPanel /><DataTable /></div>

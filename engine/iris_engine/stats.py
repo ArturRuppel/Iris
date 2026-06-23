@@ -4,6 +4,8 @@ All inferential numbers come from scipy/pingouin — never reimplemented.
 """
 from __future__ import annotations
 
+from math import comb, factorial, prod
+
 import numpy as np
 import pandas as pd
 import pingouin as pg
@@ -40,6 +42,79 @@ def _p_stars(p: float) -> str:
 def _no_effect() -> dict:
     """The effect-size slot for a describe-only result (no test run)."""
     return {"name": "none", "value": 0.0, "ci": None}
+
+
+# ── Rank-test resolution floor ────────────────────────────────────────────────
+# A rank / permutation test computes its p-value from a FINITE set of equally
+# likely arrangements under the null, so it has a smallest attainable p set by the
+# sample size alone — no data can push it lower. Below the n where that floor
+# crosses alpha the test can NEVER reject, so recommending it as the "safe
+# default" hands the user a non-test. The functions below give that floor exactly
+# for each rank test we recommend, so the picker can refuse to recommend one that
+# cannot resolve and fall back to the parametric counterpart (with a caveat that
+# its normality assumption is unverifiable at this n). See
+# docs/stats-recommendations.md §"The rank-floor guard" for the derivation +
+# sources (GraphPad Prism documents the n ≤ 5 signed-rank case verbatim).
+#
+# Floors (smallest two-sided p attainable):
+#   Wilcoxon signed-rank, n nonzero diffs   2·2⁻ⁿ        (every diff shares a sign)
+#   Mann–Whitney U, sizes n1,n2             2 / C(n1+n2,n1)
+#   Spearman ρ, n pairs                     2 / n!       (rho = ±1)
+#   Kruskal–Wallis, equal n per group       k!·(n!)ᵏ / N! (perfect separation)
+
+def _signed_rank_min_p(n: int) -> float:
+    """Smallest two-sided p the Wilcoxon signed-rank test can report on n nonzero
+    differences: the two arrangements where every difference shares a sign each
+    have null probability 2⁻ⁿ, so the floor is 2·2⁻ⁿ."""
+    return 2.0 ** (1 - n) if n >= 1 else 1.0
+
+
+def _signed_rank_floor_n(alpha: float) -> int:
+    """Smallest n at which the signed-rank test can attain two-sided ``alpha``
+    (n = 6 for the usual α = 0.05)."""
+    n = 1
+    while _signed_rank_min_p(n) > alpha:
+        n += 1
+    return n
+
+
+def _mann_whitney_min_p(n1: int, n2: int) -> float:
+    """Smallest two-sided p for Mann–Whitney U: the two most extreme of the
+    C(n1+n2, n1) equally likely rank splits."""
+    c = comb(n1 + n2, n1)
+    return 2.0 / c if c else 1.0
+
+
+def _spearman_min_p(n: int) -> float:
+    """Smallest two-sided p for a Spearman permutation test on n pairs: perfect
+    concordance/discordance (ρ = ±1) is 2 of the n! equally likely orderings."""
+    if n < 1:
+        return 1.0
+    if n > 20:           # 2/20! ≈ 8e-19 — far below any alpha; avoid factorial overflow
+        return 0.0
+    return 2.0 / factorial(n)
+
+
+def _kruskal_min_p(sizes: list[int]) -> float:
+    """Smallest p the Kruskal–Wallis omnibus can attain at these group sizes.
+
+    Exact for equal group sizes: H is maximal under perfect rank separation, and
+    the k! block orderings are the only maximal arrangements out of the
+    N!/∏nᵢ! equally likely ones, so the floor is k!·∏(nᵢ!)/N!. For UNEQUAL sizes
+    the maximal-H count is size-dependent and not a clean closed form, so we
+    return the necessary-condition bound 2/(total arrangements): the guard then
+    fires only when the test provably cannot resolve (it may under-warn on
+    borderline unequal designs, never over-claim)."""
+    sizes = [s for s in sizes if s > 0]
+    k, N = len(sizes), sum(sizes)
+    if k < 2 or N == 0:
+        return 1.0
+    total = factorial(N) // prod(factorial(s) for s in sizes)
+    if total > 10**15:     # floor is negligible; avoid float-overflow on huge N
+        return 0.0
+    if len(set(sizes)) == 1:               # equal groups: k! tied extremes (exact)
+        return factorial(k) / total
+    return 2.0 / total                     # unequal: necessary-condition bound
 
 
 def shapiro_check(values: np.ndarray) -> dict:
@@ -133,6 +208,20 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
     else:
         assumption_rec, assume_reason = "robust", (
             "Shapiro–Wilk indicates non-normality in at least one group")
+    # Rank-floor guard (item R): never recommend Kruskal–Wallis at group sizes
+    # where it cannot attain alpha — that "safe default" can never reject. Fall
+    # back to ANOVA with an explicit unverifiable-normality caveat.
+    if assumption_rec == "robust":
+        kw_min_p = _kruskal_min_p([len(arrays[lv]) for lv in found])
+        if kw_min_p > alpha:
+            assumption_rec = "parametric"
+            assume_reason = (
+                f"the smallest group (n = {n_min}) is below the normality-check "
+                f"threshold of {MIN_N_FOR_NORMALITY_RULE}, but the Kruskal–Wallis "
+                f"test cannot reach p ≤ {alpha:g} at these group sizes (its "
+                f"smallest attainable p is {kw_min_p:.3f}); one-way ANOVA is "
+                "recommended instead — its normality assumption is unverifiable "
+                "at this n, so report it with that caveat")
     recommended = "one_way_anova" if assumption_rec == "parametric" else "kruskal"
     # honour an override only if it names a multi-group omnibus (a stale 2-group
     # override from the UI doesn't apply once there are >2 levels)
@@ -304,6 +393,28 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     else:
         assumption_rec, assume_reason = "robust", (
             "Shapiro–Wilk indicates non-normality")
+    # Rank-floor guard (item R): if the recommended rank test cannot attain alpha
+    # at this n (Mann–Whitney when independent, Wilcoxon signed-rank when paired),
+    # it can never reject — recommend the parametric test instead, flagging that
+    # its normality assumption is unverifiable here.
+    if assumption_rec == "robust":
+        if structural_rec == "paired":
+            rank_min_p = _signed_rank_min_p(n_test)
+            rank_name, floor = "Wilcoxon signed-rank", _signed_rank_floor_n(alpha)
+        else:
+            rank_min_p = _mann_whitney_min_p(len(a), len(b))
+            rank_name, floor = "Mann–Whitney U", None
+        if rank_min_p > alpha:
+            assumption_rec = "parametric"
+            floor_txt = (f", first crossing {alpha:g} at n = {floor}"
+                         if floor else "")
+            assume_reason = (
+                f"n = {n_test} is below the normality-check threshold of "
+                f"{MIN_N_FOR_NORMALITY_RULE}, but the {rank_name} test cannot "
+                f"reach p ≤ {alpha:g} at this n (its smallest attainable two-sided "
+                f"p is {rank_min_p:.3f}{floor_txt}); the parametric test is "
+                "recommended instead — its normality assumption is unverifiable "
+                "at this n, so report it with that caveat")
     assumption_chosen = (("parametric" if override in _PARAM_TESTS else "robust")
                          if override else assumption_rec)
 
@@ -472,6 +583,23 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
     else:
         assumption_rec, assume_reason = "robust", (
             "Shapiro–Wilk indicates non-normal differences in at least one group")
+    # Rank-floor guard (item R): the Wilcoxon signed-rank test on n differences
+    # cannot reach two-sided p ≤ alpha below n = ceil(1 − log2 alpha) (n = 6 at
+    # α = 0.05); its floor at n = 3 is 0.25. Recommending it there is a non-test
+    # — the COV2D contact-enrichment case at N = 3 replicates that motivated this.
+    # Fall back to the one-sample t with an unverifiable-normality caveat.
+    if assumption_rec == "robust" and _signed_rank_min_p(n_min) > alpha:
+        floor = _signed_rank_floor_n(alpha)
+        assumption_rec = "parametric"
+        assume_reason = (
+            f"the smallest group (n = {n_min}) is below the normality-check "
+            f"threshold of {MIN_N_FOR_NORMALITY_RULE}, but the Wilcoxon "
+            f"signed-rank test cannot reach p ≤ {alpha:g} at n = {n_min} (its "
+            f"smallest attainable two-sided p is 2·2⁻ⁿ = "
+            f"{_signed_rank_min_p(n_min):.3f}, first crossing {alpha:g} at "
+            f"n = {floor}); the one-sample t-test is recommended instead — its "
+            "normality assumption is unverifiable at this n, so report it with "
+            "that caveat")
     recommended = "one_sample_t" if assumption_rec == "parametric" else "wilcoxon_signed"
     pinned = override if override in _LOCATION_TESTS else None
     test = pinned or recommended
@@ -913,6 +1041,19 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
     else:
         recommended, reason = "spearman", (
             "Shapiro–Wilk indicates non-normality in at least one variable")
+    # Rank-floor guard (item R): a Spearman permutation test on n pairs cannot
+    # reach two-sided p ≤ alpha below 2/n! ≤ alpha (n = 5 at α = 0.05; its floor
+    # at n = 4 is 0.083). Recommend Pearson instead, flagging that its normality
+    # assumption is unverifiable at this n.
+    if recommended == "spearman" and _spearman_min_p(n) > alpha:
+        reason = (
+            f"n = {n} is below the normality-check threshold of "
+            f"{MIN_N_FOR_NORMALITY_RULE}, but the Spearman rank correlation cannot "
+            f"reach p ≤ {alpha:g} at n = {n} (its smallest attainable two-sided p "
+            f"is 2/n! = {_spearman_min_p(n):.3f}); Pearson correlation is "
+            "recommended instead — its normality assumption is unverifiable at "
+            "this n, so report it with that caveat")
+        recommended = "pearson"
 
     test = override or recommended
     # Pooled (group-agnostic) result + band stay the top-level contract.

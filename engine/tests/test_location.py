@@ -62,6 +62,46 @@ def test_override_pins_wilcoxon_on_normal_data():
     assert all(g["test"] == "wilcoxon_signed" for g in res["per_group"])
 
 
+# ── rank-floor guard (item R) ─────────────────────────────────────────────────
+
+def test_rank_floor_blocks_wilcoxon_at_three_replicates():
+    """The bug from the COV2D §3 contact-enrichment plot: at N = 3 biological
+    replicates the small-n rule would recommend the Wilcoxon signed-rank test, but
+    its smallest attainable two-sided p is 2/2³ = 0.25 — it can NEVER reject at
+    α = 0.05. The guard must recommend the one-sample t instead and name the floor,
+    so the two clearly-enriched lanes can actually star (which Wilcoxon could not)."""
+    df = pd.DataFrame({
+        "contact": ["AA"] * 3 + ["AB"] * 3 + ["BB"] * 3,
+        "enrich": [0.70, 0.85, 0.78, -0.60, -0.75, -0.70, 0.02, -0.03, 0.05]})
+    res = stats.location(df, "contact", "enrich", ["AA", "AB", "BB"], reference=0.0)
+    assert res["recommendation"]["test"] == "one_sample_t"        # NOT wilcoxon_signed
+    assert res["decision"]["assumption"]["recommended"] == "parametric"
+    reason = res["decision"]["assumption"]["reason"]
+    assert "Wilcoxon signed-rank" in reason
+    assert "0.250" in reason and "n = 6" in reason                # floor named
+    assert all(g["test"] == "one_sample_t" for g in res["per_group"] if g["n"] >= 3)
+    # the parametric test recommended here CAN resolve where the rank test cannot
+    enriched = [g for g in res["per_group"] if g["level"] in ("AA", "AB")]
+    assert all(g["stars"] != "ns" for g in enriched)
+
+
+def test_rank_floor_does_not_fire_when_resolvable():
+    """At n = 6 the signed-rank floor is 0.03125 ≤ 0.05, so the small-n rule's
+    rank recommendation stands — the guard must not over-fire."""
+    rng = np.random.default_rng(7)
+    rows = [{"contact": "AA", "enrich": rng.exponential(1.0)} for _ in range(6)]
+    res = stats.location(pd.DataFrame(rows), "contact", "enrich", ["AA"])
+    assert res["recommendation"]["test"] == "wilcoxon_signed"
+
+
+def test_rank_floor_override_still_honoured_at_small_n():
+    """The guard changes only the recommendation; an explicit pin is the user's."""
+    df = _grouped_df({"AA": 0.8, "BB": 0.05}, n=3)
+    res = stats.location(df, "contact", "enrich", ["AA", "BB"],
+                         override="wilcoxon_signed")
+    assert all(g["test"] == "wilcoxon_signed" for g in res["per_group"] if g["n"] >= 3)
+
+
 # ── statistics match an independent scipy recompute ──────────────────────────
 
 def test_one_sample_t_matches_scipy():

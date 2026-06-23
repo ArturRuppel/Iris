@@ -601,3 +601,113 @@ recomputed independently against statsmodels). 363 engine + 91 FE green, typeche
 + build clean. App-side test-picker controls for the rate design + the observed-
 rate `dot` overlay (rate SuperPlot) remain deferred, per the spec; the COV2D §5b
 consumer swap is the separate follow-up.)
+
+(Item R — shipped 2026-06-23. The recommendation logic is now aware of each rank
+test's resolution floor — the smallest two-sided p it can attain from its finite
+null arrangement set, set by n alone. Four exact floor helpers in `stats.py`:
+`_signed_rank_min_p` (2·2⁻ⁿ), `_mann_whitney_min_p` (2/C(n₁+n₂,n₁)),
+`_spearman_min_p` (2/n!, capped to avoid factorial overflow), `_kruskal_min_p`
+(exact k!·(n!)ᵏ/N! for equal groups, the 2/total necessary-condition bound for
+unequal — so the guard only ever fires when the test PROVABLY can't resolve, never
+over-claims). The guard applies wherever a rank test is recommended: `location`
+(the reported bug — signed-rank), `group_comparison` two-group (Mann–Whitney /
+signed-rank), `multi_group_comparison` (Kruskal omnibus), and `correlation`
+(Spearman). When the small-n rule would pick a rank test that can't attain α, the
+recommendation flips to the parametric counterpart and the reason NAMES the floor
++ states that normality is unverifiable at this n. The override channel is
+untouched — the guard changes only the default, never forbids the pin (asserted by
+the tests). Verified floors match item R's table exactly (signed-rank n=3→0.25 …
+n=6→0.031). Tests: rank-floor cases added to `test_location.py` (n=3 → t, the
+two enriched lanes now star where Wilcoxon couldn't; resolvable-at-6 negative;
+override-honoured), `test_paired.py` (n=5 → paired_t), `test_engine.py` (3v3 →
+welch_t), `test_multigroup.py` (3×2 → ANOVA, 3×3 stays Kruskal),
+`test_correlation_spine.py` (n=4 → pearson, n=5 stays spearman); the old
+`test_small_paired_defaults_to_wilcoxon` was at n=5 (the floor!) so it was bumped
+to n=8 — it had encoded the bug. New validation case `one-sample-rank-floor`
+(3 contacts × 3 reps, one-sample t recomputed against raw scipy) pins the n=3
+recommendation. 363 engine + 24 validation + 91 FE green, typecheck clean.
+
+Docs: `docs/stats-recommendations.md` is the new single source of truth for the
+recommendation rules — structural axis, the Shapiro–Wilk + large-N cap + n<12
+rule, the rank-floor guard (with the derivation, the floor table, and the
+equal/unequal-size Kruskal note), the per-family specifics, the override channel,
+a known-failure-modes table, and a full References section with sources for EVERY
+recommendation (Shapiro–Wilk 1965; Ghasemi/Razali on small-n power; GraphPad Prism
+FAQ 1684 + Statistics Guide for the Wilcoxon floor; Delacre/Lakens/Leys for Welch
+default; Hedges, Tukey, Kruskal–Wallis, Holm, Cochran, Cameron–Trivedi,
+SuperPlots/Lord). Surfaced in-app three ways: (1) the floor-aware reason already
+flows to the StatsPanel (GuidedTestPicker shows `decision.assumption.reason`; the
+fallback shows `recommendation.reason`); (2) the stats glossary gained a
+`rank_floor` entry plus floor caveats on the parametric_vs_robust / normality /
+wilcoxon / mann_whitney / spearman / kruskal info-tips; (3) the DOC ITSELF is now
+reachable in the app — a new `StatsMethods` component renders
+`docs/stats-recommendations.md` (bundled via `?raw`, the Examples-gallery
+mechanism; external citation links open in a new tab, dev-facing relative paths
+render as plain text) behind a new top-level **Methods** tab AND a contextual
+"Why this test?" link in the stats pane head (`viewModeAtom` gained `"methods"`).
+BROWSER-VERIFIED (Chromium): new `e2e/methods_test.mjs` drives the Methods tab
+(asserts the rank-floor section, the GraphPad source, and an external link with
+target=_blank) and the stats-pane "Why this test?" link → doc. Full e2e suite
+15/15 green (14 prior + the new one), build clean.
+
+Still open (separate, pre-existing follow-ups, NOT part of item R): the COV2D
+notebook can now drop its `one_sample_t` override workaround once it adopts the
+`location`-family `.iris`; app-side test-picker controls for the location/rate
+designs remain deferred per items N/Q.)
+
+### R. Don't recommend a rank test at an n where it can't reach α (added 2026-06-23)
+
+**Found via the COV2D §3 contact-enrichment plot.** Tested at N = 3 biological
+replicates (one-sample-vs-chance, `location` family). Iris's `n < 12 → robust`
+rule (`MIN_N_FOR_NORMALITY_RULE = 12`, `stats.py:12`) recommends Wilcoxon
+signed-rank — but at n = 3 the signed-rank test is DEGENERATE: its smallest
+attainable two-sided p is `2/2ⁿ = 0.25`, and it can't cross 0.05 until n ≥ 6.
+So the "safe default" is a test that, by construction, can NEVER reject for the
+small-N replicate designs this lab actually runs. The notebook works around it by
+overriding to `one_sample_t`; the consequence is a real divergence — opened in
+the app (which shows the recommendation, Wilcoxon) all three lanes read n.s.,
+while the engine-with-override (and the notebook render) correctly stars the two
+homotypic lanes.
+
+Minimum attainable two-tailed p for the signed-rank test (the one-sample-vs-a-
+constant case is mechanically the matched-pairs test on the differences from the
+reference — same null, same floor; our engine literally does
+`pg.wilcoxon(v - reference)`, `stats.py:512`):
+
+| n | min two-tailed p |
+|---|---|
+| 3 | 0.250 |
+| 4 | 0.125 |
+| 5 | 0.062 |
+| 6 | 0.031 |
+
+Source — GraphPad Prism documents exactly this and merely *reports* the limit
+rather than recommending the test:
+- FAQ 1684 — "Why can't the Wilcoxon matched pair test ever report a P value less
+  than 0.05 (two tailed) with five or fewer pairs of data?"
+  https://www.graphpad.com/support/faq/why-cant-the-wilcoxon-matched-pair-test-ever-report-a-p-value-less-than-005-two-tailed-with-five-or-fewer-pairs-of-data/
+  ("With five or fewer data pairs, the Wilcoxon matched pairs test has zero power
+  — no matter what data it is given, the test reports a two-tail P value greater
+  than 0.05.")
+- Prism 11 Statistics Guide — Interpreting results: Wilcoxon signed rank test
+  https://www.graphpad.com/guides/prism/latest/statistics/stat_interpreting_results_wilcoxon_.htm
+
+**Fix.** The robustness recommendation should be aware of the rank test's
+resolution floor. In `stats.location` (and the same pattern in `group_comparison`
+where a rank test can be recommended): when the smallest group's n is below the
+point where the recommended rank test can attain α (n ≤ 5 for two-sided 0.05),
+do NOT recommend it. Either recommend the parametric one-sample t with an explicit
+"normality unverifiable at this N; the rank alternative cannot resolve at α" caveat
+in the `reason`, or at minimum surface that floor in the recommendation reason so a
+consumer (the app's GuidedTestPicker) doesn't silently present a non-test as the
+default. Add a validation case pinning the n = 3 floor (assert the recommendation
+is NOT a rank test, or that the reason names the floor) so this can't regress.
+
+**Also: write better documentation of the stats recommendation rules.** The
+selection logic (the `n < 12 → robust` heuristic, the Shapiro-Wilk assumption
+axis, the structural paired/independent axis, the override channel, and now this
+rank-floor guard) is spread across `stats.py` with only inline comments. We need a
+single doc — under `docs/` and surfaced in the app's stats glossary / test-picker
+help — that states each rule, its threshold, its rationale, and its known failure
+modes (this n ≤ 5 rank-floor being the first documented one), so users understand
+*why* Iris recommends what it does and when to override.

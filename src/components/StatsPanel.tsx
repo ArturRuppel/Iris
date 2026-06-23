@@ -1,5 +1,5 @@
-import { useAtom, useAtomValue } from "jotai";
-import { activePlottableAtom, analysisAtom } from "../state";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { activePlottableAtom, analysisAtom, viewModeAtom } from "../state";
 import type { StatsResult, TestName } from "../types";
 import { InfoTip } from "./InfoTip";
 import { GuidedTestPicker, overrideFor } from "./GuidedTestPicker";
@@ -155,6 +155,7 @@ function ResultRows({ s }: { s: StatsResult }) {
 export function StatsPanel() {
   const analysis = useAtomValue(analysisAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
+  const setViewMode = useSetAtom(viewModeAtom);
   const setOverride = (t: TestName | null) => active && setActive({ ...active, override: t });
   const setDescribeOnly = (v: boolean) =>
     active && setActive({ ...active, describeOnly: v });
@@ -177,7 +178,14 @@ export function StatsPanel() {
 
   return (
     <section className="pane stats-pane">
-      <div className="pane-head"><h2>Statistics</h2></div>
+      <div className="pane-head">
+        <h2>Statistics</h2>
+        <button type="button" className="link-btn methods-link"
+          title="How Iris recommends a test — rules, thresholds, and sources"
+          onClick={() => setViewMode("methods")}>
+          Why this test?
+        </button>
+      </div>
       <div className="stats-body">
         <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
         <p className="reason">{model.design}.</p>

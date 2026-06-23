@@ -170,6 +170,31 @@ def test_show_significance_off_suppresses_brackets():
     assert _bracket_labels(svg) == []
 
 
+# ── rank-floor guard (item R) ─────────────────────────────────────────────────
+
+def test_kruskal_floor_blocks_robust_at_three_per_group():
+    """3 groups of 3: the Kruskal–Wallis omnibus could in principle resolve here
+    (min p = 0.0036), so the guard must NOT fire — the small-n rule's robust pick
+    stands."""
+    rng = np.random.default_rng(0)
+    rows = [{"g": grp, "y": rng.exponential(1.0) + off}
+            for grp, off in (("A", 0.0), ("B", 1.0), ("C", 2.0)) for _ in range(3)]
+    res = stats.group_comparison(pd.DataFrame(rows), "g", "y", ["A", "B", "C"])
+    assert res["recommendation"]["test"] == "kruskal"
+
+
+def test_kruskal_floor_blocks_robust_at_two_per_group():
+    """3 groups of 2 (N = 6): the Kruskal–Wallis floor is k!·(n!)ᵏ/N! = 0.0667 > 0.05,
+    so it can never reject — the guard recommends one-way ANOVA and names the floor."""
+    rng = np.random.default_rng(0)
+    rows = [{"g": grp, "y": rng.exponential(1.0) + off}
+            for grp, off in (("A", 0.0), ("B", 1.0), ("C", 2.0)) for _ in range(2)]
+    res = stats.group_comparison(pd.DataFrame(rows), "g", "y", ["A", "B", "C"])
+    assert res["recommendation"]["test"] == "one_way_anova"
+    assert res["decision"]["assumption"]["recommended"] == "parametric"
+    assert "Kruskal–Wallis" in res["decision"]["assumption"]["reason"]
+
+
 # ── degenerate input ───────────────────────────────────────────────────────────
 
 def test_singleton_group_errors():

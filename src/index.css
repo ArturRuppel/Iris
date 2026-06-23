@@ -41,6 +41,10 @@ main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 14px;
 .pane-head { display: flex; justify-content: space-between; align-items: baseline;
   padding: 8px 12px; border-bottom: 1px solid var(--line); }
 .pane-head h2 { font-size: 13px; margin: 0; }
+.link-btn { background: none; border: none; padding: 0; font-size: 11px;
+  color: var(--accent, #2563eb); cursor: pointer; text-decoration: underline;
+  text-underline-offset: 2px; }
+.link-btn:hover { opacity: 0.8; }
 .provenance { font-size: 11px; color: var(--faint); font-family: var(--mono); }
 
 /* data-type colour coding in the table overview (configurable via .type-legend) */

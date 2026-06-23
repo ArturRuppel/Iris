@@ -194,7 +194,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
 
 export const plottablesAtom = atom<Plottable[]>([]);
 export const activePlottableIdAtom = atom<string | null>(null);
-export const viewModeAtom = atom<"data" | "analyses" | "examples">("data");
+export const viewModeAtom = atom<"data" | "analyses" | "examples" | "methods">("data");
 
 export const activePlottableAtom = atom(
   (get): Plottable | null => {

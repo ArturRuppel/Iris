@@ -85,6 +85,19 @@ def test_small_group_recommends_rank_based():
     assert "< 12" in res["recommendation"]["reason"]  # small-n rule fired
 
 
+def test_rank_floor_blocks_mann_whitney_at_three_per_group():
+    """item R: two independent groups of 3 give a Mann–Whitney floor of
+    2/C(6,3) = 0.10 > 0.05 — the rank test can never reject, so the guard
+    recommends Welch's t instead and names the floor."""
+    df = pd.DataFrame({"g": ["A"] * 3 + ["B"] * 3,
+                       "y": [1.0, 1.2, 0.9, 5.0, 5.1, 4.8]})
+    res = stats.group_comparison(df, "g", "y", ["A", "B"])
+    assert res["recommendation"]["test"] == "welch_t"          # NOT mann_whitney
+    assert res["decision"]["assumption"]["recommended"] == "parametric"
+    assert "Mann–Whitney U" in res["decision"]["assumption"]["reason"]
+    assert "0.100" in res["decision"]["assumption"]["reason"]
+
+
 def test_analyze_endpoint_svg_draws_marks_without_point_groups():
     # Item I: dots draw as plain vector marks; the payload carries no point_groups
     # and the SVG has no per-point gid/click structure (just <use> glyphs).

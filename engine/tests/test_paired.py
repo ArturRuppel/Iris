@@ -103,11 +103,29 @@ def test_wilcoxon_override_matches_pingouin():
 
 
 def test_small_paired_defaults_to_wilcoxon():
-    df = _paired_df(n_subjects=5)                        # 5 pairs < 12 → robust
+    df = _paired_df(n_subjects=8)             # 8 pairs: < 12 → robust, ≥ 6 → resolvable
     res = stats.group_comparison(df, "group", "y", ["A", "B"],
-                                 pairing={**PAIRING, "n_units": 5, "n_complete": 5})
+                                 pairing={**PAIRING, "n_units": 8, "n_complete": 8})
     assert res["decision"]["assumption"]["recommended"] == "robust"
     assert res["recommendation"]["test"] == "wilcoxon"
+
+
+def test_rank_floor_blocks_wilcoxon_at_five_pairs():
+    """item R: the Wilcoxon signed-rank test cannot reach two-sided p ≤ 0.05 with
+    ≤ 5 pairs (its floor at n = 5 is 0.0625), so it must NOT be recommended there —
+    the paired t-test is offered instead, with the floor named in the reason."""
+    df = _paired_df(n_subjects=5)
+    res = stats.group_comparison(df, "group", "y", ["A", "B"],
+                                 pairing={**PAIRING, "n_units": 5, "n_complete": 5})
+    assert res["decision"]["assumption"]["recommended"] == "parametric"
+    assert res["recommendation"]["test"] == "paired_t"
+    reason = res["decision"]["assumption"]["reason"]
+    assert "Wilcoxon signed-rank" in reason and "0.062" in reason
+    # the user can still pin the rank test explicitly — the guard only changes the
+    # recommendation, never forbids the override.
+    pinned = stats.group_comparison(df, "group", "y", ["A", "B"], override="wilcoxon",
+                                    pairing={**PAIRING, "n_units": 5, "n_complete": 5})
+    assert pinned["result"]["test"] == "wilcoxon"
 
 
 # ── decision object records per-question provenance (§5) ──────────────────────

@@ -96,3 +96,28 @@ def test_spine_plumbed_through_render():
     assert res["result"]["n"] == n_exp
     assert res["result"]["r"] == pytest.approx(r_exp, rel=1e-6)
     assert res["result"]["p"] == pytest.approx(p_exp, rel=1e-6)
+
+
+# ── rank-floor guard (item R) ─────────────────────────────────────────────────
+
+def test_rank_floor_blocks_spearman_at_four_pairs():
+    """item R: a Spearman permutation test on n = 4 pairs has a floor of
+    2/4! = 0.0833 > 0.05, so it can never reject — the guard recommends Pearson
+    instead and names the floor. (n < 12 would otherwise pick Spearman.)"""
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0], "y": [2.1, 3.9, 6.2, 7.8]})
+    res = stats.correlation(df, "x", "y")
+    assert res["recommendation"]["test"] == "pearson"          # NOT spearman
+    assert "Spearman" in res["recommendation"]["reason"]
+    assert "0.083" in res["recommendation"]["reason"]
+    # an explicit override is still honoured — the guard only moves the default.
+    pinned = stats.correlation(df, "x", "y", override="spearman")
+    assert pinned["result"]["test"] == "spearman"
+
+
+def test_rank_floor_does_not_fire_for_spearman_at_five_pairs():
+    """At n = 5 the Spearman floor is 2/5! = 0.0167 ≤ 0.05, so a small-n
+    non-normal sample still gets the rank correlation — the guard must not fire."""
+    df = pd.DataFrame({"x": [1.0, 2.0, 3.0, 4.0, 100.0],   # outlier → non-normal
+                       "y": [2.0, 4.0, 6.0, 8.0, 200.0]})
+    res = stats.correlation(df, "x", "y")
+    assert res["recommendation"]["test"] == "spearman"

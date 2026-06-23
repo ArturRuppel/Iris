@@ -2,6 +2,8 @@
    test, or statistic the pane can show. `what` always renders; `assumes` and
    `read` render as labelled lines when present. See the design spec:
    docs/superpowers/specs/2026-06-17-stats-info-boxes-design.md
+   The full recommendation rules (thresholds, rationale, sources, failure modes)
+   live in docs/stats-recommendations.md — keep this copy consistent with it.
    Copy lives here (not inline in JSX) so the prose is reviewable in one place. */
 
 export interface GlossaryEntry {
@@ -22,6 +24,12 @@ export const STATS_GLOSSARY = {
     term: "Parametric vs robust",
     what: "Parametric tests (t-test, ANOVA, Pearson) assume the data follow a normal distribution and compare means. Robust / rank-based tests (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon) make no normality assumption — they compare ranks, so they tolerate skew and outliers.",
     read: "Iris recommends parametric when the normality check passes and the sample is large enough to trust it; otherwise robust. Either is valid to report — the override lets you switch.",
+    assumes: "At very small n a rank test can't reach significance no matter the data (e.g. Wilcoxon needs ≥ 6 pairs to cross p = 0.05). When that happens Iris recommends the parametric test instead and flags that normality is unverifiable — the “rank-floor guard”. Full rules + sources are in the Methods tab.",
+  },
+  rank_floor: {
+    term: "Rank-floor guard",
+    what: "A rank test computes its p-value from a finite set of equally likely arrangements, so it has a smallest possible p set by the sample size alone. Below that n it can never reach significance — the Wilcoxon signed-rank test's floor is 2/2ⁿ (0.25 at n = 3), so it needs ≥ 6 pairs to cross 0.05; Mann–Whitney, Spearman and Kruskal–Wallis have analogous floors.",
+    read: "When the small-sample rule would pick a rank test that cannot resolve at your n, Iris recommends the parametric test instead and notes that its normality assumption is unverifiable at this n. The override still lets you pin the rank test. (GraphPad Prism FAQ 1684 documents the Wilcoxon case.)",
   },
   describe_only: {
     term: "Describe only",
@@ -44,7 +52,7 @@ export const STATS_GLOSSARY = {
   normality: {
     term: "Normality",
     what: "The shape assumption behind parametric tests: that values scatter symmetrically around a mean in a bell curve.",
-    read: "Shapiro–Wilk “normal” doesn't prove normality — it means the data are consistent with it. With very small samples the check can't see departures, so Iris falls back to the robust test regardless (below n = 12).",
+    read: "Shapiro–Wilk “normal” doesn't prove normality — it means the data are consistent with it. With very small samples the check can't see departures, so Iris falls back to the robust test regardless (below n = 12) — unless that rank test is too small to ever reach significance, in which case the parametric test is recommended with a caveat (see Rank-floor guard).",
   },
 
   /* --- tests --- */
@@ -57,7 +65,7 @@ export const STATS_GLOSSARY = {
   mann_whitney: {
     term: "Mann–Whitney U",
     what: "The rank-based (“robust”) alternative to the two-group t-test. It tests whether values in one group tend to be larger than the other by comparing ranks, not means.",
-    assumes: "Independent observations. No normality assumption.",
+    assumes: "Independent observations. No normality assumption. Needs enough observations to resolve at α: its floor is 2/C(n₁+n₂, n₁), so e.g. 3 vs 3 cannot cross p = 0.05 (see Rank-floor guard).",
     read: "Small p → the groups' distributions are shifted apart. Pair it with the rank-biserial r effect size.",
   },
   paired_t: {
@@ -69,7 +77,7 @@ export const STATS_GLOSSARY = {
   wilcoxon: {
     term: "Wilcoxon signed-rank",
     what: "The rank-based alternative to the paired t-test. Tests whether the paired differences are symmetric around zero, using their ranks.",
-    assumes: "Paired observations. No normality assumption on the differences.",
+    assumes: "Paired observations. No normality assumption on the differences. Needs ≥ 6 pairs to reach p = 0.05 (two-sided): its floor is 2/2ⁿ, so it has zero power at ≤ 5 pairs (see Rank-floor guard).",
     read: "Small p → a consistent within-unit shift. Report with rank-biserial r.",
   },
   one_way_anova: {
@@ -81,7 +89,7 @@ export const STATS_GLOSSARY = {
   kruskal: {
     term: "Kruskal–Wallis",
     what: "The rank-based omnibus test for three or more independent groups — the robust counterpart to one-way ANOVA.",
-    assumes: "Independent observations. No normality assumption.",
+    assumes: "Independent observations. No normality assumption. Needs enough per group to resolve at α (e.g. 3 groups of 2 cannot cross p = 0.05; 3 of 3 can) — see Rank-floor guard.",
     read: "Small omnibus p → at least one group is shifted; the pairwise rows (Holm-adjusted Mann–Whitney) localise it. ε² is the rank-based effect size.",
   },
   pearson: {
@@ -93,7 +101,7 @@ export const STATS_GLOSSARY = {
   spearman: {
     term: "Spearman ρ",
     what: "The rank-based correlation — the strength of a monotonic association (consistently increasing or decreasing), not necessarily a straight line.",
-    assumes: "No normality assumption; tolerates outliers and curved-but-monotonic relationships.",
+    assumes: "No normality assumption; tolerates outliers and curved-but-monotonic relationships. Needs ≥ 5 pairs to reach p = 0.05: its floor is 2/n! (see Rank-floor guard).",
     read: "ρ runs −1 to +1 like r. Preferred over Pearson when the data are skewed or the relationship bends.",
   },
   chi_square: {
