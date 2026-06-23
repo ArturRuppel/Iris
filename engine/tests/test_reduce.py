@@ -1,4 +1,4 @@
-"""Reduction layer: an ordered pipeline of select / filter steps. Aggregation is
+"""Reduction layer: an ordered pipeline of drop / filter steps. Aggregation is
 NOT a reduce step — it is the data hierarchy's job (see test_hierarchy.py)."""
 import pandas as pd
 import pytest
@@ -31,8 +31,8 @@ def filter_step(conditions):
     return {"kind": "filter", "conditions": conditions}
 
 
-def select_step(columns):
-    return {"kind": "select", "columns": columns}
+def drop_step(columns):
+    return {"kind": "drop", "columns": columns}
 
 
 # ---- empty / passthrough ----
@@ -50,28 +50,28 @@ def test_none_steps_passes_through():
     assert schema == SCHEMA
 
 
-# ---- select ----
+# ---- drop ----
 
-def test_select_keeps_and_orders_columns():
+def test_drop_removes_listed_columns():
     out, schema = rd.apply_reduction(frame(), SCHEMA, [
-        select_step(["response", "treatment"])])
-    # meta columns ride along; data columns are exactly the selection, in order
-    assert [c for c in out.columns if c != "id"] == ["response", "treatment"]
-    assert [c["name"] for c in schema["columns"]] == ["response", "treatment"]
+        drop_step(["subject", "dose"])])
+    # meta columns ride along; data columns are everything except the dropped ones
+    assert [c for c in out.columns if c != "id"] == ["treatment", "response"]
+    assert [c["name"] for c in schema["columns"]] == ["treatment", "response"]
     # rows preserved
     assert out["response"].tolist() == [80.0, 70.0, 60.0, 50.0]
 
 
-def test_select_unknown_column_raises():
+def test_drop_unknown_column_raises():
     with pytest.raises(rd.ReduceError):
-        rd.apply_reduction(frame(), SCHEMA, [select_step(["nope"])])
+        rd.apply_reduction(frame(), SCHEMA, [drop_step(["nope"])])
 
 
 def test_step_referencing_dropped_column_raises():
-    # select drops `dose`; a later filter on it must error, not silently pass
+    # drop removes `subject` and `dose`; a later filter on `dose` must error, not silently pass
     with pytest.raises(rd.ReduceError):
         rd.apply_reduction(frame(), SCHEMA, [
-            select_step(["treatment", "response"]),
+            drop_step(["subject", "dose"]),
             filter_step([{"column": "dose", "op": ">", "value": 5}])])
 
 
@@ -116,12 +116,12 @@ def test_collapse_step_is_rejected():
 
 def test_trace_reports_rows_and_schema_per_step():
     steps = [
-        select_step(["treatment", "subject", "response"]),
+        drop_step(["dose"]),
         filter_step([{"column": "treatment", "op": "==", "value": "control"}]),
     ]
     out, schema, trace = rd.reduce_with_trace(frame(), SCHEMA, steps)
     assert [t["n_rows_out"] for t in trace] == [4, 2]
-    # the select step's output schema dropped `dose`, kept treatment/subject/response
+    # the drop step's output schema removed `dose`, kept treatment/subject/response
     last_cols = [c["name"] for c in trace[-1]["schema_out"]["columns"]]
     assert "treatment" in last_cols and "response" in last_cols
     assert "dose" not in last_cols

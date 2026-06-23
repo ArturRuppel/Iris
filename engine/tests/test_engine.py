@@ -166,14 +166,14 @@ def test_document_roundtrip_keeps_reduce_clause():
     spec["reduce"] = {"steps": [
         {"kind": "filter",
          "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
-        {"kind": "select", "columns": ["treatment", "response"]}]}
+        {"kind": "drop", "columns": ["subject", "dose"]}]}
     saved = document.save_document(table["schema"], table["rows"], [spec, make_spec()],
                                    {"exclusions": []}, {"engine": "test"})
     doc = document.load_document(saved)
     assert len(doc["analyses"]) == 2
     steps = doc["analyses"][0]["reduce"]["steps"]
     assert steps[0]["conditions"][0]["value"] == "control"
-    assert steps[1]["columns"] == ["treatment", "response"]
+    assert steps[1]["columns"] == ["subject", "dose"]
 
 
 def test_health_reports_versions():
@@ -864,10 +864,10 @@ def test_reduce_preview_caps_rows_and_reports_total():
 def test_reduce_preview_trace_per_step():
     table = make_table()  # 40 rows, 20 per treatment
     steps = [
-        {"kind": "select", "columns": ["treatment", "subject", "response"]},
+        {"kind": "drop", "columns": ["dose"]},
         {"kind": "filter",
          "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
-        {"kind": "select", "columns": ["treatment", "response"]},
+        {"kind": "drop", "columns": ["subject"]},
     ]
     r = client.post("/reduce", json={"table": table, "steps": steps})
     assert r.status_code == 200
@@ -875,7 +875,8 @@ def test_reduce_preview_trace_per_step():
     assert [t["n_rows_out"] for t in body["trace"]] == [40, 20, 20]
     assert body["n_total"] == 20
     cols = [c["name"] for c in body["preview"]["schema"]["columns"]]
-    assert "treatment" in cols and "response" in cols and "subject" not in cols
+    assert "treatment" in cols and "response" in cols
+    assert "subject" not in cols and "dose" not in cols
 
 
 def test_reduce_preview_summary_counts():

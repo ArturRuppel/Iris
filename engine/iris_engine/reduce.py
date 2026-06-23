@@ -1,8 +1,8 @@
 """Reduction layer: an ordered pipeline of steps applied top-to-bottom.
 
-A step is one of `select` (project columns) or `filter` (drop rows). Each step
+A step is one of `drop` (remove columns) or `filter` (drop rows). Each step
 transforms the output of the one above, so order matters and is honored (e.g.
-filter → select → filter). Aggregation across a grain is NOT a reduce step: it
+filter → drop → filter). Aggregation across a grain is NOT a reduce step: it
 is the data hierarchy's job (pick a level — see hierarchy.materialize_levels),
 so the figure and the statistics read one shared grain instead of a destructive
 collapse mutating the table out from under them.
@@ -72,23 +72,25 @@ def _meta_cols(df: pd.DataFrame) -> list[str]:
     return [c for c in ("id",) if c in df.columns]
 
 
-def _apply_select(df: pd.DataFrame, schema: dict,
-                  columns: list[str]) -> tuple[pd.DataFrame, dict]:
+def _apply_drop(df: pd.DataFrame, schema: dict,
+                columns: list[str]) -> tuple[pd.DataFrame, dict]:
     cols = {c["name"]: c for c in schema["columns"]}
-    missing = [c for c in columns if c not in cols]
-    if missing:
-        raise ReduceError(f"select: unknown column(s) {missing!r}")
-    keep = _meta_cols(df) + [c for c in columns if c in df.columns]
+    unknown = [c for c in columns if c not in cols]
+    if unknown:
+        raise ReduceError(f"drop: unknown column(s) {unknown!r}")
+    drop = set(columns)
+    keep_names = [c["name"] for c in schema["columns"] if c["name"] not in drop]
+    keep = _meta_cols(df) + [c for c in keep_names if c in df.columns]
     out = df[keep].copy()
-    new_schema = {**schema, "columns": [cols[c] for c in columns]}
+    new_schema = {**schema, "columns": [cols[c] for c in keep_names]}
     return out, new_schema
 
 
 def _apply_step(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     kind = step.get("kind")
-    if kind == "select":
-        return _apply_select(df, schema, step.get("columns") or [])
+    if kind == "drop":
+        return _apply_drop(df, schema, step.get("columns") or [])
     if kind == "filter":
         out = _apply_filter(df, schema, step.get("conditions") or [])
         return out.reset_index(drop=True), schema
