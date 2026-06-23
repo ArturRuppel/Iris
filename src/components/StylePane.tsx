@@ -4,7 +4,7 @@ import {
   activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom,
   hierarchyAtom, styleRegistryAtom, styleClipboardAtom, styleLibraryAtom,
 } from "../state";
-import { familyForMappings } from "../channels";
+import { familyForMappingsRef } from "../channels";
 import { levelOptions } from "../levels";
 import type { StyleKnob, StyleOverrides } from "../types";
 import { captureStyle, serializeStyleSheet, parseStyleSheet } from "../style/sheet";
@@ -70,8 +70,8 @@ export function StylePane() {
   const analysis = useAtomValue(analysisAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
   const hierarchy = useAtomValue(hierarchyAtom);
-  const family = active ? familyForMappings(active.mappings, schema) : "group_comparison";
-  const grouped = family === "group_comparison";
+  const family = active ? familyForMappingsRef(active.mappings, schema, active.reference) : "group_comparison";
+  const grouped = family === "group_comparison" || family === "location";
 
   /* ---- style sheet hooks ---- */
   const [clipboard, setClipboard] = useAtom(styleClipboardAtom);

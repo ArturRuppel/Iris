@@ -49,10 +49,11 @@ export function tableFromColumnar(ct: ColumnarTable): Table {
   return { schema: ct.schema, rows };
 }
 
-export type StatsFamily = "group_comparison" | "correlation" | "descriptive" | "contingency" | "timeseries";
+export type StatsFamily = "group_comparison" | "location" | "correlation" | "descriptive" | "contingency" | "timeseries";
 export type TestName =
   | "welch_t" | "mann_whitney" | "paired_t" | "wilcoxon"
   | "one_way_anova" | "kruskal"
+  | "one_sample_t" | "wilcoxon_signed"
   | "pearson" | "spearman" | "descriptive"
   | "chi_square" | "fisher_exact";
 
@@ -161,6 +162,9 @@ export interface StatModel {
   spine?: string[];
   pairing?: Pairing | null;
   inferential_level?: string;
+  /* the constant each group is tested against — present only for the `location`
+     (vs-reference / one-sample) family, so the panel and the reference line agree. */
+  reference?: number;
   issues: unknown[];
 }
 
@@ -330,6 +334,12 @@ export interface AnalysisSpec {
        test is pinned (the engine then runs its recommendation). Transport for
        the override round-trip, replacing the old chosen_by == user_override signal. */
     override?: TestName | null;
+    /* the constant the `location` (one-sample / vs-reference) family tests each
+       group against — chance/control/unity. Absent for every other family, where
+       the column types alone fix the design; present here because a
+       categorical-x / numeric-y plot is otherwise indistinguishable from an
+       ordinary group comparison, so the opt-in must be carried in the spec. */
+    reference?: number | null;
     alternatives_offered: string[];
     assumption_checks: { check: string; per: string }[];
     alpha: number;
@@ -372,10 +382,22 @@ export interface StatsResult {
     /* multi-group (>2 levels): omnibus stat + per-pair corrected comparisons */
     F?: number; df_between?: number; df_within?: number; H?: number; k?: number;
     pairwise?: PairwiseComparison[]; correction?: string;
+    /* location (vs-reference) family: the constant the per-replicate values are
+       tested against. The top-level `result` carries the first group; `per_group`
+       below carries every lane. */
+    reference?: number;
     effect: { name: string; value: number; ci: [number, number] | null };
   };
   regression?: { slope: number; intercept: number };
   summaries: { group: string; n: number; mean: number; sd: number; ci95_half: number }[];
+  /* location family only: one entry per x-lane, each tested against the reference
+     (chance) — the per-lane p/stars the figure draws. Absent for other families. */
+  reference?: number;
+  per_group?: {
+    level: string; test: string; p: number | null; stars: string; n: number;
+    center: number; center_ci?: [number, number] | null;
+    effect?: { name: string; value: number };
+  }[];
   alpha: number;
   methods_text: string;
 }

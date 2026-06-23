@@ -6,7 +6,7 @@ import type {
   ReduceStep, ReduceStepKind, ReducePreview,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
-import { familyForMappings } from "./channels";
+import { familyForMappingsRef } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
 
@@ -118,6 +118,14 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
      StatsPanel offers the right subset per group count (FAMILY_TESTS there). */
   group_comparison: ["welch_t", "mann_whitney", "paired_t", "wilcoxon",
                      "one_way_anova", "kruskal"],
+  /* vs-reference (one-sample) family: each group's per-replicate values tested
+     against a constant (chance/control/unity) rather than against each other.
+     Parametric one-sample t ↔ robust Wilcoxon signed-rank; the engine's
+     rank-floor guard falls back to the t at tiny n (where the signed-rank test
+     has zero power). The correct design when groups are not independent — e.g.
+     contact-type fractions that sum to 1, where a between-group comparison is
+     partly tautological (iris_engine/stats.location). */
+  location: ["one_sample_t", "wilcoxon_signed"],
   correlation: ["pearson", "spearman"],
   descriptive: ["descriptive"],
   /* §5 independent contingency cell: chi-square (default) ↔ Fisher's exact (2×2).
@@ -152,6 +160,12 @@ export interface Plottable {
      model server-side from the encodings. */
   layers: Layer[];          // the editable, ordered geom stack
   override: TestName | null;
+  /* vs-reference opt-in: when non-null, a categorical-x/numeric-y (or ungrouped
+     numeric) plot is the `location` family — each group tested against this
+     constant (chance/control/unity) instead of against each other. null = the
+     ordinary type-derived family. This is the one family the column types can't
+     imply, so it is stored, not derived (see channels.familyForMappingsRef). */
+  reference: number | null;
   describeOnly: boolean;    // user asked to render without a test
   /* which level the reduced-table preview shows ("" = raw reduced rows). The
      hierarchy itself is table-level (hierarchyAtom), shared by all analyses. */
@@ -182,7 +196,7 @@ export function makeDefaultPlottable(schema: Schema): Plottable {
     color: "", size: "", shape: "",
     facetRow: "", facetCol: "", shareX: true, shareY: true,
     layers: [],
-    override: null, describeOnly: false,
+    override: null, reference: null, describeOnly: false,
     previewLevel: RAW_LEVEL,
     style: {},
     /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
@@ -477,6 +491,13 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     // Prefer the dedicated `override` field; fall back to the legacy
     // chosen_by == user_override signal so pre-decoupling .viz files still load.
     override: s?.override ?? (s?.chosen_by === "user_override" ? s.test : null),
+    /* restore the vs-reference opt-in so a saved `location` doc round-trips
+       instead of being re-derived as a group comparison on open. The constant
+       rides in stats.reference; older files that only set the reference line fall
+       back to style.reference_value, else 0. */
+    reference: s?.family === "location"
+      ? (s?.reference ?? (style.reference_value as number | null | undefined) ?? 0)
+      : null,
     describeOnly: s?.chosen_by === "describe_only",
     previewLevel: RAW_LEVEL,
     style,
@@ -540,6 +561,13 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   // its own chosen_by / methods_text until that follow-up lands.)
   const chosen_by = p.describeOnly ? "describe_only"
     : recOk ? "recommendation_accepted" : "default";
+  // location family: carry the tested constant and, unless the user already set
+  // one, default the reference line to it so the figure draws the chance line the
+  // one-sample test is measured against.
+  const reference = family === "location" ? (p.reference ?? 0) : null;
+  const style: StyleOverrides = reference != null && p.style.reference_value == null
+    ? { ...p.style, reference_value: reference }
+    : p.style;
   return {
     spec_version: "2.0",
     id: p.id,
@@ -567,14 +595,17 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       /* the pinned test rides here, not in chosen_by — a non-recommended pick is
          the user's choice, not a flagged deviation. null when nothing is pinned. */
       override: p.override,
+      /* the vs-reference constant — engine reads it for the location family; null
+         (omitted in effect) for every other family. */
+      ...(reference != null ? { reference } : {}),
       alternatives_offered: tests.filter((t) => t !== test),
       assumption_checks: [{ check: "shapiro_wilk",
-                            per: family === "group_comparison" ? "group" : "variable" }],
+                            per: family === "group_comparison" || family === "location" ? "group" : "variable" }],
       alpha: 0.05,
       report: ["effect_size", "ci", "n_per_group"],
     },
     annotations: { significance_brackets: "auto", show_n: true },
-    style: { overrides: p.style },
+    style: { overrides: style },
     engine_snapshot: snapshot,
   };
 }
@@ -586,7 +617,7 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const schema = get(schemaAtom);
   const p = get(activePlottableAtom);
   if (!schema || !p) return null;
-  const family = familyForMappings(p.mappings, get(effectiveSchemaAtom));
+  const family = familyForMappingsRef(p.mappings, get(effectiveSchemaAtom), p.reference);
   const tests = TEST_BY_FAMILY[family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
@@ -607,7 +638,7 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
   const previews = get(reducePreviewByIdAtom);
   return get(plottablesAtom).map((p) => {
     const eff = previews[p.id]?.preview.schema ?? schema;
-    const family = familyForMappings(p.mappings, eff);
+    const family = familyForMappingsRef(p.mappings, eff, p.reference);
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;

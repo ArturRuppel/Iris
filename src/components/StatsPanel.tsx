@@ -14,6 +14,8 @@ const TEST_LABELS: Record<string, string> = {
   wilcoxon: "Wilcoxon signed-rank",
   one_way_anova: "One-way ANOVA",
   kruskal: "Kruskal–Wallis",
+  one_sample_t: "One-sample t-test",
+  wilcoxon_signed: "Wilcoxon signed-rank",
   pearson: "Pearson r",
   spearman: "Spearman ρ",
   descriptive: "Descriptive summary",
@@ -23,6 +25,8 @@ const TEST_LABELS: Record<string, string> = {
 const GROUP_TESTS: TestName[] = ["welch_t", "mann_whitney", "paired_t", "wilcoxon"];
 // >2 groups: the omnibus alternatives (parametric ANOVA vs robust Kruskal).
 const MULTI_TESTS: TestName[] = ["one_way_anova", "kruskal"];
+// vs-reference family: parametric one-sample t vs robust signed-rank.
+const LOCATION_TESTS: TestName[] = ["one_sample_t", "wilcoxon_signed"];
 const FAMILY_TESTS: Record<string, TestName[]> = {
   welch_t: GROUP_TESTS,
   mann_whitney: GROUP_TESTS,
@@ -30,6 +34,8 @@ const FAMILY_TESTS: Record<string, TestName[]> = {
   wilcoxon: GROUP_TESTS,
   one_way_anova: MULTI_TESTS,
   kruskal: MULTI_TESTS,
+  one_sample_t: LOCATION_TESTS,
+  wilcoxon_signed: LOCATION_TESTS,
   pearson: ["pearson", "spearman"],
   spearman: ["pearson", "spearman"],
   // Fisher's exact is offered only for 2×2; the engine falls back to chi-square
@@ -109,6 +115,35 @@ function ResultRows({ s }: { s: StatsResult }) {
           ))}
         </>
       );
+    case "one_sample_t":
+    case "wilcoxon_signed": {
+      // vs-reference family: each x-lane is tested against the constant on its
+      // own, so the per-lane p/stars (s.per_group) are the result — not a single
+      // between-group number. Fall back to the top-level result if a build
+      // predates per_group.
+      const ref = s.reference ?? r.reference ?? 0;
+      const lanes = s.per_group ?? [];
+      return (
+        <>
+          <dt>Reference (chance) <InfoTip k="significance_stars" /></dt>
+          <dd className="mono">{ref}</dd>
+          {lanes.length > 0 ? lanes.map((g) => (
+            <span key={g.level} style={{ display: "contents" }}>
+              <dt>{g.level} vs ref</dt>
+              <dd className="mono strong">
+                {g.p == null ? `n = ${g.n} (too few to test)` : `${fmtP(g.p)} ${g.stars}`}
+              </dd>
+            </span>
+          )) : (
+            <>
+              <dt>p (vs reference) <InfoTip k="p_value" /></dt>
+              <dd className="mono strong">{fmtP(r.p!)} {stars(r.p!)}</dd>
+              <dt>n <InfoTip k="sample_n" /></dt><dd className="mono">{r.n}</dd>
+            </>
+          )}
+        </>
+      );
+    }
     case "pearson":
     case "spearman":
       return (
@@ -160,6 +195,14 @@ export function StatsPanel() {
   const setOverride = (t: TestName | null) => active && setActive({ ...active, override: t });
   const setDescribeOnly = (v: boolean) =>
     active && setActive({ ...active, describeOnly: v });
+  // vs-reference opt-in: null = test groups against each other; a number = test
+  // each lane against that constant (the `location` family). Toggling on resets
+  // any group-comparison override so the location default (one-sample t) takes.
+  const setReference = (v: number | null) =>
+    active && setActive({ ...active, reference: v, override: null });
+  // edit the constant while already in vs-reference mode — keeps any test pick.
+  const setReferenceValue = (v: number) =>
+    active && setActive({ ...active, reference: v });
   if (!analysis) return <section className="pane stats-pane"><div className="pane-head"><h2>Statistics</h2></div><p className="hint">Waiting for first analysis…</p></section>;
 
   const s = analysis.stats;
@@ -201,6 +244,24 @@ export function StatsPanel() {
           Describe only — run no test
           <InfoTip k="describe_only" />
         </label>
+        {(model.family === "group_comparison" || model.family === "location") && (
+          /* Opt this grouped numeric plot into a vs-reference (one-sample) test —
+             each lane against a constant (chance/control/unity) instead of against
+             the other lanes. The one design the column types can't imply, so it is
+             an explicit toggle that round-trips via stats.reference. */
+          <label className="describe-toggle">
+            <input type="checkbox" checked={active?.reference != null}
+              onChange={(e) => setReference(e.target.checked ? 0 : null)} />
+            Test against a reference value
+            <InfoTip k="one_sample_t" />
+            {active?.reference != null && (
+              <input type="number" className="ref-value" step="any" value={active.reference}
+                aria-label="reference value"
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => setReferenceValue(e.target.value === "" ? 0 : Number(e.target.value))} />
+            )}
+          </label>
+        )}
         {s.checks.length > 0 && <h3>Assumption checks <InfoTip k="normality" /></h3>}
         {s.checks.map((c) => (
           <div className="row" key={c.group}>
@@ -214,9 +275,11 @@ export function StatsPanel() {
 
         {model.chosen_by === "describe_only" ? (
           <p className="reason">No test was run — describing only. Untick “Describe only” to run a test.</p>
-        ) : s.decision ? (
-          /* Two-group numeric family: the engine emits a per-question `decision`,
-             so guide the user through the questions and derive the test. */
+        ) : s.decision?.structural && s.decision?.assumption ? (
+          /* Two-group numeric family: the engine emits a per-question `decision`
+             with both axes, so guide the user through the questions and derive the
+             test. The location family emits only an `assumption` axis (no
+             structural pairing), so it falls through to the chip row below. */
           <GuidedTestPicker
             decision={s.decision}
             resolvedTest={s.result.test as TestName}

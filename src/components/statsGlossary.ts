@@ -80,6 +80,18 @@ export const STATS_GLOSSARY = {
     assumes: "Paired observations. No normality assumption on the differences. Needs ≥ 6 pairs to reach p = 0.05 (two-sided): its floor is 2/2ⁿ, so it has zero power at ≤ 5 pairs (see Rank-floor guard).",
     read: "Small p → a consistent within-unit shift. Report with rank-biserial r.",
   },
+  one_sample_t: {
+    term: "One-sample t-test",
+    what: "Tests whether one group's per-replicate values average to a fixed reference (chance, control, or unity) rather than to another group. Each lane is tested against the constant on its own.",
+    assumes: "The per-replicate values are roughly normal around the reference; replicates are independent. At very small n the normality check is unverifiable — read with that caveat.",
+    read: "Small p → the lane sits consistently above (or below) the reference. Use it when groups are not independent — e.g. contact-type fractions that sum to 1, where comparing groups against each other is partly tautological.",
+  },
+  wilcoxon_signed: {
+    term: "Wilcoxon signed-rank (one-sample)",
+    what: "The rank-based alternative to the one-sample t-test: tests whether a group's per-replicate values are symmetric around the reference, using their ranks.",
+    assumes: "Independent replicates; no normality assumption. Needs ≥ 6 replicates to reach p = 0.05 (its floor is 2/2ⁿ), so it has zero power below that — the engine then falls back to the one-sample t (see Rank-floor guard).",
+    read: "Small p → a consistent shift away from the reference. Report with the effect size.",
+  },
   one_way_anova: {
     term: "One-way ANOVA",
     what: "The omnibus test for comparing the means of three or more independent groups at once. Answers “do any of these groups differ?” before looking at individual pairs.",

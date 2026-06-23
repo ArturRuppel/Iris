@@ -3,9 +3,11 @@ import { createStore } from "jotai";
 import type { AnalysisSpec, AnalyzeResponse, Schema } from "./types";
 import {
   activePlottableIdAtom, analysisByIdAtom, analysisKeyByIdAtom,
-  analysisRecencyAtom, cacheBudgetAtom, cacheKey, estimateBytes,
-  isSpecRenderable, pickStaleSpec, setAnalysisResultAtom,
+  analysisRecencyAtom, buildSpec, cacheBudgetAtom, cacheKey, estimateBytes,
+  isSpecRenderable, makeDefaultPlottable, pickStaleSpec, plottableFromSpec,
+  setAnalysisResultAtom,
 } from "./state";
+import { EMPTY_HIERARCHY } from "./types";
 
 /* a minimal renderable spec: a Y encoding and one layer. Toggle `y`/`layers`/`x`
    to exercise the renderable gate; `tag` lets a test mutate the spec so its key
@@ -51,6 +53,50 @@ const SCHEMA: Schema = { schema_version: "1.0", columns: [
   { name: "grp", type: "categorical", label: "Group" },
   { name: "val", type: "numeric", label: "Value" },
 ] };
+
+describe("location (vs-reference) family round-trips through save/load", () => {
+  // a saved location doc, like reports' contact_clustering.iris: categorical x,
+  // numeric y, stats.family = location, the tested constant in stats.reference.
+  const locationSpec = (): AnalysisSpec => ({
+    ...makeSpec("loc", { xCol: "grp" }),
+    stats: {
+      family: "location", test: "one_sample_t", chosen_by: "default",
+      override: "one_sample_t", reference: 0, alternatives_offered: [],
+      assumption_checks: [], alpha: 0.05, report: [],
+    },
+  });
+
+  it("plottableFromSpec restores the reference opt-in (not a group comparison)", () => {
+    const p = plottableFromSpec(locationSpec());
+    expect(p.reference).toBe(0);
+    // an ordinary group comparison must NOT acquire a reference
+    expect(plottableFromSpec(makeSpec("g", { xCol: "grp" })).reference).toBeNull();
+  });
+
+  it("plottableFromSpec falls back to the reference line when stats.reference is absent", () => {
+    const legacy = locationSpec();
+    delete (legacy.stats as { reference?: number | null }).reference;
+    legacy.style = { overrides: { reference_value: 0.5 } };
+    expect(plottableFromSpec(legacy).reference).toBe(0.5);
+  });
+
+  it("buildSpec re-emits family=location with the reference (no silent group_comparison)", () => {
+    const p = { ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" }, reference: 0 };
+    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY);
+    expect(spec.stats.family).toBe("location");
+    expect(spec.stats.reference).toBe(0);
+    expect(spec.stats.test).toBe("one_sample_t");
+    // the chance line is defaulted so the figure draws the reference it tests against
+    expect(spec.style.overrides.reference_value).toBe(0);
+  });
+
+  it("a full save→load→save cycle preserves the location family", () => {
+    const loaded = plottableFromSpec(locationSpec());
+    const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY);
+    expect(resaved.stats.family).toBe("location");
+    expect(resaved.stats.reference).toBe(0);
+  });
+});
 
 describe("isSpecRenderable — the active loop's gate, applied to any spec", () => {
   it("requires a Y encoding and ≥1 layer", () => {

@@ -89,6 +89,26 @@ export function familyForMappings(
   return f === "none" ? "descriptive" : f;
 }
 
+/* As familyForMappings, but honoring an explicit vs-reference (one-sample) opt-in.
+   The column types alone cannot tell a *location* test (each group's values vs a
+   constant — chance/control/unity) from an ordinary group comparison: both are
+   categorical-x / numeric-y. So `location` is the one family that is not
+   type-derivable; the user pins it by setting a numeric `reference`, and only the
+   shapes that support it — a numeric readout grouped by a categorical x, or an
+   ungrouped single sample — flip to `location`. Any other mapping ignores the
+   reference and keeps its derived family. Mirrors the engine, where
+   `stats.family == "location"` overrides the otherwise-inferred group comparison
+   (iris_engine/statmodel.infer). */
+export function familyForMappingsRef(
+  mappings: { x: string; y: string }, schema: Schema | null,
+  reference: number | null,
+): StatsFamily {
+  const base = familyForMappings(mappings, schema);
+  if (reference != null && (base === "group_comparison" || base === "descriptive"))
+    return "location";
+  return base;
+}
+
 /* --- the offer rule (§4): a channel offers a column type iff some installed
    geom consumes that type on that channel. For x/y this is registry-derived, so
    adding a geom (e.g. a tile with y_type "categorical") makes Y offer

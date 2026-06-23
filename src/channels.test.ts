@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { ColType } from "./channels";
 import {
-  familyFor, familyForMappings, geomAddable, geomAxisColTypes, geomGateReason,
-  isOfferable, offeredColumns, renderStatus,
+  familyFor, familyForMappings, familyForMappingsRef, geomAddable, geomAxisColTypes,
+  geomGateReason, isOfferable, offeredColumns, renderStatus,
 } from "./channels";
 import type { ColumnDef, GeomMeta, Registry, Schema } from "./types";
 
@@ -254,6 +254,25 @@ describe("back-compat — derived family matches the pre-3a stored family", () =
     expect(familyForMappings({ x: "", y: "val" }, SCHEMA)).toBe("descriptive");
     // Phase 3d: categorical × categorical → contingency (no longer falls back to descriptive)
     expect(familyForMappings({ x: "grp", y: "grp" }, SCHEMA)).toBe("contingency");
+  });
+});
+
+describe("familyForMappingsRef — vs-reference (location) opt-in", () => {
+  it("a numeric reference flips the group-comparison shape to location", () => {
+    expect(familyForMappingsRef({ x: "grp", y: "val" }, SCHEMA, 0)).toBe("location");
+    // a non-zero reference works too (chance/control/unity is any constant)
+    expect(familyForMappingsRef({ x: "grp", y: "val" }, SCHEMA, 1.5)).toBe("location");
+    // an ungrouped single sample (empty x) is also a one-sample test
+    expect(familyForMappingsRef({ x: "", y: "val" }, SCHEMA, 0)).toBe("location");
+  });
+  it("no reference keeps the type-derived family", () => {
+    expect(familyForMappingsRef({ x: "grp", y: "val" }, SCHEMA, null)).toBe("group_comparison");
+    expect(familyForMappingsRef({ x: "", y: "val" }, SCHEMA, null)).toBe("descriptive");
+  });
+  it("a reference is ignored for shapes that can't be a location test", () => {
+    // numeric × numeric stays a correlation; categorical × categorical stays contingency
+    expect(familyForMappingsRef({ x: "val", y: "val" }, SCHEMA, 0)).toBe("correlation");
+    expect(familyForMappingsRef({ x: "grp", y: "grp" }, SCHEMA, 0)).toBe("contingency");
   });
 });
 
