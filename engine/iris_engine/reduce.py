@@ -234,6 +234,44 @@ def _apply_join(df: pd.DataFrame, schema: dict,
     return out.reset_index(drop=True), {**schema, "columns": [*schema["columns"], *add]}
 
 
+def _apply_pivot(df: pd.DataFrame, schema: dict,
+                 step: dict) -> tuple[pd.DataFrame, dict]:
+    """Unstack one categorical `column` (long → wide): one column per level,
+    each cell an aggregate (sum) of `values` over the `index` keys, absent
+    combinations 0-filled. `names` maps each level to its new column name."""
+    index = step.get("index") or []
+    column = step.get("column")
+    values = step.get("values")
+    agg = step.get("agg", "sum")
+    fill = step.get("fill", 0)
+    names = step.get("names") or {}
+    if not index:
+        raise ReduceError("pivot needs `index` key(s)")
+    if not column:
+        raise ReduceError("pivot needs a `column`")
+    if not values:
+        raise ReduceError("pivot needs `values`")
+    known = {c["name"] for c in schema["columns"]}
+    unknown = [c for c in (*index, column, values) if c not in known]
+    if unknown:
+        raise ReduceError(f"pivot: unknown column(s) {unknown!r}")
+    missing = [c for c in (*index, column, values) if c not in df.columns]
+    if missing:
+        raise ReduceError(f"pivot: column(s) {missing!r} absent from the frame")
+    wide = df.pivot_table(index=index, columns=column, values=values,
+                          aggfunc=agg, fill_value=fill)
+    # flatten the level axis to the per-level names; drop any unmapped level
+    keep = [lvl for lvl in wide.columns if lvl in names]
+    wide = wide[keep]
+    wide.columns = [names[lvl] for lvl in keep]
+    out = wide.reset_index()
+    consumed = {column, values}
+    new_cols = [c for c in schema["columns"] if c["name"] not in consumed]
+    new_cols += [{"name": names[lvl], "type": "numeric", "label": names[lvl]}
+                 for lvl in keep]
+    return out, {**schema, "columns": new_cols}
+
+
 def _apply_step(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     kind = step.get("kind")
@@ -248,6 +286,8 @@ def _apply_step(df: pd.DataFrame, schema: dict,
         return _apply_recode(df, schema, step)
     if kind == "join":
         return _apply_join(df, schema, step)
+    if kind == "pivot":
+        return _apply_pivot(df, schema, step)
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
