@@ -8,6 +8,7 @@ import { RAW_LEVEL } from "../types";
 export type NodeKind = "table" | "plot" | "stats";
 export type EdgeKind =
   | "filter" | "drop" | "derive" | "recode" | "join"
+  | "pivot" | "grid_complete"
   | "collapse" | "geom" | "test";
 
 export type NodeTable =
@@ -56,6 +57,7 @@ const labelForCol = (schema: Schema | null, name: string): string =>
 const STEP_NODE_LABEL: Record<string, string> = {
   filter: "filtered", drop: "dropped", derive: "derived",
   recode: "recoded", join: "joined",
+  pivot: "pivoted", grid_complete: "gridded",
 };
 
 function stepEdgeLabel(step: ReduceStep): string {
@@ -65,6 +67,8 @@ function stepEdgeLabel(step: ReduceStep): string {
     case "derive": return `derive ${step.column}`;
     case "recode": return `recode ${step.column}`;
     case "join": return `join (${step.how})`;
+    case "pivot": return `pivot ${step.column}`;
+    case "grid_complete": return `grid ${step.column}`;
   }
 }
 

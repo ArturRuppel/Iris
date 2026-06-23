@@ -121,6 +121,21 @@ describe("buildGraph", () => {
     expect(kinds).toEqual(["derive", "recode"]);
   });
 
+  it("pivot and grid_complete are linear single-edge steps", () => {
+    const steps: ReduceStep[] = [
+      { kind: "pivot", index: ["cell"], column: "opp", values: "n",
+        agg: "sum", fill: 0, names: { s: "same", o: "opp" } },
+      { kind: "grid_complete", by: ["experiment"], column: "tt",
+        levels: ["a", "b"], count: true, fill: 0, count_name: "count" },
+    ];
+    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "pivot opp" });
+    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "grid tt" });
+    const kinds = g.edges.filter((e) => e.kind === "pivot" || e.kind === "grid_complete")
+      .map((e) => e.kind);
+    expect(kinds).toEqual(["pivot", "grid_complete"]);
+  });
+
   it("a join emits a second source node and two converging join edges", () => {
     const right: Table = {
       schema: { schema_version: "1.0", columns: [

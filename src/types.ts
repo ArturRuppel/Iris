@@ -193,6 +193,10 @@ export interface FilterCond {
   column: string;
   op: FilterOp;
   value?: string | number | (string | number)[]; // absent for is-null / not-null
+  /* an expression-valued threshold computed over the filter's input (e.g.
+     "quantile(abs(value), 0.99)"); present instead of `value` for a
+     data-dependent bound, with the realized scalar logged to provenance. */
+  bound?: string;
 }
 
 /* _key on the step types is a client-only stable React key (see state.nextStepKey);
@@ -210,10 +214,27 @@ export interface RecodeStep { kind: "recode"; column: string; map: Record<string
 export interface JoinStep {
   kind: "join"; on: string[]; how: "inner"; right: Table; _key?: string;
 }
+/* unstack one categorical `column` (long -> wide): one numeric column per level,
+   each cell an internal aggregate (sum) of `values` over the `index` keys, absent
+   combinations 0-filled. `names` maps each level to its new column name. */
+export interface PivotStep {
+  kind: "pivot"; index: string[]; column: string; values: string;
+  agg: "sum"; fill: number; names: Record<string, string>; _key?: string;
+}
+/* cross-join observed `by` id tuples with a fixed `levels` list, left-join a
+   per-cell count (optionally over distinct `count_unique`), fill absent = real 0;
+   adds `column` (categorical, `levels`) + `count_name` (numeric). */
+export interface GridCompleteStep {
+  kind: "grid_complete"; by: string[]; column: string; levels: string[];
+  count: boolean; count_unique?: string | null; fill: number;
+  count_name: string; _key?: string;
+}
 /* Reduction only filters/projects rows — it never aggregates. Coarsening to a
    grain is the data hierarchy's job (pick a level), so the figure and the stats
    read one shared grain rather than a destructive collapse. */
-export type ReduceStep = DropStep | FilterStep | DeriveStep | RecodeStep | JoinStep;
+export type ReduceStep =
+  | DropStep | FilterStep | DeriveStep | RecodeStep | JoinStep
+  | PivotStep | GridCompleteStep;
 export type ReduceStepKind = ReduceStep["kind"];
 
 export interface ReduceSpec { steps: ReduceStep[] } // [] means the full table

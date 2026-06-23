@@ -13,6 +13,7 @@ import { StepFilter, StepDrop } from "./StepCards";
 const KIND_LABEL: Record<ReduceStepKind, string> = {
   drop: "Drop columns", filter: "Filter rows",
   derive: "Derive column", recode: "Recode column", join: "Join table",
+  pivot: "Pivot column", grid_complete: "Complete grid",
 };
 const fmt = (n: number) => n.toLocaleString();
 
