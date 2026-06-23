@@ -799,12 +799,95 @@ def describe_pairs(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05) -> dic
     }
 
 
+def _per_unit_correlation(sub: pd.DataFrame, x: str, y: str, unit_cols: list[str],
+                          test: str, alpha: float) -> dict | None:
+    """Replicate-level coefficient: one correlation per inferential unit, then the
+    association tested ACROSS units (one-sample t on Fisher-z of the per-unit r vs
+    0). This is the correlation analogue of how group_comparison/location/rate
+    collapse to the spine's coarsest level — the unit, not the row, is n. Returns
+    the `result` dict, or None when too few units carry a defined coefficient (the
+    caller then falls back to pooling)."""
+    rs, kept = [], []
+    for key, g in sub.groupby(unit_cols, sort=False):
+        xa, ya = g[x].to_numpy(float), g[y].to_numpy(float)
+        if len(g) < 3 or np.ptp(xa) == 0 or np.ptp(ya) == 0:
+            continue            # an undefined within-unit r cannot enter the test
+        ri = pg.corr(xa, ya, method=test).iloc[0]
+        rs.append(float(_col(ri, "r")))
+        kept.append(key)
+    if len(rs) < 3:
+        return None
+    rs = np.asarray(rs, dtype=float)
+    z = np.arctanh(np.clip(rs, -0.999, 0.999))   # Fisher transform, then t vs 0
+    tt = sps.ttest_1samp(z, 0.0)
+    r_bar = float(rs.mean())
+    ci_z = sps.t.interval(1 - alpha, len(z) - 1, loc=z.mean(),
+                          scale=sps.sem(z)) if len(z) > 1 else (np.nan, np.nan)
+    ci = [float(np.tanh(v)) for v in ci_z]
+    eff_name = "pearson_r" if test == "pearson" else "spearman_rho"
+    return {"test": test, "r": r_bar, "p": float(tt.pvalue), "n": len(rs),
+            "unit": list(unit_cols), "per_unit_r": rs.tolist(),
+            "effect": {"name": eff_name, "value": r_bar, "ci": ci}}
+
+
+def _ols_band(xa: np.ndarray, ya: np.ndarray) -> dict:
+    """OLS line + 95% CI band on the conditional mean — figure furniture only."""
+    n = len(xa)
+    lr = sps.linregress(xa, ya)
+    grid = np.linspace(xa.min(), xa.max(), 100)
+    yhat = lr.intercept + lr.slope * grid
+    resid = ya - (lr.intercept + lr.slope * xa)
+    s_err = np.sqrt(np.sum(resid**2) / (n - 2))
+    sxx = np.sum((xa - xa.mean()) ** 2)
+    half = (sps.t.ppf(0.975, n - 2) * s_err
+            * np.sqrt(1 / n + (grid - xa.mean()) ** 2 / sxx))
+    return {"slope": float(lr.slope), "intercept": float(lr.intercept),
+            "grid": grid.tolist(), "lo": (yhat - half).tolist(),
+            "hi": (yhat + half).tolist()}
+
+
+def _corr_on(sub: pd.DataFrame, x: str, y: str, test: str, alpha: float,
+             unit_cols: list[str] | None) -> dict | None:
+    """The inferential `result` for one (sub)frame: replicate-level when a spine
+    is given and resolvable, else the pooled pingouin coefficient. None when the
+    frame can't yield a defined coefficient (constant axis / < 3 pairs)."""
+    xa, ya = sub[x].to_numpy(float), sub[y].to_numpy(float)
+    if len(sub) < 3 or np.ptp(xa) == 0 or np.ptp(ya) == 0:
+        return None
+    if unit_cols:
+        unit_result = _per_unit_correlation(sub, x, y, unit_cols, test, alpha)
+        if unit_result is not None:
+            return unit_result
+    row = pg.corr(xa, ya, method=test).iloc[0]
+    eff_name = "pearson_r" if test == "pearson" else "spearman_rho"
+    r = float(_col(row, "r"))
+    ci = [float(v) for v in _col(row, "CI95", "CI95%")]
+    return {"test": test, "r": r, "p": float(_col(row, "p_val", "p-val")),
+            "n": len(sub), "effect": {"name": eff_name, "value": r, "ci": ci}}
+
+
 def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
-                override: str | None = None) -> dict:
+                override: str | None = None,
+                unit_cols: list[str] | None = None,
+                group_col: str | None = None) -> dict:
     """Pearson/Spearman correlation between two numeric columns, plus the
     OLS line and its 95% CI band for the figure (the band is rendering
-    furniture; the inferential numbers come from pingouin)."""
-    sub = df[[x, y]].dropna()
+    furniture; the inferential numbers come from pingouin).
+
+    With `unit_cols` (the hierarchy spine), the inferential unit is the coarsest
+    spine level, not the row: a per-unit coefficient is computed and the
+    association is tested across units (Fisher-z one-sample t). Cell-level rows are
+    pseudoreplicated, so a declared spine makes correlation honour the replicate as
+    the unit, matching the other families. No spine → the historical pooled test.
+
+    With `group_col` (a categorical grouping, typically the colour encoding), the
+    association is computed PER group — a `per_group` list, each entry carrying its
+    own coefficient and OLS band, so the figure draws one line + readout per group.
+    This answers "does the X–Y relationship differ by group?". It composes with the
+    spine: each group's coefficient is itself replicate-level when `unit_cols` is
+    set. The top-level `result`/`regression` stay the pooled (group-agnostic)
+    values, so existing readers are unaffected."""
+    sub = df[[c for c in (x, y, group_col, *(unit_cols or [])) if c]].dropna()
     n = len(sub)
     if n < 3:
         return {"error": f"needs at least 3 complete pairs (found {n})"}
@@ -832,42 +915,55 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
             "Shapiro–Wilk indicates non-normality in at least one variable")
 
     test = override or recommended
-    row = pg.corr(xa, ya, method=test).iloc[0]
-    r = float(_col(row, "r"))
-    ci = [float(v) for v in _col(row, "CI95", "CI95%")]
-    p = float(_col(row, "p_val", "p-val"))
-    eff_name = "pearson_r" if test == "pearson" else "spearman_rho"
-    result = {"test": test, "r": r, "p": p, "n": n,
-              "effect": {"name": eff_name, "value": r, "ci": ci}}
+    # Pooled (group-agnostic) result + band stay the top-level contract.
+    result = _corr_on(sub, x, y, test, alpha, unit_cols)
+    r, ci, p = result["r"], result["effect"]["ci"], result["p"]
+    spined = unit_cols and result.get("unit")
+
+    # Stratified: one coefficient + OLS band per group (the colour encoding).
+    per_group = []
+    if group_col and group_col in sub:
+        for lv, g in sub.groupby(group_col, sort=False):
+            gres = _corr_on(g, x, y, test, alpha, unit_cols)
+            if gres is None:
+                continue
+            per_group.append({"level": str(lv), **gres,
+                              "regression": _ols_band(g[x].to_numpy(float),
+                                                      g[y].to_numpy(float))})
 
     symbol = "r" if test == "pearson" else "ρ"
     name = "Pearson correlation" if test == "pearson" else "Spearman rank correlation"
-    methods = (
-        f"The association between {x} and {y} was assessed using {name} "
-        f"(n = {n}). {symbol} = {r:.2f} (95% CI {ci[0]:.2f} to {ci[1]:.2f}), "
-        f"p {_fmt_p(p)}.")
+    grain = (f" within each {'/'.join(unit_cols)} and tested across replicates "
+             "(Fisher-z one-sample t)" if spined else "")
+    if per_group:
+        per_txt = "; ".join(f"{g['level']}: {symbol} = {g['r']:.2f}, p {_fmt_p(g['p'])}"
+                            for g in per_group)
+        methods = (f"The association between {x} and {y} was assessed by {name}{grain}, "
+                   f"computed separately within each {group_col} group — {per_txt}.")
+    elif spined:
+        methods = (
+            f"The association between {x} and {y} was assessed by {name} computed "
+            f"within each {'/'.join(unit_cols)} and tested across the "
+            f"{result['n']} units (one-sample t on Fisher-z of the per-unit "
+            f"coefficient). mean {symbol} = {r:.2f} (95% CI {ci[0]:.2f} to "
+            f"{ci[1]:.2f}), p {_fmt_p(p)}.")
+    else:
+        methods = (
+            f"The association between {x} and {y} was assessed using {name} "
+            f"(n = {n}). {symbol} = {r:.2f} (95% CI {ci[0]:.2f} to {ci[1]:.2f}), "
+            f"p {_fmt_p(p)}.")
 
-    # OLS line + 95% CI band on the conditional mean, for the figure
-    lr = sps.linregress(xa, ya)
-    grid = np.linspace(xa.min(), xa.max(), 100)
-    yhat = lr.intercept + lr.slope * grid
-    resid = ya - (lr.intercept + lr.slope * xa)
-    s_err = np.sqrt(np.sum(resid**2) / (n - 2))
-    sxx = np.sum((xa - xa.mean()) ** 2)
-    half = (sps.t.ppf(0.975, n - 2) * s_err
-            * np.sqrt(1 / n + (grid - xa.mean()) ** 2 / sxx))
-    regression = {"slope": float(lr.slope), "intercept": float(lr.intercept),
-                  "grid": grid.tolist(), "lo": (yhat - half).tolist(),
-                  "hi": (yhat + half).tolist()}
-
-    return {
-        "levels": [], "checks": checks,
+    out = {
+        "levels": [g["level"] for g in per_group], "checks": checks,
         "recommendation": {"test": recommended, "reason": reason},
         "chosen_by": "recommendation_accepted",  # descriptive only; the user owns the pick
-        "result": result, "regression": regression,
+        "result": result, "regression": _ols_band(xa, ya),
         "summaries": [_summary(x, xa), _summary(y, ya)],
         "alpha": alpha, "methods_text": methods,
     }
+    if per_group:
+        out["per_group"] = per_group
+    return out
 
 
 def contingency_counts(df: pd.DataFrame, x: str, y: str,

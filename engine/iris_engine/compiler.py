@@ -628,20 +628,37 @@ def _draw_colorbar(fig, ax, mappable, style, label):
     return cb
 
 
-def _facet_levels(df: pd.DataFrame, spec: dict):
+def _facet_levels(df: pd.DataFrame, spec: dict, schema: dict | None = None):
     """Phase 4: resolve (row_col, col_col, row_levels, col_levels) for the
     facet grid, restricted to levels actually present in the data. An
     unfaceted axis returns [None] so callers can loop uniformly with a single
-    iteration — the unfaceted path is then just a 1×1 grid."""
+    iteration — the unfaceted path is then just a 1×1 grid.
+
+    Level order follows the column's declared `schema.levels` (as the x-axis
+    does), so a meaningful facet order is not silently alphabetised; any present
+    value not in the declared list is appended in sorted order, and a column with
+    no declared levels keeps the alphabetical fallback. `schema` is optional so
+    historical 2-arg callers are unaffected."""
+    declared = {}
+    for c in (schema or {}).get("columns", []):
+        if c.get("levels"):
+            declared[c["name"]] = list(c["levels"])
+
+    def _ordered(colname):
+        present = set(df[colname].dropna().astype(str).unique().tolist())
+        order = declared.get(colname)
+        if not order:
+            return sorted(present)
+        ranked = [lv for lv in order if lv in present]
+        return ranked + sorted(present - set(order))
+
     facet = spec.get("facet") or {}
     row = facet.get("row")
     col = facet.get("col")
     row_col = row["column"] if row and row.get("column") else None
     col_col = col["column"] if col and col.get("column") else None
-    row_levels = (sorted(df[row_col].dropna().astype(str).unique().tolist())
-                  if row_col and row_col in df else [None])
-    col_levels = (sorted(df[col_col].dropna().astype(str).unique().tolist())
-                  if col_col and col_col in df else [None])
+    row_levels = _ordered(row_col) if row_col and row_col in df else [None]
+    col_levels = _ordered(col_col) if col_col and col_col in df else [None]
     return row_col, col_col, row_levels, col_levels
 
 
@@ -1110,7 +1127,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         spec["encodings"], df[df[val_col].notna()] if val_col in df else df,
         schema, style)
     layout = _layout(df, schema, spec, scales=sc_global)
-    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
     layers = spec.get("layers", [])
@@ -1306,7 +1323,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
     sc_global = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
     color = _group_color(style, 0)
     gs_reg = resolve_geom_style(style, "regression")
-    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
 
@@ -1324,29 +1341,47 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                 cell_stats = (stats_mod.describe_pairs(cell_rows, x, y, alpha=alpha)
                               if faceted else stats)
 
-                reg = cell_stats.get("regression")
-                if "regression" in marks and reg:
-                    grid = np.asarray(reg["grid"])
-                    if gs_reg.get("show_band", True):
-                        ax.fill_between(grid, reg["lo"], reg["hi"], color=color,
-                                        alpha=0.15, linewidth=0, zorder=1)
-                    ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
-                            color=color, linewidth=style["line_width"], zorder=2)
+                # Stratified (item: per-group correlation): one regression line +
+                # readout per colour group, each in the group's palette colour.
+                # `per_group` is only present on the non-faceted pooled stats.
+                per_group = cell_stats.get("per_group") if not faceted else None
+                draws = ([(g["level"], sc_global.color_for(g["level"]),
+                           g.get("regression"), g) for g in per_group]
+                         if per_group else
+                         [(None, color, cell_stats.get("regression"),
+                           cell_stats["result"])])
+
+                if "regression" in marks:
+                    for _lv, _c, reg, _ in draws:
+                        if not reg:
+                            continue
+                        grid = np.asarray(reg["grid"])
+                        if gs_reg.get("show_band", True):
+                            ax.fill_between(grid, reg["lo"], reg["hi"], color=_c,
+                                            alpha=0.15, linewidth=0, zorder=1)
+                        ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
+                                color=_c, linewidth=style["line_width"], zorder=2)
 
                 mappable = _draw_points(ax, cell_rows, x, y, sc_global, style)
                 cbar_mappable = mappable or cbar_mappable
 
-                if (style["show_annotation"]
-                        and cell_stats["result"].get("r") is not None):
-                    r = cell_stats["result"]
-                    symbol = "r" if r["test"] == "pearson" else "ρ"
-                    p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
-                    txt = ax.text(
-                        0.02, 0.98, f"{symbol} = {r['r']:.2f}, {p_txt}",
-                        transform=ax.transAxes, ha="left", va="top",
-                        fontsize=style["font_pt"] - 1, color=INK)
-                    if not faceted:
-                        extra["lbl-annot"] = txt
+                if style["show_annotation"]:
+                    line_i = 0
+                    for _lv, _c, _, r in draws:
+                        if r.get("r") is None:
+                            continue
+                        symbol = "r" if r["test"] == "pearson" else "ρ"
+                        p_txt = "p < 0.001" if r["p"] < 0.001 else f"p = {r['p']:.3f}"
+                        label = f"{_lv}: " if _lv is not None else ""
+                        txt = ax.text(
+                            0.02, 0.98 - line_i * 0.07,
+                            f"{label}{symbol} = {r['r']:.2f}, {p_txt}",
+                            transform=ax.transAxes, ha="left", va="top",
+                            fontsize=style["font_pt"] - 1,
+                            color=_c if _lv is not None else INK)
+                        line_i += 1
+                        if not faceted and _lv is None:
+                            extra["lbl-annot"] = txt
 
                 if not faceted:
                     ax.set_xlabel(_axis_label(cols, x))
@@ -1448,7 +1483,7 @@ def build_timeseries_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     sc_global = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
     hier = spec.get("hierarchy") or {}
     spine = hierarchy_mod.spine_present(df, hier.get("spine") or [])
-    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
 
@@ -1668,7 +1703,7 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     gs = resolve_geom_style(style, "distribution")
     render = gs.get("dist_render", "bars")
     count_label = "−ln P" if render == "potential" else "Count"
-    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
 
@@ -1785,7 +1820,7 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
 
     x_levels = stats["x_levels"]
     y_levels = stats["y_levels"]
-    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec)
+    row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
 

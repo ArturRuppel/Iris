@@ -185,12 +185,28 @@ def render(table: dict, spec: dict, *, memo=None):
                 stat_df, cat_col, val_col, levels=levels, alpha=alpha,
                 override=override, pairing=model["pairing"]))
     elif family == "correlation":
+        # The spine makes the replicate (its coarsest present level) the unit of
+        # inference, exactly as for group_comparison/location/rate: a per-unit
+        # coefficient, tested across units. Plumbed as unit_cols; no spine keeps
+        # the historical pooled test. The figure still draws every raw point.
+        corr_spine = hierarchy.spine_present(df, (spec.get("hierarchy") or {}).get("spine") or [])
+        model["spine"] = corr_spine
+        unit_cols = corr_spine or None
+        # A categorical colour stratifies the correlation: one coefficient (and
+        # OLS line) per group, the general "does the relationship differ by
+        # group?" question. Numeric colour is a colorbar, not a grouping.
+        corr_color = enc.get("color")
+        corr_color_col = corr_color["column"] if corr_color and corr_color.get("column") else None
+        corr_group = (corr_color_col if corr_color_col
+                      and any(c["name"] == corr_color_col and c["type"] != "numeric"
+                              for c in schema["columns"]) else None)
         res = memo(lambda: (
                stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
                if describe_only else
                stats.correlation(df, enc["x"]["column"], enc["y"]["column"],
-                                 alpha=alpha, override=override)))
+                                 alpha=alpha, override=override,
+                                 unit_cols=unit_cols, group_col=corr_group)))
     elif family == "timeseries":
         # Describe-only in the first cut (no inferential test on time courses).
         # The figure (build_timeseries_figure) computes its own per-timepoint
