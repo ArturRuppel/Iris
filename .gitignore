@@ -17,3 +17,4 @@ docs/digital-cell-takeaways.md
 
 # Serena agent tooling
 .serena/
+.worktrees/
