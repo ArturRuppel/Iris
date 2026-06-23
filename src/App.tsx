@@ -7,6 +7,7 @@ import { HierarchyPanel } from "./components/HierarchyPanel";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
 import { LayerRail } from "./components/LayerRail";
+import { CollapseRoutingPanel } from "./components/CollapseRoutingPanel";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { DataTab } from "./components/DataTab";
 import { TransformExplorer } from "./components/TransformExplorer";
@@ -478,6 +479,7 @@ export default function App() {
           <div className="analyses-mode">
             <PlottableSidebar />
             <LayerRail />
+            <CollapseRoutingPanel />
             <div className="iris">
               <Section title="Table" defaultOpen><DataTab /></Section>
               <Section title="Figure" defaultOpen id="section-figure"><FigurePane /></Section>
