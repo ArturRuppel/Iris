@@ -5,7 +5,8 @@ notebook's paired_by_replicate, used to prove the absorbed graph matches.
 Shape mirrors the report: a per-FRAME left table (cell_shape) and a per-CELL
 right table (class_label). KEY = (experiment_id, position_id, cell_id). Each of
 N=3 experiments has 2 positions; each position has 2 cells per class; each cell
-has 2 frames. class_label is raw ("negative"/"positive") and is recoded to
+has 3 frames (an odd, skewed count so the per-cell median != mean). class_label
+is raw ("negative"/"positive") and is recoded to
 ("VimentinKO"/"NLS-mCherry") exactly as the notebook's CLASS_LABELS map does.
 """
 from __future__ import annotations
@@ -52,6 +53,7 @@ def _build():
     left_rows, right_rows, rid = [], [], 0
     base = {"negative": 100.0, "positive": 60.0}     # negative -> VimentinKO (higher)
     exp_gap = {"E1": 0.0, "E2": 6.0, "E3": 12.0}     # extra lift on 'negative' per experiment
+    frame_w = {0: 0.0, 1: 1.0, 2: 5.0}   # skewed: per-cell median (1.0) != mean (2.0)
     for ei, exp in enumerate(["E1", "E2", "E3"]):
         exp_off = 5.0 * ei
         for pos in ["P1", "P2"]:
@@ -61,9 +63,9 @@ def _build():
                     cell = f"{exp}_{pos}_{cls}_{c}"
                     right_rows.append({"experiment_id": exp, "position_id": pos,
                                        "cell_id": cell, "class_label": cls})
-                    for fr in [0, 1]:
+                    for fr in [0, 1, 2]:
                         rid += 1
-                        wiggle = c * 2.0 + fr * 1.0
+                        wiggle = c * 2.0 + frame_w[fr]
                         left_rows.append({
                             "id": f"r{rid}", "experiment_id": exp,
                             "position_id": pos, "cell_id": cell, "frame": fr,
