@@ -819,7 +819,7 @@ export const setLevelFnAtom = atom(null,
 /* ---- transformation explorer: the selected node's id (UI-only) ---- */
 
 /* The explorer node the data tab is showing. null = no explicit selection; the
-   data tab then defaults to the final reduced table (the outputs node). Reset
+   data tab then defaults to the final reduced table (the plot node). Reset
    when the active plottable changes so a stale id from another analysis never
    sticks. UI-only: never persisted to a .iris. */
 export const selectedNodeIdAtom = atom<string | null>(null);

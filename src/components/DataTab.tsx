@@ -86,12 +86,22 @@ export function DataTab() {
       ?? null;
   }, [graph, selectedId]);
 
-  /* fetched intermediate table for source/filter/drop/flatten nodes. The
-     terminal plot/stats nodes use the live reducePreviewAtom instead (no fetch). */
+  /* fetched intermediate table for source/step/collapse nodes. The terminal
+     plot/stats nodes use the live reducePreviewAtom instead (no fetch). */
   const [table, setTable] = useState<Table | null>(null);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  /* Clear the fetched table the instant the selected node changes — during
+     render, before paint — so the previous node's rows never flash for a frame
+     under the new node's label (the async fetch effect runs only after paint). */
+  const fetchableId = node && node.table.via !== "none" ? node.id : null;
+  const [shownFor, setShownFor] = useState<string | null>(fetchableId);
+  if (fetchableId !== shownFor) {
+    setShownFor(fetchableId);
+    setTable(null);
+  }
 
   const fetchKey = node && node.table.via !== "none"
     ? JSON.stringify([active?.id, node.table, active?.reduce.steps, hierarchy])
