@@ -312,3 +312,23 @@ def pseudoreplication(df: pd.DataFrame, plan: list[dict], test_grain: str) -> di
             "n_test": n_for(test_grain),
             "n_coarsest": n_for(coarsest),
             "coarsest_grain": coarsest}
+
+
+def _grain_inferential_level(grain: str) -> str:
+    return grain.split("/")[-1] if grain else RAW
+
+
+def pairing_flip(df: pd.DataFrame, spine: list[str], qualifier: str | None,
+                 default_grain: str, chosen_grain: str) -> dict:
+    """#2: re-routing/retargeting can change the pairing verdict (derived from the
+    spine + the inferential grain). Run `pairing` at the default grain and the
+    chosen grain; report whether the verdict changed."""
+    def verdict(grain: str):
+        p = pairing(df, spine, qualifier,
+                    inferential_level=_grain_inferential_level(grain))
+        return p["verdict"] if p else None
+    frm, to = verdict(default_grain), verdict(chosen_grain)
+    chosen = pairing(df, spine, qualifier,
+                     inferential_level=_grain_inferential_level(chosen_grain))
+    return {"flipped": frm is not None and to is not None and frm != to,
+            "from": frm, "to": to, "across": (chosen or {}).get("across")}
