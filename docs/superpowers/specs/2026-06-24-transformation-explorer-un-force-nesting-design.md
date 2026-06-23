@@ -68,22 +68,33 @@ nothing more.
 
 ### Per-analysis — the collapse plan (new)
 
+A plan is an ordered list of **collapse steps**, each naming the grain it
+produces (the dims it *keeps*) and the function that aggregates into it. **Raw is
+a separate, always-present source node** (every reduced row); each step's source
+is the previous step, and the first step's source is raw.
+
 ```
-CollapseOp   = { dim: string; fn: LevelFn }   // "aggregate `dim` away with `fn`"
-CollapsePlan = CollapseOp[]                    // applied in order
+CollapseStep = { keep: string[]; fn: LevelFn }   // collapse to this grain (kept dims), aggregating with fn
+CollapsePlan = CollapseStep[]                     // applied in order
 ```
 
-- Each **prefix** of the list is a graph **node**; that node's grain is
-  `spine − {dims removed by the prefix}`.
-- **The default plan is every spine dim, finest→coarsest.** This reproduces
-  today's chain *exactly*; until the user edits it there is zero behavior change.
-  This is the "removable default" made literal.
-- **Op order encodes nested weighting.** Removing `cell` then `field` aggregates
-  cells within a field first, then fields — equal weight per field
-  (median-of-medians). The op order *is* the nesting; there is no separate
-  weighting declaration.
-- **Test grain (C)** is a pointer to one of the plan's nodes (by grain).
-  Default = the coarsest (last) node, matching `coarsest_level` today.
+- A step's **grain key** is its kept dims (spine order) joined by `/`; raw is `""`.
+  Each step is a graph **node**.
+- **The default plan is the full-spine prefix chain, finest→coarsest:** the first
+  step keeps the *whole* spine (one row per finest level), and each next step
+  drops the current finest dim, down to the coarsest single dim. Each step's `fn`
+  is the table-level `fn` of its **finest kept dim**. This is precisely what
+  `materialize_levels` builds today — so the default plan reproduces the forced
+  chain **node-for-node and fn-for-fn** (the regression pin), and raw → per-finest
+  is a real first collapse (raw is usually finer than the finest spine level).
+- **The number of dims a step removes encodes the weighting.** Removing one dim
+  per step is nested (median-of-medians, equal weight per parent). **Skipping** a
+  level = a single step that removes two dims at once (the intermediate median is
+  never taken — the finer units pool directly into the coarser grain). **Keeping
+  a finer dim while dropping a coarser one** yields a non-prefix keep-set (the
+  mean-trajectory grain).
+- **Test grain (C)** is a pointer to one node's grain key. Default = the coarsest
+  (last) step.
 
 A plan is one linear list (branching deferred). Persisted **as-is** on the
 analysis spec (see Persistence).
@@ -92,58 +103,67 @@ analysis spec (see Persistence).
 
 Spine `experiment › field › cell › frame` (coarse→fine), all `median`.
 
-- **Default (today):** plan `[{frame}, {cell}, {field}]` (finest→coarsest;
-  `experiment`, the root, is never aggregated away — it is the final grain) →
-  nodes `per cell → per field → per experiment`; test at `per experiment`
-  (n = #experiments). Unchanged.
-- **Skip a level (A):** plan drops the `field` op → cells aggregate straight to
-  `experiment`. n is **identical** (still #experiments); only the *weighting*
-  changes (a 100-cell field no longer outweighs a 5-cell field equally — it now
-  pools by cell). Not pseudoreplication — a weighting choice (white info).
+- **Default (today):** plan keeps `[e,f,c,fr] → [e,f,c] → [e,f] → [e]` (full spine,
+  then drop the finest dim each step; `experiment`, the root, stays as the final
+  grain) → nodes `per frame → per cell → per field → per experiment`; test at
+  `per experiment` (n = #experiments). Reproduces `materialize_levels` exactly.
+- **Skip a level (A):** the step that would produce `per field` is dropped, so a
+  single step goes `[e,f,c] → [e]` (removes `field` and `cell` together): cells
+  pool straight to experiment. n is **identical** (still #experiments); only the
+  *weighting* changes (a 100-cell field no longer counts equally with a 5-cell
+  field — it now pools by cell). Not pseudoreplication — a weighting choice (white
+  info).
 - **Mean trajectory (A, keep-finer):** spine `experiment › cell › frame`, plan
-  `[{cell, mean}]` → grain `(experiment, frame)`: the mean across cells at each
-  timepoint. A non-prefix grain today's model cannot express.
-- **Identity merge (the danger, guarded):** drop `field` while *keeping* `cell` →
-  group by `(experiment, cell)`. `cell_id` is unique only *within* a field, so
-  cells sharing an id across fields **merge into one** — silent corruption. Yellow
-  guard (#4) fires.
+  `[{keep:[e,c,fr]}, {keep:[e,fr]}]` → grain `(experiment, frame)`: the mean
+  across cells at each timepoint. A non-prefix keep-set today's model cannot
+  express.
+- **Identity merge (the danger, guarded):** a step keeps `[e,c]` (drops `field`
+  but keeps `cell`) → groups by `(experiment, cell)`. `cell_id` is unique only
+  *within* a field, so cells sharing an id across fields **merge into one** —
+  silent corruption. Yellow guard (#4) fires (a kept identifier `cell` is finer
+  than the dropped `field` and loses distinctness).
 
 ## Engine
 
-### `materialize_levels` — generalize from prefix to plan
+### `materialize_plan` — a general fold; `materialize_levels` delegates
 
-Today `materialize_levels` (engine/iris_engine/hierarchy.py) builds one table per
-spine **prefix**, finest→coarsest, each level nesting on the immediately finer
-one. Generalize it to **fold a `CollapsePlan`**: emit one table per prefix-grain,
-each op grouping the current table by its *remaining* dims and aggregating the
-removed dim away with its `fn`. The existing `_level_table` nesting logic is
-reused verbatim; only the driver changes from a hardcoded finest-first prefix
-loop to an explicit op list. **Today's behavior is the special case** "plan =
-full spine, finest→coarsest," which existing tests pin as a regression.
+Add a general fold `materialize_plan(df, schema, plan, split_cols)` that walks the
+**CollapsePlan**: starting from raw, each step groups the *previous* table by its
+`keep` dims (+ split) and aggregates with the step's `fn` — the existing
+`_level_table` nesting logic, just driven by an explicit step list. Tables are
+keyed by **grain key** (kept dims joined by `/`, `""` = raw).
+
+`materialize_levels` becomes a thin adapter: it builds the default plan (via a
+shared `default_plan(spine, fn)` helper — full-spine prefix chain, finest→coarsest,
+`fn` per step from the finest kept dim) and re-keys the result by each grain's
+finest dim, so its return shape — and **every existing caller's behavior** — is
+byte-for-byte unchanged. That equivalence is the regression pin.
 
 Node grains are now arbitrary spine **subsets** (e.g. `(experiment, frame)`), not
-only prefixes. `resolve_level`, `coarsest_level`, and the layer `level` selection
-key off the node's grain (a stable id derived from its kept dims) rather than a
-single spine-column name.
+only prefixes. `resolve_level`/`coarsest_level` stay for the default path; the new
+grain-keyed nodes are resolved directly by grain key.
 
 ### Guard helpers (pure, cheap — all from group counts)
 
 Three new pure functions (siblings of `pairing`/`home_level`), each returning a
 structured verdict the API surfaces and the frontend renders:
 
-- **`pseudoreplication(plan, test_grain)` (#1):** the test node is finer than the
-  coarsest available node ⇒ its units are nested within a coarser grain. Returns
-  `{ n_test, n_coarsest, coarsest_grain }` so the message can name the safer
-  option and both n's.
-- **`pairing_flip(...)` (#2):** run the existing `pairing()` under the **default**
-  plan/grain and under the **chosen** plan/grain; flag a verdict change (e.g.
-  `paired → unpaired`) and which level the pairing was over.
-- **`identity_merge(plan)` (#4):** for each **kept** dim that is an `identifier`,
-  did removing an ancestor drop its distinct-group count
-  (`groupby(kept).ngroups < groupby(kept + removed_ancestors).ngroups`)? If so,
-  distinct units merged; return the before/after counts and the dim to keep.
-  **Numeric/coordinate kept dims are exempt** — pooling over `frame`/time is
-  intentional and never flagged.
+- **`pseudoreplication(df, plan, test_grain)` (#1):** the test node is finer than
+  the coarsest available node ⇒ its units are nested within a coarser grain.
+  Returns `{ risk, n_test, n_coarsest, coarsest_grain }` so the message can name
+  the safer option and both n's.
+- **`pairing_flip(df, spine, qualifier, default_grain, chosen_grain)` (#2):** run
+  the existing `pairing()` (keyed by each grain's finest kept dim as the
+  inferential level) under the default grain and the chosen grain; flag a verdict
+  change (e.g. `paired → unpaired`) and which level the pairing was over.
+- **`identity_merge(df, schema, spine, plan)` (#4):** for each step, the dims it
+  removes from the previous grain. A removal of `D` merges identities **only when
+  a kept dim finer than `D` is an `identifier`** (its labels may repeat across
+  `D`) and its distinct-group count drops
+  (`groupby(kept_ids).ngroups < groupby(kept_ids + [D]).ngroups`). Return the
+  before/after counts and `D`. **Numeric/coordinate kept dims never trigger it**,
+  and removing a dim with no finer kept identifier (the default chain, or pooling
+  cells with nothing finer kept) is exempt — so only a genuine merge fires.
 
 > **Interaction note (time-as-identifier):** the #4 coordinate exemption assumes
 > a time/`frame` axis is *numeric*. A `frame` column mis-typed as `identifier`
