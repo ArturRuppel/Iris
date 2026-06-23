@@ -931,6 +931,21 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
                               "regression": _ols_band(g[x].to_numpy(float),
                                                       g[y].to_numpy(float))})
 
+    # Spine but no colour group: one within-unit OLS band per replicate, so the
+    # figure can draw the honest within-replicate lines instead of the pooled fit
+    # (whose sign can invert under pseudoreplication — Simpson's paradox). Figure
+    # furniture only; the inferential readout stays the single across-unit
+    # `result`. Same ≥3-pairs / non-constant guard as _per_unit_correlation, so a
+    # unit appears here iff it contributed a coefficient to the test.
+    unit_regressions = []
+    if spined and not per_group:
+        for key, g in sub.groupby(unit_cols, sort=False):
+            gx, gy = g[x].to_numpy(float), g[y].to_numpy(float)
+            if len(g) < 3 or np.ptp(gx) == 0 or np.ptp(gy) == 0:
+                continue
+            lv = "/".join(map(str, key)) if isinstance(key, tuple) else str(key)
+            unit_regressions.append({"level": lv, "regression": _ols_band(gx, gy)})
+
     symbol = "r" if test == "pearson" else "ρ"
     name = "Pearson correlation" if test == "pearson" else "Spearman rank correlation"
     grain = (f" within each {'/'.join(unit_cols)} and tested across replicates "
@@ -963,6 +978,8 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
     }
     if per_group:
         out["per_group"] = per_group
+    if unit_regressions:
+        out["unit_regressions"] = unit_regressions
     return out
 
 

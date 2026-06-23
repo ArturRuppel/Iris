@@ -17,6 +17,8 @@ import io
 import warnings
 import zlib
 
+from dataclasses import replace
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.lines as mlines
@@ -1321,6 +1323,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                                                                     "regression"}
     rows = df[df[x].notna() & df[y].notna()]
     sc_global = scales_mod.resolve_scales(spec["encodings"], rows, schema, style)
+    legend_scale = sc_global
     color = _group_color(style, 0)
     gs_reg = resolve_geom_style(style, "regression")
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
@@ -1341,18 +1344,45 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                 cell_stats = (stats_mod.describe_pairs(cell_rows, x, y, alpha=alpha)
                               if faceted else stats)
 
-                # Stratified (item: per-group correlation): one regression line +
-                # readout per colour group, each in the group's palette colour.
-                # `per_group` is only present on the non-faceted pooled stats.
+                # Three regression renderings, all keeping the raw points drawn:
+                #  • Stratified (categorical colour): one line + readout per
+                #    colour group, in the group's palette colour (`per_group`).
+                #  • Spined, no colour group: one within-replicate line per spine
+                #    unit, points coloured by replicate, and the single
+                #    across-replicate readout — the pooled fit (the
+                #    pseudoreplication trap) is intentionally NOT drawn, so the
+                #    picture matches the honest coefficient (`unit_regressions`).
+                #  • Otherwise: the pooled line + pooled readout.
+                # `per_group`/`unit_regressions` are only on the non-faceted stats.
                 per_group = cell_stats.get("per_group") if not faceted else None
-                draws = ([(g["level"], sc_global.color_for(g["level"]),
-                           g.get("regression"), g) for g in per_group]
-                         if per_group else
-                         [(None, color, cell_stats.get("regression"),
-                           cell_stats["result"])])
+                unit_regs = cell_stats.get("unit_regressions") if not faceted else None
+                spine_cols = ((cell_stats.get("result") or {}).get("unit")
+                              if not faceted else None)
+                sc_points = sc_global
+                if per_group:
+                    line_draws = [(g["level"], sc_global.color_for(g["level"]),
+                                   g.get("regression")) for g in per_group]
+                    annot_draws = [(g["level"], sc_global.color_for(g["level"]), g)
+                                   for g in per_group]
+                elif unit_regs:
+                    levels = [u["level"] for u in unit_regs]
+                    umap = {lv: _group_color(style, i) for i, lv in enumerate(levels)}
+                    line_draws = [(u["level"], umap[u["level"]], u["regression"])
+                                  for u in unit_regs]
+                    annot_draws = [(None, INK, cell_stats["result"])]
+                    # Colour the cells by replicate so they share the line palette
+                    # (single-column spine; a compound spine falls back to plain).
+                    if spine_cols and len(spine_cols) == 1 and spine_cols[0] in cell_rows:
+                        sc_points = replace(sc_global, color_col=spine_cols[0],
+                                            color_levels=list(levels),
+                                            _color_map=dict(umap), color_numeric=False)
+                        legend_scale = sc_points
+                else:
+                    line_draws = [(None, color, cell_stats.get("regression"))]
+                    annot_draws = [(None, color, cell_stats["result"])]
 
                 if "regression" in marks:
-                    for _lv, _c, reg, _ in draws:
+                    for _lv, _c, reg in line_draws:
                         if not reg:
                             continue
                         grid = np.asarray(reg["grid"])
@@ -1362,12 +1392,12 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                         ax.plot(grid, reg["intercept"] + reg["slope"] * grid,
                                 color=_c, linewidth=style["line_width"], zorder=2)
 
-                mappable = _draw_points(ax, cell_rows, x, y, sc_global, style)
+                mappable = _draw_points(ax, cell_rows, x, y, sc_points, style)
                 cbar_mappable = mappable or cbar_mappable
 
                 if style["show_annotation"]:
                     line_i = 0
-                    for _lv, _c, _, r in draws:
+                    for _lv, _c, r in annot_draws:
                         if r.get("r") is None:
                             continue
                         symbol = "r" if r["test"] == "pearson" else "ρ"
@@ -1401,7 +1431,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
         if faceted:
             style["x_label"] = style["x_label"] or _axis_label(cols, x)
             style["y_label"] = style["y_label"] or _axis_label(cols, y)
-        _draw_legend(fig, last_ax, sc_global, style, x, faceted=faceted)
+        _draw_legend(fig, last_ax, legend_scale, style, x, faceted=faceted)
         _decorate(fig, last_ax, style, extra=extra, faceted=faceted)
     return fig
 
