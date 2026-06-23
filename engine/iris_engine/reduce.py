@@ -272,6 +272,41 @@ def _apply_pivot(df: pd.DataFrame, schema: dict,
     return out, {**schema, "columns": new_cols}
 
 
+def _apply_grid_complete(df: pd.DataFrame, schema: dict,
+                         step: dict) -> tuple[pd.DataFrame, dict]:
+    by = step.get("by") or []
+    column = step.get("column")
+    levels = step.get("levels") or []
+    count_unique = step.get("count_unique")
+    fill = step.get("fill", 0)
+    count_name = step.get("count_name", "count")
+    if not by:
+        raise ReduceError("grid_complete needs `by` id column(s)")
+    if not column:
+        raise ReduceError("grid_complete needs a `column`")
+    if not levels:
+        raise ReduceError("grid_complete needs a non-empty `levels` list")
+    known = {c["name"] for c in schema["columns"]}
+    unknown = [c for c in by if c not in known or c not in df.columns]
+    if unknown:
+        raise ReduceError(f"grid_complete: unknown `by` column(s) {unknown!r}")
+    # the full grid: every observed `by` tuple crossed with every fixed level
+    base = df[by].drop_duplicates()
+    full = base.merge(pd.DataFrame({column: levels}), how="cross")
+    # count events per (by + [column]); optionally dedup an id first
+    counted = df.drop_duplicates(count_unique) if count_unique else df
+    obs = counted.groupby(by + [column]).size()
+    keyed = full.set_index(by + [column]).index.map(obs)
+    full[count_name] = pd.Series(keyed, index=full.index).fillna(fill).astype(int)
+    by_cols = [c for c in schema["columns"] if c["name"] in by]
+    new_cols = [
+        *by_cols,
+        {"name": column, "type": "categorical", "label": column, "levels": list(levels)},
+        {"name": count_name, "type": "numeric", "label": count_name},
+    ]
+    return full.reset_index(drop=True), {**schema, "columns": new_cols}
+
+
 def _apply_step(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     kind = step.get("kind")
@@ -288,6 +323,8 @@ def _apply_step(df: pd.DataFrame, schema: dict,
         return _apply_join(df, schema, step)
     if kind == "pivot":
         return _apply_pivot(df, schema, step)
+    if kind == "grid_complete":
+        return _apply_grid_complete(df, schema, step)
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
