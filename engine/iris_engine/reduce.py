@@ -167,6 +167,41 @@ def _apply_recode(df: pd.DataFrame, schema: dict,
     return out, {**schema, "columns": new_cols}
 
 
+def _apply_join(df: pd.DataFrame, schema: dict,
+                step: dict) -> tuple[pd.DataFrame, dict]:
+    on = step.get("on") or []
+    how = step.get("how", "inner")
+    right = step.get("right") or {}
+    if how != "inner":
+        raise ReduceError(f"join: only inner is supported, got {how!r}")
+    if not on:
+        raise ReduceError("join needs `on` keys")
+    right_schema = right.get("schema") or {}
+    right_rows = right.get("rows") or []
+    if not right_rows:
+        raise ReduceError("join: right table has no rows")
+    # the right side is a plain table; its bookkeeping id (if any) must not collide
+    right_df = pd.DataFrame(right_rows).drop(columns=["id"], errors="ignore")
+    missing = [k for k in on if k not in df.columns or k not in right_df.columns]
+    if missing:
+        raise ReduceError(f"join: key(s) {missing!r} absent from a side")
+    # defer many-to-many (spec): a non-unique right key would multiply left rows
+    if right_df.duplicated(subset=on).any():
+        raise ReduceError("join: right table is not unique on the join key(s); "
+                          "many-to-many is not yet supported")
+    left_names = {c["name"] for c in schema["columns"]} | set(_meta_cols(df)) | set(on)
+    # append only the right's NEW columns that the schema declares AND the rows carry
+    add = [c for c in right_schema.get("columns", [])
+           if c["name"] not in left_names and c["name"] in right_df.columns]
+    keep = list(dict.fromkeys(on + [c["name"] for c in add]))
+    right_df = right_df[[c for c in keep if c in right_df.columns]]
+    try:
+        out = df.merge(right_df, on=on, how="inner")
+    except ValueError as e:                 # e.g. dtype mismatch on a key
+        raise ReduceError(f"join: merge failed — {e}") from e
+    return out.reset_index(drop=True), {**schema, "columns": [*schema["columns"], *add]}
+
+
 def _apply_step(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     kind = step.get("kind")
@@ -179,6 +214,8 @@ def _apply_step(df: pd.DataFrame, schema: dict,
         return _apply_derive(df, schema, step)
     if kind == "recode":
         return _apply_recode(df, schema, step)
+    if kind == "join":
+        return _apply_join(df, schema, step)
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
