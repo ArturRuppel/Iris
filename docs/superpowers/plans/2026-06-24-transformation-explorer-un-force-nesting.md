@@ -412,10 +412,13 @@ Append to `engine/tests/test_guards_routing.py`:
 
 ```python
 def _paired_df():
+    # paired by SUBJECT (each subject sees both groups) but NOT by rep: group A
+    # uses reps 0-2, group B uses reps 3-5, so no single rep crosses both groups.
+    # Testing at the subject grain is paired; testing at the rep grain is not.
     rows, rid = [], 0
     for s in ["s1", "s2", "s3"]:
-        for grp in ("A", "B"):
-            for r in range(3):
+        for grp, reps in (("A", [0, 1, 2]), ("B", [3, 4, 5])):
+            for r in reps:
                 rows.append({"id": f"r{rid}", "group": grp,
                              "subject": s, "rep": r, "y": float(rid)})
                 rid += 1
