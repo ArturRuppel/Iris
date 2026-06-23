@@ -816,11 +816,6 @@ export const setLevelFnAtom = atom(null,
     set(hierarchyAtom, { ...h, fn: { ...h.fn, [arg.level]: arg.fn } });
   });
 
-export const setPreviewLevelAtom = atom(null, (get, set, level: string) => {
-  const p = get(activePlottableAtom); if (!p) return;
-  set(activePlottableAtom, { ...p, previewLevel: level });
-});
-
 /* ---- transformation explorer: the selected node's id (UI-only) ---- */
 
 /* The explorer node the data tab is showing. null = no explicit selection; the
