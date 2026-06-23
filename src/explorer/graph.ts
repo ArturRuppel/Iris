@@ -43,10 +43,11 @@ const OUTPUTS_ID = "outputs";
 const stepId = (i: number) => `step:${i}`;
 const flattenId = (level: string) => `flatten:${level}`;
 
-/* The id of the node a layer's `level` reads from: the raw reduced rows are the
-   source node; a spine level is its flatten node. */
-export function nodeIdForLevel(level: string): string {
-  return level === RAW_LEVEL ? SOURCE_ID : flattenId(level);
+/* The id of the node a layer's `level` reads from: a spine level is its flatten
+   node; the raw reduced rows are the OUTPUT of the reduce chain, so callers pass
+   `rawNodeId` (the last reduce-step node, or the source when there are no steps). */
+export function nodeIdForLevel(level: string, rawNodeId: string = SOURCE_ID): string {
+  return level === RAW_LEVEL ? rawNodeId : flattenId(level);
 }
 
 const labelForCol = (schema: Schema | null, name: string): string =>
@@ -98,6 +99,9 @@ export function buildGraph(
   // fan-in: one edge per DISTINCT level the layer stack reads. A plain plot reads
   // one level (one arrow); a SuperPlot reads several. Only keep levels that have a
   // node (raw always exists; a spine level only if it is on the spine).
+  // raw reduced rows = the output of the reduce chain (the last step), or the
+  // source table when there are no steps.
+  const rawNodeId = steps.length ? stepId(steps.length - 1) : SOURCE_ID;
   const spineSet = new Set(hierarchy.spine);
   const seen = new Set<string>();
   const fanIn: FanInEdge[] = [];
@@ -106,11 +110,11 @@ export function buildGraph(
     if (seen.has(level)) continue;
     if (level !== RAW_LEVEL && !spineSet.has(level)) continue;  // stale level: skip
     seen.add(level);
-    fanIn.push({ fromId: nodeIdForLevel(level), toId: OUTPUTS_ID, level });
+    fanIn.push({ fromId: nodeIdForLevel(level, rawNodeId), toId: OUTPUTS_ID, level });
   }
   // a layer-less analysis still shows the raw arrow so the figure never floats.
   if (fanIn.length === 0) {
-    fanIn.push({ fromId: SOURCE_ID, toId: OUTPUTS_ID, level: RAW_LEVEL });
+    fanIn.push({ fromId: rawNodeId, toId: OUTPUTS_ID, level: RAW_LEVEL });
   }
 
   return { nodes, fanIn };

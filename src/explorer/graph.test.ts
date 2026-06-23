@@ -81,8 +81,19 @@ describe("buildGraph", () => {
     expect(g.fanIn).toEqual([{ fromId: "source", toId: "outputs", level: "" }]);
   });
 
-  it("nodeIdForLevel resolves raw to source and a spine level to its flatten node", () => {
+  it("points a raw-level fan-in at the last reduce step when steps exist", () => {
+    const steps: ReduceStep[] = [
+      { kind: "filter", conditions: [] },
+      { kind: "drop", columns: ["area"] },
+    ];
+    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA);
+    // raw rows are the OUTPUT of the reduce chain, not the pre-reduction source
+    expect(g.fanIn).toEqual([{ fromId: "step:1", toId: "outputs", level: "" }]);
+  });
+
+  it("nodeIdForLevel resolves raw to the given raw node (default source); spine level to its flatten node", () => {
     expect(nodeIdForLevel(RAW_LEVEL)).toBe("source");
+    expect(nodeIdForLevel(RAW_LEVEL, "step:2")).toBe("step:2");
     expect(nodeIdForLevel("experiment")).toBe("flatten:experiment");
   });
 });
