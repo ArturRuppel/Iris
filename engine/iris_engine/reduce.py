@@ -47,8 +47,54 @@ def _coerce(value, col_type: str):
     return value
 
 
-def _apply_filter(df: pd.DataFrame, schema: dict, conds: list[dict]) -> pd.DataFrame:
+# filter bound: an expression-valued comparison threshold computed over the
+# CURRENT frame (e.g. the §5 tail-clip `quantile(abs(value), 0.99)`). A tiny
+# explicit AST walk — NO eval — so an unsupported construct fails loudly. The
+# realized scalar is recorded for provenance (the spec persists the EXPRESSION,
+# the render logs the VALUE).
+def _eval_bound(node, df: pd.DataFrame):
+    if isinstance(node, ast.Expression):
+        return _eval_bound(node.body, df)
+    if (isinstance(node, ast.Constant) and not isinstance(node.value, bool)
+            and isinstance(node.value, (int, float))):
+        return node.value
+    if isinstance(node, ast.Name):
+        if node.id not in df.columns:
+            raise ReduceError(f"filter bound: unknown column {node.id!r}")
+        return df[node.id]
+    if isinstance(node, ast.BinOp) and type(node.op) in _DERIVE_BINOPS:
+        return _DERIVE_BINOPS[type(node.op)](
+            _eval_bound(node.left, df), _eval_bound(node.right, df))
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        return -_eval_bound(node.operand, df)
+    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            and not node.keywords):
+        if node.func.id == "abs" and len(node.args) == 1:
+            return np.abs(_eval_bound(node.args[0], df))
+        if node.func.id == "quantile" and len(node.args) == 2:
+            series = _eval_bound(node.args[0], df)
+            p = _eval_bound(node.args[1], df)
+            if not isinstance(p, (int, float)):
+                raise ReduceError("filter bound: quantile p must be a constant")
+            return float(np.percentile(np.asarray(series, dtype=float), p * 100.0))
+    raise ReduceError("filter bound: unsupported expression")
+
+
+def _eval_bound_scalar(expr: str, df: pd.DataFrame) -> float:
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as e:
+        raise ReduceError(f"filter bound: malformed expr {expr!r}") from e
+    value = _eval_bound(tree, df)
+    if hasattr(value, "__len__") or hasattr(value, "shape"):
+        raise ReduceError(f"filter bound {expr!r} did not reduce to a scalar")
+    return float(value)
+
+
+def _apply_filter(df: pd.DataFrame, schema: dict,
+                  conds: list[dict]) -> tuple[pd.DataFrame, list[float]]:
     mask = pd.Series(True, index=df.index)
+    realized: list[float] = []  # per `bound` condition, in order — for provenance
     for cond in conds:
         col, op = cond["column"], cond["op"]
         ctype = _col_type(schema, col)  # validates col exists in schema (raises if not)
@@ -67,11 +113,15 @@ def _apply_filter(df: pd.DataFrame, schema: dict, conds: list[dict]) -> pd.DataF
             m = series.isin(coerced)
             mask &= ~m if op == "not-in" else m
         elif op in _NUMERIC_OPS:
-            v = _coerce(cond["value"], ctype)
+            if "bound" in cond:
+                v = _eval_bound_scalar(cond["bound"], df)
+                realized.append(v)
+            else:
+                v = _coerce(cond["value"], ctype)
             mask &= _NUMERIC_OPS[op](series, v)
         else:
             raise ReduceError(f"unknown filter op {op!r}")
-    return df[mask]
+    return df[mask], realized
 
 
 def _meta_cols(df: pd.DataFrame) -> list[str]:
@@ -308,23 +358,33 @@ def _apply_grid_complete(df: pd.DataFrame, schema: dict,
 
 
 def _apply_step(df: pd.DataFrame, schema: dict,
-                step: dict) -> tuple[pd.DataFrame, dict]:
+                step: dict) -> tuple[pd.DataFrame, dict, dict]:
+    """Apply one step. Returns (frame, schema, info) where `info` carries
+    optional per-step provenance (e.g. `realized_bounds` for an expression
+    filter) to be merged into the trace record."""
     kind = step.get("kind")
     if kind == "drop":
-        return _apply_drop(df, schema, step.get("columns") or [])
+        out, sch = _apply_drop(df, schema, step.get("columns") or [])
+        return out, sch, {}
     if kind == "filter":
-        out = _apply_filter(df, schema, step.get("conditions") or [])
-        return out.reset_index(drop=True), schema
+        out, realized = _apply_filter(df, schema, step.get("conditions") or [])
+        info = {"realized_bounds": realized} if realized else {}
+        return out.reset_index(drop=True), schema, info
     if kind == "derive":
-        return _apply_derive(df, schema, step)
+        out, sch = _apply_derive(df, schema, step)
+        return out, sch, {}
     if kind == "recode":
-        return _apply_recode(df, schema, step)
+        out, sch = _apply_recode(df, schema, step)
+        return out, sch, {}
     if kind == "join":
-        return _apply_join(df, schema, step)
+        out, sch = _apply_join(df, schema, step)
+        return out, sch, {}
     if kind == "pivot":
-        return _apply_pivot(df, schema, step)
+        out, sch = _apply_pivot(df, schema, step)
+        return out, sch, {}
     if kind == "grid_complete":
-        return _apply_grid_complete(df, schema, step)
+        out, sch = _apply_grid_complete(df, schema, step)
+        return out, sch, {}
     raise ReduceError(f"unknown step kind {kind!r}")
 
 
@@ -342,8 +402,8 @@ def reduce_with_trace(
     `[{n_rows_out, schema_out}]` (in order) for the live preview UI."""
     out, sch, trace = df, schema, []
     for step in (steps or []):
-        out, sch = _apply_step(out, sch, step)
+        out, sch, info = _apply_step(out, sch, step)
         out = out.reset_index(drop=True)
-        trace.append({"n_rows_out": int(len(out)), "schema_out": sch})
+        trace.append({"n_rows_out": int(len(out)), "schema_out": sch, **info})
     out = out.reset_index(drop=True)
     return out, sch, trace
