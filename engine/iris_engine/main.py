@@ -535,7 +535,9 @@ def shape_counts(req: ShapeCountsRequest):
     df, schema = _load_frame(table)
 
     def _cols(frame):
-        return len([c for c in frame.columns if c != "row_ids"])
+        # user-facing column count: exclude the internal provenance columns
+        # (`id`, `row_ids`) so it matches what the data-tab grid renders.
+        return len([c for c in frame.columns if c not in ("id", "row_ids")])
 
     src, src_sch, _ = reduce_mod.reduce_with_trace(df, schema, [])
     out_source = {"rows": int(len(src)), "cols": _cols(src)}
