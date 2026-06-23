@@ -6,7 +6,9 @@ import { RAW_LEVEL } from "../types";
    plot, test into stats). The view is a left->right line for the MVP but is
    modelled as typed nodes + edges so branching plugs into the same frame. */
 export type NodeKind = "table" | "plot" | "stats";
-export type EdgeKind = "filter" | "drop" | "collapse" | "geom" | "test";
+export type EdgeKind =
+  | "filter" | "drop" | "derive" | "recode" | "join"
+  | "collapse" | "geom" | "test";
 
 export type NodeTable =
   | { via: "at_step"; at_step: number }
@@ -51,6 +53,21 @@ export function nodeIdForLevel(level: string, rawNodeId: string = SOURCE_ID): st
 const labelForCol = (schema: Schema | null, name: string): string =>
   schema?.columns.find((c) => c.name === name)?.label ?? name;
 
+const STEP_NODE_LABEL: Record<string, string> = {
+  filter: "filtered", drop: "dropped", derive: "derived",
+  recode: "recoded", join: "joined",
+};
+
+function stepEdgeLabel(step: ReduceStep): string {
+  switch (step.kind) {
+    case "filter": return `filter (${step.conditions.length})`;
+    case "drop": return `drop (${step.columns.length})`;
+    case "derive": return `derive ${step.column}`;
+    case "recode": return `recode ${step.column}`;
+    case "join": return `join (${step.how})`;
+  }
+}
+
 const GEOM_LABEL: Record<string, string> = {
   dot: "dots", box: "box", violin: "violin", bar: "bars", line: "line",
   distribution: "distribution", summary: "mean ± SD", interval: "mean ± SD",
@@ -85,11 +102,22 @@ export function buildGraph(
   let prev = SOURCE_ID;
   steps.forEach((step, i) => {
     const id = stepId(i);
-    const n = step.kind === "filter" ? step.conditions.length : step.columns.length;
-    nodes.push({ id, kind: "table", label: step.kind === "filter" ? "filtered" : "dropped",
+    nodes.push({ id, kind: "table",
+      label: STEP_NODE_LABEL[step.kind] ?? step.kind,
       table: { via: "at_step", at_step: i } });
-    edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
-      label: `${step.kind} (${n})`, fromId: prev, toId: id });
+    if (step.kind === "join") {
+      // a second source feeds the join: draw it converging into this node
+      const srcId = `source:${i}`;
+      nodes.push({ id: srcId, kind: "table", label: "join source",
+        table: { via: "none" } });
+      edges.push({ id: `e:${prev}->${id}`, kind: "join", label: "join (inner)",
+        fromId: prev, toId: id });
+      edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: "join (inner)",
+        fromId: srcId, toId: id });
+    } else {
+      edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
+        label: stepEdgeLabel(step), fromId: prev, toId: id });
+    }
     prev = id;
   });
   const rawNodeId = prev;

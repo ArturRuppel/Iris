@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGraph, nodeIdForLevel } from "./graph";
-import type { Hierarchy, Layer, ReduceStep, Schema } from "../types";
+import type { Hierarchy, Layer, ReduceStep, Schema, Table } from "../types";
 import { RAW_LEVEL } from "../types";
 
 const SCHEMA: Schema = {
@@ -108,5 +108,35 @@ describe("buildGraph", () => {
     expect(nodeIdForLevel(RAW_LEVEL)).toBe("source");
     expect(nodeIdForLevel(RAW_LEVEL, "step:2")).toBe("step:2");
     expect(nodeIdForLevel("experiment")).toBe("level:experiment");
+  });
+
+  it("derive and recode are linear single-edge steps", () => {
+    const steps: ReduceStep[] = [
+      { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
+      { kind: "recode", column: "class_label", map: { negative: "VimentinKO" } },
+    ];
+    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const kinds = g.edges.filter((e) => e.kind === "derive" || e.kind === "recode")
+      .map((e) => e.kind);
+    expect(kinds).toEqual(["derive", "recode"]);
+  });
+
+  it("a join emits a second source node and two converging join edges", () => {
+    const right: Table = {
+      schema: { schema_version: "1.0", columns: [
+        { name: "cell_id", type: "identifier", label: "Cell" },
+        { name: "class_label", type: "categorical", label: "Class" },
+      ] },
+      rows: [{ id: "1", cell_id: "c1", class_label: "negative" }],
+    };
+    const steps: ReduceStep[] = [
+      { kind: "join", on: ["cell_id"], how: "inner", right },
+    ];
+    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const sources = g.nodes.filter((n) => n.kind === "table" && n.id.startsWith("source"));
+    expect(sources.length).toBeGreaterThanOrEqual(2);
+    const joinNode = "step:0";
+    const incoming = g.edges.filter((e) => e.toId === joinNode && e.kind === "join");
+    expect(incoming.length).toBe(2);
   });
 });

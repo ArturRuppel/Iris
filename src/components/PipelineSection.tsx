@@ -12,6 +12,7 @@ import { StepFilter, StepDrop } from "./StepCards";
 
 const KIND_LABEL: Record<ReduceStepKind, string> = {
   drop: "Drop columns", filter: "Filter rows",
+  derive: "Derive column", recode: "Recode column", join: "Join table",
 };
 const fmt = (n: number) => n.toLocaleString();
 
@@ -126,6 +127,8 @@ export function PipelineSection() {
               <div className="add-step-menu">
                 {/* reduction only filters/projects; aggregating to a grain is the
                     data hierarchy's job (pick a level), not a reduce step. */}
+                {/* derive/recode/join are rendered by the explorer but not yet
+                    authorable here — see the deferred inline-editing follow-up. */}
                 {(["drop", "filter"] as ReduceStepKind[]).map((k) => (
                   <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
                     {KIND_LABEL[k]}
