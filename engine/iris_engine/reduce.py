@@ -48,10 +48,14 @@ def _apply_filter(df: pd.DataFrame, schema: dict, conds: list[dict]) -> pd.DataF
     mask = pd.Series(True, index=df.index)
     for cond in conds:
         col, op = cond["column"], cond["op"]
-        ctype = _col_type(schema, col)
+        ctype = _col_type(schema, col)  # validates col exists in schema (raises if not)
         if col not in df:
             raise ReduceError(f"unknown column {col!r}")
         series = df[col]
+        if op in ("is-null", "not-null"):
+            m = series.isna()
+            mask &= m if op == "is-null" else ~m
+            continue
         if op in ("in", "not-in"):
             values = cond["value"]
             if not isinstance(values, (list, tuple)):
