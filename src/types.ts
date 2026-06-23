@@ -401,6 +401,11 @@ export interface StatsResult {
   alpha: number;
   methods_text: string;
 }
+export interface ShapeCounts {
+  source: { rows: number; cols: number };
+  steps: { rows: number; cols: number }[];
+  levels: Record<string, { rows: number; cols: number }>;
+}
 export interface AnalyzeResponse {
   /* Item I: dots are not individually clickable, so the figure payload is
      svg-only — no per-point gid/row_ids contract. */
@@ -602,6 +607,8 @@ export const engine = {
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
   reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number) =>
     post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step }),
+  shapeCounts: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy) =>
+    post<ShapeCounts>("/shape_counts", { ...tableField(t), steps, hierarchy }),
   hierarchy: (t: TableRef, spine: string[], classifiers: string[]) =>
     post<HierarchyInfo>("/hierarchy", { ...tableField(t), spine, classifiers }),
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
