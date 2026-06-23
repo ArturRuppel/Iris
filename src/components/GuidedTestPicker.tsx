@@ -95,7 +95,7 @@ function AxisCard({ axis, decision, onPick }: {
                 {label(opt)}
               </button>
             ))}
-            <span className="seg-badge">✓ Recommended</span>
+            <span className="seg-badge">✓ Recommended: {label(decision.recommended)}</span>
           </div>
           <p className="reason">{decision.reason}</p>
         </>
