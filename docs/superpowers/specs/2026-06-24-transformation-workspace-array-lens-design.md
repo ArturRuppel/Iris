@@ -56,13 +56,35 @@ values: speed   area   class @cell
 - **axes** — the identifier columns in spine order, each a chip with its
   **distinct-level count**; a **ragged** inner axis renders dashed with `~`.
 - **values** — the measured columns, **coloured by type**: numeric (green),
-  categorical/classifier (violet), bool (amber). Axes are blue. A value that lives
-  at a coarser grain than the node's rows may carry an `@grain` tag (e.g.
-  `class @cell` after a cross-grain join) — see *Deferred* §, this tag is optional.
+  categorical/classifier (violet), bool (amber). Axes are blue. A value carries an
+  `@grain` tag (e.g. `class @cell`) when it lives at a coarser grain than the node's
+  rows — see *Value grain* below. A value at the finest (row) grain shows no tag.
 - A **collapse** strikes out the removed axis in the downstream node (visual
   continuity: you watch `frame` disappear).
 - **grain nodes** (the output of a collapse) are tinted to distinguish them from
   reduce-step table nodes.
+
+### Value grain — inferred from the data, not tracked
+
+A value's native grain is the **coarsest prefix of the spine at which it is constant
+within every group**. Walk axes coarsest→finest and find where the value stops
+varying: `class` is constant within each `cell` group → `@cell`; `speed` varies
+frame-to-frame → no tag (finest grain). It's a `groupby(prefix)[v].nunique().max()
+== 1` check, and "constant within group" is monotone as groups get finer, so the
+threshold is well-defined; the tag is the deepest axis of that prefix.
+
+This is a **uniform property of `(value, current frame)`** — it applies to *every*
+value, not just joined/derived ones (a raw per-cell source column gets `@cell` too).
+It is therefore preferable to provenance tracking: it reflects the actual data,
+**survives later ops correctly** (a tracked tag would go stale when a collapse
+changes a value's grain), and needs **no state threaded through `reduce.py`** — it
+folds into the per-node descriptor pass (§ *Implementation*, tier 2).
+
+*Caveat to record:* the inferred grain is "constant *on this data*," not declared
+intent. On degenerate data (e.g. one frame per cell) a genuinely per-frame value
+can *look* constant at `@cell`. For the display that is the truthful thing to show;
+but a guard built on it (post-aggregate-derive) is then data-dependent, not
+declaration-based.
 
 ## What an edge shows — every op as an (axes, values) edit
 
@@ -134,20 +156,18 @@ no curation logic — and each op's authored example pair doubles as documentati
 
 2. **Thin additive engine change — new descriptive numbers, no change to how
    reductions compute.** Emit a per-node **array-shape descriptor**:
-   `{ axes: [{name, n_levels, ragged}], values: [{name, type, grain?}] }`.
+   `{ axes: [{name, n_levels, ragged}], values: [{name, type, grain}] }`.
    Per-axis `n_levels` is a cheap `nunique` per identifier column per node; `ragged`
-   is whether the inner axis has uneven counts. Today the engine returns only
-   `rows × cols` per node (the `/shape_counts` endpoint → `ShapeCounts` in
-   `src/types.ts`); extend it to carry the descriptor so the UI renders rather than
-   re-derives. No logic change to `reduce.py`.
+   is whether the inner axis has uneven counts; per-value `grain` is the
+   coarsest-constant prefix (§ *Value grain*) — both are groupbys in the same pass.
+   Today the engine returns only `rows × cols` per node (the `/shape_counts`
+   endpoint → `ShapeCounts` in `src/types.ts`); extend it to carry the descriptor so
+   the UI renders rather than re-derives. No logic change to `reduce.py`. The
+   `@grain` tag is in this tier, not deferred — it is data inference, not state.
 
-3. **Genuinely internal — DEFERRED.** Per-value **native-grain provenance** (the
-   `@cell` tag) requires threading each value column's native grain through the
-   reduce pipeline. Valuable because it makes the post-aggregate-derive guard's
-   reasoning visible, but it is new internal state, not display. Ship the lens
-   without it first; the `@grain` tag simply won't show until this lands.
-
-**Explicitly NOT doing:** rewriting the engine to store labeled arrays internally.
+**Explicitly NOT doing:** rewriting the engine to store labeled arrays internally,
+or threading per-value grain provenance through the reduce pipeline (the data
+inference above replaces the need for it).
 
 ## Open questions (resolve at plan time; none block understanding)
 
