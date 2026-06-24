@@ -1,23 +1,51 @@
-# Iris — a guided tour
+# Iris: a guided tour
 
 Iris turns a tidy table into a publication-grade figure **and** the right
 statistical test, and shows its reasoning at every step. This guide has four
 parts, each a different lens on the same set of worked examples:
 
-- **[Plot types](#plot-types)** — the grammar of marks: what each one shows.
-- **[Data types](#data-types)** — what you measured, and the family of tests it
+- **[Plot types](#plot-types)**: the grammar of marks, and what each one shows.
+- **[Data types](#data-types)**: what you measured, and the family of tests it
   selects.
-- **[How Iris chooses the test](#how-iris-chooses-the-test)** — the decision
+- **[How Iris chooses the test](#how-iris-chooses-the-test)**: the decision
   logic, its thresholds, and its sources.
-- **[Experimental design and nesting](#experimental-design-and-nesting)** — what
+- **[Experimental design and nesting](#experimental-design-and-nesting)**: what
   counts as *one observation*, and why it decides everything.
+
+Underneath all four parts is one small model. Iris knows three kinds of data (a
+tidy table, a plot, and a statistical result), and every operation is a
+transformation from one kind to another: **shaping** a table into another table,
+**drawing** a table into a plot, or **testing** a table into a stats result. The
+four parts above are different lenses on that one model; [the
+grammar](#the-grammar) sets it out in full, including which marks and which tests
+each kind of data supports.
 
 Every example is a real, citable dataset. Click **Open this example in Iris** to
 load it into the app and explore or adapt it; opened examples save as a *new*
 file, so the originals stay intact.
 
+Everything an example needs lives in a single **`.iris` file**: your data, the
+steps that shape it, the test you settled on, how the figure should look, and a
+note of where the data came from. One file can hold several analyses. What it
+deliberately does *not* store is the computed output: the numbers, the test
+results, the rendered figure. Iris works those out from your data and your
+choices every time the file is opened, so they can never drift out of step with
+the inputs. The file also records the exact version of Iris that made it, so
+opening it later reproduces the same figure and the same numbers. Save and open
+`.iris` files from the **File** tab; figures export on their own as SVG, PDF, or
+PNG.
+
+You never have to think about any of this: open a file and Iris shows you the
+figure and the statistics. But the format is open, so the curious can read a file
+and recompute everything by hand, and it is scriptable, so a file can be written
+by a script instead of assembled in the app, then run without opening Iris at all
+to extract the statistics, render the figure, and (a feature still on the way)
+draw the diagram of how the data was transformed. A colleague can reproduce or
+batch-process your analyses from the command line and get exactly what you would
+get by hand.
+
 > **Recommendations are defaults, not verdicts.** For every figure that carries
-> an inferential result Iris makes a *recommendation* — a safe default — and
+> an inferential result Iris makes a *recommendation* and
 > tells you why, as a chain of answered questions you can override. A pick that
 > differs from the recommendation is recorded as *your* choice, not flagged as an
 > error.
@@ -32,9 +60,105 @@ file, so the originals stay intact.
 | Three+ independent groups | One-way ANOVA + Tukey | Kruskal–Wallis + Holm | box + brackets |
 | Association of two numbers | Pearson *r* | Spearman *ρ* | scatter + regression |
 | Two categorical variables | Chi-square | Fisher's exact (2×2) | heatmap |
-| A count of events | Poisson / negative-binomial rate | — | rate ± CI |
+| A count of events | Poisson / negative-binomial rate | n/a | rate ± CI |
 | One distribution | *descriptive* | *descriptive* | histogram |
 | A time course | *descriptive* | *descriptive* | line / trend |
+
+---
+
+# The grammar
+
+Iris is built from one small grammar, and every feature is an instance of it.
+There are **three kinds of data** and **three kinds of transformation** between
+them. The four parts of this guide are different views of this one picture, and
+the in-app explorer draws any analysis directly as it: data as boxes,
+transformations as the arrows between them.
+
+## Three kinds of data
+
+| kind | what it is | where you see it |
+|---|---|---|
+| **table** | a tidy data frame: rows are observations, columns are variables | the Data tab |
+| **plot** | a figure: marks positioned on axes | the Figure section |
+| **stats** | a statistical result: a test, an effect size, and the numbers behind them | the Statistics section |
+
+A whole analysis is just a table flowing through transformations until it becomes
+a plot and a stats result.
+
+## Three kinds of transformation
+
+Every operation has a typed input and a typed output, and falls into one of three
+flavors by what it connects:
+
+| flavor | input → output | the operations |
+|---|---|---|
+| **shape** | table → table | filter (drop rows), drop (remove columns), derive (compute a new column), recode (relabel categories), join (merge a second table), collapse (aggregate up to a coarser unit) |
+| **draw** | table → plot | a mark (box, dot, scatter, and so on) |
+| **test** | table → stats | a statistical test (or describe-only) |
+
+Shaping steps chain in order, each feeding the next. Drawing and testing are the
+terminal steps: they read the shaped table and produce the figure and the
+numbers. Because both read the *same* shaped table, the figure and the statistics
+can never disagree about what was analysed.
+
+## Column types: the subtypes of a table
+
+A table's columns each carry a type, and the type decides what a column is allowed
+to do.
+
+| type | what it holds | role |
+|---|---|---|
+| **numeric** | a measured quantity on a scale (a length, an intensity, a count value) | value axes; the thing a test compares |
+| **categorical** | a small set of labelled groups (treatment, species, phenotype) | the grouping axis, color, and facets |
+| **identifier** | the name of a unit (subject, cell, dish) | defines the [hierarchy spine](#the-unit-of-inference); never an axis or a test factor |
+
+(A fourth type, `bool`, is handled as numeric 0/1 internally and needs no
+attention.)
+
+The [Data types](#data-types) part talks about your measurement in scientific
+terms, and those map onto column types directly: a *continuous measurement* or a
+*count* is a `numeric` column, a *proportion or category* and any *grouping
+factor* are `categorical`, and a *unit ID* is an `identifier`.
+
+## Marks and what each needs
+
+A mark can only be drawn when the columns on its channels have the right types.
+This is the registry Iris reads to offer you the valid marks and no others.
+
+| mark | x | y | extra channels | family |
+|---|---|---|---|---|
+| **dot** | categorical | numeric | color, size, shape | comparison |
+| **summary** (mean ± error) | categorical | numeric | color | comparison |
+| **box** | categorical | numeric | color | comparison |
+| **violin** | categorical | numeric | color | comparison |
+| **bar** | categorical | numeric | color | comparison |
+| **pointrange** (estimate ± CI) | categorical | numeric | color | comparison / rate |
+| **scatter** | numeric | numeric | color, size, shape | correlation |
+| **regression** | numeric | numeric | color | correlation |
+| **line** (trajectories) | numeric | numeric | color | time course |
+| **trend** (mean ± band) | numeric | numeric | color | time course |
+| **distribution** | (none) | numeric | color (overlay) | descriptive |
+| **tile** (heatmap) | categorical | categorical | none | contingency |
+
+Two rules sit behind that table: **size** and **shape** are offered only on the
+per-point marks (dot, scatter), since an aggregate mark has no individual points
+to size or reshape; and color is a grouping (categorical) channel on aggregate
+marks but may be a continuous (numeric) channel on the per-point ones.
+
+## Which supports which
+
+The pieces compose in one direction, never backward:
+
+> the **column types** on x and y decide which **marks** are valid → the chosen
+> mark's **family** decides the **stats family** → the stats family gates the
+> **tests** on offer.
+
+So you never pick a test and then hunt for a compatible plot. You shape and
+encode the data, Iris narrows the marks to the ones the types allow, and the mark
+you draw selects the family of tests. *Which* test within that family is the
+subject of [how Iris chooses the test](#how-iris-chooses-the-test); *what counts
+as one row* of the shaped table is the subject of [experimental design and
+nesting](#experimental-design-and-nesting).
 
 ---
 
@@ -54,8 +178,8 @@ and outliers in one compact summary. Here, petal length for two iris species
 
 ## Violin plot
 
-A violin shows the full distribution shape — a mirrored kernel density —
-revealing skew or bimodality a box would hide.
+A violin shows the full distribution shape, revealing skew or bimodality a box
+would hide.
 
 ![](example:iris-species-comparison/iris-species-comparison-02)
 
@@ -63,8 +187,8 @@ revealing skew or bimodality a box would hide.
 
 ## Bar plot
 
-Mean ± error. Familiar, but it hides the distribution behind a single bar —
-prefer box or dots when the sample is small enough to show.
+Mean ± error. Familiar, but it hides the distribution behind a single bar.
+Prefer box or dots when the sample is small enough to show.
 
 ![](example:iris-species-comparison/iris-species-comparison-03)
 
@@ -72,7 +196,7 @@ prefer box or dots when the sample is small enough to show.
 
 ## Summary (mean ± error)
 
-The estimate and its uncertainty, without the bar's ink — a clean view of the
+The estimate and its uncertainty, without the bar's ink. A clean view of the
 effect and its confidence interval.
 
 ![](example:iris-species-comparison/iris-species-comparison-04)
@@ -81,7 +205,7 @@ effect and its confidence interval.
 
 ## Dot plot
 
-Every observation as a point — the most honest small-sample view. This example
+Every observation as a point, the most honest small-sample view. This example
 also turns on per-group **n labels**.
 
 ![](example:iris-species-comparison/iris-species-comparison-05)
@@ -99,7 +223,7 @@ petal width against petal length.
 
 ## Line (trajectories)
 
-One curve per unit over an ordered x — orange-tree circumference at successive
+One curve per unit over an ordered x: orange-tree circumference at successive
 ages, one line per tree (Draper & Smith 1998).
 
 ![](example:timeseries-growth/timeseries-growth-01)
@@ -117,7 +241,7 @@ curve.
 
 ## Histogram / distribution
 
-The shape of a single variable — sepal length across all 150 irises.
+The shape of a single variable: sepal length across all 150 irises.
 
 ![](example:iris-sepal-descriptive/iris-sepal-descriptive-01)
 
@@ -140,26 +264,26 @@ barrier ΔE = U(0) − min U labelled per curve.
 
 Before Iris picks a test, the *kind of thing you measured* fixes the **family**
 of tests in play. A length and a count of events are both "numbers", but they
-are generated by different processes and obey different statistics — so they get
+are generated by different processes and obey different statistics, so they get
 different models. Get the data type right and the rest of the decision (see
 [how Iris chooses the test](#how-iris-chooses-the-test)) follows.
 
 ## A continuous measurement
 
-A quantity that can in principle take any value on a scale — a length, an
+A quantity that can in principle take any value on a scale: a length, an
 intensity, a concentration, a ratio. This is the default family: describe it
 with a mean and SD (or median and IQR), and compare groups with the *t* /
 ANOVA family or their rank-based robust counterparts. Most examples in this
-guide are of this type — e.g. petal length across iris [species](#box-plot).
+guide are of this type, e.g. petal length across iris [species](#box-plot).
 
-How Iris chooses *within* this family — Welch's *t* vs Mann–Whitney, ANOVA vs
-Kruskal–Wallis — is the subject of the [next part](#how-iris-chooses-the-test).
+How Iris chooses *within* this family (Welch's *t* vs Mann–Whitney, ANOVA vs
+Kruskal–Wallis) is the subject of the [next part](#how-iris-chooses-the-test).
 Effect sizes come along with the test: Hedges' *g* [10] (a small-sample-corrected
 Cohen's *d*) for the *t*-tests, rank-biserial *r* for Mann–Whitney.
 
 ## A count of random events
 
-A tally of how many times something happened — spots per cell, divisions per
+A tally of how many times something happened: spots per cell, divisions per
 field, events per unit time or area. Counts are non-negative integers whose
 variance grows with their mean, so a normal-theory test is the wrong model.
 Iris fits a **count GLM with a log-exposure offset**, reporting each group's
@@ -167,7 +291,7 @@ Iris fits a **count GLM with a log-exposure offset**, reporting each group's
 default is the **negative binomial** (robust to overdispersion); `auto` fits a
 Poisson first, reads the overdispersion (Pearson χ²/df, switching at
 **`_OVERDISPERSION_RATIO = 1.5`**), and refits as negative binomial if the
-counts are dispersed — the standard count-model choice [15]. A global
+counts are dispersed, the standard count-model choice [15]. A global
 likelihood-ratio test answers "does the group matter?".
 
 ![](example:event-rate-by-group/event-rate-by-group-01)
@@ -176,11 +300,11 @@ likelihood-ratio test answers "does the group matter?".
 
 ## A proportion or category
 
-Each unit falls into one of a few classes — alive/dead, mitotic or not, one of
+Each unit falls into one of a few classes: alive/dead, mitotic or not, one of
 three phenotypes. The data are *counts in a contingency table*, and the question
 is whether two categorical variables are associated. Iris's default is Pearson's
 **chi-square**; for a 2×2 table where any expected cell count < 5 it recommends
-**Fisher's exact** — the standard small-expected-count rule [14]. Effect size:
+**Fisher's exact**, the standard small-expected-count rule [14]. Effect size:
 Cramér's *V* (general) or the odds ratio with a 95% CI (2×2). The worked
 examples live with the [test logic](#two-categorical-variables).
 
@@ -191,17 +315,17 @@ examples live with the [test logic](#two-categorical-variables).
 ## An association of two numbers
 
 Two measurements on the same unit, and the question is whether they move
-together. This is the **correlation** family — Pearson's *r* for a linear
+together. This is the **correlation** family: Pearson's *r* for a linear
 relationship, Spearman's *ρ* for a monotone one, chosen by the same normality
 rule as the comparison families. See
 [the scatter example](#scatter--regression) for the plot and
 [correlation](#association-of-two-numeric-variables) for the test. When the data
-are nested, *which units* you correlate matters enormously — see
+are nested, *which units* you correlate matters enormously; see
 [experimental design and nesting](#experimental-design-and-nesting).
 
 ## A time course or ordered measurement
 
-A quantity measured over an ordered axis — time, dose, position. Iris describes
+A quantity measured over an ordered axis: time, dose, position. Iris describes
 the time course in this tier: it reports the timepoints and span and draws the
 [trajectories](#line-trajectories), but does not yet attach an inferential test
 (that needs mixed-effects or functional-data methods). Treat it as descriptive
@@ -211,7 +335,7 @@ until a model is declared.
 
 # How Iris chooses the test
 
-This part is the decision logic behind every comparison above — each rule, its
+This part is the decision logic behind every comparison above: each rule, its
 threshold, its rationale, its sources, and its known failure modes. The logic
 lives in `engine/iris_engine/stats.py`; this document and the in-app stats
 glossary (`src/components/statsGlossary.ts`) are its prose face.
@@ -221,13 +345,13 @@ glossary (`src/components/statsGlossary.ts`) are its prose face.
 Once the [data type](#data-types) has fixed the family, a comparison is chosen
 along two independent axes, each a question with a recommended answer:
 
-1. **Structural — independent or paired?** Read from the data's hierarchy, not
+1. **Structural: independent or paired?** Read from the data's hierarchy, not
    declared. Paired tests are offered *only* when a shared coarser unit spans
-   both groups. This axis is structural: it comes from the spine — the replicate
-   is the unit of inference [1] — never from the values. *Which* level you pair
+   both groups. This axis is structural: it comes from the spine, where the
+   replicate is the unit of inference [1], never from the values. *Which* level you pair
    at is itself a design decision; see
    [which level are we pairing at?](#which-level-are-we-pairing-at).
-2. **Assumption — parametric or robust?** Proposed from a normality check on
+2. **Assumption: parametric or robust?** Proposed from a normality check on
    exactly what the chosen test will see (each group when independent, the paired
    differences when paired), and confirmable.
 
@@ -248,8 +372,8 @@ Iris runs the Shapiro–Wilk test [2] on each group (or the paired differences).
 evidence of non-normality → robust. Shapiro–Wilk is the standard general-purpose
 normality test and is among the most powerful for small samples [3].
 
-**Failure mode — large N.** Significance-based normality tests (Shapiro–Wilk
-included) over-reject at large N — a large sample yields a significant result
+**Failure mode (large N).** Significance-based normality tests (Shapiro–Wilk
+included) over-reject at large N: a large sample yields a significant result
 even for a small, practically irrelevant deviation from normality, one that would
 not affect a parametric test [4] (§3, restating [5, 6]). Iris caps the sample the
 check sees at **`NORMALITY_CAP = 5000`** (a fixed-seed subsample, so the
@@ -260,14 +384,14 @@ always-rejecting.
 
 Below **`MIN_N_FOR_NORMALITY_RULE = 12`**, Iris recommends the robust test
 *regardless of the Shapiro–Wilk result*. Normality tests have low power at small
-n — they cannot *see* a departure from normality, so a "passing" Shapiro–Wilk at
+n; they cannot *see* a departure from normality, so a "passing" Shapiro–Wilk at
 n = 6 is not evidence of normality, just absence of power [3, 4]. The rank-based
 test makes no normality assumption, so it is the conservative default when
 normality is unverifiable. The threshold (12) is a pragmatic convention, not a
 theorem; Iris fixes it so the default is predictable. Override it when you have a
 field convention or a pre-registered plan.
 
-> ⚠️ This rule, applied naively, has a sharp failure mode at *very* small n — it
+> ⚠️ This rule, applied naively, has a sharp failure mode at *very* small n: it
 > can recommend a rank test that **cannot reach significance no matter the
 > data.** That is what the next rule fixes.
 
@@ -275,7 +399,7 @@ field convention or a pre-registered plan.
 
 **The problem.** A rank / permutation test computes its p-value from a *finite*
 set of equally likely arrangements under the null, so it has a **smallest
-attainable p set by the sample size alone** — no data can push it below that
+attainable p set by the sample size alone**, and no data can push it below that
 floor. Below the n where the floor crosses α, the rank test can *never* reject.
 The small-sample rule's "safe default" then hands you a test that is, by
 construction, incapable of a significant result.
@@ -292,14 +416,14 @@ two-sided p the test can ever report is **2 · 2⁻ⁿ**:
 | 5 | 0.062 |
 | 6 | 0.031 |
 
-So at n ≤ 5 the signed-rank test has **zero power** at α = 0.05 — it cannot cross
+So at n ≤ 5 the signed-rank test has **zero power** at α = 0.05: it cannot cross
 0.05 until n ≥ 6. GraphPad Prism documents exactly this and *reports* the limit
 rather than recommending the test: "With five or fewer data pairs, the Wilcoxon
 matched pairs test has zero power" [7, 8].
 
 **The fix.** When the recommended rank test cannot attain α at the data's n, Iris
 does **not** recommend it. It falls back to the parametric counterpart and says
-so in the reason — explicitly flagging that the normality assumption is
+so in the reason, explicitly flagging that the normality assumption is
 *unverifiable* at this n, so you report the parametric test with that caveat. The
 override is untouched: you can still pin the rank test if you want it.
 
@@ -309,21 +433,21 @@ null arrangements:
 
 | Test (family) | Smallest attainable two-sided p | Resolves at α = 0.05 from |
 |---|---|---|
-| Wilcoxon signed-rank — *n* diffs (location / paired) | 2 · 2⁻ⁿ | n ≥ 6 |
-| Mann–Whitney U — sizes *n₁, n₂* (independent two-group) | 2 / C(n₁+n₂, n₁) | e.g. 3 vs 3 → 0.10 (no); 3 vs 5 → 0.036 (yes); 4 vs 4 → 0.029 (yes) |
-| Spearman ρ — *n* pairs (correlation) | 2 / n! | n ≥ 5 |
-| Kruskal–Wallis — *k* groups of *n* (multi-group omnibus) | k! · (n!)ᵏ / N! | e.g. 3×2 → 0.067 (no); 3×3 → 0.0036 (yes) |
+| Wilcoxon signed-rank, *n* diffs (location / paired) | 2 · 2⁻ⁿ | n ≥ 6 |
+| Mann–Whitney U, sizes *n₁, n₂* (independent two-group) | 2 / C(n₁+n₂, n₁) | e.g. 3 vs 3 → 0.10 (no); 3 vs 5 → 0.036 (yes); 4 vs 4 → 0.029 (yes) |
+| Spearman ρ, *n* pairs (correlation) | 2 / n! | n ≥ 5 |
+| Kruskal–Wallis, *k* groups of *n* (multi-group omnibus) | k! · (n!)ᵏ / N! | e.g. 3×2 → 0.067 (no); 3×3 → 0.0036 (yes) |
 
 The Kruskal–Wallis floor is **exact for equal group sizes** (H is maximal under
 perfect rank separation, and the k! block orderings are the only maximal
 arrangements out of N!/∏nᵢ! equally likely ones). For *unequal* sizes the
 maximal-H count is not a clean closed form, so Iris uses the necessary-condition
 bound 2 / (total arrangements): the guard then fires only when the test
-*provably* cannot resolve — it may under-warn on borderline unequal designs, but
+*provably* cannot resolve; it may under-warn on borderline unequal designs, but
 never over-claims. The implementation is `_signed_rank_min_p` /
 `_mann_whitney_min_p` / `_spearman_min_p` / `_kruskal_min_p` in `stats.py`.
 
-> The same combinatorial floor is *general* to permutation tests — it is why
+> The same combinatorial floor is *general* to permutation tests; it is why
 > exact rank tests carry minimum-n tables. Iris's contribution is to make the
 > *recommendation* aware of it, so the guided picker never presents a non-test as
 > the default.
@@ -331,25 +455,25 @@ never over-claims. The implementation is `_signed_rank_min_p` /
 ## The tests, design by design
 
 For each design, the parametric default and the robust alternative Iris picks
-when assumptions don't hold. Iris infers the test from the data — these examples
+when assumptions don't hold. Iris infers the test from the data; these examples
 show what that inference produces.
 
 ### One sample vs a reference
 
 Each group is tested against a constant reference (default 0), not against
-another group — the honest design when the groups are not mutually independent
+another group: the honest design when the groups are not mutually independent
 (e.g. fractions that sum to 1). The assumption axis is decided **once** for the
 figure (the least-normal group wins, as in the omnibus). This is the family where
 the [rank-floor guard](#the-rank-floor-guard) was first found.
 
-**Parametric — one-sample *t*.** A single group tested against a fixed reference
+**Parametric: one-sample *t*.** A single group tested against a fixed reference
 value, drawn as a horizontal line.
 
 ![](example:one-sample-location/one-sample-location-01)
 
 [Open this example in Iris](iris-open:one-sample-location)
 
-**Robust — Wilcoxon signed-rank.** With a small sample (n < 12), Iris switches
+**Robust: Wilcoxon signed-rank.** With a small sample (n < 12), Iris switches
 to the rank-based test automatically.
 
 ![](example:one-sample-wilcoxon/one-sample-wilcoxon-01)
@@ -362,10 +486,10 @@ Welch's *t* (unequal-variance) is the parametric default rather than Student's
 *t*: it controls Type I error across unequal variances and sample sizes at no
 real cost when variances *are* equal [9].
 
-**Parametric — Welch's *t*.** Two iris species' petal lengths, with a
-significance bracket — see [the box-plot example](#box-plot).
+**Parametric: Welch's *t*.** Two iris species' petal lengths, with a
+significance bracket; see [the box-plot example](#box-plot).
 
-**Robust — Mann–Whitney *U*.** The rank-based two-group test, for when normality
+**Robust: Mann–Whitney *U*.** The rank-based two-group test, for when normality
 doesn't hold.
 
 ![](example:mann-whitney/mann-whitney-01)
@@ -374,18 +498,18 @@ doesn't hold.
 
 ### Two paired groups
 
-A paired test removes between-unit variance — but only when the pairing is real.
+A paired test removes between-unit variance, but only when the pairing is real.
 What level it pairs at matters; see
 [which level are we pairing at?](#which-level-are-we-pairing-at).
 
-**Parametric — paired *t*.** The classic Cushny–Peebles sleep data (Student
+**Parametric: paired *t*.** The classic Cushny–Peebles sleep data (Student
 1908): each subject measured under two drugs.
 
 ![](example:sleep-paired-t/sleep-paired-t-01)
 
 [Open this example in Iris](iris-open:sleep-paired-t)
 
-**Robust — Wilcoxon signed-rank.** The paired rank-based alternative on the same
+**Robust: Wilcoxon signed-rank.** The paired rank-based alternative on the same
 data.
 
 ![](example:sleep-wilcoxon/sleep-wilcoxon-01)
@@ -394,20 +518,20 @@ data.
 
 ### Three or more independent groups
 
-Parametric: one-way ANOVA with **Tukey's HSD** pairwise — HSD controls the
+Parametric: one-way ANOVA with **Tukey's HSD** pairwise; HSD controls the
 family-wise error, so each pairwise p is already adjusted [11]. Robust:
 **Kruskal–Wallis** [12] with **Holm-adjusted** pairwise Mann–Whitney [13].
-Paired multi-group designs (RM-ANOVA / Friedman) are not yet supported — this
+Paired multi-group designs (RM-ANOVA / Friedman) are not yet supported; this
 path treats the groups as independent.
 
-**Parametric — one-way ANOVA + Tukey HSD.** Petal length across all three iris
+**Parametric: one-way ANOVA + Tukey HSD.** Petal length across all three iris
 species, with post-hoc pairwise brackets controlling the family-wise error rate.
 
 ![](example:iris-species-anova/iris-species-anova-01)
 
 [Open this example in Iris](iris-open:iris-species-anova)
 
-**Robust — Kruskal–Wallis + Holm.** The rank-based omnibus with Holm-corrected
+**Robust: Kruskal–Wallis + Holm.** The rank-based omnibus with Holm-corrected
 pairwise comparisons.
 
 ![](example:kruskal/kruskal-01)
@@ -419,10 +543,10 @@ pairwise comparisons.
 Same normality rule as the comparison axis. Subject to the
 [rank-floor guard](#the-rank-floor-guard) (Spearman's floor is 2/n!).
 
-**Parametric — Pearson *r*.** Linear association of petal width and length — see
+**Parametric: Pearson *r*.** Linear association of petal width and length; see
 [the scatter example](#scatter--regression).
 
-**Robust — Spearman *ρ*.** The rank correlation — robust to outliers and to
+**Robust: Spearman *ρ*.** The rank correlation, robust to outliers and to
 monotone-but-nonlinear relationships.
 
 ![](example:iris-petal-spearman/iris-petal-spearman-01)
@@ -434,11 +558,11 @@ monotone-but-nonlinear relationships.
 The chi-square / Fisher's-exact logic is described under
 [a proportion or category](#a-proportion-or-category).
 
-**Parametric — chi-square.** Independence in a contingency table: aspirin versus
-myocardial infarction (Physicians' Health Study) — see
+**Parametric: chi-square.** Independence in a contingency table: aspirin versus
+myocardial infarction (Physicians' Health Study); see
 [the heatmap example](#a-proportion-or-category).
 
-**Robust — Fisher's exact.** The exact 2×2 test for small expected counts —
+**Robust: Fisher's exact.** The exact 2×2 test for small expected counts:
 Fisher's lady tasting tea (Fisher 1935).
 
 ![](example:fisher-exact-tea/fisher-exact-tea-01)
@@ -449,8 +573,8 @@ Fisher's lady tasting tea (Fisher 1935).
 
 Any recommendation can be pinned to a specific test. Overrides are validated for
 applicability (you cannot request a paired test on data with no pairing
-structure) but are otherwise authoritative — and **the rank-floor guard never
-blocks an override**, it only changes the *default*. The choice is recorded in
+structure) but are otherwise authoritative, and **the rank-floor guard never
+blocks an override**; it only changes the *default*. The choice is recorded in
 the methods text so a reader sees exactly what was run and whether the
 recommendation was accepted.
 
@@ -460,7 +584,7 @@ recommendation was accepted.
 |---|---|---|
 | Rank test cannot reach α at small n | signed-rank n ≤ 5, MW small n, Spearman n ≤ 4, KW tiny groups | [Rank-floor guard](#the-rank-floor-guard): recommend the parametric test with an "unverifiable normality" caveat |
 | Shapiro–Wilk rejects on trivial deviations | large N (10⁴+) | Subsample cap `NORMALITY_CAP = 5000` |
-| Normality test has no power | small n (< 12) | Default to robust — *then* re-checked by the rank-floor guard |
+| Normality test has no power | small n (< 12) | Default to robust, *then* re-checked by the rank-floor guard |
 | Pseudoreplication inflates n | nested/replicate data | Collapse to the spine's inferential unit before testing [1] |
 | Pooled correlation sign inverts | nested data (Simpson's paradox) | Replicate-level coefficient + per-unit regression lines |
 | Pairing claimed at the wrong grain | shared session vs same subject | Pair only at the spine's declared shared unit; see [pairing level](#which-level-are-we-pairing-at) |
@@ -473,7 +597,7 @@ recommendation was accepted.
 # Experimental design and nesting
 
 The two axes above choose *a test*; this part is about the input every test
-depends on and none can recover on its own — **what counts as one observation.**
+depends on and none can recover on its own: **what counts as one observation.**
 Get the unit of inference wrong and the most carefully chosen test answers the
 wrong question.
 
@@ -481,8 +605,8 @@ wrong question.
 
 Cell-biology data is usually **nested**: many cells measured within each of a few
 biological replicates (subjects, animals, dishes). The cells from one replicate
-are correlated, so treating each cell as an independent observation —
-**pseudoreplication** — inflates *n* and manufactures significance. The fix is to
+are correlated, so treating each cell as an independent observation
+(**pseudoreplication**) inflates *n* and manufactures significance. The fix is to
 test at the *replicate* grain, not the cell grain. Iris reads that grain from the
 **hierarchy spine** you declare in the Data tab and collapses to it before
 testing [1].
@@ -492,7 +616,7 @@ testing [1].
 A paired test is valid only when the two values in a pair come from the *same
 unit of inference*: the same individual measured before and after treatment, or
 one dish split into treated and untreated halves. That pairing removes
-*between-subject* variance and is the classic, powerful paired design — and the
+*between-subject* variance and is the classic, powerful paired design. The
 subjects are usually measured across several sessions, so "paired" here means
 *same subject, different time*, not *same time*.
 
@@ -505,7 +629,7 @@ induces correlated noise. It is *not* interchangeable with within-subject
 pairing.
 
 Iris pairs at whatever grain the spine declares as the shared unit. Choosing that
-grain — subject vs session — is yours: the two answer different questions, and
+grain (subject vs session) is yours: the two answer different questions, and
 the wrong grain either throws away real pairing power or invents pairing that
 isn't there.
 
@@ -513,13 +637,13 @@ isn't there.
 
 A **SuperPlot** (Lord et al. 2020) shows both grains at once: every cell as a
 faint dot and one bold dot per biological replicate, coloured by replicate. Iris
-composes it as layers bound to a **hierarchy** — a `dot` at the raw (cell) level
-and a `dot` bound to the `subject` level — and runs the comparison on the grain
+composes it as layers bound to a **hierarchy** (a `dot` at the raw (cell) level
+and a `dot` bound to the `subject` level) and runs the comparison on the grain
 the prominent dots sit at.
 
 In this example, three cells are measured in each of three subjects per group.
 Because the bold replicate dots are bound to `subject`, Iris reports **n = 3 per
-group, not n = 9** (see the `n = 9  N = 3` labels under each group) — the
+group, not n = 9** (see the `n = 9  N = 3` labels under each group): the
 cell-level spread is visible, but pseudoreplication can't sneak into the test.
 
 ![](example:superplot-nested/superplot-nested-01)
@@ -533,13 +657,13 @@ cell-level spread is visible, but pseudoreplication can't sneak into the test.
 
 ## The same trap in a correlation
 
-Pseudoreplication is not only about comparing groups — it distorts an
+Pseudoreplication is not only about comparing groups; it distorts an
 **association** just as badly. Here 20 cells are measured in each of three
 replicates; within every replicate *x* and *y* are strongly **negatively**
 correlated, but the replicates are offset so pooling all 60 cells manufactures a
 strong **positive** correlation (ρ = +0.79). Declare the **hierarchy spine**
 (`replicate`) and Iris computes the coefficient within each replicate and tests
-across the three — recovering the honest negative association (mean ρ = -0.91,
+across the three, recovering the honest negative association (mean ρ = -0.91,
 **n = 3**). The same spine that fixes the SuperPlot fixes the correlation; without
 it, pooling doesn't just inflate *n*, it points the wrong way.
 

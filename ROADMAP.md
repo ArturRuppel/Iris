@@ -124,7 +124,10 @@ use rather than by engineering appetite:
   across the nesting risks duplicating rows at the wrong grain), which is part of
   why this likely wants multi-table support first.
 - **A Pyodide browser demo** for zero-install sharing — the spec/protocol keep
-  the engine swappable, so this is expensive but not a rewrite.
+  the engine swappable, so this is expensive but not a rewrite. The hosting
+  tiers (static gallery → Pyodide → backend) and the publication/handbook
+  strategy this feeds are planned in
+  [docs/dissemination-plan.md](docs/dissemination-plan.md).
 - **A fluid exploration mode** (D3-rendered, 60 fps brushing) feeding the same
   spec, with matplotlib still rendering the publication output.
 - **A natural-language layer** compiling utterances to spec edits.
