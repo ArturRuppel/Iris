@@ -95,6 +95,8 @@ class ShapeCountsRequest(BaseModel):
     collapse: list[dict] | None = None
     test_grain: str | None = None
     qualifier: str | None = None
+    # post-collapse reduce phase (reduce.post): drives the post-aggregate-derive guard
+    post: list[dict] | None = None
 
 
 class TablePutRequest(BaseModel):
@@ -594,7 +596,8 @@ def shape_counts(req: ShapeCountsRequest):
     present = hierarchy.spine_present(full, (req.hierarchy or {}).get("spine") or [])
     plan = req.collapse or hierarchy.default_plan(present, (req.hierarchy or {}).get("fn") or {})
     grains: dict[str, dict] = {}
-    guards: dict = {"pseudoreplication": None, "pairing_flip": None, "identity_merge": []}
+    guards: dict = {"pseudoreplication": None, "pairing_flip": None,
+                    "identity_merge": [], "post_aggregate_derive": []}
     if present:
         gmats = hierarchy.materialize_plan(full, full_sch, plan, [])
         for key, (gdf, _gsch) in gmats.items():
@@ -603,6 +606,8 @@ def shape_counts(req: ShapeCountsRequest):
         test_grain = req.test_grain if req.test_grain is not None else coarsest
         guards["pseudoreplication"] = hierarchy.pseudoreplication(full, plan, test_grain)
         guards["identity_merge"] = hierarchy.identity_merge(full, full_sch, present, plan)
+        guards["post_aggregate_derive"] = hierarchy.post_aggregate_derive(
+            req.post, test_grain)
         if req.qualifier:
             guards["pairing_flip"] = hierarchy.pairing_flip(
                 full, present, req.qualifier, coarsest, test_grain)

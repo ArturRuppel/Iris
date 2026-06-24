@@ -121,7 +121,7 @@ export type GrainKey = string;
    integrity risk: pseudoreplication / pairing-flip / identity-merge); "info" =
    white (the always-on flattening consequence). Never blocks. */
 export interface GuardVerdict {
-  id: "pseudoreplication" | "pairing_flip" | "identity_merge" | "flatten_info";
+  id: "pseudoreplication" | "pairing_flip" | "identity_merge" | "post_aggregate_derive" | "flatten_info";
   severity: "caution" | "info";
   text: string;
 }
@@ -133,6 +133,7 @@ export interface ShapeCountsGuards {
   pseudoreplication: { risk: boolean; n_test: number; n_coarsest: number; coarsest_grain: GrainKey } | null;
   pairing_flip: { flipped: boolean; from: string | null; to: string | null; across: string | null } | null;
   identity_merge: { dim: string; kept: string[]; before: number; after: number }[];
+  post_aggregate_derive: { step_index: number; grain: GrainKey; reason: string }[];
 }
 
 /* /hierarchy describe response: per-level grain cardinalities and where each

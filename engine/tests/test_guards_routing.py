@@ -89,3 +89,22 @@ def test_identity_merge_clear_for_default_chain():
     df = _df()
     assert hierarchy.identity_merge(
         df, _schema(), SPINE, hierarchy.default_plan(SPINE, {})) == []
+
+
+def test_post_aggregate_derive_one_verdict_per_derive():
+    post = [
+        {"kind": "derive", "column": "enrich", "expr": "obs / exp"},
+        {"kind": "filter", "conditions": [{"column": "enrich", "op": ">", "value": 0}]},
+        {"kind": "derive", "column": "log_enrich", "expr": "enrich"},
+    ]
+    out = hierarchy.post_aggregate_derive(post, "experiment")
+    assert [v["step_index"] for v in out] == [0, 2]      # the two derives, not the filter
+    assert all(v["grain"] == "experiment" for v in out)
+    assert "enrich" in out[0]["reason"]
+
+
+def test_post_aggregate_derive_empty_when_no_derive():
+    assert hierarchy.post_aggregate_derive([], "experiment") == []
+    assert hierarchy.post_aggregate_derive(None, "experiment") == []
+    assert hierarchy.post_aggregate_derive(
+        [{"kind": "filter", "conditions": []}], "experiment") == []

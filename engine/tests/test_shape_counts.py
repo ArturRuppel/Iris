@@ -43,6 +43,32 @@ def test_shape_counts_no_spine_no_levels():
     assert r.json()["source"]["rows"] == 18
 
 
+def test_shape_counts_post_aggregate_derive_guard():
+    table = _fixture()
+    body = {
+        "table": table,
+        "steps": [],
+        "hierarchy": {"spine": ["subject", "rep"], "fn": {}},
+        "collapse": [{"keep": ["subject"], "fn": "sum"}],
+        "test_grain": "subject",
+        "post": [{"kind": "derive", "column": "ratio", "expr": "value / value"}],
+    }
+    r = client.post("/shape_counts", json=body)
+    assert r.status_code == 200
+    pad = r.json()["guards"]["post_aggregate_derive"]
+    assert len(pad) == 1
+    assert pad[0]["step_index"] == 0
+    assert pad[0]["grain"] == "subject"
+
+
+def test_shape_counts_post_guard_absent_without_post():
+    table = _fixture()
+    body = {"table": table, "steps": [], "hierarchy": {"spine": ["subject", "rep"], "fn": {}}}
+    r = client.post("/shape_counts", json=body)
+    assert r.status_code == 200
+    assert r.json()["guards"]["post_aggregate_derive"] == []
+
+
 def _table():
     cols = ["experiment", "field", "cell", "frame", "area"]
     rows = []

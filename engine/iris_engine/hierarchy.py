@@ -364,3 +364,20 @@ def identity_merge(df: pd.DataFrame, schema: dict, spine: list[str],
                                "before": int(before), "after": int(after)})
         prev = keep
     return merges
+
+
+def post_aggregate_derive(post_steps: list[dict] | None, test_grain: str) -> list[dict]:
+    """#5 (post-collapse): a `derive` in the post-collapse reduce phase computes its
+    value on ALREADY-AGGREGATED rows, where the raw-grain safety of a normal derive
+    no longer holds — its inputs are sums/medians over collapsed units, so what the
+    result means depends on the grain it runs at. Not a wall: §3's log2(Σobs/Σexp)
+    and §4's het are legitimate post-aggregate derives; the guard just names the
+    grain and the step so the user confirms the derive is intended there. One
+    caution verdict per post-phase derive."""
+    grain = test_grain or RAW
+    where = grain if grain else RAW
+    return [{"step_index": i, "grain": grain,
+             "reason": (f"derive {s.get('column')!r} runs on the {where} grain "
+                        "(post-aggregate): its inputs are already summarized, so "
+                        "the result's meaning depends on this grain")}
+            for i, s in enumerate(post_steps or []) if s.get("kind") == "derive"]
