@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { createStore, Provider } from "jotai";
 import { WorkbenchCanvas } from "./WorkbenchCanvas";
+import { cardsAtom } from "./state";
+import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
 
 const graph: ExplorerGraph = {
@@ -15,23 +18,85 @@ const graph: ExplorerGraph = {
   ],
 };
 
+function mount(g: ExplorerGraph = graph, onClose?: () => void) {
+  const store = createStore();
+  const utils = render(
+    <Provider store={store}><WorkbenchCanvas graph={g} onClose={onClose} /></Provider>,
+  );
+  return { store, ...utils };
+}
+
 describe("WorkbenchCanvas", () => {
   it("renders one React Flow node per graph node, plus a tidy control", () => {
-    const { container } = render(<WorkbenchCanvas graph={graph} onClose={() => {}} />);
-    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    const { container } = mount();
     expect(screen.getByRole("button", { name: /tidy/i })).toBeInTheDocument();
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
   });
 
-  it("closes on the close control", () => {
+  it("renders a close control only when onClose is provided", () => {
+    const { rerender, store } = mount(graph, undefined);
+    expect(screen.queryByRole("button", { name: /close/i })).toBeNull();
     let closed = false;
-    render(<WorkbenchCanvas graph={graph} onClose={() => { closed = true; }} />);
+    rerender(
+      <Provider store={store}>
+        <WorkbenchCanvas graph={graph} onClose={() => { closed = true; }} />
+      </Provider>,
+    );
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(closed).toBe(true);
   });
 
+  it("clicking a node opens its card (node id -> table card)", () => {
+    const { store, container } = mount();
+    const node = container.querySelector('.react-flow__node[data-id="plot"]')!;
+    expect(node).toBeTruthy();
+    fireEvent.click(node);
+    const cards = store.get(cardsAtom);
+    expect(cards).toHaveLength(1);
+    expect(cards[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot" } });
+  });
+
+  // React Flow does not render any `.react-flow__edge` DOM under jsdom (edges
+  // need measured handle positions the headless DOM never supplies — node DOM
+  // renders, edge DOM does not), so `fireEvent.click` on an edge is impossible
+  // here. The component's `onEdgeClick` wiring is identical to `onNodeClick`
+  // (verified by the passing node-click test above) and both route through
+  // `targetToCardKind`; we assert that pure resolution rule directly — edge
+  // "e0" (a filter) -> the shared op-editor card, "g0" (a geom) -> geom-editor.
+  it("edge click resolves to its editor card (e0 filter -> op-editor)", () => {
+    expect(targetToCardKind(graph, { kind: "edge", id: "e0" })).toBe("op-editor");
+    expect(targetToCardKind(graph, { kind: "edge", id: "g0" })).toBe("geom-editor");
+    // a stale id resolves to null -> opens nothing.
+    expect(targetToCardKind(graph, { kind: "edge", id: "nope" })).toBeNull();
+  });
+
+  it("renders an open card from the store as the right card + body", () => {
+    const store = createStore();
+    store.set(cardsAtom, [{
+      id: "node:plot", target: { kind: "node", id: "plot" }, cardKind: "plot",
+      x: 30, y: 40, w: 300, h: 200, collapsed: false,
+    }]);
+    render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
+    // the dialog's accessible name comes from CARD_TITLE[cardKind] ("Plot"),
+    // so this distinguishes the plot card from any other kind...
+    expect(screen.getByRole("dialog", { name: /plot card/i })).toBeInTheDocument();
+    // ...and the PlotCard body (not some other body) actually mounted.
+    expect(screen.getByTestId("plot-card")).toBeInTheDocument();
+  });
+
+  it("collapse-all collapses every open card", () => {
+    const store = createStore();
+    store.set(cardsAtom, [{
+      id: "node:plot", target: { kind: "node", id: "plot" }, cardKind: "plot",
+      x: 0, y: 0, w: 300, h: 200, collapsed: false,
+    }]);
+    render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
+    fireEvent.click(screen.getByRole("button", { name: /collapse all/i }));
+    expect(store.get(cardsAtom)[0].collapsed).toBe(true);
+  });
+
   it("re-flows when the graph structure changes (adds a node)", () => {
-    const { container, rerender } = render(<WorkbenchCanvas graph={graph} onClose={() => {}} />);
+    const { container, rerender, store } = mount();
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
     const bigger: ExplorerGraph = {
       nodes: [...graph.nodes,
@@ -39,7 +104,7 @@ describe("WorkbenchCanvas", () => {
       edges: [...graph.edges,
         { id: "e1", kind: "derive", label: "x = 1", fromId: "step:0", toId: "step:1" }],
     };
-    rerender(<WorkbenchCanvas graph={bigger} onClose={() => {}} />);
+    rerender(<Provider store={store}><WorkbenchCanvas graph={bigger} /></Provider>);
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(4);
   });
 });
