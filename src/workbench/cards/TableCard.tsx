@@ -6,8 +6,10 @@ import { NodeTable } from "../../components/NodeTable";
 import type { ReduceStepKind } from "../../types";
 import type { CardBodyProps } from "../cardRegistry";
 
-const KIND_LABEL: Record<"drop" | "filter", string> = {
+const KIND_LABEL: Record<ReduceStepKind, string> = {
   drop: "Drop columns", filter: "Filter rows",
+  derive: "Derive column", recode: "Recode column", join: "Join table",
+  pivot: "Pivot column", grid_complete: "Complete grid",
 };
 
 /* The table node's body: the reduced table at this node (delegated to NodeTable,
@@ -35,7 +37,7 @@ export function TableCard({ target }: CardBodyProps) {
           <div className="add-step-menu">
             {(["drop", "filter"] as ReduceStepKind[]).map((k) => (
               <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
-                {KIND_LABEL[k as "drop" | "filter"]}
+                {KIND_LABEL[k]}
               </button>
             ))}
             <button className="cancel" onClick={() => setAdding(false)}>cancel</button>

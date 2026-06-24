@@ -1,12 +1,13 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import {
   schemaAtom, hierarchyAtom, plottablesAtom, activePlottableIdAtom,
-  reducePreviewByIdAtom, makeDefaultPlottable,
+  reducePreviewByIdAtom, tableHandleAtom, makeDefaultPlottable,
 } from "../state";
-import type { Schema, Table } from "../types";
+import type { CollapsePlan, ReducePreview, Schema, Table } from "../types";
 import type { ExplorerNode } from "../explorer/graph";
+import { engine } from "../types";
 import { NodeTable } from "./NodeTable";
 
 function seed() {
@@ -24,6 +25,8 @@ function seed() {
 }
 
 describe("NodeTable", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
   it("shows a loading state for a fetchable node with no table handle (no engine under jsdom)", () => {
     const { store } = seed();
     const node: ExplorerNode = {
@@ -58,5 +61,39 @@ describe("NodeTable", () => {
     );
     // the seeded value appears in the grid.
     expect(screen.getByText("42")).toBeInTheDocument();
+  });
+
+  it("fetches a collapse-grain node (collapse plan + grain key) instead of spinning forever", async () => {
+    const { store, schema, plottable } = seed();
+    // an active plottable carrying a collapse plan (the grain's source).
+    const collapse: CollapsePlan = [{ keep: ["cell"], fn: "mean" }];
+    store.set(plottablesAtom, [{ ...plottable, collapse }]);
+    // a handle so the fetch effect actually runs (jsdom has no live engine).
+    store.set(tableHandleAtom, { id: "tok-1", n: 1, version: 1, schema });
+
+    const result: ReducePreview = {
+      preview: { schema, rows: [{ id: "g0", cell: "c1", val: 7 }] },
+      n_total: 1, trace: [], summary: [],
+    };
+    const spy = vi.spyOn(engine, "reduce").mockResolvedValue(result);
+
+    const node: ExplorerNode = {
+      id: "grain:cell", kind: "table", label: "per cell",
+      table: { via: "grain", grain: "cell" },
+    };
+    render(
+      <Provider store={store}>
+        <NodeTable node={node} />
+      </Provider>,
+    );
+
+    // it must resolve to the grid (NOT stay on "Loading per cell…").
+    expect(await screen.findByText("7")).toBeInTheDocument();
+
+    // grain fetches forward the collapse plan + grain key in the trailing
+    // arg positions: (tableRef, steps, hierarchy, level, at_step, collapse, grain).
+    const args = spy.mock.calls[0];
+    expect(args[5]).toEqual(collapse);   // collapse plan
+    expect(args[6]).toBe("cell");        // grain key
   });
 });

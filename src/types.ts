@@ -711,8 +711,9 @@ export const engine = {
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
   analyze: (t: TableRef, spec: AnalysisSpec) =>
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
-  reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number) =>
-    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step }),
+  reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number,
+           collapse?: CollapsePlan, grain?: GrainKey) =>
+    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step, collapse, grain }),
   shapeCounts: (
     t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy,
     extra?: { collapse?: CollapsePlan; test_grain?: GrainKey; qualifier?: string | null },

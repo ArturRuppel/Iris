@@ -92,7 +92,7 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
   }
 
   const fetchKey = node.table.via !== "none"
-    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, hierarchy])
+    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, active?.collapse, hierarchy])
     : null;
 
   useEffect(() => {
@@ -109,7 +109,9 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
           ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, tbl.at_step)
           : tbl.via === "level"
             ? await engine.reduce({ token: handle.id }, steps, hierarchy, tbl.level)
-            : null;
+            : tbl.via === "grain"
+              ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, undefined, active.collapse, tbl.grain)
+              : null;
         if (!res) return;
         if (cancelled) return;
         setTable(res.preview); setTotal(res.n_total);
@@ -121,7 +123,7 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
       }
     })();
     return () => { cancelled = true; };
-    // fetchKey captures node.table + steps + hierarchy; handle/active id gate it.
+    // fetchKey captures node.table + steps + collapse + hierarchy; handle/active id gate it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handle?.id, handle?.version, fetchKey]);
 
