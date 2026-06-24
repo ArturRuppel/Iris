@@ -54,7 +54,7 @@ describe("CARD_BODIES", () => {
   });
 
   it("wires real (non-stub) bodies for the five Phase-4 card kinds", () => {
-    const realKinds: CardKind[] = ["plot", "stats",
+    const realKinds: CardKind[] = ["plot", "stats", "op-editor",
       "collapse-editor", "geom-editor", "annotate-editor"];
     for (const kind of realKinds) {
       // the real components require app atoms; here we only assert identity, not
@@ -64,8 +64,8 @@ describe("CARD_BODIES", () => {
     }
   });
 
-  it("keeps table / op-editor / test-editor as stubs (deferred to Phase 4b)", () => {
-    for (const k of ["table", "op-editor", "test-editor"] as CardKind[]) {
+  it("keeps table / test-editor as stubs (deferred to Phase 4b)", () => {
+    for (const k of ["table", "test-editor"] as CardKind[]) {
       expect(CARD_BODIES[k].name).toBe("StubBody");
     }
   });
