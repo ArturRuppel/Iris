@@ -9,6 +9,34 @@ reduce phase) plus its guard, and composing already-landed nodes for the rest.
 
 **Spec:** `docs/superpowers/specs/2026-06-24-cov2d-absorption-part-2-design.md`
 
+## Status — executed 2026-06-24 (branch `cov2d-absorption-part-2`)
+
+- **Phase 1 — post-collapse reduce phase: DONE.** `render` runs `reduce.post` on
+  the chosen test-grain table; `reduce.project_schema` lets `statmodel.infer` see a
+  post-derived column an encoding maps Y to; the result is surfaced at its grain so
+  the figure draws it. 4 tests; engine 455 green. (commit `feat(render): post-collapse reduce phase`)
+- **Phase 2 — §3 enrichment: DONE & VERIFIED on real data.** `reports/COV2D/verify_s3_enrichment.py`
+  rebuilds `neighbor_enrichment.iris` self-contained (raw counts → derive homo →
+  filter → recode lane → `collapse(sum)` → `reduce.post(log2)` → location) and
+  reproduces the committed per-lane numbers to 9+ sig figs (p VimKO–VimKO 0.005810,
+  NLS–NLS 0.019635; centers identical). Emits `selfcontained_preview/neighbor_enrichment.iris`.
+- **Phase 3 — C3 guard: DONE.** `hierarchy.post_aggregate_derive` + `/shape_counts`
+  field + TS contract. 4 tests. (commit `feat(guards): post-aggregate-derive caution`)
+- **Phase 5 — frontend post-phase edges: DONE.** `buildGraph` draws the `reduce.post`
+  chain after the collapse chain with the caution badge; the test reads the
+  post-phase output. 2 tests; frontend 129 green. (commit `feat(explorer): render post-collapse reduce phase edges`)
+- **Phase 4 — §4 crowding: GATE RESOLVED, plumbing deferred.** The replicate-level
+  Spearman stat **already exists** — `_per_unit_correlation` does per-unit Spearman
+  → Fisher-z (`arctanh`) → `ttest_1samp(z,0)` → `rs.mean()`, identical to the
+  notebook's `replicate_spearman`. So **no stat-family extension is needed** (the
+  spec's feared worst case does not apply). The remaining blocker is plumbing: the
+  `correlation` family in `render` correlates `df` directly and does **not** run
+  through collapse or the post phase, so the per-cell feature table (4-table join +
+  `opp` pivot + `het` derive at per-cell grain) cannot reach it. §4 therefore needs
+  the **correlation path wired through collapse + `reduce.post`** (a render.py
+  change extending the post-phase to the correlation branch), then the per-cell
+  composition + equivalence test against r=−0.174/−0.122. Scoped as its own task.
+
 **Ground truth verified 2026-06-24:** pipeline ordering is strict
 `reduce.steps → collapse → stat` (`render.py` ≈ 74–200); post-aggregate ops are
 **not** expressible today. §5 needs no collapse; §3/§4 need the new phase.
