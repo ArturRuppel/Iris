@@ -24,6 +24,7 @@ import {
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
+import type { NodeShape } from "./types";
 import { shapeCountsAtom, guardsAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
@@ -250,12 +251,17 @@ export default function App() {
       try {
         const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy,
           { collapse: collapsePlan, test_grain: testGrain, qualifier });
-        const counts: Record<string, { rows: number; cols: number }> = { source: sc.source };
+        const counts: Record<string, NodeShape> = { source: sc.source };
         sc.steps.forEach((c, i) => { counts[`step:${i}`] = c; });
         /* grain-keyed counts map onto the graph's `grain:<key>` nodes. The raw
            grain ("") is the source/last-step node, already counted above. */
         for (const [key, c] of Object.entries(sc.grains ?? {})) {
           if (key !== "") counts[`grain:${key}`] = c;
+        }
+        /* per-join right-table descriptors map onto the binary-join `source:<i>`
+           nodes the graph draws. */
+        for (const [i, c] of Object.entries(sc.joins ?? {})) {
+          counts[`source:${i}`] = c;
         }
         setShapeCounts(counts);
         setGuards(sc.guards ?? null);

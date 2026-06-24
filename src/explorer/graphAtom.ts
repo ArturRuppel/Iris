@@ -91,6 +91,15 @@ export function mergeGuards(edges: Edge[], guards: ShapeCountsGuards): Edge[] {
     });
   }
 
+  /* --- join edges: join-key guard (one caution per offending join) --- */
+  const joinTargets = [...new Set(out.filter((e) => e.kind === "join").map((e) => e.toId))];
+  (guards.join_leaf_key ?? []).forEach((m, i) => {
+    const toId = joinTargets[i];
+    if (!toId) return;
+    const edge = out.find((e) => e.kind === "join" && e.toId === toId);
+    if (edge) append(edge, { id: "join_leaf_key", severity: "caution", text: m.text });
+  });
+
   return out;
 }
 
