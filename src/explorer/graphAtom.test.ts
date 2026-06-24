@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { mergeGuards } from "./graphAtom";
+import { mergeGuards, annotateEnabled } from "./graphAtom";
 import type { Edge } from "./graph";
-import type { ShapeCountsGuards } from "../types";
+import type { ShapeCountsGuards, StyleOverrides } from "../types";
 
 const NO_GUARDS: ShapeCountsGuards = {
   pseudoreplication: null, pairing_flip: null,
@@ -58,5 +58,15 @@ describe("mergeGuards: join_leaf_key", () => {
   it("no join_leaf_key entries -> no badge added", () => {
     const out = mergeGuards(joinEdges(), NO_GUARDS);
     expect(out.some((e) => e.guards?.some((g) => g.id === "join_leaf_key"))).toBe(false);
+  });
+});
+
+describe("annotateEnabled", () => {
+  it("is true when show_significance is set", () => {
+    expect(annotateEnabled({ show_significance: true } as StyleOverrides)).toBe(true);
+  });
+  it("is false when show_significance is unset or false", () => {
+    expect(annotateEnabled({} as StyleOverrides)).toBe(false);
+    expect(annotateEnabled({ show_significance: false } as StyleOverrides)).toBe(false);
   });
 });

@@ -4,7 +4,13 @@ import {
   effectivePlanAtom, effectiveTestGrainAtom,
 } from "../state";
 import { buildGraph, type ExplorerGraph, type StatsInput, type NodeCount, type Edge } from "./graph";
-import type { ShapeCountsGuards, GuardVerdict } from "../types";
+import type { ShapeCountsGuards, GuardVerdict, StyleOverrides } from "../types";
+
+/* significance annotation is enabled per-analysis via the style override the
+   render layer already reads. Pure so the graph wiring is unit-testable without
+   a store. */
+export const annotateEnabled = (style: StyleOverrides): boolean =>
+  !!style.show_significance;
 
 /* the chosen test's display name + describe-only flag. The chosen test comes
    from the live analyze result (StatsResult.result.test); before a result lands
@@ -17,6 +23,7 @@ const statsInputAtom = atom<StatsInput | null>((get) => {
   return {
     test: res?.stats?.result?.test ?? p.override ?? null,
     describeOnly: p.describeOnly,
+    annotate: annotateEnabled(p.style),
   };
 });
 
