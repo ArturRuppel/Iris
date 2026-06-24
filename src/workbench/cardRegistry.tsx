@@ -5,6 +5,7 @@ import { CollapseCard } from "./cards/CollapseCard";
 import { GeomCard } from "./cards/GeomCard";
 import { AnnotateCard } from "./cards/AnnotateCard";
 import { OpEditorCard } from "./cards/OpEditorCard";
+import { TableCard } from "./cards/TableCard";
 
 /* One card kind per clickable thing (design §5). Node kinds map to the three
    display/table cards; edge kinds map to the five editor cards. */
@@ -54,7 +55,7 @@ const stub = (kind: CardKind) =>
   };
 
 export const CARD_BODIES: Record<CardKind, (p: CardBodyProps) => JSX.Element> = {
-  "table": stub("table"),
+  "table": TableCard,
   "plot": PlotCard,
   "stats": StatsCard,
   "op-editor": OpEditorCard,
