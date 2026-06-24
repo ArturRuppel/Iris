@@ -4,16 +4,11 @@ import irisMark from "./assets/iris-mark.svg";
 import { DataEntry } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
 import { HierarchyPanel } from "./components/HierarchyPanel";
-import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
-import { LayerRail } from "./components/LayerRail";
-import { CollapseRoutingPanel } from "./components/CollapseRoutingPanel";
 import { PlottableSidebar } from "./components/PlottableSidebar";
-import { DataTab } from "./components/DataTab";
-import { TransformExplorer } from "./components/TransformExplorer";
-import { TransformWorkspace } from "./components/TransformWorkspace";
-import { StatsPanel } from "./components/StatsPanel";
 import { Guide } from "./examples/Guide";
+import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
+import { clearWorkbenchAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
@@ -23,28 +18,14 @@ import {
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
-  workspaceOpenAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { NodeShape } from "./types";
-import { shapeCountsAtom, guardsAtom } from "./explorer/graphAtom";
+import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
 }) as Record<string, string>;
-
-function Section({ title, defaultOpen, id, children }:
-  { title: string; defaultOpen?: boolean; id?: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(!!defaultOpen);
-  return (
-    <section className="iris-section" id={id}>
-      <button className="section-header" onClick={() => setOpen((o) => !o)}>
-        <span className="chevron">{open ? "▾" : "▸"}</span> {title}
-      </button>
-      {open && <div className="section-body">{children}</div>}
-    </section>
-  );
-}
 
 /* Tells the user, at a glance, whether the figure is current, being computed,
    or failed — so a long render never reads as a freeze or a crash. */
@@ -87,6 +68,7 @@ export default function App() {
   const setRenderError = useSetAtom(renderErrorAtom);
   const renderError = useAtomValue(renderErrorAtom);
   const dataLoading = useAtomValue(dataLoadingAtom);
+  const explorerGraph = useAtomValue(explorerGraphAtom);
   const warnIssue = (useAtomValue(analysisAtom)?.issues ?? [])
     .find((i) => i.level === "warning");
   const error = useAtomValue(engineErrorAtom);
@@ -278,8 +260,8 @@ export default function App() {
   /* clear the explorer's selected node when the active analysis changes, so a
      node id from a different analysis never drives the wrong data tab. */
   const setSelectedNode = useSetAtom(selectedNodeIdAtom);
-  useEffect(() => { setSelectedNode(null); }, [activeId, setSelectedNode]);
-  const setWorkspaceOpen = useSetAtom(workspaceOpenAtom);
+  const clearWorkbench = useSetAtom(clearWorkbenchAtom);
+  useEffect(() => { setSelectedNode(null); clearWorkbench(); }, [activeId, setSelectedNode, clearWorkbench]);
 
   /* background loop: a self-draining sequential queue that warms every OTHER
      plottable's cache so even a never-opened analysis is instant on first visit.
@@ -405,7 +387,7 @@ export default function App() {
         analyses: doc.analyses.map(migrateSpec),   // tolerate older .viz specs
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
       });
-      setViewMode(doc.analyses.length ? "analyses" : "data");
+      setViewMode(doc.analyses.length ? "workbench" : "data");
       if (fh) fileHandleRef.current = { fh, tableId: doc.id };   // a later Save writes back here
     } catch (e) { surfaceUnlessAbort(e); }
   };
@@ -426,7 +408,7 @@ export default function App() {
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
       });
       fileHandleRef.current = null;                 // force Save -> Save As
-      setViewMode(doc.analyses.length ? "analyses" : "data");
+      setViewMode(doc.analyses.length ? "workbench" : "data");
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
@@ -451,7 +433,7 @@ export default function App() {
         </h1>
         <div className="mode-toggle">
           <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
-          <button className={viewMode === "analyses" ? "active" : ""} onClick={() => setViewMode("analyses")}>Analyses</button>
+          <button className={viewMode === "workbench" ? "active" : ""} onClick={() => setViewMode("workbench")}>Workbench</button>
           <button className={viewMode === "guide" ? "active" : ""} onClick={() => setViewMode("guide")}>Guide</button>
         </div>
         <div className="controls">
@@ -472,14 +454,6 @@ export default function App() {
         : renderError ? <div className="error-bar">{renderError}</div>
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
-      {viewMode === "analyses" && !dataLoading && active && (
-        <div className="tx-strip">
-          <TransformExplorer />
-          <button className="tx-expand" title="Open the full transformation workspace"
-            onClick={() => setWorkspaceOpen(true)}>⤢ Workspace</button>
-        </div>
-      )}
-      <TransformWorkspace />
       <main>
         {viewMode === "guide" ? (
           <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
@@ -495,15 +469,11 @@ export default function App() {
             <span>No data yet — import a file or enter data to start an analysis.</span>
           </div>
         ) : (
-          <div className="analyses-mode">
+          <div className="workbench-mode">
             <PlottableSidebar />
-            <LayerRail />
-            <CollapseRoutingPanel />
-            <div className="iris">
-              <Section title="Table" defaultOpen><DataTab /></Section>
-              <Section title="Figure" defaultOpen id="section-figure"><FigurePane /></Section>
-              <Section title="Statistics" defaultOpen id="section-stats"><StatsPanel /></Section>
-            </div>
+            {explorerGraph
+              ? <WorkbenchCanvas graph={explorerGraph} />
+              : <div className="analyses-empty"><span>Build a step or add a layer to see the graph.</span></div>}
           </div>
         )}
       </main>

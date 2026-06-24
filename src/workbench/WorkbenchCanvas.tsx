@@ -116,7 +116,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   }, [onClose]);
 
   return (
-    <div className="txw-overlay" role="dialog" aria-label="Transformation workbench">
+    <div className="txw-overlay txw-embedded" role="dialog" aria-label="Transformation workbench">
       <div className="txw-topbar">
         <h1 className="txw-title">⛁ Transformation workbench</h1>
         <button className="txw-tidy" onClick={tidy}>⤢ Tidy</button>
