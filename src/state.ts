@@ -493,9 +493,8 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     shareX: spec.facet?.share_x ?? true,
     shareY: spec.facet?.share_y ?? true,
     layers,
-    // Prefer the dedicated `override` field; fall back to the legacy
-    // chosen_by == user_override signal so pre-decoupling .viz files still load.
-    override: s?.override ?? (s?.chosen_by === "user_override" ? s.test : null),
+    // the user's pinned test; null = run the recommendation.
+    override: s?.override ?? null,
     /* restore the vs-reference opt-in so a saved `location` doc round-trips
        instead of being re-derived as a group comparison on open. The constant
        rides in stats.reference; older files that only set the reference line fall
@@ -503,7 +502,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     reference: s?.family === "location"
       ? (s?.reference ?? (style.reference_value as number | null | undefined) ?? 0)
       : null,
-    describeOnly: s?.chosen_by === "describe_only",
+    describeOnly: s?.describe_only ?? false,
     previewLevel: RAW_LEVEL,
     style,
     reduce: { steps: (spec.reduce?.steps ?? []).map((s) => ({ ...s, _key: nextStepKey() })) },
@@ -562,12 +561,6 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
     ?? recOk ?? tests[0];
-  // The user owns the test choice; a pick that differs from the recommendation
-  // is not flagged as a deviation. We record only whether a test was chosen at
-  // all, not whether it matched the recommendation. (The engine still computes
-  // its own chosen_by / methods_text until that follow-up lands.)
-  const chosen_by = p.describeOnly ? "describe_only"
-    : recOk ? "recommendation_accepted" : "default";
   // location family: carry the tested constant and, unless the user already set
   // one, default the reference line to it so the figure draws the chance line the
   // one-sample test is measured against.
@@ -576,7 +569,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     ? { ...p.style, reference_value: reference }
     : p.style;
   return {
-    spec_version: "2.0",
+    spec_version: "2.1",
     id: p.id,
     title: p.name,
     data: { filter: [] },
@@ -597,19 +590,18 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     },
     hierarchy,
     layers: p.layers,
+    /* Decisions only. The engine re-derives the recommendation, the deviation
+       label, and the assumption-check outcomes on open. */
     stats: {
-      family, test, chosen_by,
-      /* the pinned test rides here, not in chosen_by — a non-recommended pick is
-         the user's choice, not a flagged deviation. null when nothing is pinned. */
+      family, test,
+      // the user's pinned test; null when nothing is pinned.
       override: p.override,
       /* the vs-reference constant — engine reads it for the location family; null
          (omitted in effect) for every other family. */
       ...(reference != null ? { reference } : {}),
-      alternatives_offered: tests.filter((t) => t !== test),
-      assumption_checks: [{ check: "shapiro_wilk",
-                            per: family === "group_comparison" || family === "location" ? "group" : "variable" }],
+      // describe-only is a decision; omit when false to keep specs clean.
+      ...(p.describeOnly ? { describe_only: true } : {}),
       alpha: 0.05,
-      report: ["effect_size", "ci", "n_per_group"],
     },
     annotations: { significance_brackets: "auto", show_n: true },
     style: { overrides: style },
