@@ -29,10 +29,30 @@ def test_shape_counts_source_steps_levels():
     r = client.post("/shape_counts", json=body)
     assert r.status_code == 200
     d = r.json()
-    assert d["source"] == {"rows": 18, "cols": 4}
-    assert d["steps"] == [{"rows": 18, "cols": 4}, {"rows": 18, "cols": 3}]
+    assert (d["source"]["rows"], d["source"]["cols"]) == (18, 4)
+    assert [(s["rows"], s["cols"]) for s in d["steps"]] == [(18, 4), (18, 3)]
     assert d["levels"]["subject"]["rows"] == 6
     assert d["levels"]["rep"]["rows"] == 18
+
+def test_shape_counts_carries_array_descriptor():
+    table = _fixture()
+    body = {
+        "table": table,
+        "steps": [
+            {"kind": "filter", "conditions": [{"column": "value", "op": ">", "value": 0}]},
+        ],
+        "hierarchy": {"spine": ["subject", "rep"], "fn": {}},
+    }
+    r = client.post("/shape_counts", json=body)
+    assert r.status_code == 200
+    data = r.json()
+    # source node gains axes + values alongside rows/cols
+    assert "axes" in data["source"] and "values" in data["source"]
+    assert all("n_levels" in a and "ragged" in a for a in data["source"]["axes"])
+    assert all({"name", "type", "grain"} <= set(v) for v in data["source"]["values"])
+    # guards block exposes the join-key guard list (possibly empty)
+    assert "join_leaf_key" in data["guards"]
+
 
 def test_shape_counts_no_spine_no_levels():
     table = _fixture()

@@ -22,7 +22,7 @@ from pydantic import BaseModel
 
 from . import (compiler, document, geoms, hierarchy, importer,
                reduce as reduce_mod, render as render_mod, session as session_mod,
-               specnorm, style as style_mod)
+               shape as shape_mod, specnorm, style as style_mod)
 from .render import _load_frame, frame_from_table
 
 app = FastAPI(title="iris-engine")
@@ -561,8 +561,14 @@ def shape_counts(req: ShapeCountsRequest):
         # (`id`, `row_ids`) so it matches what the data-tab grid renders.
         return len([c for c in frame.columns if c not in ("id", "row_ids")])
 
+    # array-shape descriptor spine: filtered to the columns each frame actually
+    # carries by describe_shape, so one spine computed from the raw df suffices
+    # for the source + step nodes (built before `full`/`present` exist below).
+    spine = hierarchy.spine_present(df, (req.hierarchy or {}).get("spine") or [])
+
     src, src_sch, _ = reduce_mod.reduce_with_trace(df, schema, [])
-    out_source = {"rows": int(len(src)), "cols": _cols(src)}
+    out_source = {"rows": int(len(src)), "cols": _cols(src),
+                  **shape_mod.describe_shape(src, src_sch, spine)}
 
     steps_counts = []
     for i in range(len(req.steps)):
@@ -570,7 +576,8 @@ def shape_counts(req: ShapeCountsRequest):
             out, _sch, _ = reduce_mod.reduce_with_trace(df, schema, req.steps[: i + 1])
         except reduce_mod.ReduceError as e:
             raise HTTPException(422, f"reduction failed: {e}") from e
-        steps_counts.append({"rows": int(len(out)), "cols": _cols(out)})
+        steps_counts.append({"rows": int(len(out)), "cols": _cols(out),
+                             **shape_mod.describe_shape(out, _sch, spine)})
 
     # materialize_levels needs the canonical `id` provenance column; a raw table
     # carries one through ingestion, so inject it (same idiom as /table) for a
@@ -597,11 +604,14 @@ def shape_counts(req: ShapeCountsRequest):
     plan = req.collapse or hierarchy.default_plan(present, (req.hierarchy or {}).get("fn") or {})
     grains: dict[str, dict] = {}
     guards: dict = {"pseudoreplication": None, "pairing_flip": None,
-                    "identity_merge": [], "post_aggregate_derive": []}
+                    "identity_merge": [], "post_aggregate_derive": [],
+                    "join_leaf_key": hierarchy.join_leaf_key(
+                        full, full_sch, spine, req.steps)}
     if present:
         gmats = hierarchy.materialize_plan(full, full_sch, plan, [])
         for key, (gdf, _gsch) in gmats.items():
-            grains[key] = {"rows": int(len(gdf)), "cols": _cols(gdf)}
+            grains[key] = {"rows": int(len(gdf)), "cols": _cols(gdf),
+                           **shape_mod.describe_shape(gdf, _gsch, present)}
         coarsest = hierarchy._coarsest_grain(gmats)
         test_grain = req.test_grain if req.test_grain is not None else coarsest
         guards["pseudoreplication"] = hierarchy.pseudoreplication(full, plan, test_grain)
