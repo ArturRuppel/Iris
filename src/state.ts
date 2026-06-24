@@ -116,7 +116,7 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
      engine errors if a paired test is forced without it. */
   /* >2 levels switch to the omnibus pair (one_way_anova / kruskal); these are
      listed so a user override of the omnibus round-trips through buildSpec. The
-     StatsPanel offers the right subset per group count (FAMILY_TESTS there). */
+     TestPicker offers the right subset per group count (FAMILY_TESTS there). */
   group_comparison: ["welch_t", "mann_whitney", "paired_t", "wilcoxon",
                      "one_way_anova", "kruskal"],
   /* vs-reference (one-sample) family: each group's per-replicate values tested
