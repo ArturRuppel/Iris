@@ -1,4 +1,4 @@
-import type { CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema } from "../types";
+import type { CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, Table } from "../types";
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
 
@@ -89,6 +89,21 @@ const STEP_NODE_LABEL: Record<string, string> = {
   pivot: "pivoted", grid_complete: "gridded",
 };
 
+/* a join's `on` key, labelled — prefer the left schema, fall back to the right
+   table's own schema (its keys often aren't columns of the left), else the raw name. */
+const joinKeyLabel = (schema: Schema | null, right: { schema: Schema }, k: string): string => {
+  const left = labelForCol(schema, k);
+  if (left !== k) return left;
+  return right.schema.columns.find((c) => c.name === k)?.label ?? k;
+};
+
+/* the right input's node label: the value column(s) it contributes (non-identifier),
+   by label; falls back to "right table". */
+const joinSourceLabel = (right: { schema: Schema }): string => {
+  const vals = right.schema.columns.filter((c) => c.type !== "identifier");
+  return vals.length ? vals.map((c) => c.label ?? c.name).join(", ") : "right table";
+};
+
 const condText = (c: { column: string; op: string; value?: unknown; bound?: string },
                   schema: Schema | null): string =>
   `${labelForCol(schema, c.column)} ${c.op} ${c.bound ?? String(c.value ?? "")}`.trim();
@@ -166,11 +181,12 @@ export function buildGraph(
     if (step.kind === "join") {
       // a second source feeds the join: draw it converging into this node
       const srcId = `source:${i}`;
-      nodes.push({ id: srcId, kind: "table", label: "join source",
+      const onLabel = step.on.map((k) => joinKeyLabel(schema, step.right, k)).join(", ");
+      nodes.push({ id: srcId, kind: "table", label: joinSourceLabel(step.right),
         table: { via: "none" } });
-      edges.push({ id: `e:${prev}->${id}`, kind: "join", label: "join (inner)",
+      edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `join on ${onLabel}`,
         fromId: prev, toId: id });
-      edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: "join (inner)",
+      edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `join on ${onLabel}`,
         fromId: srcId, toId: id });
     } else {
       edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
