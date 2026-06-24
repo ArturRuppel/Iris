@@ -268,7 +268,10 @@ export type ReduceStep =
   | PivotStep | GridCompleteStep;
 export type ReduceStepKind = ReduceStep["kind"];
 
-export interface ReduceSpec { steps: ReduceStep[] } // [] means the full table
+// `steps` run on the raw table (pre-collapse); `post` (optional) runs on the
+// chosen test-grain table AFTER collapse — grain-dependent transforms a raw-grain
+// reduce cannot express (e.g. a derive over per-replicate sums). [] means no step.
+export interface ReduceSpec { steps: ReduceStep[]; post?: ReduceStep[] }
 export const EMPTY_REDUCE: ReduceSpec = { steps: [] };
 
 /* ---- /reduce preview payload (display-only; no figure/stats render) ---- */

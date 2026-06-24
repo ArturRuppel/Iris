@@ -161,4 +161,23 @@ describe("buildGraph", () => {
     const incoming = g.edges.filter((e) => e.toId === joinNode && e.kind === "join");
     expect(incoming.length).toBe(2);
   });
+
+  it("post-collapse phase: a derive runs after the collapse chain, with the caution badge", () => {
+    const post: ReduceStep[] = [{ kind: "derive", column: "enrich", expr: "obs / exp" }];
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }],
+      SCHEMA, null, post);
+    // the post derive hangs off the coarsest grain node (where the test runs)
+    const pe = edge(g, "grain:experiment", "post:0");
+    expect(pe?.kind).toBe("derive");
+    expect(pe?.guards?.[0]?.id).toBe("post_aggregate_derive");
+    expect(pe?.guards?.[0]?.severity).toBe("caution");
+    // the test edge now reads the post-phase output, not the bare grain
+    expect(edge(g, "post:0", "stats")?.kind).toBe("test");
+  });
+
+  it("no post phase: the test reads the coarsest grain directly", () => {
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    expect(edge(g, "grain:experiment", "stats")?.kind).toBe("test");
+    expect(g.nodes.some((n) => n.id.startsWith("post:"))).toBe(false);
+  });
 });

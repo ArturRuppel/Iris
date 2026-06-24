@@ -101,7 +101,7 @@ export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
   const plan = get(effectivePlanAtom);
   void get(effectiveTestGrainAtom);   // keep the test grain in the dep graph
   const g = buildGraph(p.reduce.steps, h.spine, plan, p.layers,
-    get(effectiveSchemaAtom), get(statsInputAtom));
+    get(effectiveSchemaAtom), get(statsInputAtom), p.reduce.post ?? []);
   const counts = get(shapeCountsAtom);
   const guards = get(guardsAtom);
   let nodes = g.nodes, edges = g.edges;

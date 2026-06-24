@@ -112,6 +112,15 @@ const TEST_LABEL: Record<string, string> = {
 const testLabel = (test: string): string =>
   TEST_LABEL[test] ?? test.replace(/_/g, " ");
 
+/* caution: a derive in the post-collapse phase runs on already-aggregated rows,
+   so what it computes depends on the grain. Synthesized locally (like flattenInfo)
+   — fully derivable from the spec, no data round-trip. */
+const postAggregateDerive = (column: string, grainLabel: string): GuardVerdict => ({
+  id: "post_aggregate_derive", severity: "caution",
+  text: `${column} is derived after collapsing to ${grainLabel}; its inputs are ` +
+        "already summarized, so the result's meaning depends on this grain.",
+});
+
 export function buildGraph(
   steps: ReduceStep[],
   spine: string[],
@@ -119,6 +128,7 @@ export function buildGraph(
   layers: Layer[],
   schema: Schema | null,
   stats: StatsInput | null,
+  post: ReduceStep[] = [],
 ): ExplorerGraph {
   const nodes: ExplorerNode[] = [
     { id: SOURCE_ID, kind: "table", label: "Source", table: { via: "at_step", at_step: -1 } },
@@ -182,7 +192,22 @@ export function buildGraph(
 
   const grainsList = planGrains(plan);            // ["", ...keys]
   const coarsest = grainsList[grainsList.length - 1] ?? "";
-  const testFromId = nodeIdForGrain(coarsest, rawNodeId);
+  // post-collapse reduce phase: steps run on the chosen test grain, drawn as a
+  // chain after the collapse chain; the test then reads the post-phase output. A
+  // post `derive` carries the post-aggregate caution badge.
+  let testFromId = nodeIdForGrain(coarsest, rawNodeId);
+  const grainLabel = coarsest
+    ? labelForGrain(schema, coarsest.split("/")) : "the raw grain";
+  post.forEach((step, i) => {
+    const id = `post:${i}`;
+    nodes.push({ id, kind: "table",
+      label: STEP_NODE_LABEL[step.kind] ?? step.kind, table: { via: "none" } });
+    const guards = step.kind === "derive"
+      ? [postAggregateDerive(step.column, grainLabel)] : undefined;
+    edges.push({ id: `e:${id}`, kind: step.kind, label: stepEdgeLabel(step),
+      fromId: testFromId, toId: id, guards });
+    testFromId = id;
+  });
   edges.push({ id: "t:test", kind: "test",
     label: stats?.describeOnly ? "describe" : (stats?.test ? testLabel(stats.test) : "describe"),
     fromId: testFromId, toId: STATS_ID });
