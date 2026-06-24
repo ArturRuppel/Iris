@@ -736,3 +736,17 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   padding:9px 16px; text-align:center; color:#475569; }
 .txw-tt { font:600 12px/1; } .txw-ts { font-size:10px; color:#64748b; margin-top:3px; }
 .txw-multiin { color:#94a3b8; font-style:italic; }
+
+/* ── Array-shape workspace: op-hover canned schematic (Phase 3) ───────────── */
+.txw-edge { position:relative; }
+.txw-hover { position:absolute; left:100%; top:0; z-index:5; margin-left:10px;
+  background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:10px 12px;
+  box-shadow:0 6px 24px rgba(15,23,42,.12); width:max-content; max-width:420px; }
+.txw-hover-tables { display:flex; align-items:center; gap:12px; }
+.txw-hover-arrow { font-size:18px; color:#94a3b8; }
+.txw-hcap { font:600 9px/1 ui-sans-serif; text-transform:uppercase; letter-spacing:.05em;
+  color:#94a3b8; margin-bottom:4px; }
+.txw-mini { border-collapse:collapse; font-size:11px; }
+.txw-mini th { background:#f1f5f9; border:1px solid #cbd5e1; padding:2px 7px; color:#334155; font-weight:600; }
+.txw-mini td { border:1px solid #e2e8f0; padding:2px 7px; text-align:center; font-variant-numeric:tabular-nums; }
+.txw-hover-note { font-size:11px; color:#64748b; margin-top:8px; max-width:380px; }

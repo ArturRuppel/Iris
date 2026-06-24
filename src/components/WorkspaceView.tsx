@@ -1,7 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ExplorerGraph } from "../explorer/graph";
 import { buildWorkspaceModel, type SpineEntry, type WsEdge } from "../explorer/workspace";
 import { ArrayShapeNode } from "./ArrayShapeNode";
+import { cannedExample } from "../explorer/cannedExamples";
+import { OpHoverExample } from "./OpHoverExample";
 
 const LEGEND: { cls: string; label: string }[] = [
   { cls: "axis", label: "axis" }, { cls: "key", label: "join key" },
@@ -10,10 +12,17 @@ const LEGEND: { cls: string; label: string }[] = [
 ];
 
 function OpEdge({ edge }: { edge: WsEdge }) {
+  const [hover, setHover] = useState(false);
+  const ex = cannedExample(edge.kind);
   return (
-    <div className="txw-edge">
+    <div className="txw-edge"
+      onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       <span className={`txw-arr ${edge.kind}`}>↓</span>
-      {edge.op && <span className={`txw-op ${edge.kind}`}>{edge.op}</span>}
+      {edge.op && (
+        <span className={`txw-op ${edge.kind}`} tabIndex={0}
+          onFocus={() => setHover(true)} onBlur={() => setHover(false)}>{edge.op}</span>
+      )}
+      {hover && ex && <OpHoverExample example={ex} />}
     </div>
   );
 }
