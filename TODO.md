@@ -51,6 +51,20 @@ The dividing line: **Iris absorbs everything from the pooled tidy table onward
 stays upstream.** COV2D's `tables.py` is the boundary; `figures.py` is almost all
 absorbable reshaping.
 
+**Status (2026-06-24): §4 absorbed — part 2 complete.** The §4A correlation gate is
+closed on branch `cov2d-correlation-collapse`. Two engine additions, both with unit
+tests (engine suite 482 green): (1) the **correlation family now runs through
+`collapse` + `reduce.post`** (`render.py`; the point-cap guard is collapse-aware so
+the post-collapse per-cell scatter isn't blocked by the raw per-frame count); (2)
+**`join` accepts a right side carrying its own `reduce` + `collapse` sub-pipeline**
+(`reduce.py`; `project_schema` projects it) — so features at different grains (each a
+per-cell median over its OWN frame support; the het SUM-pivot) join at a shared
+grain without being forced onto a common intersected support first. The data repo's
+`reports/COV2D/verify_s4.py` rebuilds all four §4 correlation `.iris` from ONE
+self-contained per-cell assembly and reproduces the committed r/p (crowding_q
+−0.174/0.049, crowding_speed −0.122/0.008, het_q −0.088/0.396, het_speed
+−0.024/0.631). `per_cell_features` is now fully expressible as Iris steps.
+
 ## Open follow-ups
 
 ### App-side test-picker controls for the `location` & `rate` families
