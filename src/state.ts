@@ -857,6 +857,9 @@ export const resetCollapseAtom = atom(null, (get, set) =>
    sticks. UI-only: never persisted to a .iris. */
 export const selectedNodeIdAtom = atom<string | null>(null);
 
+/* whether the full-screen transformation workspace overlay is open. */
+export const workspaceOpenAtom = atom(false);
+
 export const updateLayerAtom = atom(null,
   (get, set, arg: { index: number; layer: Layer }) => {
     const p = get(activePlottableAtom); if (!p) return;

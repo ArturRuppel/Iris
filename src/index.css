@@ -592,11 +592,15 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
    Horizontal scroll lets a long node line overflow without widening the page. */
 .tx-strip {
   flex: none;
+  display: flex;
+  align-items: flex-start;
   overflow-x: auto;
   padding: 0.6rem 1rem;
   background: #fafbfc;
   border-bottom: 1px solid #e2e8f0;
 }
+.tx-expand { margin-left:8px; align-self:flex-start; border:1px solid var(--line);
+  background:#fff; border-radius:6px; padding:3px 9px; font-size:12px; cursor:pointer; color:#475569; }
 .tx-explorer { position: relative; padding: 10px 8px 56px; overflow-x: auto; }
 .tx-line { display: flex; align-items: center; gap: 64px; list-style: none; margin: 0; padding: 0; width: max-content; }
 .tx-node-wrap { display: flex; align-items: center; }

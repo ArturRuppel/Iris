@@ -11,6 +11,7 @@ import { CollapseRoutingPanel } from "./components/CollapseRoutingPanel";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { DataTab } from "./components/DataTab";
 import { TransformExplorer } from "./components/TransformExplorer";
+import { TransformWorkspace } from "./components/TransformWorkspace";
 import { StatsPanel } from "./components/StatsPanel";
 import { Guide } from "./examples/Guide";
 import exampleManifest from "./examples/assets/manifest.json";
@@ -22,6 +23,7 @@ import {
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
+  workspaceOpenAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { NodeShape } from "./types";
@@ -277,6 +279,7 @@ export default function App() {
      node id from a different analysis never drives the wrong data tab. */
   const setSelectedNode = useSetAtom(selectedNodeIdAtom);
   useEffect(() => { setSelectedNode(null); }, [activeId, setSelectedNode]);
+  const setWorkspaceOpen = useSetAtom(workspaceOpenAtom);
 
   /* background loop: a self-draining sequential queue that warms every OTHER
      plottable's cache so even a never-opened analysis is instant on first visit.
@@ -470,8 +473,13 @@ export default function App() {
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
       {viewMode === "analyses" && !dataLoading && active && (
-        <div className="tx-strip"><TransformExplorer /></div>
+        <div className="tx-strip">
+          <TransformExplorer />
+          <button className="tx-expand" title="Open the full transformation workspace"
+            onClick={() => setWorkspaceOpen(true)}>⤢ Workspace</button>
+        </div>
       )}
+      <TransformWorkspace />
       <main>
         {viewMode === "guide" ? (
           <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
