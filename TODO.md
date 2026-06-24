@@ -7,7 +7,10 @@ picker, the validation corpus, style-rationalization + loadable style sheets, th
 n/N annotation, pan/zoom, real `.iris` save/load (File System Access), the
 one-sample `location` and count `rate` families + their plot types, the rank-floor
 recommendation guard, the transformation explorer (dataflow graph + un-forced
-nesting / editable collapse routing + never-blocking guards), the `.iris` file
+nesting / editable collapse routing + never-blocking guards), the transformation
+workbench (the Analyses tab as a clickable DAG; every node/edge opens a session-only
+editor card — table/plot/stats + the seven reduce-step editors + collapse/geom/
+test/annotate), the `.iris` file
 format redesign (engine identity in the manifest, stored stats = decisions only,
 spec 2.1), and the COV2D absorption work below through Tier C + Part-2 §3/§5.
 
@@ -75,14 +78,23 @@ use case (time on X is the whole point of the time-series geom family). Decision
 numeric/axis-mappable by default (or offer a one-click "use as axis" nudge like
 the 0/1→bool one) without losing their nesting-level role.
 
-### Transformation explorer — inline editing on edges
-The explorer ships as a dataflow graph: nodes = data (`table`/`plot`/`stats`),
-edges = transformations (`filter`/`drop`/`collapse`/`geom`/`test`). Next
-sub-project: click an edge to edit that transformation in place (filter
-conditions, dropped columns, collapse level), and surface the `derive` / `recode`
-/ `join` reduce kinds as editable edges. Plugs into the existing
-`src/explorer/graph.ts` nodes+edges frame. Needs its own brainstorm → spec → plan
-before code.
+### Transformation workbench — post-pipeline (`reduce.post`) edges not editable
+Inline edge editing shipped (the workbench above): every reduce-step edge opens its
+editor and persists through the step-CRUD atoms. Two pre-existing gaps remain, both
+only reachable when a loaded `.iris` already carries a post-collapse `reduce.post`
+phase — the UI can't author post steps yet, so normal sessions never hit them:
+1. **Wrong message.** Clicking a `post:<i>` edge resolves to no step
+   (`edgeIdToStepIndex` in `src/workbench/cards/OpEditorCard.tsx` matches only
+   `step:<i>`), so the card shows "this step is no longer in the pipeline" — false:
+   the step exists, it's just not editable here. Cheap honest fix: recognize
+   `post:<i>` and show "post-aggregate steps aren't editable here yet."
+2. **Silent drop (correctness bug, predates the workbench).** The step-CRUD atoms
+   (`updateStepAtom`/`addStepAtom`/`removeStepAtom`/`moveStepAtom` in `src/state.ts`)
+   rebuild `reduce` as `{ steps }`, discarding any `reduce.post`. Editing any normal
+   step on a loaded post-carrying analysis silently loses the post phase. Fix:
+   preserve `post` in those four writers.
+Authoring post steps from the UI (the real feature) is a later sub-project; needs
+its own brainstorm → spec → plan before code.
 
 ### Transformation explorer — backend SVG render of the graph
 A standalone export that renders the data-transformation graph itself as SVG —
