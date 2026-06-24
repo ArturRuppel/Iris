@@ -10,7 +10,7 @@ import type { ExplorerGraph } from "../explorer/graph";
 import { layoutGraph } from "./layout";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
 import { WorkbenchEdge } from "./WorkbenchEdge";
-import { openCardAtom, collapseAllCardsAtom, cardsAtom } from "./state";
+import { openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom } from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
 import { FloatingCard } from "./FloatingCard";
 
@@ -19,11 +19,25 @@ import { FloatingCard } from "./FloatingCard";
 const nodeTypes = { arrayShape: ArrayShapeRFNode } as unknown as NodeTypes;
 const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
 
-function toRF(graph: ExplorerGraph): { nodes: Node[]; edges: RFEdge[] } {
+/* the onNodeDragStop reducer: records a node's post-drag position into the
+   override map, immutably. Kept pure so it's unit-testable (RF drag events don't
+   fire under jsdom, so the handler delegates here and we test this directly). */
+export function applyNudge(
+  prev: Record<string, { x: number; y: number }>,
+  id: string, x: number, y: number,
+): Record<string, { x: number; y: number }> {
+  return { ...prev, [id]: { x, y } };
+}
+
+export function toRF(
+  graph: ExplorerGraph,
+  overrides: Record<string, { x: number; y: number }>,
+): { nodes: Node[]; edges: RFEdge[] } {
   const L = layoutGraph(graph);
   return {
     nodes: L.nodes.map((n) => ({
-      id: n.id, type: "arrayShape", position: { x: n.x, y: n.y },
+      id: n.id, type: "arrayShape",
+      position: overrides[n.id] ?? { x: n.x, y: n.y },
       data: nodeShapeProps(n.node) as unknown as Record<string, unknown>,
     })),
     edges: L.edges.map((e) => ({
@@ -34,7 +48,11 @@ function toRF(graph: ExplorerGraph): { nodes: Node[]; edges: RFEdge[] } {
 }
 
 function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void }) {
-  const initial = useMemo(() => toRF(graph), [graph]);
+  const nodePositions = useAtomValue(nodePositionsAtom);
+  const setNodePositions = useSetAtom(nodePositionsAtom);
+  // nodePositions here seeds only the FIRST render; later changes flow through
+  // the structural effect below.
+  const initial = useMemo(() => toRF(graph, nodePositions), [graph, nodePositions]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
@@ -60,7 +78,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const lastStructure = useRef<string>("");
 
   useEffect(() => {
-    const rf = toRF(graph);
+    const rf = toRF(graph, nodePositions);
     if (structureKey !== lastStructure.current) {
       // structure changed (step/grain/terminal/annotate added or removed):
       // full re-layout with fresh positions.
@@ -75,14 +93,20 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
       setNodes((cur) => cur.map((n) => ({ ...n, data: nd.get(n.id) ?? n.data })));
       setEdges((cur) => cur.map((e) => ({ ...e, data: ed.get(e.id) ?? e.data })));
     }
+    // `nodePositions` is read but intentionally NOT a dep: including it would
+    // force a full re-seed on every nudge and fight React Flow's internal drag
+    // state. The effect re-seeds only on a structure change, reading the current
+    // overrides at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [graph, structureKey, setNodes, setEdges]);
 
-  // "tidy" re-layouts from scratch, discarding dragged positions.
+  // "tidy" clears persisted nudges then re-layouts from scratch.
   const tidy = useCallback(() => {
-    const rf = toRF(graph);
+    setNodePositions({});
+    const rf = toRF(graph, {});
     setNodes(rf.nodes);
     setEdges(rf.edges);
-  }, [graph, setNodes, setEdges]);
+  }, [graph, setNodes, setEdges, setNodePositions]);
 
   useEffect(() => {
     if (!onClose) return;
@@ -106,6 +130,8 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onNodeClick={(_e, n) => open({ kind: "node", id: n.id })}
+          onNodeDragStop={(_e, n) =>
+            setNodePositions((prev) => applyNudge(prev, n.id, n.position.x, n.position.y))}
           onEdgeClick={(_e, ed) => open({ kind: "edge", id: ed.id })}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           fitView proOptions={{ hideAttribution: true }}

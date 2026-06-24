@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { WorkbenchCanvas } from "./WorkbenchCanvas";
-import { cardsAtom } from "./state";
+import { WorkbenchCanvas, applyNudge, toRF } from "./WorkbenchCanvas";
+import { cardsAtom, nodePositionsAtom } from "./state";
 import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
 
@@ -106,5 +106,27 @@ describe("WorkbenchCanvas", () => {
     };
     rerender(<Provider store={store}><WorkbenchCanvas graph={bigger} /></Provider>);
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(4);
+  });
+
+  it("tidy clears persisted node positions", () => {
+    const store = createStore();
+    store.set(nodePositionsAtom, { plot: { x: 999, y: 999 } });
+    render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
+    fireEvent.click(screen.getByRole("button", { name: /tidy/i }));
+    expect(store.get(nodePositionsAtom)).toEqual({});
+  });
+
+  it("applyNudge records a node's dropped position (immutably)", () => {
+    const prev = { source: { x: 1, y: 2 } };
+    const next = applyNudge(prev, "plot", 30, 40);
+    expect(next).toEqual({ source: { x: 1, y: 2 }, plot: { x: 30, y: 40 } });
+    expect(next).not.toBe(prev);          // new object, no mutation
+    expect(prev).toEqual({ source: { x: 1, y: 2 } });
+  });
+
+  it("toRF places overridden nodes at their nudged position", () => {
+    const { nodes } = toRF(graph, { plot: { x: 30, y: 40 } });
+    expect(nodes.find(n => n.id === "plot")!.position).toEqual({ x: 30, y: 40 });
+    expect(nodes.find(n => n.id === "source")!.position).not.toEqual({ x: 30, y: 40 });
   });
 });
