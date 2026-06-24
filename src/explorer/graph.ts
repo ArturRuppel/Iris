@@ -1,4 +1,4 @@
-import type { CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, Table } from "../types";
+import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, Table, ValueDesc } from "../types";
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
 
@@ -18,7 +18,12 @@ export type NodeTable =
   | { via: "grain"; grain: string }
   | { via: "none" };
 
-export interface NodeCount { rows: number; cols: number }
+export interface NodeCount {
+  rows: number;
+  cols: number;
+  axes?: AxisDesc[];
+  values?: ValueDesc[];
+}
 
 export interface ExplorerNode {
   id: string;

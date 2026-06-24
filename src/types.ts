@@ -121,7 +121,7 @@ export type GrainKey = string;
    integrity risk: pseudoreplication / pairing-flip / identity-merge); "info" =
    white (the always-on flattening consequence). Never blocks. */
 export interface GuardVerdict {
-  id: "pseudoreplication" | "pairing_flip" | "identity_merge" | "post_aggregate_derive" | "flatten_info";
+  id: "pseudoreplication" | "pairing_flip" | "identity_merge" | "post_aggregate_derive" | "flatten_info" | "join_leaf_key";
   severity: "caution" | "info";
   text: string;
 }
@@ -134,6 +134,7 @@ export interface ShapeCountsGuards {
   pairing_flip: { flipped: boolean; from: string | null; to: string | null; across: string | null } | null;
   identity_merge: { dim: string; kept: string[]; before: number; after: number }[];
   post_aggregate_derive: { step_index: number; grain: GrainKey; reason: string }[];
+  join_leaf_key: { dim: string; on: string[]; suggested: string[]; before: string; after: string; severity: string; text: string }[];
 }
 
 /* /hierarchy describe response: per-level grain cardinalities and where each
@@ -472,12 +473,23 @@ export interface StatsResult {
   alpha: number;
   methods_text: string;
 }
+export interface AxisDesc { name: string; n_levels: number; ragged: boolean }
+export interface ValueDesc { name: string; type: string; grain: string | null }
+/* a node's row×col count plus its array-shape descriptor (Phase 1 /shape_counts). */
+export interface NodeShape {
+  rows: number;
+  cols: number;
+  axes?: AxisDesc[];
+  values?: ValueDesc[];
+}
 export interface ShapeCounts {
-  source: { rows: number; cols: number };
-  steps: { rows: number; cols: number }[];
+  source: NodeShape;
+  steps: NodeShape[];
   /* grain-keyed counts: key "" = raw, else dims joined by "/" — matches the
-     graph's grain node ids (`grain:<key>`). Replaces the old `levels` map. */
-  grains: Record<string, { rows: number; cols: number }>;
+     graph's grain node ids (`grain:<key>`). */
+  grains: Record<string, NodeShape>;
+  /* per-join (step-index-keyed) right-table descriptor; {} when no join. */
+  joins: Record<string, NodeShape>;
   /* the integrity guard verdicts the frontend places on graph edges. */
   guards: ShapeCountsGuards;
 }
