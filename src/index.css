@@ -689,3 +689,46 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-val .txw-grain { font:9px/1 ui-monospace,monospace; opacity:.75; }
 .txw-caret { color:#cbd5e1; font-size:11px; }
 .txw-count { font-size:12px; color:#64748b; font-variant-numeric:tabular-nums; }
+
+/* ── Array-shape workspace: surface, edges, join, fork (Phase 3) ──────────── */
+.txw-overlay { position:fixed; inset:0; z-index:50; background:#f8fafc;
+  display:flex; flex-direction:column; overflow:auto; }
+.txw-topbar { position:sticky; top:0; display:flex; align-items:center;
+  justify-content:space-between; gap:16px; padding:10px 20px; background:#fff;
+  border-bottom:1px solid #e2e8f0; }
+.txw-title { font-size:14px; margin:0; font-weight:600; }
+.txw-legend { display:flex; gap:14px; font-size:11px; color:#64748b; margin-left:auto; }
+.txw-legend span { display:inline-flex; align-items:center; }
+.txw-sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+.txw-sw.axis { background:#7dd3fc; } .txw-sw.key { background:#fcd34d; }
+.txw-sw.num { background:#86efac; } .txw-sw.catg { background:#d8b4fe; }
+.txw-sw.grain { background:#c4b5fd; }
+.txw-close { border:1px solid var(--line); background:#fff; border-radius:6px;
+  width:28px; height:28px; cursor:pointer; color:#475569; }
+.txw-canvas { padding:30px 20px 60px; flex:1;
+  background-image:radial-gradient(#e2e8f0 1px, transparent 1px); background-size:22px 22px; }
+.txw-spine { display:flex; flex-direction:column; align-items:center; gap:0; }
+.txw-spine-item { display:flex; flex-direction:column; align-items:center; }
+.txw-edge { display:flex; flex-direction:column; align-items:center; padding:3px 0; }
+.txw-arr { font-size:18px; line-height:.7; color:#475569; }
+.txw-op { font:600 11px/1 ui-monospace,monospace; padding:2px 8px; border-radius:5px; margin-top:1px; }
+.txw-op.derive{background:#dcfce7;color:#166534} .txw-arr.derive{color:#16a34a}
+.txw-op.filter{background:#ffe4e6;color:#9f1239} .txw-arr.filter{color:#e11d48}
+.txw-op.drop{background:#ffedd5;color:#9a3412} .txw-arr.drop{color:#d97706}
+.txw-op.recode{background:#fef9c3;color:#854d0e} .txw-arr.recode{color:#ca8a04}
+.txw-op.collapse{background:#ede9fe;color:#5b21b6} .txw-arr.collapse{color:#7c3aed}
+.txw-op.join{background:#cffafe;color:#155e75} .txw-arr.join{color:#0891b2}
+.txw-op.pivot{background:#ccfbf1;color:#115e59} .txw-arr.pivot{color:#0d9488}
+.txw-op.grid_complete{background:#f3e8ff;color:#6b21a8} .txw-arr.grid_complete{color:#9333ea}
+.txw-joinwrap { display:flex; align-items:flex-end; gap:16px; }
+.txw-rightin { display:flex; flex-direction:column; align-items:center; }
+.txw-inlbl { font:600 9px/1; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px; }
+.txw-into { font-size:22px; color:#0891b2; line-height:1; padding-bottom:14px; }
+.txw-fork { display:flex; gap:60px; margin-top:6px; }
+.txw-forkcol { display:flex; flex-direction:column; align-items:center; gap:4px; }
+.txw-forklabel { font:600 10px/1 ui-monospace,monospace; color:#64748b; }
+.txw-forklabel.plot { color:#0e7490; } .txw-forklabel.stats { color:#4f46e5; }
+.txw-term { background:#f8fafc; border:1px dashed #94a3b8; border-radius:8px;
+  padding:9px 16px; text-align:center; color:#475569; }
+.txw-tt { font:600 12px/1; } .txw-ts { font-size:10px; color:#64748b; margin-top:3px; }
+.txw-multiin { color:#94a3b8; font-style:italic; }
