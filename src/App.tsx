@@ -234,8 +234,13 @@ export default function App() {
   const setGuards = useSetAtom(guardsAtom);
   const collapsePlan = useAtomValue(effectivePlanAtom);
   const testGrain = useAtomValue(effectiveTestGrainAtom);
-  /* the comparison/color column the pairing-flip guard reads; null when unmapped. */
-  const qualifier = active?.color || null;
+  /* the grouping column the pairing-flip guard reads — the SAME column the test
+     pairs on (render's `cat_col`: x, unless x is numeric, then y), falling back to
+     color; null when unmapped. Sending `color` alone missed the common SuperPlot
+     (groups on x, color unset), leaving guard #2 inert. */
+  const xIsNumeric = effectiveSchema?.columns
+    .find((c) => c.name === mappings.x)?.type === "numeric";
+  const qualifier = (xIsNumeric ? mappings.y : mappings.x) || active?.color || null;
   const collapseKey = JSON.stringify([collapsePlan, testGrain, qualifier]);
   useEffect(() => {
     if (!handle || !active) return;

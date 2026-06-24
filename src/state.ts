@@ -6,7 +6,7 @@ import type {
   ReduceStep, ReduceStepKind, ReducePreview,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
-import { defaultPlan, grainKey } from "./collapse";
+import { defaultPlan, grainKey, planGrains } from "./collapse";
 import { familyForMappingsRef } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
@@ -837,7 +837,10 @@ export const effectivePlanAtom = atom<CollapsePlan>((get) => {
 export const effectiveTestGrainAtom = atom<GrainKey>((get) => {
   const p = get(activePlottableAtom);
   const plan = get(effectivePlanAtom);
-  return p?.testGrain ?? (plan.length ? grainKey(plan[plan.length - 1].keep) : "");
+  const coarsest = plan.length ? grainKey(plan[plan.length - 1].keep) : "";
+  // clamp a stored grain to the current plan: a plan edit can drop the chosen
+  // node, and a stale key would silently degrade to the wrong grain downstream.
+  return p?.testGrain && planGrains(plan).includes(p.testGrain) ? p.testGrain : coarsest;
 });
 const patchActive = (
   get: (a: typeof activePlottableAtom) => Plottable | null,

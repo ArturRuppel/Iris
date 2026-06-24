@@ -321,6 +321,15 @@ describe("per-analysis collapse plan + test grain", () => {
     expect(store.get(effectiveTestGrainAtom)).toBe("experiment");
   });
 
+  it("effectiveTestGrainAtom clamps a stale grain dropped by a plan edit", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    store.set(setTestGrainAtom, "experiment/cell");
+    expect(store.get(effectiveTestGrainAtom)).toBe("experiment/cell");
+    // shrink the plan so "experiment/cell" is no longer a node
+    store.set(setCollapsePlanAtom, [{ keep: ["experiment"], fn: "mean" }]);
+    expect(store.get(effectiveTestGrainAtom)).toBe("experiment");
+  });
+
   it("setTestGrain/setCollapsePlan write the active plottable; reset clears them", () => {
     const store = makeStoreWithSpine(["experiment", "cell"]);
     store.set(setTestGrainAtom, "experiment/cell");
