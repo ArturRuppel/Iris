@@ -132,6 +132,12 @@ function stepEdgeLabel(step: ReduceStep, schema: Schema | null): string {
     case "grid_complete":
       return `densify ${step.by.map((c) => labelForCol(schema, c)).join(" × ")} × ` +
              `${labelForCol(schema, step.column)} · fill ${step.fill}`;
+    default: {
+      // exhaustiveness: a new ReduceStep kind becomes a compile error here,
+      // not a silent `undefined` label (tsconfig has no noImplicitReturns).
+      const _exhaustive: never = step;
+      return _exhaustive;
+    }
   }
 }
 
