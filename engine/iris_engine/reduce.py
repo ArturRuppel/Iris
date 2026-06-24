@@ -262,8 +262,28 @@ def _apply_join(df: pd.DataFrame, schema: dict,
     right_rows = right.get("rows") or []
     if not right_rows:
         raise ReduceError("join: right table has no rows")
-    # the right side is a plain table; its bookkeeping id (if any) must not collide
-    right_df = pd.DataFrame(right_rows).drop(columns=["id"], errors="ignore")
+    right_df = pd.DataFrame(right_rows)
+    # The right side may carry its OWN reduce + collapse sub-pipeline: it is reduced
+    # and aggregated to its target grain INDEPENDENTLY (over its own row support)
+    # before the merge. That is how two features living at different grains — each a
+    # per-cell median over its OWN frames — join at a shared coarser grain without
+    # first being forced onto a common (intersected) raw support. Absent both, the
+    # right side is the plain static table it has always been.
+    right_steps = (right.get("reduce") or {}).get("steps") or []
+    right_plan = right.get("collapse")
+    if right_steps or right_plan:
+        if "id" not in right_df.columns:       # the collapse keys provenance on `id`
+            right_df = right_df.assign(id=[str(i + 1) for i in range(len(right_df))])
+        if right_steps:
+            right_df, right_schema = apply_reduction(right_df, right_schema, right_steps)
+        if right_plan:
+            from . import hierarchy             # local import: no module-load cycle
+            grains = hierarchy.materialize_plan(right_df, right_schema, right_plan, [])
+            tg = right.get("test_grain")
+            right_df, right_schema = (grains[tg] if tg in grains
+                                      else hierarchy.resolve_level(grains, tg))
+    # bookkeeping columns must not collide / multiply the merge
+    right_df = right_df.drop(columns=["id", "row_ids"], errors="ignore")
     missing = [k for k in on if k not in df.columns or k not in right_df.columns]
     if missing:
         raise ReduceError(f"join: key(s) {missing!r} absent from a side")
@@ -441,9 +461,16 @@ def project_schema(schema: dict, steps: list[dict] | None) -> dict:
             pass  # relabels levels in place; column type is unchanged
         elif kind == "join":
             on = set(step.get("on") or [])
-            right = (step.get("right") or {}).get("schema") or {}
+            rblock = step.get("right") or {}
+            rschema = rblock.get("schema") or {}
+            # a right side with its own reduce sub-pipeline contributes the columns
+            # that pipeline PRODUCES (e.g. a derived `speed`, a pivoted `het`), not
+            # its raw columns — project them so the joined column is declared.
+            rsteps = (rblock.get("reduce") or {}).get("steps") or []
+            if rsteps:
+                rschema = project_schema(rschema, rsteps)
             cur = {c["name"] for c in cols}
-            cols += [dict(rc) for rc in right.get("columns", [])
+            cols += [dict(rc) for rc in rschema.get("columns", [])
                      if rc["name"] not in cur and rc["name"] not in on]
         elif kind == "pivot":
             consumed = {step.get("column"), step.get("values")}

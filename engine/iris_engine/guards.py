@@ -137,6 +137,13 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     issues.extend(_facet_issues(df, spec))
     hier = spec.get("hierarchy") or {}
     spine = [s for s in (hier.get("spine") or []) if s in df.columns]
+    # A `collapse` plan aggregates the raw rows to `test_grain` before they are
+    # drawn (the correlation family routes its scatter through that grain), so a
+    # per-row geom with no explicit level draws one mark per test-grain unit, not
+    # per raw row. Count that cardinality instead of the raw length.
+    plan, test_grain = spec.get("collapse"), spec.get("test_grain")
+    collapse_dims = ([d for d in test_grain.split("/") if d in df.columns]
+                     if plan and test_grain else None)
     for layer in spec.get("layers", []):
         name = layer["geom"]
         g = geoms.GEOMS.get(name)
@@ -147,7 +154,10 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
             # a per-row geom draws one mark per row of the LEVEL it is bound to:
             # the raw rows at level "", or the grain cardinality at a spine level.
             # So a dot at a coarse level (e.g. one per date) never trips the cap.
-            n = _level_point_count(df, spine, layer.get("level"), x, y)
+            if collapse_dims and not layer.get("level"):
+                n = int(df.groupby(collapse_dims, observed=True).ngroups)
+            else:
+                n = _level_point_count(df, spine, layer.get("level"), x, y)
             if n > g.point_cap:
                 issues.append(_issue(
                     "blocking", "point_cap",

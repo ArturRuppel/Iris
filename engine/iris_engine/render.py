@@ -226,7 +226,7 @@ def render(table: dict, spec: dict, *, memo=None):
         # The spine makes the replicate (its coarsest present level) the unit of
         # inference, exactly as for group_comparison/location/rate: a per-unit
         # coefficient, tested across units. Plumbed as unit_cols; no spine keeps
-        # the historical pooled test. The figure still draws every raw point.
+        # the historical pooled test.
         corr_spine = hierarchy.spine_present(df, (spec.get("hierarchy") or {}).get("spine") or [])
         model["spine"] = corr_spine
         unit_cols = corr_spine or None
@@ -238,6 +238,27 @@ def render(table: dict, spec: dict, *, memo=None):
         corr_group = (corr_color_col if corr_color_col
                       and any(c["name"] == corr_color_col and c["type"] != "numeric"
                               for c in schema["columns"]) else None)
+        # Correlation honours the same collapse plan + post-collapse reduce phase
+        # as the other families: an explicit `collapse` aggregates the raw rows to
+        # the chosen test grain (e.g. per-cell median) and `reduce.post` runs the
+        # grain-dependent transforms there (the §4 N-way join / opp-pivot / het
+        # derive). The coefficient — and the scatter the figure draws — then read
+        # that grain, not pseudoreplicated raw rows. Reassigning df/schema here
+        # routes both stat and figure through one materialization; absent both a
+        # `collapse` plan and `reduce.post`, df/schema are untouched (old path).
+        plan = spec.get("collapse")
+        if plan:
+            split = [c for c in (corr_group,) if c and c in df.columns]
+            grains = hierarchy.materialize_plan(df, schema, plan, split)
+            test_grain = spec.get("test_grain")
+            df, schema = (grains[test_grain] if test_grain in grains
+                          else hierarchy.resolve_level(grains, test_grain))
+            model["inferential_level"] = test_grain or hierarchy.RAW
+        if post_steps:
+            try:
+                df, schema = reduce_mod.apply_reduction(df, schema, post_steps)
+            except reduce_mod.ReduceError as e:
+                raise RenderError(f"post-collapse reduction failed: {e}") from e
         res = memo(lambda: (
                stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
