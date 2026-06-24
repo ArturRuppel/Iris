@@ -67,6 +67,14 @@ const flattenInfo = (schema: Schema | null, fn: string, removed: string[], kept:
         (kept.length ? `grouped per ${kept.map((d) => labelForCol(schema, d)).join(" × ")}` : "one value overall"),
 });
 
+/* the collapse edge's primary label: the reduction in array language. A chain step
+   that removes no dim (the raw -> full-spine identity) is a regroup, not a collapse. */
+const collapseEdgeLabel = (schema: Schema | null, fn: string,
+                           removed: string[], kept: string[]): string =>
+  removed.length
+    ? `${fn} over ${removed.map((d) => labelForCol(schema, d)).join(", ")}`
+    : `group per ${kept.map((d) => labelForCol(schema, d)).join(" × ")}`;
+
 /* the grain node a layer's `level` (a single spine dim, or RAW) maps to: the plan
    step whose finest kept dim is that level. null if no such node (skip the edge). */
 function levelGrainNode(level: string, plan: CollapsePlan, rawNodeId: string): string | null {
@@ -181,7 +189,8 @@ export function buildGraph(
     const removed = prevKeep.filter((d) => !kept.includes(d));
     nodes.push({ id, kind: "table", label: labelForGrain(schema, kept),
       table: { via: "grain", grain: key } });
-    edges.push({ id: `e:${cprev}->${id}`, kind: "collapse", label: "collapse",
+    edges.push({ id: `e:${cprev}->${id}`, kind: "collapse",
+      label: collapseEdgeLabel(schema, step.fn, removed, kept),
       fromId: cprev, toId: id, guards: [flattenInfo(schema, step.fn, removed, kept)] });
     cprev = id;
     prevKeep = kept;

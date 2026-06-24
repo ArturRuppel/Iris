@@ -47,6 +47,17 @@ describe("buildGraph", () => {
     expect(ce?.guards?.some((gd) => gd.id === "flatten_info" && gd.severity === "info")).toBe(true);
   });
 
+  it("collapse edge label reads as the reduction; identity regroup reads 'group per'", () => {
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    // real collapse: experiment/cell -> experiment removes Cell
+    expect(edge(g, "grain:experiment/cell", "grain:experiment")?.label).toBe("mean over Cell");
+    // first chain edge keeps the full spine (removes nothing): a regroup, not a collapse
+    expect(edge(g, "source", "grain:experiment/cell")?.label).toBe("group per Experiment × Cell");
+    // the flatten-info guard is still attached
+    expect(edge(g, "grain:experiment/cell", "grain:experiment")
+      ?.guards?.some((gd) => gd.id === "flatten_info")).toBe(true);
+  });
+
   it("reduce-step edges carry the step kind and a count label", () => {
     const steps: ReduceStep[] = [
       { kind: "filter", conditions: [{ column: "area", op: ">", value: 1 },
