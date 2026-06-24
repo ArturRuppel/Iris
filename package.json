@@ -12,6 +12,7 @@
     "examples:build": "cd engine && python -m validation.export_gallery"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.1",
     "ag-grid-community": "^35.3.1",
     "ag-grid-react": "^35.3.1",
     "headroom-ai": "^0.22.4",
