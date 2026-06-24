@@ -134,7 +134,7 @@ export interface ShapeCountsGuards {
   pairing_flip: { flipped: boolean; from: string | null; to: string | null; across: string | null } | null;
   identity_merge: { dim: string; kept: string[]; before: number; after: number }[];
   post_aggregate_derive: { step_index: number; grain: GrainKey; reason: string }[];
-  join_leaf_key: { dim: string; on: string[]; suggested: string[]; before: string; after: string; severity: string; text: string }[];
+  join_leaf_key: { step: number; dim: string; on: string[]; suggested: string[]; before: string; after: string; severity: string; text: string }[];
 }
 
 /* /hierarchy describe response: per-level grain cardinalities and where each

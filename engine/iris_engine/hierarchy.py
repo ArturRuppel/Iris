@@ -373,7 +373,7 @@ def join_leaf_key(df, schema, spine, steps) -> list[dict]:
     ids = {c["name"] for c in schema.get("columns", []) if c.get("type") == "identifier"}
     present = [s for s in spine if s in df.columns]
     out: list[dict] = []
-    for step in (steps or []):
+    for i, step in enumerate(steps or []):
         if step.get("kind") != "join":
             continue
         on = list(step.get("on") or [])
@@ -395,6 +395,7 @@ def join_leaf_key(df, schema, spine, steps) -> list[dict]:
             continue
         full = ", ".join(present[: present.index(leaf) + 1])
         out.append({
+            "step": i,
             "dim": leaf, "on": on, "suggested": present[: present.index(leaf) + 1],
             "before": leaf, "after": full, "severity": "caution",
             "text": (f"Joining on {leaf} alone, but {leaf} isn't unique without "

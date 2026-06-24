@@ -19,7 +19,18 @@ def test_warns_when_joining_on_bare_leaf():
     out = join_leaf_key(_left(), SCHEMA, SPINE, steps)
     assert len(out) == 1
     assert out[0]["severity"] == "caution"
+    assert out[0]["step"] == 0
     assert "experiment" in out[0]["text"] and "position" in out[0]["text"]
+
+def test_step_index_is_the_offending_join_position():
+    # first join is safe (full path), second join (index 1) offends on bare cell
+    steps = [
+        {"kind": "join", "on": ["experiment", "position", "cell"], "right": {}},
+        {"kind": "join", "on": ["cell"], "right": {}},
+    ]
+    out = join_leaf_key(_left(), SCHEMA, SPINE, steps)
+    assert len(out) == 1
+    assert out[0]["step"] == 1
 
 def test_no_warn_when_full_path_supplied():
     steps = [{"kind": "join", "on": ["experiment", "position", "cell"], "right": {}}]
