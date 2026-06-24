@@ -50,3 +50,31 @@ def _axis_is_ragged(frame: pd.DataFrame, spine: list[str], idx: int) -> bool:
         return False
     counts = frame.groupby(parent, observed=True)[axis].nunique()
     return bool(len(counts) and counts.min() != counts.max())
+
+
+def _coltype(schema: dict, name: str) -> str:
+    for c in schema.get("columns", []):
+        if c["name"] == name:
+            return c.get("type", "numeric")
+    return "numeric"   # conservative default, mirrors reduce._apply_derive
+
+
+def describe_shape(frame: pd.DataFrame, schema: dict, spine: list[str]) -> dict:
+    """The array-shape descriptor for one materialized node frame:
+    {axes:[{name,n_levels,ragged}], values:[{name,type,grain}]}.
+    Axes are the spine identifier columns present, in spine order; values are the
+    remaining (non-meta) columns."""
+    present = _present_spine(frame, spine)
+    axes = [
+        {"name": a,
+         "n_levels": int(frame[a].nunique(dropna=False)),
+         "ragged": _axis_is_ragged(frame, spine, i)}
+        for i, a in enumerate(present)
+    ]
+    axis_names = set(present)
+    values = [
+        {"name": c, "type": _coltype(schema, c), "grain": value_grain(frame, spine, c)}
+        for c in frame.columns
+        if c not in axis_names and c not in _META
+    ]
+    return {"axes": axes, "values": values}
