@@ -404,6 +404,12 @@ def reduce_with_trace(
     for step in (steps or []):
         out, sch, info = _apply_step(out, sch, step)
         out = out.reset_index(drop=True)
+        # Row-rebuilding steps (pivot, grid_complete) produce a fresh frame that no
+        # longer carries the `id` meta column the hierarchy materialization keys on.
+        # Re-stamp a unique `id` so the reduced table stays a valid pipeline input;
+        # id-preserving steps (filter/drop/derive/recode/join) keep theirs untouched.
+        if "id" not in out.columns:
+            out = out.assign(id=[str(i + 1) for i in range(len(out))])
         trace.append({"n_rows_out": int(len(out)), "schema_out": sch, **info})
     out = out.reset_index(drop=True)
     return out, sch, trace

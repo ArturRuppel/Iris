@@ -89,3 +89,14 @@ def test_grid_unknown_by_column_raises():
     with pytest.raises(rd.ReduceError):
         rd.apply_reduction(frame(), SCHEMA, [
             grid(["nope"], "tt", TT_LEVELS)])
+
+
+def test_grid_restamps_id_so_it_composes_downstream():
+    # grid_complete rebuilds the frame, dropping the `id` meta column the
+    # hierarchy materialization keys on. apply_reduction must re-stamp a unique
+    # `id` so the reduced table is a valid pipeline input (else render's
+    # materialize_levels raises KeyError('id')).
+    out, _ = rd.apply_reduction(frame(), SCHEMA, [grid(BY, "tt", TT_LEVELS)])
+    assert "id" in out.columns
+    assert out["id"].is_unique
+    assert len(out["id"]) == len(out)
