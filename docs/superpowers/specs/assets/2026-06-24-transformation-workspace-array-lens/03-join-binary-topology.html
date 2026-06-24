@@ -1,0 +1,117 @@
+<style>
+  .tx { font:13px/1.45 ui-sans-serif, system-ui, sans-serif; color:#1e293b; }
+  .tx h2 { margin:0 0 4px; } .tx .sub { color:#64748b; margin:0 0 18px; }
+  .tx .panel { background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+               padding:20px; margin:0 0 20px; }
+  .tx .label { font:600 11px/1; letter-spacing:.06em; text-transform:uppercase;
+               color:#94a3b8; margin-bottom:16px; }
+  .node { display:inline-block; background:#f1f5f9; border:1px solid #cbd5e1;
+        border-radius:8px; padding:8px 11px; }
+  .node.src { background:#fff; border-style:dashed; }
+  .node.joinhub { background:#cffafe; border-color:#67e8f9; }
+  .ntitle { font:600 11px/1; letter-spacing:.04em; text-transform:uppercase;
+        color:#64748b; margin-bottom:7px; }
+  .joinhub .ntitle { color:#0e7490; }
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:3px 0; }
+  .rk { font:600 10px/1; text-transform:uppercase; letter-spacing:.05em;
+        color:#94a3b8; width:38px; flex:none; }
+  .ax { display:inline-flex; align-items:center; gap:4px; background:#e0f2fe;
+        border:1px solid #7dd3fc; color:#0369a1; border-radius:5px; padding:2px 7px; font-size:12px; }
+  .ax .n { font:600 10px/1 ui-monospace,monospace; color:#0284c7; background:#fff;
+        border-radius:3px; padding:1px 4px; }
+  .ax.ragged { border-style:dashed; }
+  .val { display:inline-flex; align-items:center; gap:5px; border-radius:5px;
+        padding:2px 7px; font-size:12px; border:1px solid; }
+  .val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
+  .val.catg { background:#f3e8ff; border-color:#d8b4fe; color:#7e22ce; }
+  .val.added { box-shadow:0 0 0 2px #e9d5ff; }
+  .val .grain { font:10px/1 ui-monospace,monospace; opacity:.75; }
+
+  /* the confluence layout */
+  .dag { display:grid; grid-template-columns:1fr 1fr; gap:0 60px;
+         justify-items:center; max-width:760px; margin:0 auto; }
+  .inlabel { font:600 10px/1; text-transform:uppercase; letter-spacing:.05em;
+         color:#94a3b8; margin:10px 0 2px; }
+  .funnel { width:100%; display:flex; justify-content:center; }
+  .funnel.l { justify-content:flex-end; padding-right:18%; }
+  .funnel.r { justify-content:flex-start; padding-left:18%; }
+  .diag { font-size:30px; line-height:.8; color:#0891b2; }
+  .opedge { font:600 13px/1 ui-monospace,monospace; color:#0e7490; }
+  .center { grid-column:1 / 3; display:flex; flex-direction:column; align-items:center; }
+  .down { font-size:26px; color:#0891b2; line-height:.9; margin:4px 0; }
+  .note { font-size:12px; color:#64748b; margin-top:14px; }
+  .caret { color:#cbd5e1; }
+  code { background:#f1f5f9; padding:1px 4px; border-radius:3px; font-size:12px; }
+  .faded { opacity:.5; }
+</style>
+
+<div class="tx">
+  <h2>join is binary — two inputs, one output</h2>
+  <p class="sub">Every other reduce step is a straight chain (one in, one out). Join is the exception: the second table is a real node with its own arrow in, not a label hidden on an edge.</p>
+
+  <div class="panel">
+    <div class="label">The confluence</div>
+    <div class="dag">
+
+      <!-- LEFT parent: the main pipeline -->
+      <div>
+        <div class="node">
+          <div class="ntitle">main · per frame</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+            <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+            <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+            <span class="ax ragged">frame<span class="n">~</span></span></div>
+          <div class="row"><span class="rk">values</span>
+            <span class="val num">speed</span><span class="val num">area</span></div>
+        </div>
+        <div class="inlabel">left input</div>
+      </div>
+
+      <!-- RIGHT parent: the second table (its own little pipeline) -->
+      <div>
+        <div class="node src">
+          <div class="ntitle">class table · per cell</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+            <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+            <span class="ax">cell<span class="n">122</span></span></div>
+          <div class="row"><span class="rk">values</span>
+            <span class="val catg">class</span></div>
+        </div>
+        <div class="inlabel">right input <span class="faded">· can be its own reduce → collapse chain</span></div>
+      </div>
+
+      <!-- funnels -->
+      <div class="funnel l"><span class="diag">↘</span></div>
+      <div class="funnel r"><span class="diag">↙</span></div>
+
+      <!-- the join hub + output -->
+      <div class="center">
+        <div class="node joinhub">
+          <div class="ntitle">⨝ join on cell</div>
+          <div class="row" style="margin:0"><span class="opedge">match left.cell = right.cell</span></div>
+        </div>
+        <div class="down">↓</div>
+        <div class="node">
+          <div class="ntitle">joined · per frame</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+            <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+            <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+            <span class="ax ragged">frame<span class="n">~</span></span></div>
+          <div class="row"><span class="rk">values</span>
+            <span class="val num">speed</span><span class="val num">area</span>
+            <span class="val catg added">class <span class="grain">@cell</span></span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">Two table nodes feed the <strong>⨝ join</strong> hub — the main pipeline (left) and the second table (right). The right input is itself a node, so it can carry its own reduce/collapse steps (e.g. collapse to a per-cell median) before the merge. One arrow flows out: the joined table, axes from the left, with the right's new value broadcast in.</div>
+  </div>
+
+  <div class="panel" style="padding:14px 20px">
+    <div class="label" style="margin-bottom:8px">Open question this raises</div>
+    <div style="font-size:13px;color:#334155">The graph is no longer a chain — it's a <strong>DAG</strong>. Should the right input show as a <em>full sub-branch</em> (its own source → reduce → collapse nodes drawn out to the side), or as a <em>single collapsed node</em> with the sub-steps tucked behind a click-to-expand? Same question will return for any future binary op.</div>
+  </div>
+</div>

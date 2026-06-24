@@ -1,0 +1,266 @@
+<style>
+  .tx { font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; color:#1e293b; }
+  .tx h2 { margin: 0 0 4px; }
+  .tx .sub { color:#64748b; font-size:13px; margin:0 0 18px; }
+  .tx .panel { background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+               padding:18px 20px; margin:0 0 22px; }
+  .tx .panel > .label { font:600 11px/1 ui-sans-serif; letter-spacing:.06em;
+               text-transform:uppercase; color:#94a3b8; margin-bottom:14px; }
+
+  /* a graph node = a table at some array shape */
+  .node { display:inline-block; background:#f1f5f9; border:1px solid #cbd5e1;
+          border-radius:8px; padding:8px 11px; min-width:240px; }
+  .node .ntitle { font:600 11px/1 ui-sans-serif; letter-spacing:.04em;
+          text-transform:uppercase; color:#64748b; margin-bottom:7px; }
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:3px 0; }
+  .rk { font:600 10px/1 ui-sans-serif; text-transform:uppercase; letter-spacing:.05em;
+        color:#94a3b8; width:38px; flex:none; }
+  /* axis chip: an identifier dimension */
+  .ax { display:inline-flex; align-items:center; gap:4px; background:#e0f2fe;
+        border:1px solid #7dd3fc; color:#0369a1; border-radius:5px;
+        padding:2px 7px; font-size:12px; }
+  .ax .n { font:600 10px/1 ui-monospace,monospace; color:#0284c7;
+        background:#fff; border-radius:3px; padding:1px 4px; }
+  .ax.ragged { border-style:dashed; background:#f0f9ff; }
+  .ax.ragged .n::after { content:"~"; }
+  /* value chip: a measured data variable */
+  .val { display:inline-flex; align-items:center; gap:4px; background:#dcfce7;
+        border:1px solid #86efac; color:#15803d; border-radius:5px;
+        padding:2px 7px; font-size:12px; }
+  .val .grain { font:10px/1 ui-monospace,monospace; color:#16a34a; opacity:.8; }
+  .val.added { box-shadow:0 0 0 2px #bbf7d0; }
+
+  /* an edge = an operation, labelled in array language */
+  .edge { display:flex; flex-direction:column; align-items:center; margin:2px 0; }
+  .edge .arr { font-size:16px; line-height:1; }
+  .edge .op { font:600 12px/1.2 ui-monospace, monospace; padding:3px 9px;
+        border-radius:6px; margin-top:2px; }
+  .flow { display:flex; flex-direction:column; align-items:flex-start; gap:0; }
+  /* op colours mirror the existing EDGE_COLOR map */
+  .op.derive{background:#dcfce7;color:#166534}    .arr.derive{color:#16a34a}
+  .op.filter{background:#ffe4e6;color:#9f1239}    .arr.filter{color:#e11d48}
+  .op.join{background:#cffafe;color:#155e75}      .arr.join{color:#0891b2}
+  .op.recode{background:#fef9c3;color:#854d0e}    .arr.recode{color:#ca8a04}
+  .op.collapse{background:#ede9fe;color:#5b21b6}  .arr.collapse{color:#7c3aed}
+  .op.pivot{background:#ccfbf1;color:#115e59}     .arr.pivot{color:#0d9488}
+  .op.grid{background:#f3e8ff;color:#6b21a8}      .arr.grid{color:#9333ea}
+
+  .caret { color:#cbd5e1; margin:0 1px; }
+  .gone { opacity:.28; text-decoration:line-through; }
+  .split2 { display:grid; grid-template-columns:1fr 1fr; gap:22px; }
+  .branch { display:flex; align-items:center; gap:10px; }
+  .sidebox { background:#faf5ff; border:1px dashed #c4b5fd; border-radius:8px;
+        padding:6px 9px; font-size:12px; color:#6d28d9; }
+  .note { font-size:12px; color:#64748b; margin-top:8px; }
+  code { background:#f1f5f9; padding:1px 4px; border-radius:3px; font-size:12px; }
+</style>
+
+<div class="tx">
+  <h2>Rendering operations as array-shape edits</h2>
+  <p class="sub">COV2D motility pipeline. <span style="color:#0369a1">■ axes</span> = identifier dimensions (the nesting spine), with level counts; dashed = ragged. <span style="color:#15803d">■ values</span> = measured variables, optionally tagged <code>@grain</code>. Each edge is an array operation.</p>
+
+  <!-- ============ THE CONTRAST ============ -->
+  <div class="panel">
+    <div class="label">The core change — what one node shows</div>
+    <div class="split2">
+      <div>
+        <div style="font:600 11px/1;color:#94a3b8;text-transform:uppercase;margin-bottom:9px">Today</div>
+        <div class="node" style="min-width:150px">
+          <div class="ntitle">filtered</div>
+          <div style="font-size:13px;color:#64748b;font-variant-numeric:tabular-nums">1240 × 5</div>
+        </div>
+        <div class="note">"filtered" + rows×cols. You can't see <em>what</em> it filtered, which axes exist, or what's measured.</div>
+      </div>
+      <div>
+        <div style="font:600 11px/1;color:#94a3b8;text-transform:uppercase;margin-bottom:9px">Proposed</div>
+        <div class="node">
+          <div class="ntitle">after filter</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+            <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+            <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+            <span class="ax ragged">frame<span class="n">~</span></span>
+          </div>
+          <div class="row"><span class="rk">values</span>
+            <span class="val">speed</span><span class="val">area</span>
+          </div>
+        </div>
+        <div class="note">Four axes, finest one ragged; two measured values. The shape <em>is</em> the content.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ THE PIPELINE ============ -->
+  <div class="panel">
+    <div class="label">A pipeline, top to bottom — every edge an array op</div>
+    <div class="flow">
+
+      <!-- source -->
+      <div class="node">
+        <div class="ntitle">source · per-frame records</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span>
+        </div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val">dx</span><span class="val">dy</span><span class="val">area</span>
+        </div>
+      </div>
+
+      <!-- derive -->
+      <div class="edge"><span class="arr derive">↓</span>
+        <span class="op derive">speed = √(dx² + dy²)&nbsp;&nbsp;elementwise</span></div>
+      <div class="node">
+        <div class="ntitle">derived</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span>
+        </div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val">dx</span><span class="val">dy</span><span class="val">area</span>
+          <span class="val added">speed</span>
+        </div>
+      </div>
+
+      <!-- filter (expression) -->
+      <div class="edge"><span class="arr filter">↓</span>
+        <span class="op filter">mask: |speed| ≤ p99</span></div>
+      <div class="node">
+        <div class="ntitle">filtered</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span>
+        </div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val">dx</span><span class="val">dy</span><span class="val">area</span><span class="val">speed</span>
+        </div>
+        <div class="note" style="margin-top:6px">expression filter: realised bound shown on hover (p99 = 4.7 µm)</div>
+      </div>
+
+      <!-- join (with side branch) -->
+      <div class="edge"><span class="arr join">↓</span>
+        <div class="branch">
+          <span class="op join">join on cell ← class</span>
+          <span class="sidebox">⤺ class table · <span style="color:#0369a1">per cell</span> · broadcasts over frame</span>
+        </div>
+      </div>
+      <div class="node">
+        <div class="ntitle">joined</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span>
+        </div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val">speed</span><span class="val">area</span>
+          <span class="val added">class <span class="grain">@cell</span></span>
+        </div>
+        <div class="note" style="margin-top:6px">a per-cell value joined onto per-frame rows → tagged <code>@cell</code> (constant within a cell)</div>
+      </div>
+
+      <!-- recode -->
+      <div class="edge"><span class="arr recode">↓</span>
+        <span class="op recode">relabel class: 0→non-div, 1→dividing</span></div>
+      <div class="node">
+        <div class="ntitle">recoded</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span>
+        </div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val">speed</span><span class="val">area</span>
+          <span class="val">class <span class="grain">@cell · {non-div, dividing}</span></span>
+        </div>
+      </div>
+
+      <!-- collapse -->
+      <div class="edge"><span class="arr collapse">↓</span>
+        <span class="op collapse">median over frame</span></div>
+      <div class="node">
+        <div class="ntitle">per cell</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span>
+          <span class="ax gone">frame</span>
+        </div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val">speed <span class="grain">median</span></span>
+          <span class="val">class</span>
+        </div>
+        <div class="note" style="margin-top:6px">the <strong>frame</strong> axis is reduced away; the ragged inner axis is gone and values become per-cell medians</div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ============ THE DIMENSION-CHANGERS ============ -->
+  <div class="panel">
+    <div class="label">The two ops that reshape the dimension set</div>
+    <div class="split2">
+
+      <!-- pivot -->
+      <div>
+        <div style="font:600 12px/1;color:#0d9488;margin-bottom:10px">pivot — an axis becomes named values (unstack)</div>
+        <div class="node" style="min-width:210px">
+          <div class="ntitle">before</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+            <span class="ax">feature<span class="n">2</span></span>
+          </div>
+          <div class="row"><span class="rk">values</span><span class="val">measure</span></div>
+        </div>
+        <div class="edge" style="align-items:flex-start"><span class="arr pivot">↓</span>
+          <span class="op pivot">unstack feature → {perimeter, area}</span></div>
+        <div class="node" style="min-width:210px">
+          <div class="ntitle">after</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">cell<span class="n">122</span></span>
+            <span class="ax gone">feature</span>
+          </div>
+          <div class="row"><span class="rk">values</span>
+            <span class="val added">perimeter</span><span class="val added">area</span>
+          </div>
+        </div>
+        <div class="note"><strong>feature</strong> axis removed; one value per level. This is where multiple value columns come from.</div>
+      </div>
+
+      <!-- grid_complete -->
+      <div>
+        <div style="font:600 12px/1;color:#9333ea;margin-bottom:10px">grid_complete — ragged becomes rectangular (densify)</div>
+        <div class="node" style="min-width:210px">
+          <div class="ntitle">before</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+            <span class="ax ragged">transition<span class="n">~</span></span>
+          </div>
+          <div class="row"><span class="rk">values</span><span class="val">event</span></div>
+        </div>
+        <div class="edge" style="align-items:flex-start"><span class="arr grid">↓</span>
+          <span class="op grid">densify position × transition · fill 0</span></div>
+        <div class="node" style="min-width:210px">
+          <div class="ntitle">after</div>
+          <div class="row"><span class="rk">axes</span>
+            <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+            <span class="ax">transition<span class="n">5</span></span>
+          </div>
+          <div class="row"><span class="rk">values</span>
+            <span class="val">count</span>
+          </div>
+        </div>
+        <div class="note"><strong>transition</strong> goes from ragged to a full level set; absent cells are honest <strong>0</strong>s — real rate denominators.</div>
+      </div>
+
+    </div>
+  </div>
+
+</div>

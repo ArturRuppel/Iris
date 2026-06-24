@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Transformation workspace</title>
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font:13px/1.4 ui-sans-serif, system-ui, sans-serif; color:#1e293b; background:#f8fafc; }
+  .topbar { display:flex; align-items:center; justify-content:space-between;
+         padding:10px 20px; background:#fff; border-bottom:1px solid #e2e8f0; }
+  .topbar h1 { font-size:14px; margin:0; font-weight:600; }
+  .legend { display:flex; gap:14px; font-size:11px; color:#64748b; }
+  .legend span b { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; vertical-align:middle; }
+  .canvas { padding:30px 20px 60px; min-height:calc(100vh - 44px);
+         background-image:radial-gradient(#e2e8f0 1px, transparent 1px); background-size:22px 22px; }
+  .spine { display:flex; flex-direction:column; align-items:center; gap:0; }
+
+  .node { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px;
+         padding:7px 11px; box-shadow:0 1px 2px rgba(15,23,42,.05); }
+  .node.src { background:#fff; border-style:dashed; }
+  .node.hub { background:#cffafe; border-color:#67e8f9; }
+  .node.grain { background:#f5f3ff; border-color:#ddd6fe; }
+  .ntitle { font:600 10px/1; letter-spacing:.04em; text-transform:uppercase; color:#64748b; margin-bottom:6px; }
+  .grain .ntitle { color:#6d28d9; } .hub .ntitle { color:#0e7490; }
+  .row { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin:2px 0; }
+  .rk { font:600 9px/1; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; width:34px; flex:none; }
+  .ax { display:inline-flex; align-items:center; gap:3px; background:#e0f2fe;
+         border:1px solid #7dd3fc; color:#0369a1; border-radius:4px; padding:1px 6px; font-size:11px; }
+  .ax .n { font:600 9px/1 ui-monospace,monospace; color:#0284c7; background:#fff; border-radius:2px; padding:1px 3px; }
+  .ax.ragged { border-style:dashed; }  .ax.gone { opacity:.3; text-decoration:line-through; }
+  .ax.keyhi { background:#fef3c7; border-color:#fcd34d; color:#b45309; }
+  .ax.keyhi .n { color:#b45309; }
+  .val { display:inline-flex; align-items:center; gap:4px; border-radius:4px; padding:1px 6px; font-size:11px; border:1px solid; }
+  .val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
+  .val.catg { background:#f3e8ff; border-color:#d8b4fe; color:#7e22ce; }
+  .val.added{ box-shadow:0 0 0 2px #e9d5ff; }
+  .val .grain { font:9px/1 ui-monospace,monospace; opacity:.75; }
+  .caret { color:#cbd5e1; font-size:11px; }
+
+  .edge { display:flex; flex-direction:column; align-items:center; padding:3px 0; }
+  .edge .arr { font-size:18px; line-height:.7; }
+  .edge .op { font:600 11px/1 ui-monospace,monospace; padding:2px 8px; border-radius:5px; margin-top:1px; }
+  .op.derive{background:#dcfce7;color:#166534} .arr.derive{color:#16a34a}
+  .op.filter{background:#ffe4e6;color:#9f1239} .arr.filter{color:#e11d48}
+  .op.recode{background:#fef9c3;color:#854d0e} .arr.recode{color:#ca8a04}
+  .op.collapse{background:#ede9fe;color:#5b21b6} .arr.collapse{color:#7c3aed}
+  .op.join{background:#cffafe;color:#155e75} .arr.join{color:#0891b2}
+
+  .joinwrap { display:flex; align-items:flex-end; gap:16px; }
+  .joinwrap .rightin { display:flex; flex-direction:column; align-items:center; }
+  .rightin .inlbl { font:600 9px/1; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; margin-bottom:4px; }
+  .into { font-size:22px; color:#0891b2; line-height:1; padding-bottom:14px; }
+
+  .fork { display:flex; gap:60px; margin-top:6px; }
+  .term { background:#f8fafc; border:1px dashed #94a3b8; border-radius:8px; padding:9px 16px; text-align:center; color:#475569; }
+  .term .tt { font:600 12px/1; } .term .ts { font-size:10px; color:#94a3b8; margin-top:3px; }
+  .forklabel { font:600 10px/1 ui-monospace,monospace; color:#64748b; }
+  .multiin { font-size:10px; color:#94a3b8; font-style:italic; }
+  .callout { max-width:560px; margin:0 auto 16px; background:#fffbeb; border:1px solid #fde68a;
+         border-radius:8px; padding:10px 14px; font-size:12px; color:#92400e; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <h1>⛁ Transformation workspace — COV2D motility SuperPlot</h1>
+    <div class="legend">
+      <span><b style="background:#7dd3fc"></b>axis</span>
+      <span><b style="background:#fcd34d"></b>join key</span>
+      <span><b style="background:#86efac"></b>numeric</span>
+      <span><b style="background:#d8b4fe"></b>categorical</span>
+      <span><b style="background:#c4b5fd"></b>grain</span>
+    </div>
+  </div>
+
+  <div class="canvas">
+    <div class="callout">⨝ <b>Fixed:</b> the class table is now its own loaded source at the per-cell grain, and the join keys on the <b>full nesting path</b> <code>experiment ▸ position ▸ cell</code> (highlighted), not the bare leaf <code>cell</code> — because nested IDs aren't unique on their own.</div>
+    <div class="spine">
+
+      <!-- source -->
+      <div class="node src">
+        <div class="ntitle">source A · motility · per frame</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">condition<span class="n">2</span></span><span class="caret">▸</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">dx</span><span class="val num">dy</span><span class="val num">area</span></div>
+      </div>
+
+      <div class="edge"><span class="arr derive">↓</span><span class="op derive">speed = √(dx²+dy²)</span></div>
+      <div class="node">
+        <div class="ntitle">derived · per frame</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">condition<span class="n">2</span></span><span class="caret">▸</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">area</span><span class="val num added">speed</span></div>
+      </div>
+
+      <div class="edge"><span class="arr filter">↓</span><span class="op filter">mask: |speed| ≤ p99</span></div>
+      <div class="node">
+        <div class="ntitle">filtered · per frame</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">condition<span class="n">2</span></span><span class="caret">▸</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">area</span><span class="val num">speed</span></div>
+      </div>
+
+      <!-- JOIN confluence, fixed -->
+      <div class="edge"><span class="arr join">↓</span><span class="op join">join on experiment, position, cell</span></div>
+      <div class="joinwrap">
+        <div class="node hub">
+          <div class="ntitle">⨝ join</div>
+          <div class="row" style="margin:2px 0 0"><span class="rk" style="width:auto;color:#0e7490">on</span>
+            <span class="ax keyhi">experiment</span><span class="ax keyhi">position</span><span class="ax keyhi">cell</span></div>
+        </div>
+        <div class="into">←</div>
+        <div class="rightin">
+          <div class="inlbl">right input ↓</div>
+          <div class="node src">
+            <div class="ntitle">📄 source B · class labels · per cell</div>
+            <div class="row"><span class="rk">axes</span>
+              <span class="ax keyhi">experiment<span class="n">3</span></span><span class="caret">▸</span>
+              <span class="ax keyhi">position<span class="n">12</span></span><span class="caret">▸</span>
+              <span class="ax keyhi">cell<span class="n">122</span></span></div>
+            <div class="row"><span class="rk">values</span>
+              <span class="val catg">class</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="edge"><span class="arr recode">↓</span><span class="op recode">relabel class: 0→non-div, 1→dividing</span></div>
+      <div class="node">
+        <div class="ntitle">joined + recoded · per frame</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">condition<span class="n">2</span></span><span class="caret">▸</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">area</span><span class="val num">speed</span>
+          <span class="val catg added">class <span class="grain">@cell</span></span></div>
+      </div>
+
+      <div class="edge"><span class="arr collapse">↓</span><span class="op collapse">median over frame</span></div>
+      <div class="node grain">
+        <div class="ntitle">per cell</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">condition<span class="n">2</span></span><span class="caret">▸</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span>
+          <span class="ax gone">frame</span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">speed <span class="grain">med</span></span><span class="val catg">class</span></div>
+      </div>
+
+      <div class="edge"><span class="arr collapse">↓</span><span class="op collapse">median over cell, position</span></div>
+      <div class="node grain">
+        <div class="ntitle">per experiment <span style="color:#94a3b8;font-weight:400">· replicate grain</span></div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">condition<span class="n">2</span></span><span class="caret">▸</span>
+          <span class="ax">experiment<span class="n">3</span></span>
+          <span class="ax gone">position</span><span class="ax gone">cell</span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">speed <span class="grain">med</span></span></div>
+      </div>
+
+      <div class="edge"><span class="arr" style="color:#475569">↓</span></div>
+      <div class="fork">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+          <div class="forklabel" style="color:#0e7490">geom</div>
+          <div class="term">
+            <div class="tt">📊 SuperPlot</div>
+            <div class="ts">cell-level points + replicate summary, by condition</div>
+            <div class="multiin">← reads per cell AND per experiment</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px">
+          <div class="forklabel" style="color:#4f46e5">test</div>
+          <div class="term">
+            <div class="tt">∑ Stats</div>
+            <div class="ts">paired t · Hedges g<br>condition, paired by experiment</div>
+            <div class="multiin">← reads per experiment</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

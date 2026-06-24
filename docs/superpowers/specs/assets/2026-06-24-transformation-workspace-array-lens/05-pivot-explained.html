@@ -1,0 +1,122 @@
+<style>
+  .tx { font:13px/1.45 ui-sans-serif, system-ui, sans-serif; color:#1e293b; }
+  .tx h2 { margin:0 0 4px; } .tx .sub { color:#64748b; margin:0 0 18px; }
+  .tx .panel { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:18px 20px; margin:0 0 20px; }
+  .tx .label { font:600 11px/1; letter-spacing:.06em; text-transform:uppercase; color:#94a3b8; margin-bottom:14px; }
+  table.dt { border-collapse:collapse; font-size:12px; }
+  table.dt caption { font:600 11px/1; text-transform:uppercase; letter-spacing:.04em; color:#64748b; text-align:left; margin-bottom:6px; }
+  table.dt th { background:#f1f5f9; border:1px solid #cbd5e1; padding:4px 9px; font-weight:600; color:#334155; }
+  table.dt td { border:1px solid #e2e8f0; padding:4px 9px; text-align:center; font-variant-numeric:tabular-nums; }
+  table.dt td.key { background:#e0f2fe; color:#0369a1; font-weight:600; }
+  table.dt td.lvl { background:#ccfbf1; color:#115e59; font-weight:600; }
+  table.dt th.newcol { background:#ccfbf1; color:#115e59; border-color:#5eead4; }
+  .flowrow { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .opbubble { font:600 13px/1 ui-monospace,monospace; background:#ccfbf1; color:#115e59; padding:6px 12px; border-radius:7px; }
+  .arrow { font-size:26px; color:#0d9488; }
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:3px 0; }
+  .rk { font:600 10px/1; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; width:38px; flex:none; }
+  .ax { display:inline-flex; align-items:center; gap:4px; background:#e0f2fe; border:1px solid #7dd3fc; color:#0369a1; border-radius:5px; padding:2px 7px; font-size:12px; }
+  .ax .n { font:600 10px/1 ui-monospace,monospace; color:#0284c7; background:#fff; border-radius:3px; padding:1px 4px; }
+  .ax.unstacked { background:#ccfbf1; border-color:#5eead4; color:#115e59; }
+  .ax.gone { opacity:.3; text-decoration:line-through; }
+  .val { display:inline-flex; align-items:center; gap:5px; border-radius:5px; padding:2px 7px; font-size:12px; border:1px solid; }
+  .val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
+  .val.added{ box-shadow:0 0 0 2px #99f6e4; }
+  .node { display:inline-block; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px; padding:8px 11px; }
+  .ntitle { font:600 11px/1; letter-spacing:.04em; text-transform:uppercase; color:#64748b; margin-bottom:7px; }
+  .note { font-size:12px; color:#64748b; margin-top:10px; }
+  .caret { color:#cbd5e1; }
+  code { background:#f1f5f9; padding:1px 4px; border-radius:3px; font-size:12px; }
+  ul.facts { margin:8px 0 0; padding-left:18px; } ul.facts li { margin:5px 0; }
+  .param { display:inline-block; background:#f0fdfa; border:1px solid #99f6e4; border-radius:5px; padding:1px 6px; font:12px ui-monospace,monospace; color:#0f766e; }
+</style>
+
+<div class="tx">
+  <h2>pivot — a categorical axis becomes named value columns (unstack)</h2>
+  <p class="sub">Long → wide. You have one row <em>per cell × feature</em>; pivot gives you one row <em>per cell</em> with <code>perimeter</code> and <code>area</code> side by side — so you can combine them.</p>
+
+  <!-- rows view -->
+  <div class="panel">
+    <div class="label">What it does, in rows</div>
+    <div class="flowrow">
+      <table class="dt">
+        <caption>before · per cell × feature</caption>
+        <tr><th>cell</th><th>feature</th><th>measure</th></tr>
+        <tr><td class="key">c1</td><td class="lvl">perimeter</td><td>88</td></tr>
+        <tr><td class="key">c1</td><td class="lvl">area</td><td>540</td></tr>
+        <tr><td class="key">c2</td><td class="lvl">perimeter</td><td>102</td></tr>
+        <tr><td class="key">c2</td><td class="lvl">area</td><td>610</td></tr>
+      </table>
+
+      <div style="text-align:center">
+        <div class="opbubble">unstack feature</div>
+        <div class="arrow">→</div>
+      </div>
+
+      <table class="dt">
+        <caption>after · per cell</caption>
+        <tr><th>cell</th><th class="newcol">perimeter</th><th class="newcol">area</th></tr>
+        <tr><td class="key">c1</td><td>88</td><td>540</td></tr>
+        <tr><td class="key">c2</td><td>102</td><td>610</td></tr>
+      </table>
+    </div>
+    <div class="note">Each <strong>level</strong> of <code>feature</code> (the teal cells) becomes a <strong>column</strong>. Two rows per cell collapse into one wider row. The values that were stacked in <code>measure</code> are now spread across named columns.</div>
+  </div>
+
+  <!-- shape view -->
+  <div class="panel">
+    <div class="label">The same thing, as array shape</div>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <div class="node">
+        <div class="ntitle">before</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax unstacked">feature<span class="n">2</span></span></div>
+        <div class="row"><span class="rk">values</span><span class="val num">measure</span></div>
+      </div>
+      <div style="text-align:center">
+        <div class="opbubble">unstack feature → {perimeter, area}</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="node">
+        <div class="ntitle">after</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span>
+          <span class="ax gone">feature</span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num added">perimeter</span><span class="val num added">area</span></div>
+      </div>
+    </div>
+    <div class="note">The <strong>feature</strong> axis is <em>removed</em> from the dimensions; one new value per level takes its place. This is the inverse of how tidy data stacks measurements — and it's the <strong>only way to get two measured columns onto the same row</strong> so an op like <code>derive</code> can combine them.</div>
+  </div>
+
+  <!-- why: the payoff -->
+  <div class="panel">
+    <div class="label">Why you'd do it — the §4 shape factor</div>
+    <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <span class="node" style="padding:5px 9px"><span class="val num">perimeter</span> <span class="val num">area</span></span>
+      <span class="arrow" style="font-size:20px">→</span>
+      <span class="opbubble" style="background:#dcfce7;color:#166534">derive&nbsp; q = perimeter / √area</span>
+      <span class="arrow" style="font-size:20px">→</span>
+      <span class="node" style="padding:5px 9px"><span class="val num added">q</span> <span style="font-size:11px;color:#64748b">shape factor, by class → box plot</span></span>
+    </div>
+    <div class="note">Pivot exists to <em>set up</em> the derive: <code>perimeter</code> and <code>area</code> must sit on one row before you can divide them. Pivot then derive is the canonical pair.</div>
+  </div>
+
+  <!-- the knobs -->
+  <div class="panel">
+    <div class="label">The knobs Iris exposes</div>
+    <ul class="facts">
+      <li><span class="param">index</span> — the keys that stay as axes (<code>experiment, position, cell</code>) — one output row per combination.</li>
+      <li><span class="param">column</span> — the categorical to unstack (<code>feature</code>) — its levels become columns.</li>
+      <li><span class="param">values</span> — the measure to spread (<code>measure</code>).</li>
+      <li><span class="param">names</span> — maps each level to its new column name (<code>perimeter</code>, <code>area</code>); an <em>unmapped</em> level is dropped.</li>
+      <li><span class="param">agg = sum</span> — if several rows land in the same (index × level) cell they're combined (default sum). One row each → it's a pure reshape.</li>
+      <li><span class="param">fill = 0</span> — an absent (index × level) combination becomes this, not missing.</li>
+    </ul>
+  </div>
+</div>

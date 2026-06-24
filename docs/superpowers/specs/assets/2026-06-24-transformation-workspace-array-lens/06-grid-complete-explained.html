@@ -1,0 +1,121 @@
+<style>
+  .tx { font:13px/1.45 ui-sans-serif, system-ui, sans-serif; color:#1e293b; }
+  .tx h2 { margin:0 0 4px; } .tx .sub { color:#64748b; margin:0 0 18px; }
+  .tx .panel { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:18px 20px; margin:0 0 20px; }
+  .tx .label { font:600 11px/1; letter-spacing:.06em; text-transform:uppercase; color:#94a3b8; margin-bottom:14px; }
+  table.dt { border-collapse:collapse; font-size:12px; }
+  table.dt caption { font:600 11px/1; text-transform:uppercase; letter-spacing:.04em; color:#64748b; text-align:left; margin-bottom:6px; }
+  table.dt th { background:#f1f5f9; border:1px solid #cbd5e1; padding:4px 9px; font-weight:600; color:#334155; }
+  table.dt td { border:1px solid #e2e8f0; padding:4px 9px; text-align:center; font-variant-numeric:tabular-nums; }
+  table.dt td.key { background:#e0f2fe; color:#0369a1; font-weight:600; }
+  table.dt td.lvl { background:#f3e8ff; color:#7e22ce; }
+  table.dt tr.zero td { background:#fdf4ff; color:#a21caf; }
+  table.dt td.zmark { font-weight:700; color:#9333ea; }
+  th.newcol { background:#f3e8ff; color:#6b21a8; border-color:#d8b4fe; }
+  .flowrow { display:flex; align-items:flex-start; gap:22px; flex-wrap:wrap; }
+  .opbubble { font:600 13px/1 ui-monospace,monospace; background:#f3e8ff; color:#6b21a8; padding:6px 12px; border-radius:7px; }
+  .arrow { font-size:26px; color:#9333ea; }
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:3px 0; }
+  .rk { font:600 10px/1; text-transform:uppercase; letter-spacing:.05em; color:#94a3b8; width:38px; flex:none; }
+  .ax { display:inline-flex; align-items:center; gap:4px; background:#e0f2fe; border:1px solid #7dd3fc; color:#0369a1; border-radius:5px; padding:2px 7px; font-size:12px; }
+  .ax .n { font:600 10px/1 ui-monospace,monospace; color:#0284c7; background:#fff; border-radius:3px; padding:1px 4px; }
+  .ax.ragged { border-style:dashed; background:#f0f9ff; }
+  .ax.dense { background:#f3e8ff; border-color:#d8b4fe; color:#6b21a8; }
+  .ax.dense .n { color:#7e22ce; }
+  .val { display:inline-flex; align-items:center; gap:5px; border-radius:5px; padding:2px 7px; font-size:12px; border:1px solid; }
+  .val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
+  .val.added{ box-shadow:0 0 0 2px #e9d5ff; }
+  .node { display:inline-block; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px; padding:8px 11px; }
+  .ntitle { font:600 11px/1; letter-spacing:.04em; text-transform:uppercase; color:#64748b; margin-bottom:7px; }
+  .note { font-size:12px; color:#64748b; margin-top:10px; }
+  .caret { color:#cbd5e1; }
+  code { background:#f1f5f9; padding:1px 4px; border-radius:3px; font-size:12px; }
+  ul.facts { margin:8px 0 0; padding-left:18px; } ul.facts li { margin:5px 0; }
+  .param { display:inline-block; background:#faf5ff; border:1px solid #e9d5ff; border-radius:5px; padding:1px 6px; font:12px ui-monospace,monospace; color:#7e22ce; }
+  .warn { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:10px 14px; font-size:12px; color:#991b1b; margin-top:12px; }
+</style>
+
+<div class="tx">
+  <h2>grid_complete — densify a ragged axis with honest zeros</h2>
+  <p class="sub">§5 event-rate landscape. You count transition events per position. The trap: a transition that <em>never happened</em> at a position simply has no row — so its rate looks undefined instead of <strong>zero</strong>. grid_complete fills the full grid.</p>
+
+  <!-- rows view -->
+  <div class="panel">
+    <div class="label">What it does, in rows</div>
+    <div class="flowrow">
+      <table class="dt">
+        <caption>before · per event</caption>
+        <tr><th>position</th><th>transition</th></tr>
+        <tr><td class="key">p1</td><td class="lvl">A→B</td></tr>
+        <tr><td class="key">p1</td><td class="lvl">A→B</td></tr>
+        <tr><td class="key">p1</td><td class="lvl">B→C</td></tr>
+        <tr><td class="key">p2</td><td class="lvl">A→B</td></tr>
+      </table>
+
+      <div style="text-align:center;padding-top:20px">
+        <div class="opbubble">complete<br>position × transition</div>
+        <div class="arrow">→</div>
+      </div>
+
+      <table class="dt">
+        <caption>after · per position × transition</caption>
+        <tr><th>position</th><th>transition</th><th class="newcol">count</th></tr>
+        <tr><td class="key">p1</td><td class="lvl">A→B</td><td>2</td></tr>
+        <tr><td class="key">p1</td><td class="lvl">B→C</td><td>1</td></tr>
+        <tr class="zero"><td class="key">p1</td><td>C→A</td><td class="zmark">0</td></tr>
+        <tr><td class="key">p2</td><td class="lvl">A→B</td><td>1</td></tr>
+        <tr class="zero"><td class="key">p2</td><td>B→C</td><td class="zmark">0</td></tr>
+        <tr class="zero"><td class="key">p2</td><td>C→A</td><td class="zmark">0</td></tr>
+      </table>
+    </div>
+    <div class="note">The full grid is <strong>every position × every declared transition level</strong> {A→B, B→C, C→A}. Observed combos get their event count; the three combinations that never occurred (purple rows) become a real <strong>0</strong> — not a missing row.</div>
+    <div class="warn">⚠ Without it, a plain group-and-count <em>omits</em> the purple rows. Then "mean events per transition" averages over only what happened — and every rate is biased upward. The zeros are the honest denominator.</div>
+  </div>
+
+  <!-- shape view -->
+  <div class="panel">
+    <div class="label">The same thing, as array shape</div>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <div class="node">
+        <div class="ntitle">before · sparse</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax ragged">transition<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span><span style="font-size:12px;color:#94a3b8">— (raw events)</span></div>
+      </div>
+      <div style="text-align:center">
+        <div class="opbubble">densify · fill 0</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="node">
+        <div class="ntitle">after · dense</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax dense">transition<span class="n">3</span></span></div>
+        <div class="row"><span class="rk">values</span><span class="val num added">count</span></div>
+      </div>
+    </div>
+    <div class="note">The <strong>transition</strong> axis goes from <span style="color:#0369a1">ragged</span> (only observed levels appear, varying by position) to <span style="color:#6b21a8">dense</span> (every position carries all 3 declared levels). A <code>count</code> value appears. This is the one op that makes the implicit array <em>rectangular and explicit</em>.</div>
+  </div>
+
+  <!-- contrast with pivot -->
+  <div class="panel" style="padding:14px 20px">
+    <div class="label" style="margin-bottom:8px">How it differs from pivot</div>
+    <div style="font-size:13px;color:#334155">Both touch a categorical axis, opposite directions: <code>pivot</code> <strong>removes</strong> the axis (its levels become columns); <code>grid_complete</code> <strong>keeps</strong> the axis but <strong>fills it dense</strong> (its levels become guaranteed rows, with 0s). Pivot widens; grid_complete lengthens.</div>
+  </div>
+
+  <!-- knobs -->
+  <div class="panel">
+    <div class="label">The knobs Iris exposes</div>
+    <ul class="facts">
+      <li><span class="param">by</span> — the id columns that stay as axes (<code>experiment, position</code>) — the grid is these crossed with every level.</li>
+      <li><span class="param">column</span> — the categorical to complete (<code>transition</code>).</li>
+      <li><span class="param">levels</span> — the <strong>declared universe</strong> of levels {A→B, B→C, C→A}. This is the crux: you assert the full set, so a level that <em>never</em> appears anywhere still gets its 0 rows. Not inferred from the data.</li>
+      <li><span class="param">count_unique</span> — optional: dedup an id before counting (e.g. count distinct <em>cells</em> that did the transition, not raw events).</li>
+      <li><span class="param">fill = 0</span> — what an absent combination becomes.</li>
+      <li><span class="param">count_name = count</span> — the new value column's name.</li>
+    </ul>
+  </div>
+</div>

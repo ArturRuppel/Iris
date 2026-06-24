@@ -1,0 +1,150 @@
+<style>
+  .tx { font: 13px/1.45 ui-sans-serif, system-ui, sans-serif; color:#1e293b; }
+  .tx h2 { margin:0 0 4px; } .tx .sub { color:#64748b; margin:0 0 18px; }
+  .tx .panel { background:#fff; border:1px solid #e2e8f0; border-radius:10px;
+               padding:18px 20px; margin:0 0 20px; }
+  .tx .label { font:600 11px/1; letter-spacing:.06em; text-transform:uppercase;
+               color:#94a3b8; margin-bottom:14px; }
+  /* mini data tables */
+  table.dt { border-collapse:collapse; font-size:12px; }
+  table.dt caption { font:600 11px/1; text-transform:uppercase; letter-spacing:.04em;
+               color:#64748b; text-align:left; margin-bottom:6px; }
+  table.dt th { background:#f1f5f9; border:1px solid #cbd5e1; padding:4px 9px;
+               font-weight:600; color:#334155; }
+  table.dt td { border:1px solid #e2e8f0; padding:4px 9px; text-align:center;
+               font-variant-numeric:tabular-nums; }
+  table.dt td.key { background:#e0f2fe; color:#0369a1; font-weight:600; }
+  table.dt td.cat { background:#f3e8ff; color:#7e22ce; }
+  table.dt td.broad { background:#faf5ff; color:#9333ea; font-style:italic; }
+  .joinrow { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .opbubble { font:600 13px/1 ui-monospace,monospace; background:#cffafe;
+               color:#155e75; padding:6px 12px; border-radius:7px; }
+  .arrow { font-size:26px; color:#0891b2; }
+  /* shape chips */
+  .row { display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin:3px 0; }
+  .rk { font:600 10px/1; text-transform:uppercase; letter-spacing:.05em;
+        color:#94a3b8; width:38px; flex:none; }
+  .ax { display:inline-flex; align-items:center; gap:4px; background:#e0f2fe;
+        border:1px solid #7dd3fc; color:#0369a1; border-radius:5px; padding:2px 7px; font-size:12px; }
+  .ax .n { font:600 10px/1 ui-monospace,monospace; color:#0284c7; background:#fff;
+        border-radius:3px; padding:1px 4px; }
+  .ax.ragged { border-style:dashed; }
+  /* value chips, coloured BY TYPE */
+  .val { display:inline-flex; align-items:center; gap:5px; border-radius:5px;
+        padding:2px 7px; font-size:12px; border:1px solid; }
+  .val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
+  .val.catg { background:#f3e8ff; border-color:#d8b4fe; color:#7e22ce; }
+  .val.bool { background:#fef3c7; border-color:#fcd34d; color:#b45309; }
+  .val .grain { font:10px/1 ui-monospace,monospace; opacity:.75; }
+  .val.added { box-shadow:0 0 0 2px #e9d5ff; }
+  .node { display:inline-block; background:#f1f5f9; border:1px solid #cbd5e1;
+        border-radius:8px; padding:8px 11px; }
+  .ntitle { font:600 11px/1; letter-spacing:.04em; text-transform:uppercase;
+        color:#64748b; margin-bottom:7px; }
+  .note { font-size:12px; color:#64748b; margin-top:8px; }
+  .caret { color:#cbd5e1; }
+  code { background:#f1f5f9; padding:1px 4px; border-radius:3px; font-size:12px; }
+  .legend { display:flex; gap:16px; font-size:12px; color:#64748b; margin-top:4px; }
+  .legend span b { display:inline-block; width:10px; height:10px; border-radius:3px;
+        margin-right:5px; vertical-align:middle; }
+  ul.facts { margin:10px 0 0; padding-left:18px; } ul.facts li { margin:4px 0; }
+</style>
+
+<div class="tx">
+  <h2>join — align two tables on a shared axis</h2>
+  <p class="sub">Pull columns from a second table onto your main one, matched on a shared key. The classic use: attach a <em>per-cell</em> fact to every <em>per-frame</em> row of that cell.</p>
+
+  <!-- value-type colour legend (the new addition) -->
+  <div class="panel" style="padding:12px 20px">
+    <div class="legend">
+      <span style="font-weight:600;color:#334155">values coloured by type:</span>
+      <span><b style="background:#86efac"></b>numeric</span>
+      <span><b style="background:#d8b4fe"></b>categorical (classifier)</span>
+      <span><b style="background:#fcd34d"></b>bool</span>
+      <span><b style="background:#7dd3fc"></b>= axis (identifier)</span>
+    </div>
+  </div>
+
+  <!-- the rows view -->
+  <div class="panel">
+    <div class="label">What it does, in rows</div>
+    <div class="joinrow">
+      <table class="dt">
+        <caption>main · per frame</caption>
+        <tr><th>cell</th><th>frame</th><th>speed</th></tr>
+        <tr><td class="key">c1</td><td>1</td><td>2.1</td></tr>
+        <tr><td class="key">c1</td><td>2</td><td>1.8</td></tr>
+        <tr><td class="key">c2</td><td>1</td><td>3.4</td></tr>
+        <tr><td class="key">c2</td><td>2</td><td>2.9</td></tr>
+      </table>
+
+      <div style="text-align:center">
+        <div class="opbubble">join on <b>cell</b></div>
+        <div class="arrow">→</div>
+      </div>
+
+      <table class="dt">
+        <caption>right · per cell <span style="font-weight:400;text-transform:none">(unique on cell)</span></caption>
+        <tr><th>cell</th><th>class</th></tr>
+        <tr><td class="key">c1</td><td class="cat">dividing</td></tr>
+        <tr><td class="key">c2</td><td class="cat">non-div</td></tr>
+      </table>
+
+      <div class="arrow">→</div>
+
+      <table class="dt">
+        <caption>result · per frame</caption>
+        <tr><th>cell</th><th>frame</th><th>speed</th><th>class</th></tr>
+        <tr><td class="key">c1</td><td>1</td><td>2.1</td><td class="broad">dividing</td></tr>
+        <tr><td class="key">c1</td><td>2</td><td>1.8</td><td class="broad">dividing</td></tr>
+        <tr><td class="key">c2</td><td>1</td><td>3.4</td><td class="broad">non-div</td></tr>
+        <tr><td class="key">c2</td><td>2</td><td>2.9</td><td class="broad">non-div</td></tr>
+      </table>
+    </div>
+    <div class="note">Each cell's single <code>class</code> value is copied onto <em>all</em> of that cell's frame rows (the italic cells). The per-cell fact <strong>broadcasts</strong> down to per-frame rows — the rows don't change, a column arrives.</div>
+  </div>
+
+  <!-- the shape view -->
+  <div class="panel">
+    <div class="label">The same thing, as array shape</div>
+    <div style="display:flex;align-items:center;gap:18px;flex-wrap:wrap">
+      <div class="node">
+        <div class="ntitle">before</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">speed</span><span class="val num">area</span></div>
+      </div>
+      <div style="text-align:center">
+        <div class="opbubble">join on cell ← class</div>
+        <div class="arrow">→</div>
+      </div>
+      <div class="node">
+        <div class="ntitle">after</div>
+        <div class="row"><span class="rk">axes</span>
+          <span class="ax">experiment<span class="n">3</span></span><span class="caret">▸</span>
+          <span class="ax">position<span class="n">12</span></span><span class="caret">▸</span>
+          <span class="ax">cell<span class="n">122</span></span><span class="caret">▸</span>
+          <span class="ax ragged">frame<span class="n">~</span></span></div>
+        <div class="row"><span class="rk">values</span>
+          <span class="val num">speed</span><span class="val num">area</span>
+          <span class="val catg added">class <span class="grain">@cell</span></span></div>
+      </div>
+    </div>
+    <div class="note"><strong>Axes unchanged</strong> (still per frame). A new <strong>categorical</strong> value arrives, tagged <code>@cell</code> because it's constant within a cell — it lives at a coarser grain than the rows it sits on.</div>
+  </div>
+
+  <!-- the rules -->
+  <div class="panel">
+    <div class="label">What Iris's join does / doesn't do today</div>
+    <ul class="facts">
+      <li><strong>Inner join only</strong> — frame rows whose cell isn't in the right table are <em>dropped</em>.</li>
+      <li><strong>Right must be unique on the key</strong> — one row per cell. Many-to-many (a key matching several right rows, which would multiply your rows) is deliberately refused for now.</li>
+      <li><strong>The right side can be its own little pipeline</strong> — it may be reduced &amp; collapsed to <em>its</em> grain first (e.g. a per-cell median computed over its own frames), then merged. That's how two features measured at different grains meet on a shared axis.</li>
+      <li><strong>Only new columns are added</strong> — the join key and any column you already have aren't duplicated.</li>
+    </ul>
+  </div>
+</div>
