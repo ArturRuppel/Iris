@@ -715,9 +715,9 @@ runs across the three replicates — not the thousands of frames.
 An event rate is only honest if its denominator counts the cells where the event
 *could* have happened but didn't. Here a data-dependent `filter` clips the
 displacement tail at the 99th percentile of its own distribution, `grid_complete`
-builds the full position × transition-type grid (a combination with no events
-becomes a real **0**, not a missing cell), and a `derive` turns the counts into a
-rate.
+builds the full position × transition-type grid within each experiment (a
+combination with no events becomes a real **0**, not a missing cell), and a
+`derive` turns the counts into a rate.
 
 ![](example:cov2d-rate-landscape/cov2d-rate-landscape-01)
 

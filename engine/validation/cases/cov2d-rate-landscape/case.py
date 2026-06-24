@@ -65,6 +65,7 @@ def regenerate_data() -> None:
             for (pos, tt), n in COUNTS.items():
                 for k in range(n):
                     w.writerow([e, pos, tt, round(1.0 + 0.1 * k, 3)])
-        # two extreme-displacement events the data-dependent filter clips
+        # two extreme-displacement events seed the tail; the 99th-percentile clip
+        # removes the largest (120.0), leaving 99.0 — the cut is data-dependent
         w.writerow(["E1", "P1", "static", 99.0])
         w.writerow(["E2", "P2", "fast", 120.0])
