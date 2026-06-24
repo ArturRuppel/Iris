@@ -366,6 +366,43 @@ def identity_merge(df: pd.DataFrame, schema: dict, spine: list[str],
     return merges
 
 
+def join_leaf_key(df, schema, spine, steps) -> list[dict]:
+    """Warn (never block) when a `join` keys on a leaf identifier without its spine
+    ancestors and that leaf isn't unique on its own — the merge may mismatch units.
+    Returns [{dim, on, suggested, before, after, severity, text}] per offending join."""
+    ids = {c["name"] for c in schema.get("columns", []) if c.get("type") == "identifier"}
+    present = [s for s in spine if s in df.columns]
+    out: list[dict] = []
+    for step in (steps or []):
+        if step.get("kind") != "join":
+            continue
+        on = list(step.get("on") or [])
+        # the deepest spine identifier among the join keys
+        leaves = [k for k in on if k in ids and k in present]
+        if not leaves:
+            continue
+        leaf = max(leaves, key=lambda k: present.index(k))
+        ancestors = present[: present.index(leaf)]
+        missing = [a for a in ancestors if a not in on]
+        if not missing:
+            continue
+        # is the leaf actually ambiguous on its own? (same value across ancestors)
+        if leaf not in df.columns:
+            continue
+        per_leaf = df.groupby(leaf, observed=True)[missing].nunique()
+        ambiguous = bool((per_leaf.max(axis=1) > 1).any())
+        if not ambiguous:
+            continue
+        full = ", ".join(present[: present.index(leaf) + 1])
+        out.append({
+            "dim": leaf, "on": on, "suggested": present[: present.index(leaf) + 1],
+            "before": leaf, "after": full, "severity": "caution",
+            "text": (f"Joining on {leaf} alone, but {leaf} isn't unique without "
+                     f"{', '.join(missing)} — did you mean the full path {full}?"),
+        })
+    return out
+
+
 def post_aggregate_derive(post_steps: list[dict] | None, test_grain: str) -> list[dict]:
     """#5 (post-collapse): a `derive` in the post-collapse reduce phase computes its
     value on ALREADY-AGGREGATED rows, where the raw-grain safety of a normal derive
