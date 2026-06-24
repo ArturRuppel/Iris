@@ -182,8 +182,10 @@ inference above replaces the need for it).
   full path (`cell` without `experiment, position`) raises a **never-blocking
   caution** — "did you mean the full path?" — consistent with Iris's guard stance.
   The only new *behaviour* in this spec; everything else is rendering. Lives with
-  the other reduce guards in `engine/iris_engine/guards.py` and surfaces on the join
-  edge like existing verdicts. Spec the wording with the plan; it never blocks.
+  the other reduce/collapse guards that `/shape_counts` surfaces (in
+  `engine/iris_engine/hierarchy.py`, alongside `identity_merge` etc. — *not* the
+  geom-level `guards.py`), returned in the `guards` block and attached to the join
+  edge by `mergeGuards`. Spec the wording with the plan; it never blocks.
 - **Flat graph, no collapsing.** Every node is always fully drawn, including a
   join's right-input pipeline. No collapsed/expandable nodes. (Folded into
   *Topology*.)
