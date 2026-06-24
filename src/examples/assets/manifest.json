@@ -36,7 +36,7 @@
   {
     "caseId": "mann-whitney",
     "title": "Two-group comparison \u2014 Mann\u2013Whitney U (synthetic)",
-    "source": "synthetic \u2014 known by construction; recomputed with scipy.stats.mannwhitneyu",
+    "source": "synthetic \u2014 known by construction",
     "irisFile": "mann-whitney.iris",
     "filename": "mann-whitney.iris",
     "plots": [
@@ -232,7 +232,7 @@
   {
     "caseId": "event-rate-by-group",
     "title": "Event rate by treatment (negative-binomial GLM)",
-    "source": "Synthetic per-field event counts with an imaging-time exposure; rates + CIs + global LR recomputed with statsmodels (see NOTES)",
+    "source": "Synthetic per-field event counts with an imaging-time exposure (see NOTES)",
     "irisFile": "event-rate-by-group.iris",
     "filename": "event-rate-by-group.iris",
     "plots": [
