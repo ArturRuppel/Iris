@@ -37,3 +37,16 @@ def value_grain(frame: pd.DataFrame, spine: list[str], value: str) -> str | None
         if g[value].nunique(dropna=False).max() <= 1:
             return present[i]
     return None
+
+
+def _axis_is_ragged(frame: pd.DataFrame, spine: list[str], idx: int) -> bool:
+    """True when axis `present[idx]` has an uneven number of child levels across
+    its parent groups (the COO array is ragged on this axis). The coarsest axis
+    (no parent) is never ragged."""
+    present = _present_spine(frame, spine)
+    axis = present[idx]
+    parent = present[:idx]
+    if not parent:
+        return False
+    counts = frame.groupby(parent, observed=True)[axis].nunique()
+    return bool(len(counts) and counts.min() != counts.max())

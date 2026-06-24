@@ -1,5 +1,5 @@
 import pandas as pd
-from iris_engine.shape import value_grain
+from iris_engine.shape import _axis_is_ragged, value_grain
 
 # spine coarsest -> finest
 SPINE = ["experiment", "position", "cell", "frame"]
@@ -31,3 +31,24 @@ def test_value_grain_global_constant_tags_coarsest():
 def test_value_grain_ignores_spine_columns_absent_from_frame():
     df = _frame().drop(columns=["position"])
     assert value_grain(df, SPINE, "class") == "cell"
+
+def test_axis_ragged_when_child_count_varies_per_parent():
+    # c1 has 3 frames, c2 has 1 -> frame is ragged within cell
+    df = pd.DataFrame({
+        "experiment": ["E1"] * 4,
+        "position":   ["P1"] * 4,
+        "cell":       ["c1", "c1", "c1", "c2"],
+        "frame":      [1, 2, 3, 1],
+    })
+    spine = ["experiment", "position", "cell", "frame"]
+    assert _axis_is_ragged(df, spine, 3) is True   # frame
+    assert _axis_is_ragged(df, spine, 0) is False  # experiment (coarsest)
+
+def test_axis_not_ragged_when_balanced():
+    df = pd.DataFrame({
+        "experiment": ["E1"] * 4,
+        "cell":       ["c1", "c1", "c2", "c2"],
+        "frame":      [1, 2, 1, 2],
+    })
+    spine = ["experiment", "cell", "frame"]
+    assert _axis_is_ragged(df, spine, 2) is False  # 2 frames per cell, balanced
