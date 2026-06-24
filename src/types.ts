@@ -105,6 +105,36 @@ export interface Hierarchy { spine: string[]; fn: Record<string, LevelFn> }
 export const EMPTY_HIERARCHY: Hierarchy = { spine: [], fn: {} };
 export const RAW_LEVEL = "";
 
+/* Un-forcing the nesting: a per-analysis collapse plan. Each step names the grain
+   it produces (the dims it KEEPS, in spine order) and the fn that aggregates into
+   it. Raw is a separate source node; each step's source is the previous step
+   (the first step's source is raw). The default plan (full-spine prefix chain,
+   finest -> coarsest) reproduces the forced chain exactly. */
+export interface CollapseStep { keep: string[]; fn: LevelFn }
+export type CollapsePlan = CollapseStep[];
+
+/* A grain key: kept dims in spine order joined by "/", "" = raw. Matches the
+   engine's grain keys so node counts/fetches line up. */
+export type GrainKey = string;
+
+/* One guard verdict surfaced on a graph edge. "caution" = yellow (a detectable
+   integrity risk: pseudoreplication / pairing-flip / identity-merge); "info" =
+   white (the always-on flattening consequence). Never blocks. */
+export interface GuardVerdict {
+  id: "pseudoreplication" | "pairing_flip" | "identity_merge" | "flatten_info";
+  severity: "caution" | "info";
+  text: string;
+}
+
+/* The raw guard verdicts /shape_counts returns (the frontend turns these into
+   GuardVerdicts placed on the right edges via mergeGuards). null = guard not run
+   (e.g. no qualifier for pairing-flip). */
+export interface ShapeCountsGuards {
+  pseudoreplication: { risk: boolean; n_test: number; n_coarsest: number; coarsest_grain: GrainKey } | null;
+  pairing_flip: { flipped: boolean; from: string | null; to: string | null; across: string | null } | null;
+  identity_merge: { dim: string; kept: string[]; before: number; after: number }[];
+}
+
 /* /hierarchy describe response: per-level grain cardinalities and where each
    classifier attaches (its home level), for the Data-tab editor + visualization. */
 export interface HierarchyInfo {
@@ -381,6 +411,10 @@ export interface AnalysisSpec {
   annotations: { significance_brackets: "auto"; show_n: boolean };
   style: { overrides: StyleOverrides };
   engine_snapshot: Record<string, string>;
+  /* un-forcing the nesting: recorded as-is (full plan + chosen grain), not a
+     deviation from the default. Absent -> regenerate from the spine on load. */
+  collapse?: CollapsePlan;
+  test_grain?: GrainKey;
 }
 
 export interface Check {
@@ -437,7 +471,11 @@ export interface StatsResult {
 export interface ShapeCounts {
   source: { rows: number; cols: number };
   steps: { rows: number; cols: number }[];
-  levels: Record<string, { rows: number; cols: number }>;
+  /* grain-keyed counts: key "" = raw, else dims joined by "/" — matches the
+     graph's grain node ids (`grain:<key>`). Replaces the old `levels` map. */
+  grains: Record<string, { rows: number; cols: number }>;
+  /* the integrity guard verdicts the frontend places on graph edges. */
+  guards: ShapeCountsGuards;
 }
 export interface AnalyzeResponse {
   /* Item I: dots are not individually clickable, so the figure payload is
@@ -640,8 +678,11 @@ export const engine = {
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
   reduce: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number) =>
     post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step }),
-  shapeCounts: (t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy) =>
-    post<ShapeCounts>("/shape_counts", { ...tableField(t), steps, hierarchy }),
+  shapeCounts: (
+    t: TableRef, steps: ReduceStep[], hierarchy?: Hierarchy,
+    extra?: { collapse?: CollapsePlan; test_grain?: GrainKey; qualifier?: string | null },
+  ) =>
+    post<ShapeCounts>("/shape_counts", { ...tableField(t), steps, hierarchy, ...extra }),
   hierarchy: (t: TableRef, spine: string[], classifiers: string[]) =>
     post<HierarchyInfo>("/hierarchy", { ...tableField(t), spine, classifiers }),
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>

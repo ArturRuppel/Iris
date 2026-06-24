@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { buildGraph, nodeIdForLevel } from "./graph";
-import type { Hierarchy, Layer, ReduceStep, Schema, Table } from "../types";
+import { buildGraph, nodeIdForGrain } from "./graph";
+import type { Layer, ReduceStep, Schema, Table } from "../types";
 import { RAW_LEVEL } from "../types";
+import { defaultPlan } from "../collapse";
 
 const SCHEMA: Schema = {
   schema_version: "1.0",
@@ -12,7 +13,8 @@ const SCHEMA: Schema = {
   ],
 } as unknown as Schema;
 
-const HIER: Hierarchy = { spine: ["experiment", "cell"], fn: {} };
+const SPINE = ["experiment", "cell"];
+const PLAN = defaultPlan(SPINE, {});
 const edge = (g: ReturnType<typeof buildGraph>, from: string, to: string) =>
   g.edges.find((e) => e.fromId === from && e.toId === to);
 
@@ -22,21 +24,27 @@ describe("buildGraph", () => {
       { kind: "filter", conditions: [] },
       { kind: "drop", columns: ["area"] },
     ];
-    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(g.nodes.map((n) => n.id)).toEqual([
-      "source", "step:0", "step:1", "level:cell", "level:experiment", "plot", "stats",
+      "source", "step:0", "step:1", "grain:experiment/cell", "grain:experiment", "plot", "stats",
     ]);
     expect(g.nodes.map((n) => n.kind)).toEqual([
       "table", "table", "table", "table", "table", "plot", "stats",
     ]);
   });
 
-  it("collapse chain runs finest -> coarsest after the last reduce step", () => {
-    const g = buildGraph([{ kind: "drop", columns: ["area"] }], HIER,
+  it("collapse nodes are keyed by grain; chain runs full-spine -> coarsest", () => {
+    const g = buildGraph([{ kind: "drop", columns: ["area"] }], SPINE, PLAN,
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "step:0", "level:cell")?.kind).toBe("collapse");
-    expect(edge(g, "level:cell", "level:experiment")?.kind).toBe("collapse");
-    expect(g.nodes.find((n) => n.id === "level:experiment")?.label).toBe("per Experiment");
+    expect(edge(g, "step:0", "grain:experiment/cell")?.kind).toBe("collapse");
+    expect(edge(g, "grain:experiment/cell", "grain:experiment")?.kind).toBe("collapse");
+    expect(g.nodes.find((n) => n.id === "grain:experiment")?.label).toBe("per Experiment");
+  });
+
+  it("each collapse edge carries the white #3 flatten-info guard", () => {
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const ce = g.edges.find((e) => e.kind === "collapse");
+    expect(ce?.guards?.some((gd) => gd.id === "flatten_info" && gd.severity === "info")).toBe(true);
   });
 
   it("reduce-step edges carry the step kind and a count label", () => {
@@ -45,25 +53,25 @@ describe("buildGraph", () => {
                                      { column: "area", op: "<", value: 9 }] },
       { kind: "drop", columns: ["area"] },
     ];
-    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")).toMatchObject({ kind: "filter", label: "filter (2)" });
     expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "drop", label: "drop (1)" });
   });
 
   it("maps each node to its data-tab fetch strategy", () => {
-    const g = buildGraph([{ kind: "drop", columns: ["area"] }], HIER,
+    const g = buildGraph([{ kind: "drop", columns: ["area"] }], SPINE, PLAN,
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n.table]));
     expect(byId["source"]).toEqual({ via: "at_step", at_step: -1 });
     expect(byId["step:0"]).toEqual({ via: "at_step", at_step: 0 });
-    expect(byId["level:cell"]).toEqual({ via: "level", level: "cell" });
+    expect(byId["grain:experiment/cell"]).toEqual({ via: "grain", grain: "experiment/cell" });
     expect(byId["plot"]).toEqual({ via: "none" });
     expect(byId["stats"]).toEqual({ via: "none" });
   });
 
   it("geom edge per layer into plot; raw reads the last reduce node", () => {
     const steps: ReduceStep[] = [{ kind: "drop", columns: ["area"] }];
-    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "step:0", "plot")).toMatchObject({ kind: "geom", label: "dots" });
   });
 
@@ -73,15 +81,15 @@ describe("buildGraph", () => {
       { geom: "box", level: "experiment" },
       { geom: "box", level: "experiment" },
     ];
-    const g = buildGraph([], HIER, layers, SCHEMA, null);
+    const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toHaveLength(2);
     expect(edge(g, "source", "plot")?.label).toBe("dots");
-    expect(edge(g, "level:experiment", "plot")?.label).toBe("box");
+    expect(edge(g, "grain:experiment", "plot")?.label).toBe("box");
   });
 
   it("skips a geom edge for a level no longer on the spine", () => {
-    const g = buildGraph([], { spine: ["experiment"], fn: {} },
+    const g = buildGraph([], ["experiment"], defaultPlan(["experiment"], {}),
       [{ geom: "dot", level: "cell" }], SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toEqual([{ id: expect.any(String), kind: "geom",
@@ -93,21 +101,20 @@ describe("buildGraph", () => {
       { geom: "dot", level: RAW_LEVEL },
       { geom: "box", level: "experiment" },
     ];
-    const g = buildGraph([], HIER, layers, SCHEMA, { test: "Welch's t-test", describeOnly: false });
-    expect(edge(g, "level:experiment", "stats")).toMatchObject({
+    const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, { test: "Welch's t-test", describeOnly: false });
+    expect(edge(g, "grain:experiment", "stats")).toMatchObject({
       kind: "test", label: "Welch's t-test" });
   });
 
   it("describe-only -> the test edge reads 'describe'", () => {
-    const g = buildGraph([], HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
       { test: null, describeOnly: true });
-    expect(edge(g, "source", "stats")).toMatchObject({ kind: "test", label: "describe" });
+    expect(edge(g, "grain:experiment", "stats")).toMatchObject({ kind: "test", label: "describe" });
   });
 
-  it("nodeIdForLevel: raw -> given raw node (default source); spine level -> its collapse node", () => {
-    expect(nodeIdForLevel(RAW_LEVEL)).toBe("source");
-    expect(nodeIdForLevel(RAW_LEVEL, "step:2")).toBe("step:2");
-    expect(nodeIdForLevel("experiment")).toBe("level:experiment");
+  it("nodeIdForGrain: raw -> given raw node; a grain key -> its grain node", () => {
+    expect(nodeIdForGrain("", "step:2")).toBe("step:2");
+    expect(nodeIdForGrain("experiment/cell", "source")).toBe("grain:experiment/cell");
   });
 
   it("derive and recode are linear single-edge steps", () => {
@@ -115,7 +122,7 @@ describe("buildGraph", () => {
       { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
       { kind: "recode", column: "class_label", map: { negative: "VimentinKO" } },
     ];
-    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const kinds = g.edges.filter((e) => e.kind === "derive" || e.kind === "recode")
       .map((e) => e.kind);
     expect(kinds).toEqual(["derive", "recode"]);
@@ -128,7 +135,7 @@ describe("buildGraph", () => {
       { kind: "grid_complete", by: ["experiment"], column: "tt",
         levels: ["a", "b"], count: true, fill: 0, count_name: "count" },
     ];
-    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "pivot opp" });
     expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "grid tt" });
     const kinds = g.edges.filter((e) => e.kind === "pivot" || e.kind === "grid_complete")
@@ -147,7 +154,7 @@ describe("buildGraph", () => {
     const steps: ReduceStep[] = [
       { kind: "join", on: ["cell_id"], how: "inner", right },
     ];
-    const g = buildGraph(steps, HIER, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const sources = g.nodes.filter((n) => n.kind === "table" && n.id.startsWith("source"));
     expect(sources.length).toBeGreaterThanOrEqual(2);
     const joinNode = "step:0";

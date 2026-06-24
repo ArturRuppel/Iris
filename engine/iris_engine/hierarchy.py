@@ -82,39 +82,61 @@ def _level_table(src: pd.DataFrame, schema: dict, grain: list[str],
     return out.reset_index(drop=True), {**schema, "columns": new_cols}
 
 
+def _grain_key(kept: list[str]) -> str:
+    """Kept dims (already in spine order) joined by '/'; '' = raw."""
+    return "/".join(kept)
+
+
+def default_plan(spine: list[str], fn: dict | None = None) -> list[dict]:
+    """The forced chain as a plan: full-spine prefix chain, finest -> coarsest.
+    Step i keeps the prefix spine[:i] for i = len..1; fn from the finest kept dim."""
+    fn = fn or {}
+    return [{"keep": list(spine[:i]), "fn": fn.get(spine[i - 1], "mean")}
+            for i in range(len(spine), 0, -1)]
+
+
+def materialize_plan(
+    df: pd.DataFrame, schema: dict, plan: list[dict],
+    split_cols: list[str] | None = None,
+) -> dict[str, tuple[pd.DataFrame, dict]]:
+    """General collapse: walk `plan` (ordered steps `{keep, fn}`) from raw. Each
+    step groups the *previous* table by its `keep` dims (+ split) and aggregates
+    with the step's `fn` via `_level_table` — so collapsing stays nested
+    (median-of-medians), the step list is the routing, and a step may drop several
+    dims (a pooled skip) or keep a finer dim while dropping a coarser one (a
+    non-prefix grain). Returns one (df, schema) per step, keyed by grain key
+    (kept dims joined by '/', '' = raw)."""
+    split = [c for c in (split_cols or []) if c in df.columns]
+    raw = df.copy()
+    raw["row_ids"] = [[i] for i in raw["id"].tolist()]
+    grains: dict[str, tuple[pd.DataFrame, dict]] = {RAW: (raw, schema)}
+
+    src, src_schema = raw, schema
+    for step in plan:
+        keep = [c for c in step["keep"] if c in df.columns]
+        if not keep:
+            continue
+        grain = list(dict.fromkeys(keep + split))
+        agg = step.get("fn") if step.get("fn") in _AGG else "mean"
+        tbl = _level_table(src, src_schema, grain, agg)
+        grains[_grain_key(keep)] = tbl
+        src, src_schema = tbl
+    return grains
+
+
 def materialize_levels(
     df: pd.DataFrame, schema: dict, spine: list[str],
     fn: dict[str, str] | None = None, split_cols: list[str] | None = None,
 ) -> tuple[dict[str, tuple[pd.DataFrame, dict]], list[str]]:
-    """All level tables, keyed by level name. `RAW` ("") is the unaggregated
-    reduced frame; each spine column maps to its prefix grain. `split_cols`
-    (the qualifiers a figure compares/colours/facets by) are always retained in
-    the grain so a coarse level can still be split horizontally — without them a
-    coarse table would have averaged the comparison away.
-
-    Tables are built **finest → coarsest**: each level aggregates the table of
-    the next-finer level (the finest aggregates RAW), so collapsing is sequential
-    — a coarse value summarizes the finer summaries (median-of-medians, each
-    child equally weighted), not a pool of raw leaves.
-
-    Returns (levels, present_spine)."""
-    fn = fn or {}
-    split = [c for c in (split_cols or []) if c in df.columns]
+    """The forced finest -> coarsest chain, kept for callers that key levels by a
+    single spine-column name. Thin adapter over `materialize_plan` + the default
+    plan."""
     present = spine_present(df, spine)
-
-    raw = df.copy()
-    raw["row_ids"] = [[i] for i in raw["id"].tolist()]
-    levels: dict[str, tuple[pd.DataFrame, dict]] = {RAW: (raw, schema)}
-
-    src, src_schema = raw, schema
-    for i in range(len(present) - 1, -1, -1):   # finest → coarsest, nesting upward
-        # dict.fromkeys dedupes split against the prefix *and* against itself, so a
-        # column used for several encodings can't land in the grain twice (which
-        # would make reset_index fail to re-insert a duplicated index level).
-        grain = list(dict.fromkeys(present[: i + 1] + split))
-        tbl = _level_table(src, src_schema, grain, fn.get(present[i], "mean"))
-        levels[present[i]] = tbl
-        src, src_schema = tbl   # the next (coarser) level nests on this one
+    grains = materialize_plan(df, schema, default_plan(present, fn or {}), split_cols)
+    levels: dict[str, tuple[pd.DataFrame, dict]] = {}
+    for key, tbl in grains.items():
+        kept = key.split("/") if key else []
+        levels[kept[-1] if kept else RAW] = tbl
     return levels, present
 
 
@@ -262,3 +284,83 @@ def pairing(df: pd.DataFrame, spine: list[str], qualifier: str | None,
     return {"qualifier": qualifier, "verdict": verdict, "across": across,
             "unit_cols": list(unit_cols), "n_units": n_units,
             "n_complete": n_complete, "levels": sorted(map(str, qlevels))}
+
+
+def _coarsest_grain(grains) -> str:
+    """The grain with the fewest kept dims, excluding raw ('' is the finest, not
+    the coarsest, so it only wins when it is the only node). `grains` is any
+    iterable of grain keys (a dict or a list)."""
+    non_raw = [k for k in grains if k]
+    return min(non_raw, key=lambda k: len(k.split("/"))) if non_raw else RAW
+
+
+def pseudoreplication(df: pd.DataFrame, plan: list[dict], test_grain: str) -> dict:
+    """#1: the test reads a grain finer than the coarsest available node, so its
+    units are nested in a coarser one (correlated measurements treated as
+    independent). n at a grain is its distinct-group count — path-independent, so
+    we count directly with groupby (no aggregation, no schema, so string spine
+    columns can't trip an aggregate). Returns the risk flag, n at the chosen vs
+    coarsest grain, and the coarsest grain key — enough to name the safer option."""
+    keys = [RAW] + [_grain_key([c for c in s["keep"] if c in df.columns]) for s in plan]
+
+    def n_for(key: str) -> int:
+        dims = [d for d in key.split("/") if d in df.columns] if key else []
+        return int(df.groupby(dims, observed=True).ngroups) if dims else int(len(df))
+
+    coarsest = _coarsest_grain(keys)
+    return {"risk": test_grain != coarsest,
+            "n_test": n_for(test_grain),
+            "n_coarsest": n_for(coarsest),
+            "coarsest_grain": coarsest}
+
+
+def _grain_inferential_level(grain: str) -> str:
+    return grain.split("/")[-1] if grain else RAW
+
+
+def pairing_flip(df: pd.DataFrame, spine: list[str], qualifier: str | None,
+                 default_grain: str, chosen_grain: str) -> dict:
+    """#2: re-routing/retargeting can change the pairing verdict (derived from the
+    spine + the inferential grain). Run `pairing` at the default grain and the
+    chosen grain; report whether the verdict changed."""
+    def verdict(grain: str):
+        p = pairing(df, spine, qualifier,
+                    inferential_level=_grain_inferential_level(grain))
+        return p["verdict"] if p else None
+    frm, to = verdict(default_grain), verdict(chosen_grain)
+    chosen = pairing(df, spine, qualifier,
+                     inferential_level=_grain_inferential_level(chosen_grain))
+    return {"flipped": frm is not None and to is not None and frm != to,
+            "from": frm, "to": to, "across": (chosen or {}).get("across")}
+
+
+def identity_merge(df: pd.DataFrame, schema: dict, spine: list[str],
+                   plan: list[dict]) -> list[dict]:
+    """#4: dropping a dim D merges distinct units ONLY when a KEPT dim finer than
+    D is an `identifier` (its labels may repeat across D) and loses distinctness.
+    Numeric/coordinate kept dims never trigger it; dropping a dim with no finer
+    kept identifier (the default chain, or pooling with nothing finer kept) is
+    exempt. Detection is exact: distinct count of (kept identifiers) with vs
+    without D."""
+    types = {c["name"]: c["type"] for c in schema["columns"]}
+    present = spine_present(df, spine)
+    pos = {d: i for i, d in enumerate(present)}
+    merges: list[dict] = []
+    prev = list(present)            # raw carries the full spine identity
+    for step in plan:
+        keep = [c for c in step["keep"] if c in present]
+        removed = [d for d in prev if d not in keep]
+        kept_ids = [d for d in keep if types.get(d) == "identifier"]
+        for dim in removed:
+            if dim not in pos:
+                continue
+            finer_kept_ids = [c for c in kept_ids if pos[c] > pos[dim]]
+            if not finer_kept_ids:
+                continue            # nothing finer kept -> intentional pooling
+            before = df.groupby(kept_ids + [dim], observed=True).ngroups
+            after = df.groupby(kept_ids, observed=True).ngroups
+            if after < before:
+                merges.append({"dim": dim, "kept": kept_ids,
+                               "before": int(before), "after": int(after)})
+        prev = keep
+    return merges

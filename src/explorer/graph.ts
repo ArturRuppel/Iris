@@ -1,5 +1,6 @@
-import type { Hierarchy, Layer, ReduceStep, Schema } from "../types";
+import type { CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema } from "../types";
 import { RAW_LEVEL } from "../types";
+import { grainKey, planGrains } from "../collapse";
 
 /* Nodes are DATA (a table at some grain, or a terminal plot/stats output);
    edges are TRANSFORMATIONS (filter/drop/collapse between tables, geom into the
@@ -14,6 +15,7 @@ export type EdgeKind =
 export type NodeTable =
   | { via: "at_step"; at_step: number }
   | { via: "level"; level: string }
+  | { via: "grain"; grain: string }
   | { via: "none" };
 
 export interface NodeCount { rows: number; cols: number }
@@ -32,6 +34,7 @@ export interface Edge {
   label: string;
   fromId: string;
   toId: string;
+  guards?: GuardVerdict[];
 }
 
 export interface ExplorerGraph {
@@ -45,14 +48,32 @@ const SOURCE_ID = "source";
 const PLOT_ID = "plot";
 const STATS_ID = "stats";
 const stepId = (i: number) => `step:${i}`;
-const levelId = (level: string) => `level:${level}`;
 
-export function nodeIdForLevel(level: string, rawNodeId: string = SOURCE_ID): string {
-  return level === RAW_LEVEL ? rawNodeId : levelId(level);
+export function nodeIdForGrain(key: string, rawNodeId: string): string {
+  return key === "" ? rawNodeId : `grain:${key}`;
 }
 
 const labelForCol = (schema: Schema | null, name: string): string =>
   schema?.columns.find((c) => c.name === name)?.label ?? name;
+
+const labelForGrain = (schema: Schema | null, kept: string[]): string =>
+  kept.length === 1 ? `per ${labelForCol(schema, kept[0])}`
+    : `per ${kept.map((d) => labelForCol(schema, d)).join(" × ")}`;
+
+/* white #3: what this step pools, from the dims it removed. */
+const flattenInfo = (schema: Schema | null, fn: string, removed: string[], kept: string[]): GuardVerdict => ({
+  id: "flatten_info", severity: "info",
+  text: `${fn} over ${removed.map((d) => labelForCol(schema, d)).join(", ") || "—"}; ` +
+        (kept.length ? `grouped per ${kept.map((d) => labelForCol(schema, d)).join(" × ")}` : "one value overall"),
+});
+
+/* the grain node a layer's `level` (a single spine dim, or RAW) maps to: the plan
+   step whose finest kept dim is that level. null if no such node (skip the edge). */
+function levelGrainNode(level: string, plan: CollapsePlan, rawNodeId: string): string | null {
+  if (level === RAW_LEVEL) return rawNodeId;
+  const step = plan.find((s) => s.keep[s.keep.length - 1] === level);
+  return step ? `grain:${grainKey(step.keep)}` : null;
+}
 
 const STEP_NODE_LABEL: Record<string, string> = {
   filter: "filtered", drop: "dropped", derive: "derived",
@@ -93,7 +114,8 @@ const testLabel = (test: string): string =>
 
 export function buildGraph(
   steps: ReduceStep[],
-  hierarchy: Hierarchy,
+  spine: string[],
+  plan: CollapsePlan,
   layers: Layer[],
   schema: Schema | null,
   stats: StatsInput | null,
@@ -126,41 +148,41 @@ export function buildGraph(
   });
   const rawNodeId = prev;
 
-  const spine = hierarchy.spine;
   let cprev = rawNodeId;
-  for (let i = spine.length - 1; i >= 0; i--) {
-    const level = spine[i];
-    const id = levelId(level);
-    nodes.push({ id, kind: "table", label: `per ${labelForCol(schema, level)}`,
-      table: { via: "level", level } });
+  let prevKeep: string[] = spine;            // raw carries the full spine identity
+  for (const step of plan) {
+    const kept = step.keep.filter((d) => spine.includes(d));
+    const key = grainKey(kept);
+    const id = `grain:${key}`;
+    const removed = prevKeep.filter((d) => !kept.includes(d));
+    nodes.push({ id, kind: "table", label: labelForGrain(schema, kept),
+      table: { via: "grain", grain: key } });
     edges.push({ id: `e:${cprev}->${id}`, kind: "collapse", label: "collapse",
-      fromId: cprev, toId: id });
+      fromId: cprev, toId: id, guards: [flattenInfo(schema, step.fn, removed, kept)] });
     cprev = id;
+    prevKeep = kept;
   }
 
   nodes.push({ id: PLOT_ID, kind: "plot", label: "Plot", table: { via: "none" } });
   nodes.push({ id: STATS_ID, kind: "stats", label: "Stats", table: { via: "none" } });
 
-  const spineSet = new Set(spine);
   const seenGeom = new Set<string>();
   for (const layer of layers) {
-    const level = layer.level;
-    if (level !== RAW_LEVEL && !spineSet.has(level)) continue;
-    const fromId = nodeIdForLevel(level, rawNodeId);
+    const fromId = levelGrainNode(layer.level, plan, rawNodeId);
+    if (!fromId) continue;
     const label = geomLabel(layer.geom);
-    const key = `${fromId}:${label}`;
-    if (seenGeom.has(key)) continue;
-    seenGeom.add(key);
-    edges.push({ id: `g:${key}`, kind: "geom", label, fromId, toId: PLOT_ID });
+    const k = `${fromId}:${label}`;
+    if (seenGeom.has(k)) continue;
+    seenGeom.add(k);
+    edges.push({ id: `g:${k}`, kind: "geom", label, fromId, toId: PLOT_ID });
   }
   if (seenGeom.size === 0) {
     edges.push({ id: "g:plain", kind: "geom", label: "plotted", fromId: rawNodeId, toId: PLOT_ID });
   }
 
-  const boundIdx = layers
-    .map((l) => spine.indexOf(l.level))
-    .filter((i) => i >= 0);
-  const testFromId = boundIdx.length ? levelId(spine[Math.min(...boundIdx)]) : rawNodeId;
+  const grainsList = planGrains(plan);            // ["", ...keys]
+  const coarsest = grainsList[grainsList.length - 1] ?? "";
+  const testFromId = nodeIdForGrain(coarsest, rawNodeId);
   edges.push({ id: "t:test", kind: "test",
     label: stats?.describeOnly ? "describe" : (stats?.test ? testLabel(stats.test) : "describe"),
     fromId: testFromId, toId: STATS_ID });

@@ -336,3 +336,41 @@ def test_summary_error_from_level_spread():
     s = compiler.stats_mod._summary("A", np.array(a_means))
     assert s["n"] == 2
     assert abs(s["sd"] - np.std([1.0, 4.0], ddof=1)) < 1e-9
+
+
+# --------------------------------------------------------------------------- #
+# materialize_plan (un-forcing the nesting)
+# --------------------------------------------------------------------------- #
+
+def test_default_plan_shape():
+    assert hierarchy.default_plan(["subject", "rep"], {"rep": "median"}) == [
+        {"keep": ["subject", "rep"], "fn": "median"},
+        {"keep": ["subject"], "fn": "mean"},
+    ]
+
+def test_default_plan_matches_materialize_levels():
+    """The default plan reproduces materialize_levels exactly (the regression
+    pin): same grains, same row counts."""
+    df = _unpaired_df()
+    grains = hierarchy.materialize_plan(
+        df, _schema(), hierarchy.default_plan(SPINE, {}), ["group"])
+    levels, _ = hierarchy.materialize_levels(df, _schema(), SPINE, {}, ["group"])
+    assert set(grains) == {"", "subject/rep", "subject"}
+    assert len(grains["subject"][0]) == len(levels["subject"][0])
+    assert len(grains["subject/rep"][0]) == len(levels["rep"][0])
+
+def test_plan_skip_pools_two_dims_in_one_step():
+    """A step that keeps only [subject] from raw pools every raw row by subject."""
+    df = _unpaired_df()
+    grains = hierarchy.materialize_plan(
+        df, _schema(), [{"keep": ["subject"], "fn": "mean"}], ["group"])
+    assert set(grains) == {"", "subject"}
+    assert len(grains["subject"][0]) == df["subject"].nunique()
+
+def test_plan_non_prefix_grain():
+    """Keep the finer dim, drop the coarser: a non-prefix grain."""
+    df = _unpaired_df()
+    grains = hierarchy.materialize_plan(
+        df, _schema(), [{"keep": ["rep"], "fn": "mean"}], [])
+    assert set(grains) == {"", "rep"}
+    assert len(grains["rep"][0]) == df["rep"].nunique()

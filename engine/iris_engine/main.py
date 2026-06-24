@@ -78,6 +78,10 @@ class ReduceRequest(BaseModel):
     # -1 means the raw table before any step. Drives the explorer data tab. Takes
     # precedence over `level` (flatten-level inspection is a separate node kind).
     at_step: int | None = None
+    # un-forcing the nesting: fetch an arbitrary collapse grain by key (kept dims
+    # joined by '/'). Takes precedence over `level` when both are set.
+    collapse: list[dict] | None = None
+    grain: str | None = None
 
 
 class ShapeCountsRequest(BaseModel):
@@ -85,6 +89,12 @@ class ShapeCountsRequest(BaseModel):
     table_token: str | None = None
     steps: list[dict] = []
     hierarchy: dict | None = None
+    # un-forcing the nesting: the per-analysis plan (grain-list), chosen test
+    # grain, and the comparison qualifier (for the pairing-flip guard). Absent
+    # collapse -> default chain.
+    collapse: list[dict] | None = None
+    test_grain: str | None = None
+    qualifier: str | None = None
 
 
 class TablePutRequest(BaseModel):
@@ -518,6 +528,16 @@ def reduce_preview(req: ReduceRequest):
         levels, _ = hierarchy.materialize_levels(
             out, sch, spine, (req.hierarchy or {}).get("fn"), [])
         out, sch = hierarchy.resolve_level(levels, req.level)
+    if req.at_step is None and req.collapse is not None and req.grain is not None and spine:
+        # materialize_plan needs the `id` provenance column; a session table
+        # carries one, but a caller-supplied raw table may not — inject it (same
+        # idiom as /table) so the grain fetch works either way.
+        if "id" not in out.columns:
+            out = out.copy()
+            out.insert(0, "id", [str(i + 1) for i in range(len(out))])
+        gmats = hierarchy.materialize_plan(out, sch, req.collapse, [])
+        if req.grain in gmats:
+            out, sch = gmats[req.grain]
     out = out.drop(columns=["row_ids"], errors="ignore")
     return {"preview": _to_table(out.head(PREVIEW_CAP), sch),
             "n_total": int(len(out)),
@@ -570,7 +590,24 @@ def shape_counts(req: ShapeCountsRequest):
         for lvl in spine:
             lout, _lsch = hierarchy.resolve_level(levels, lvl)
             levels_out[lvl] = {"rows": int(len(lout)), "cols": _cols(lout)}
-    return {"source": out_source, "steps": steps_counts, "levels": levels_out}
+    # grain-keyed counts + guards for the routing graph (un-forcing the nesting)
+    present = hierarchy.spine_present(full, (req.hierarchy or {}).get("spine") or [])
+    plan = req.collapse or hierarchy.default_plan(present, (req.hierarchy or {}).get("fn") or {})
+    grains: dict[str, dict] = {}
+    guards: dict = {"pseudoreplication": None, "pairing_flip": None, "identity_merge": []}
+    if present:
+        gmats = hierarchy.materialize_plan(full, full_sch, plan, [])
+        for key, (gdf, _gsch) in gmats.items():
+            grains[key] = {"rows": int(len(gdf)), "cols": _cols(gdf)}
+        coarsest = hierarchy._coarsest_grain(gmats)
+        test_grain = req.test_grain if req.test_grain is not None else coarsest
+        guards["pseudoreplication"] = hierarchy.pseudoreplication(full, plan, test_grain)
+        guards["identity_merge"] = hierarchy.identity_merge(full, full_sch, present, plan)
+        if req.qualifier:
+            guards["pairing_flip"] = hierarchy.pairing_flip(
+                full, present, req.qualifier, coarsest, test_grain)
+    return {"source": out_source, "steps": steps_counts,
+            "levels": levels_out, "grains": grains, "guards": guards}
 
 
 @app.post("/hierarchy")

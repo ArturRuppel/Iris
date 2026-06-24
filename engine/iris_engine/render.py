@@ -157,14 +157,28 @@ def render(table: dict, spec: dict, *, memo=None):
         # rows, so the spineless path is unchanged.
         layer_levels = [layer.get("level", hierarchy.RAW)
                         for layer in spec.get("layers", [])]
-        inf_level = hierarchy.coarsest_level(present_spine, layer_levels)
+        # An explicit per-analysis collapse plan + chosen test grain (the
+        # un-forced-nesting path) override the derived grain: the test runs at
+        # the grain the user picked, materialized by the plan. Absent both, this
+        # is byte-for-byte the historical coarsest-level / level_tables route.
+        plan = spec.get("collapse")
+        grains = (hierarchy.materialize_plan(df, schema, plan, split_cols)
+                  if plan else None)
+        test_grain = spec.get("test_grain")
+        if test_grain is not None:
+            inf_level = test_grain.split("/")[-1] if test_grain else hierarchy.RAW
+        else:
+            inf_level = hierarchy.coarsest_level(present_spine, layer_levels)
         model["inferential_level"] = inf_level
         # Pairing follows from the spine AND the grain the test runs at: a
         # classifier nested in each replicate is unpaired among raw cells but
         # paired by replicate once summarized to the inferential block.
         model["pairing"] = hierarchy.pairing(
             df, present_spine, cat_col, inferential_level=inf_level)
-        stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
+        if grains is not None and test_grain in grains:
+            stat_df, _ = grains[test_grain]
+        else:
+            stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
         levels = cat_schema.get("levels", [])
         if describe_only:
             # faceted / describe-only: no inferential test, for either family.

@@ -41,3 +41,43 @@ def test_shape_counts_no_spine_no_levels():
     assert r.json()["levels"] == {}
     assert r.json()["steps"] == []
     assert r.json()["source"]["rows"] == 18
+
+
+def _table():
+    cols = ["experiment", "field", "cell", "frame", "area"]
+    rows = []
+    for e in ("e1", "e2", "e3"):
+        for f in ("f1", "f2"):
+            for c in range(4):
+                for fr in range(5):
+                    rows.append([e, f, c, fr, float(len(rows))])
+    return {"schema": {"schema_version": "1.0", "columns": [
+                {"name": "experiment", "type": "identifier", "label": "Experiment"},
+                {"name": "field", "type": "identifier", "label": "Field"},
+                {"name": "cell", "type": "identifier", "label": "Cell"},
+                {"name": "frame", "type": "numeric", "label": "Frame"},
+                {"name": "area", "type": "numeric", "label": "Area"}]},
+            "rows": [dict(zip(cols, r)) for r in rows]}
+
+SPINE = ["experiment", "field", "cell", "frame"]
+
+def _default_plan():
+    return [{"keep": SPINE[:i], "fn": "median"} for i in range(len(SPINE), 0, -1)]
+
+def test_shape_counts_keys_collapse_nodes_by_grain():
+    body = {"table": _table(), "steps": [],
+            "hierarchy": {"spine": SPINE, "fn": {}},
+            "collapse": _default_plan(), "test_grain": "experiment", "qualifier": None}
+    r = client.post("/shape_counts", json=body)
+    assert r.status_code == 200
+    grains = r.json()["grains"]
+    assert grains["experiment"]["rows"] == 3
+    assert grains["experiment/field/cell"]["rows"] == 24
+
+def test_shape_counts_returns_guards():
+    body = {"table": _table(), "steps": [],
+            "hierarchy": {"spine": SPINE, "fn": {}},
+            "collapse": _default_plan(), "test_grain": "", "qualifier": None}
+    g = client.post("/shape_counts", json=body).json()["guards"]
+    assert g["pseudoreplication"]["risk"] is True
+    assert g["identity_merge"] == []

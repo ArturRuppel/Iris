@@ -7,6 +7,7 @@ import { HierarchyPanel } from "./components/HierarchyPanel";
 import { FigurePane } from "./components/FigurePane";
 import { ImportWizard } from "./components/ImportWizard";
 import { LayerRail } from "./components/LayerRail";
+import { CollapseRoutingPanel } from "./components/CollapseRoutingPanel";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { DataTab } from "./components/DataTab";
 import { TransformExplorer } from "./components/TransformExplorer";
@@ -20,10 +21,10 @@ import {
   hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
-  touchAnalysisAtom, viewModeAtom,
+  touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
-import { shapeCountsAtom } from "./explorer/graphAtom";
+import { shapeCountsAtom, guardsAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
@@ -230,23 +231,41 @@ export default function App() {
      surface it, so a failed count never blocks or alarms. Mirrors the preview
      effect's deps + debounce. */
   const setShapeCounts = useSetAtom(shapeCountsAtom);
+  const setGuards = useSetAtom(guardsAtom);
+  const collapsePlan = useAtomValue(effectivePlanAtom);
+  const testGrain = useAtomValue(effectiveTestGrainAtom);
+  /* the grouping column the pairing-flip guard reads — the SAME column the test
+     pairs on (render's `cat_col`: x, unless x is numeric, then y), falling back to
+     color; null when unmapped. Sending `color` alone missed the common SuperPlot
+     (groups on x, color unset), leaving guard #2 inert. */
+  const xIsNumeric = effectiveSchema?.columns
+    .find((c) => c.name === mappings.x)?.type === "numeric";
+  const qualifier = (xIsNumeric ? mappings.y : mappings.x) || active?.color || null;
+  const collapseKey = JSON.stringify([collapsePlan, testGrain, qualifier]);
   useEffect(() => {
     if (!handle || !active) return;
     window.clearTimeout(shapeTimer.current);
     const steps = active.reduce.steps;
     shapeTimer.current = window.setTimeout(async () => {
       try {
-        const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy);
+        const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy,
+          { collapse: collapsePlan, test_grain: testGrain, qualifier });
         const counts: Record<string, { rows: number; cols: number }> = { source: sc.source };
         sc.steps.forEach((c, i) => { counts[`step:${i}`] = c; });
-        for (const [lvl, c] of Object.entries(sc.levels)) counts[`level:${lvl}`] = c;
+        /* grain-keyed counts map onto the graph's `grain:<key>` nodes. The raw
+           grain ("") is the source/last-step node, already counted above. */
+        for (const [key, c] of Object.entries(sc.grains ?? {})) {
+          if (key !== "") counts[`grain:${key}`] = c;
+        }
         setShapeCounts(counts);
+        setGuards(sc.guards ?? null);
       } catch {
         setShapeCounts(null);
+        setGuards(null);
       }
     }, 200);
     return () => window.clearTimeout(shapeTimer.current);
-  }, [handle?.id, handle?.version, stepsKey, activeId]);
+  }, [handle?.id, handle?.version, stepsKey, activeId, collapseKey]);
 
   /* clear the explorer's selected node when the active analysis changes, so a
      node id from a different analysis never drives the wrong data tab. */
@@ -465,6 +484,7 @@ export default function App() {
           <div className="analyses-mode">
             <PlottableSidebar />
             <LayerRail />
+            <CollapseRoutingPanel />
             <div className="iris">
               <Section title="Table" defaultOpen><DataTab /></Section>
               <Section title="Figure" defaultOpen id="section-figure"><FigurePane /></Section>
