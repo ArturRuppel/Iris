@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls,
   useNodesState, useEdgesState,
@@ -32,11 +32,42 @@ function toRF(graph: ExplorerGraph): { nodes: Node[]; edges: RFEdge[] } {
 function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose: () => void }) {
   const initial = useMemo(() => toRF(graph), [graph]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
-  const [edges, , onEdgesChange] = useEdgesState(initial.edges);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
-  // re-flow when the graph changes structurally; "tidy" reuses the same reset.
-  const tidy = useCallback(() => setNodes(toRF(graph).nodes), [graph, setNodes]);
-  useEffect(() => { setNodes(toRF(graph).nodes); }, [graph, setNodes]);
+  // the structural identity of the graph: the SET of node + edge ids. Layout
+  // (positions) is recomputed only when this changes — not on every
+  // explorerGraphAtom recompute (those fire on each /shape_counts result and
+  // would otherwise clobber user-dragged positions).
+  const structureKey = useMemo(
+    () => graph.nodes.map((n) => n.id).join(",") + "|" + graph.edges.map((e) => e.id).join(","),
+    [graph],
+  );
+  const lastStructure = useRef<string>("");
+
+  useEffect(() => {
+    const rf = toRF(graph);
+    if (structureKey !== lastStructure.current) {
+      // structure changed (step/grain/terminal/annotate added or removed):
+      // full re-layout with fresh positions.
+      lastStructure.current = structureKey;
+      setNodes(rf.nodes);
+      setEdges(rf.edges);
+    } else {
+      // same structure, data-only change (counts, guard verdicts, labels):
+      // update data in place, preserving any positions the user dragged.
+      const nd = new Map(rf.nodes.map((n) => [n.id, n.data]));
+      const ed = new Map(rf.edges.map((e) => [e.id, e.data]));
+      setNodes((cur) => cur.map((n) => ({ ...n, data: nd.get(n.id) ?? n.data })));
+      setEdges((cur) => cur.map((e) => ({ ...e, data: ed.get(e.id) ?? e.data })));
+    }
+  }, [graph, structureKey, setNodes, setEdges]);
+
+  // "tidy" re-layouts from scratch, discarding dragged positions.
+  const tidy = useCallback(() => {
+    const rf = toRF(graph);
+    setNodes(rf.nodes);
+    setEdges(rf.edges);
+  }, [graph, setNodes, setEdges]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };

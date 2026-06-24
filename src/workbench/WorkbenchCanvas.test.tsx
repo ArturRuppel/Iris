@@ -29,4 +29,17 @@ describe("WorkbenchCanvas", () => {
     fireEvent.click(screen.getByRole("button", { name: /close/i }));
     expect(closed).toBe(true);
   });
+
+  it("re-flows when the graph structure changes (adds a node)", () => {
+    const { container, rerender } = render(<WorkbenchCanvas graph={graph} onClose={() => {}} />);
+    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
+    const bigger: ExplorerGraph = {
+      nodes: [...graph.nodes,
+        { id: "step:1", kind: "table", label: "derived", table: { via: "at_step", at_step: 1 } }],
+      edges: [...graph.edges,
+        { id: "e1", kind: "derive", label: "x = 1", fromId: "step:0", toId: "step:1" }],
+    };
+    rerender(<WorkbenchCanvas graph={bigger} onClose={() => {}} />);
+    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(4);
+  });
 });
