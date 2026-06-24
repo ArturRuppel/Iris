@@ -11,10 +11,10 @@ import type { GuardVerdict } from "../types";
 const EDGE_COLOR: Record<EdgeKind, string> = {
   filter: "#e11d48", drop: "#d97706", derive: "#16a34a", recode: "#ca8a04", join: "#0891b2",
   pivot: "#0d9488", grid_complete: "#9333ea",
-  collapse: "#7c3aed", geom: "#0e7490", test: "#4f46e5",
+  collapse: "#7c3aed", geom: "#0e7490", test: "#4f46e5", annotate: "#be185d",
 };
 const EDGE_KINDS: EdgeKind[] = ["filter", "drop", "derive", "recode", "join",
-  "pivot", "grid_complete", "collapse", "geom", "test"];
+  "pivot", "grid_complete", "collapse", "geom", "test", "annotate"];
 
 /* A laid-out edge: its `d` path, its color, and the label + label position. */
 interface DrawnEdge {

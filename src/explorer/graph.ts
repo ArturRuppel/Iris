@@ -10,7 +10,7 @@ export type NodeKind = "table" | "plot" | "stats";
 export type EdgeKind =
   | "filter" | "drop" | "derive" | "recode" | "join"
   | "pivot" | "grid_complete"
-  | "collapse" | "geom" | "test";
+  | "collapse" | "geom" | "test" | "annotate";
 
 export type NodeTable =
   | { via: "at_step"; at_step: number }
@@ -48,7 +48,7 @@ export interface ExplorerGraph {
   edges: Edge[];
 }
 
-export interface StatsInput { test: string | null; describeOnly: boolean }
+export interface StatsInput { test: string | null; describeOnly: boolean; annotate?: boolean }
 
 const SOURCE_ID = "source";
 const PLOT_ID = "plot";
@@ -268,6 +268,15 @@ export function buildGraph(
   edges.push({ id: "t:test", kind: "test",
     label: stats?.describeOnly ? "describe" : (stats?.test ? testLabel(stats.test) : "describe"),
     fromId: testFromId, toId: STATS_ID });
+
+  // the stats result drawn back onto the figure as significance brackets: an edge
+  // because it CONSUMES the stats node's output (test -> comparisons -> brackets).
+  // Emitted only when a real test runs (not describe-only) and the analysis has
+  // significance annotation enabled. The plot node thereby gains a second input.
+  if (stats && !stats.describeOnly && stats.annotate) {
+    edges.push({ id: "a:annotate", kind: "annotate", label: "significance",
+      fromId: STATS_ID, toId: PLOT_ID });
+  }
 
   return { nodes, edges };
 }

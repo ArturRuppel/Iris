@@ -217,3 +217,38 @@ describe("buildGraph", () => {
     expect(g.nodes.some((n) => n.id.startsWith("post:"))).toBe(false);
   });
 });
+
+describe("buildGraph: annotate edge (stats -> plot)", () => {
+  it("emits an annotate edge when a test runs and annotation is enabled", () => {
+    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
+      { test: "mann_whitney", describeOnly: false, annotate: true });
+    const a = g.edges.filter((e) => e.kind === "annotate");
+    expect(a).toHaveLength(1);
+    expect(a[0]).toMatchObject({ fromId: "stats", toId: "plot" });
+  });
+
+  it("omits the annotate edge when annotation is disabled", () => {
+    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
+      { test: "mann_whitney", describeOnly: false, annotate: false });
+    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+  });
+
+  it("omits the annotate edge in describe-only mode (no test to bracket)", () => {
+    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
+      { test: null, describeOnly: true, annotate: true });
+    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+  });
+
+  it("omits the annotate edge when stats input is null", () => {
+    const g = buildGraph([], SPINE, PLAN, [], SCHEMA, null);
+    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+  });
+
+  it("the plot node then has two inbound edges: geom and annotate", () => {
+    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
+      { test: "mann_whitney", describeOnly: false, annotate: true });
+    const intoPlot = g.edges.filter((e) => e.toId === "plot");
+    expect(intoPlot.some((e) => e.kind === "geom")).toBe(true);
+    expect(intoPlot.some((e) => e.kind === "annotate")).toBe(true);
+  });
+});
