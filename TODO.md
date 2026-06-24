@@ -54,10 +54,17 @@ expression-valued `filter` — are on `main`, as is the arbitrary-grain collapse
 machinery (C1's basis) and the pseudoreplication / pairing-flip / identity-merge
 guards (C3's basis), landed via the un-forced-nesting work. Spec + plan:
 [Tier B/C spec](docs/superpowers/specs/2026-06-24-cov2d-absorption-tier-b-c-design.md),
-[plan](docs/superpowers/plans/2026-06-24-cov2d-absorption-tier-b-c.md). **Deferred
-part 2:** B1/B3 end-to-end composition, the C3 post-aggregate-`derive` guard
-wiring, and the §3/§4/§5 figure-assembly equivalence tests against the notebook's
-`replicate_spearman` / `write_t1_rate_iris` numbers.
+[plan](docs/superpowers/plans/2026-06-24-cov2d-absorption-tier-b-c.md). **Part 2 —
+§3/§4/§5 figure assembly** is now spec'd + planned
+([spec](docs/superpowers/specs/2026-06-24-cov2d-absorption-part-2-design.md),
+[plan](docs/superpowers/plans/2026-06-24-cov2d-absorption-part-2.md)) and
+unblocked. Its one engine addition is a **post-collapse reduce phase**
+(`reduce.post`) — running derive/join/pivot at a chosen grain — since the pipeline
+is strictly `reduce → collapse → stat` today; plus the C3 post-aggregate-`derive`
+caution guard. §5 (T1 rates + landscape) is the free win: fully expressible on
+already-landed nodes. The one open risk is §4A's replicate-level correlation
+(per-`experiment` Spearman → Fisher-z → one-sample t), which may need a small
+`correlation`-family extension rather than pure composition.
 
 **Tier D — out by nature; do NOT absorb.** Upstream of the tidy table, or outside
 the SuperPlot+test model; absorbing them would break "spec is data, not code" /
