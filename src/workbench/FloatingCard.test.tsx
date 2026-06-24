@@ -4,8 +4,11 @@ import { createStore, Provider } from "jotai";
 import { FloatingCard } from "./FloatingCard";
 import { cardsAtom, type Card } from "./state";
 
-// the shell tests use a STILL-STUBBED kind (`table`) so they exercise FloatingCard
-// in isolation, decoupled from whichever kinds have real, atom-bound bodies wired.
+// the shell tests use the `table` kind because its body (TableCard) has an
+// atom-light fallback: with an empty store, explorerGraphAtom is null so the
+// node isn't found and it renders a stable `data-testid="table-card"` notice.
+// That keeps FloatingCard exercised in isolation, decoupled from the atom-heavy
+// real bodies. (After Phase 4b there are no stub kinds left to lean on.)
 const makeCard = (over: Partial<Card> = {}): Card => ({
   id: "node:source", target: { kind: "node", id: "source" }, cardKind: "table",
   x: 40, y: 50, w: 360, h: 260, collapsed: false, ...over,
@@ -25,10 +28,9 @@ function mount(card: Card) {
 describe("FloatingCard", () => {
   it("renders the card title and the registry body for its kind", () => {
     mount(makeCard());
-    // title is scoped to the bar so it does not collide with the stub body
-    // (`table — node:source`), which also matches /table/i for this card.
+    // title is scoped to the bar so it does not collide with the body text.
     expect(within(screen.getByTestId("card-bar")).getByText(/table/i)).toBeInTheDocument();
-    expect(screen.getByTestId("card-stub").dataset.cardKind).toBe("table");
+    expect(screen.getByTestId("table-card")).toBeInTheDocument();
   });
 
   it("positions itself from the card geometry", () => {
@@ -47,7 +49,7 @@ describe("FloatingCard", () => {
 
   it("collapse button toggles the body off (collapsed in store)", () => {
     const { store } = mount(makeCard());
-    expect(screen.getByTestId("card-stub")).toBeInTheDocument();
+    expect(screen.getByTestId("table-card")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /collapse/i }));
     expect(store.get(cardsAtom)[0].collapsed).toBe(true);
   });
