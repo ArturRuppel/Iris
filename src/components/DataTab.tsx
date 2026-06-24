@@ -74,7 +74,7 @@ export function DataTab() {
   const preview = useAtomValue(reducePreviewAtom);
   const selectedId = useAtomValue(selectedNodeIdAtom);
 
-  /* the same graph TransformExplorer renders, so node ids line up exactly. */
+  /* the same graph the workbench canvas renders, so node ids line up exactly. */
   const graph = useAtomValue(explorerGraphAtom);
 
   /* the selected node, falling back to the plot node (the final reduced table)
