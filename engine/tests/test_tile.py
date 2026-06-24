@@ -43,7 +43,7 @@ TABLE = {"schema": SCHEMA, "rows": ROWS}
 
 def tile_spec(**overrides):
     base = {
-        "spec_version": "2.0",
+        "spec_version": "2.1",
         "id": "tile_test", "title": "Tile test",
         "data": {"filter": []},
         "reduce": {"steps": []},
@@ -56,9 +56,7 @@ def tile_spec(**overrides):
         "layers": [{"geom": "tile", "params": {}}],
         "stats": {
             "family": "contingency", "test": "none",
-            "chosen_by": "describe_only",
-            "alternatives_offered": [], "assumption_checks": [],
-            "alpha": 0.05, "report": [],
+            "describe_only": True, "alpha": 0.05,
         },
         "annotations": {"significance_brackets": "auto", "show_n": False},
         "style": {"preset": "demo_default", "overrides": {}},

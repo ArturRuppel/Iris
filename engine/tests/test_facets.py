@@ -40,7 +40,7 @@ def make_table():
 
 def make_spec(*, facet_row=None, facet_col=None, geom="box"):
     return {
-        "spec_version": "2.0",
+        "spec_version": "2.1",
         "id": "facet_test", "title": "Facet test",
         "data": {"filter": []},
         "reduce": {"steps": []},
@@ -55,10 +55,7 @@ def make_spec(*, facet_row=None, facet_col=None, geom="box"):
         },
         "layers": [{"geom": geom, "params": {}}],
         "stats": {
-            "family": "group_comparison", "test": "welch_t",
-            "chosen_by": "recommendation_accepted",
-            "alternatives_offered": [], "assumption_checks": [],
-            "alpha": 0.05, "report": [],
+            "family": "group_comparison", "test": "welch_t", "alpha": 0.05,
         },
         "annotations": {"significance_brackets": "auto", "show_n": True},
         "style": {"preset": "demo_default", "overrides": {}},

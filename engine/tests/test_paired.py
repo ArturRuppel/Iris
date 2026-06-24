@@ -196,7 +196,7 @@ def _table():
 
 def _spec(spine):
     return {
-        "spec_version": "2.0", "id": "p", "title": "p",
+        "spec_version": "2.1", "id": "p", "title": "p",
         "data": {"filter": []},
         "reduce": {"steps": []},
         "hierarchy": {"spine": spine, "fn": {}},
@@ -204,9 +204,7 @@ def _spec(spine):
                       "color": None, "size": None, "shape": None},
         "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
         "layers": [{"geom": "box", "params": {}}],
-        "stats": {"family": "group_comparison", "test": "none",
-                  "chosen_by": "inferred", "alternatives_offered": [],
-                  "assumption_checks": [], "alpha": 0.05, "report": []},
+        "stats": {"family": "group_comparison", "test": "none", "alpha": 0.05},
         "annotations": {"significance_brackets": "auto", "show_n": False},
         "style": {"preset": "demo_default", "overrides": {}},
         "engine_snapshot": {},

@@ -175,18 +175,19 @@ def _rows(counts):
     return out
 
 
-def _spec(chosen_by, test="none"):
+def _spec(describe_only=False, test="none"):
+    stats = {"family": "contingency", "test": test, "alpha": 0.05}
+    if describe_only:
+        stats["describe_only"] = True
     return {
-        "spec_version": "2.0", "id": "c", "title": "c",
+        "spec_version": "2.1", "id": "c", "title": "c",
         "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {"x": {"column": "treatment"}, "y": {"column": "outcome"},
                       "color": None, "size": None, "shape": None},
         "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
         "layers": [{"geom": "tile", "params": {}}],
-        "stats": {"family": "contingency", "test": test, "chosen_by": chosen_by,
-                  "alternatives_offered": [], "assumption_checks": [],
-                  "alpha": 0.05, "report": []},
+        "stats": stats,
         "annotations": {"significance_brackets": "auto", "show_n": False},
         "style": {"preset": "demo_default", "overrides": {}},
         "engine_snapshot": {},
@@ -195,7 +196,7 @@ def _spec(chosen_by, test="none"):
 
 def test_endpoint_runs_chi_square_and_still_renders():
     table = {"schema": SCHEMA, "rows": _rows([[20, 10], [10, 20]])}
-    r = client.post("/analyze", json={"table": table, "spec": _spec("inferred")})
+    r = client.post("/analyze", json={"table": table, "spec": _spec()})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["stat_model"]["family"] == "contingency"
@@ -206,7 +207,7 @@ def test_endpoint_runs_chi_square_and_still_renders():
 
 def test_endpoint_describe_only_runs_no_test():
     table = {"schema": SCHEMA, "rows": _rows([[20, 10], [10, 20]])}
-    r = client.post("/analyze", json={"table": table, "spec": _spec("describe_only")})
+    r = client.post("/analyze", json={"table": table, "spec": _spec(describe_only=True)})
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["stats"]["result"]["test"] == "none"

@@ -10,8 +10,7 @@ def legacy_spec():
                      "facet": None},
         "layers": [{"mark": "dot", "options": {"jitter": 0.18}},
                    {"mark": "summary", "stat": {"center": "mean", "error": "ci95"}}],
-        "stats": {"family": "group_comparison", "test": "mann_whitney",
-                  "chosen_by": "user_override"},
+        "stats": {"family": "group_comparison", "test": "mann_whitney"},
         "style": {"preset": "demo_default", "overrides": {}},
     }
 
@@ -45,26 +44,30 @@ def test_marks_become_geoms_preserving_order_and_options():
 
 
 def test_carries_the_pinned_test_from_the_override_field():
-    # the decoupled transport: the pin rides in stats.override, independent of the
-    # neutral chosen_by label.
+    # the pin rides in stats.override; the engine honors it via _override.
     spec = legacy_spec()
     spec["stats"] = {"family": "group_comparison", "test": "mann_whitney",
-                     "chosen_by": "recommendation_accepted", "override": "mann_whitney"}
+                     "override": "mann_whitney"}
     out = specnorm.normalize(spec)
     assert out["_override"] == "mann_whitney"
 
 
-def test_carries_the_legacy_user_override_for_inference():
-    # back-compat: pre-decoupling specs encoded the pin as chosen_by == user_override
+def test_no_override_when_override_field_absent():
     out = specnorm.normalize(legacy_spec())
-    assert out["_override"] == "mann_whitney"
-
-
-def test_no_override_when_recommendation_accepted_and_no_override_field():
-    spec = legacy_spec()
-    spec["stats"]["chosen_by"] = "recommendation_accepted"
-    out = specnorm.normalize(spec)
     assert out["_override"] is None
+
+
+def test_describe_only_decision_is_carried():
+    spec = {"spec_version": "2.1", "id": "a", "title": "t",
+            "encodings": {"x": {"column": "treatment"},
+                          "y": {"column": "response"}, "color": None,
+                          "size": None, "shape": None},
+            "layers": [{"geom": "dot", "params": {}, "level": ""}],
+            "stats": {"family": "group_comparison", "test": "welch_t",
+                      "describe_only": True}}
+    assert specnorm.normalize(spec)["_describe_only"] is True
+    spec["stats"].pop("describe_only")
+    assert specnorm.normalize(spec)["_describe_only"] is False
 
 
 def test_legacy_descriptive_drops_x_so_inference_reads_it_right():

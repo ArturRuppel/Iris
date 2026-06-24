@@ -1010,7 +1010,7 @@ def test_describe_only_comparison_renders_without_a_test():
     # ticking "describe only" must render the figure but run no inferential
     # test: no p, no significance bracket, methods text says so
     spec = make_spec()
-    spec["stats"] = {**spec["stats"], "chosen_by": "describe_only"}
+    spec["stats"] = {**spec["stats"], "describe_only": True}
     r = client.post("/analyze", json={"table": make_table(), "spec": spec})
     assert r.status_code == 200
     body = r.json()
@@ -1025,7 +1025,7 @@ def test_describe_only_comparison_renders_without_a_test():
 
 def test_describe_only_correlation_has_no_regression_or_r():
     spec = make_scatter_spec()
-    spec["stats"] = {**spec["stats"], "chosen_by": "describe_only"}
+    spec["stats"] = {**spec["stats"], "describe_only": True}
     r = client.post("/analyze", json={"table": make_scatter_table(), "spec": spec})
     assert r.status_code == 200
     body = r.json()
