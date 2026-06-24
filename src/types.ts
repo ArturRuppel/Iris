@@ -492,8 +492,12 @@ export interface AnalyzeResponse {
    data hierarchy); legacy mappings become encodings; legacy {mark, options|stat}
    layers become {geom, params}. Lossless: the engine does the same normalization
    server-side. */
+/* spec_versions already on the modern encodings/layers shape — returned as-is
+   rather than rebuilt from the legacy `mappings` form. 2.1 only drops optional
+   derived stats fields from 2.0, so both are structurally modern. */
+const MODERN_SPEC_VERSIONS = new Set(["2.0", "2.1"]);
 export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
-  if ((an as { spec_version?: string }).spec_version === "2.1") {
+  if (MODERN_SPEC_VERSIONS.has((an as { spec_version?: string }).spec_version ?? "")) {
     return an as unknown as AnalysisSpec;
   }
   const base = an as Record<string, unknown>;

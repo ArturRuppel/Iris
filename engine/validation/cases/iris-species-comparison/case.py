@@ -26,7 +26,7 @@ arithmetic.
 SCHEMA_OVERRIDES = {}
 
 _SPEC_BASE = {
-    "spec_version": "2.0",
+    "spec_version": "2.1",
     "title": TITLE,
     "data": {"filter": []},
     "encodings": {"x": {"column": "species"},

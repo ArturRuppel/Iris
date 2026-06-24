@@ -66,7 +66,7 @@ def regenerate_data() -> None:
 ANALYSES = [
     {
         "spec": {
-            "spec_version": "2.0",
+            "spec_version": "2.1",
             "title": TITLE,
             "data": {"filter": []},
             "encodings": {"x": {"column": "condition"},
