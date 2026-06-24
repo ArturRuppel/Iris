@@ -14,7 +14,7 @@ const EDGE_COLOR: Record<EdgeKind, string> = {
   collapse: "#7c3aed", geom: "#0e7490", test: "#4f46e5", annotate: "#be185d",
 };
 const EDGE_KINDS: EdgeKind[] = ["filter", "drop", "derive", "recode", "join",
-  "pivot", "grid_complete", "collapse", "geom", "test", "annotate"];
+  "pivot", "grid_complete", "collapse", "geom", "test"];
 
 /* A laid-out edge: its `d` path, its color, and the label + label position. */
 interface DrawnEdge {
@@ -48,6 +48,9 @@ export function TransformExplorer() {
       let belowIdx = 0;  // staggers below-line edges so they don't overlap.
 
       for (const e of graph.edges) {
+        // the stats->plot annotate edge is a back-edge the linear strip can't
+        // represent; the workbench canvas (later phase) draws it. Skip it here.
+        if (e.kind === "annotate") continue;
         const from = nodeRefs.current.get(e.fromId);
         const to = nodeRefs.current.get(e.toId);
         if (!from || !to) continue;
