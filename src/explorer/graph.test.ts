@@ -54,8 +54,8 @@ describe("buildGraph", () => {
       { kind: "drop", columns: ["area"] },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "filter", label: "filter (2)" });
-    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "drop", label: "drop (1)" });
+    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "filter", label: "mask (2 conditions)" });
+    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "drop", label: "drop Area" });
   });
 
   it("maps each node to its data-tab fetch strategy", () => {
@@ -136,11 +136,21 @@ describe("buildGraph", () => {
         levels: ["a", "b"], count: true, fill: 0, count_name: "count" },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "pivot opp" });
-    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "grid tt" });
+    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "unstack opp → {same, opp}" });
+    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "densify Experiment × tt · fill 0" });
     const kinds = g.edges.filter((e) => e.kind === "pivot" || e.kind === "grid_complete")
       .map((e) => e.kind);
     expect(kinds).toEqual(["pivot", "grid_complete"]);
+  });
+
+  it("array-op labels: derive shows the expr, single filter inlines the condition", () => {
+    const steps: ReduceStep[] = [
+      { kind: "filter", conditions: [{ column: "area", op: ">", value: 1 }] },
+      { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
+    ];
+    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    expect(edge(g, "source", "step:0")?.label).toBe("mask: Area > 1");
+    expect(edge(g, "step:0", "step:1")?.label).toBe("q = perimeter / sqrt(area)");
   });
 
   it("a join emits a second source node and two converging join edges", () => {

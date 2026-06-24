@@ -81,15 +81,29 @@ const STEP_NODE_LABEL: Record<string, string> = {
   pivot: "pivoted", grid_complete: "gridded",
 };
 
-function stepEdgeLabel(step: ReduceStep): string {
+const condText = (c: { column: string; op: string; value?: unknown; bound?: string },
+                  schema: Schema | null): string =>
+  `${labelForCol(schema, c.column)} ${c.op} ${c.bound ?? String(c.value ?? "")}`.trim();
+
+function stepEdgeLabel(step: ReduceStep, schema: Schema | null): string {
   switch (step.kind) {
-    case "filter": return `filter (${step.conditions.length})`;
-    case "drop": return `drop (${step.columns.length})`;
-    case "derive": return `derive ${step.column}`;
-    case "recode": return `recode ${step.column}`;
-    case "join": return `join (${step.how})`;
-    case "pivot": return `pivot ${step.column}`;
-    case "grid_complete": return `grid ${step.column}`;
+    case "filter":
+      return step.conditions.length === 1
+        ? `mask: ${condText(step.conditions[0], schema)}`
+        : `mask (${step.conditions.length} conditions)`;
+    case "drop":
+      return `drop ${step.columns.map((c) => labelForCol(schema, c)).join(", ")}`;
+    case "derive":
+      return `${step.column} = ${step.expr}`;
+    case "recode":
+      return `relabel ${labelForCol(schema, step.column)}`;
+    case "join":
+      return `join on ${step.on.join(", ")}`;
+    case "pivot":
+      return `unstack ${labelForCol(schema, step.column)} → {${Object.values(step.names).join(", ")}}`;
+    case "grid_complete":
+      return `densify ${step.by.map((c) => labelForCol(schema, c)).join(" × ")} × ` +
+             `${labelForCol(schema, step.column)} · fill ${step.fill}`;
   }
 }
 
@@ -152,7 +166,7 @@ export function buildGraph(
         fromId: srcId, toId: id });
     } else {
       edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
-        label: stepEdgeLabel(step), fromId: prev, toId: id });
+        label: stepEdgeLabel(step, schema), fromId: prev, toId: id });
     }
     prev = id;
   });
@@ -204,7 +218,7 @@ export function buildGraph(
       label: STEP_NODE_LABEL[step.kind] ?? step.kind, table: { via: "none" } });
     const guards = step.kind === "derive"
       ? [postAggregateDerive(step.column, grainLabel)] : undefined;
-    edges.push({ id: `e:${id}`, kind: step.kind, label: stepEdgeLabel(step),
+    edges.push({ id: `e:${id}`, kind: step.kind, label: stepEdgeLabel(step, schema),
       fromId: testFromId, toId: id, guards });
     testFromId = id;
   });
