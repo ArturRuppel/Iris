@@ -57,9 +57,11 @@ set of COV2D-shaped showcase examples plus an accompanying capstone chapter in
    *References* — the applied finale that builds on the grammar, the tests, and
    nesting.
 
-## The example set — 3 new figures + 1 surfaced
+## The example set — 4 new figures + 1 surfaced
 
-All COV2D-shaped, deterministic, smoke-only.
+All COV2D-shaped, deterministic, smoke-only. (Originally 3 new figures with `pivot`
+deferred to the §4 thread; §4 landed 2026-06-24, so the `pivot` showcase — Figure 5
+— is folded back in.)
 
 ### Figure 1 — §5 event-rate landscape ("the free win")
 - **Capabilities:** `grid_complete` (a `position × transition-type` grid where an
@@ -99,15 +101,19 @@ All COV2D-shaped, deterministic, smoke-only.
   `paired_by_replicate` p-value); keep its real `expected_stats`. Only change: add
   `"cov2d-tier-a"` to `GALLERY_CASES` and use it as the chapter opener.
 
-### Coverage map
-join, recode, grid_complete, expression-filter, derive, reduce.post, routing,
-pseudoreplication / pairing-flip / post-aggregate-derive / identity-merge guards.
+### Figure 5 — `pivot` to a shape factor
+- **Capabilities:** `pivot` (long→wide: per-cell `perimeter`/`area` measurement
+  rows unstacked into two columns) + `derive` (`q = perimeter / sqrt(area)`, a real
+  §4 COV2D shape factor) — the two composed.
+- **Shape:** per-cell measurement records (one row per cell × feature) keyed by
+  experiment/position/cell/class → pivot to one row per cell with `perimeter`,
+  `area` columns → derive `q` → box of `q` by class.
+- **Structural smoke:** `xtick_labels` = the class levels.
 
-### Deferred — `pivot`
-`pivot` (the §4 `opp` long→wide reshape) is the one listed capability whose natural
-home is **§4, which is being executed on a separate thread**. Authoring a competing
-pivot example here risks collision. **Deferred:** add a pivot showcase example + a
-chapter entry once §4 lands. Recorded in `TODO.md`.
+### Coverage map
+join, recode, grid_complete, expression-filter, derive, pivot, reduce.post,
+routing, pseudoreplication / pairing-flip / post-aggregate-derive / identity-merge
+guards — the full new reduce vocabulary.
 
 ## The guide chapter — `# Reshaping real data`
 
@@ -125,13 +131,14 @@ each figure embedded inline. Outline:
 5. **Choosing the unit of inference** (fig 3) — editable routing + the
    pseudoreplication / pairing-flip guards (cross-link to *Experimental design and
    nesting*).
+6. **From long measurements to a shape factor** (fig 5) — `pivot` long→wide +
+   `derive`.
 
 ## Out of scope
 
 - No engine code changes — every capability already exists on `main`.
 - No harness changes — empty expectation dicts ride the existing `validate()` path.
 - No pinned reference numbers for the new examples (smoke-only by decision 1).
-- `pivot` showcase (deferred to the §4 thread).
 
 ## Testing
 
