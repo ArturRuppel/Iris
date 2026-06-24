@@ -7,9 +7,9 @@ export function StepPivot(
   { step: PivotStep; columns: ColumnDef[]; onChange: (s: PivotStep) => void },
 ) {
   const toggleIndex = (name: string) => {
-    const has = step.index.includes(name);
-    onChange({ ...step,
-      index: has ? step.index.filter((c) => c !== name) : [...step.index, name] });
+    const next = new Set(step.index);
+    next.has(name) ? next.delete(name) : next.add(name);
+    onChange({ ...step, index: columns.map((c) => c.name).filter((n) => next.has(n)) });
   };
   const entries = Object.entries(step.names);
   const emitNames = (next: [string, string][]) =>
