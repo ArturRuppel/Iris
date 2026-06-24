@@ -48,3 +48,19 @@ it("(e) changes the count_unique select from none to a column", () => {
   fireEvent.change(screen.getByLabelText(/count unique/i), { target: { value: "cell" } });
   expect(spy).toHaveBeenCalledWith({ ...step, count_unique: "cell" });
 });
+
+it("(f) toggling 'by' yields column order, not click order", () => {
+  const spy = vi.fn();
+  // cols order is [cell, cond, batch]; click batch then cell.
+  const empty: GridCompleteStep = { ...step, by: [] };
+  const first = render(<StepGridComplete step={empty} columns={cols} onChange={spy} />);
+  fireEvent.click(first.getByLabelText("batch"));
+  expect(spy).toHaveBeenLastCalledWith({ ...empty, by: ["batch"] });
+  first.unmount();
+  // Re-render with batch already on, then click cell.
+  spy.mockClear();
+  const withBatch: GridCompleteStep = { ...step, by: ["batch"] };
+  const second = render(<StepGridComplete step={withBatch} columns={cols} onChange={spy} />);
+  fireEvent.click(second.getByLabelText("cell"));
+  expect(spy).toHaveBeenLastCalledWith({ ...withBatch, by: ["cell", "batch"] });
+});

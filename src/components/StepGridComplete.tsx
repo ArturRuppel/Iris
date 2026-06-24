@@ -6,9 +6,9 @@ export function StepGridComplete(
   { step: GridCompleteStep; columns: ColumnDef[]; onChange: (s: GridCompleteStep) => void },
 ) {
   const toggleBy = (name: string) => {
-    const has = step.by.includes(name);
-    onChange({ ...step,
-      by: has ? step.by.filter((c) => c !== name) : [...step.by, name] });
+    const next = new Set(step.by);
+    next.has(name) ? next.delete(name) : next.add(name);
+    onChange({ ...step, by: columns.map((c) => c.name).filter((n) => next.has(n)) });
   };
   return (
     <>
@@ -16,7 +16,7 @@ export function StepGridComplete(
         <span>complete within</span>
         {columns.map((c) => (
           <label key={c.name}>
-            <input type="checkbox" aria-label="complete within"
+            <input type="checkbox" aria-label={c.name}
               checked={step.by.includes(c.name)}
               onChange={() => toggleBy(c.name)} />
             {c.label}
