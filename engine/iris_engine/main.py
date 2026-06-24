@@ -579,6 +579,25 @@ def shape_counts(req: ShapeCountsRequest):
         steps_counts.append({"rows": int(len(out)), "cols": _cols(out),
                              **shape_mod.describe_shape(out, _sch, spine)})
 
+    # per-join right-table descriptor: the join's right input rides inline on the
+    # step (step.right = {schema, rows}); describe its SOURCE shape (its own
+    # identifier columns as the spine) for the binary-join node the UI draws. A
+    # right sub-pipeline (right.reduce/right.collapse) is NOT spelled out here.
+    joins: dict[str, dict] = {}
+    for i, st in enumerate(req.steps):
+        if st.get("kind") != "join":
+            continue
+        rblock = st.get("right") or {}
+        r_rows = rblock.get("rows") or []
+        if not r_rows:
+            continue
+        r_schema = rblock.get("schema") or {}
+        r_df = pd.DataFrame(r_rows)
+        r_spine = [c["name"] for c in r_schema.get("columns", [])
+                   if c.get("type") == "identifier" and c["name"] in r_df.columns]
+        joins[str(i)] = {"rows": int(len(r_df)), "cols": _cols(r_df),
+                         **shape_mod.describe_shape(r_df, r_schema, r_spine)}
+
     # materialize_levels needs the canonical `id` provenance column; a raw table
     # carries one through ingestion, so inject it (same idiom as /table) for a
     # caller-supplied table that omits it. It's folded into `row_ids` and never
@@ -622,7 +641,7 @@ def shape_counts(req: ShapeCountsRequest):
             guards["pairing_flip"] = hierarchy.pairing_flip(
                 full, present, req.qualifier, coarsest, test_grain)
     return {"source": out_source, "steps": steps_counts,
-            "levels": levels_out, "grains": grains, "guards": guards}
+            "levels": levels_out, "grains": grains, "joins": joins, "guards": guards}
 
 
 @app.post("/hierarchy")

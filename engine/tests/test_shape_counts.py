@@ -127,3 +127,35 @@ def test_shape_counts_returns_guards():
     g = client.post("/shape_counts", json=body).json()["guards"]
     assert g["pseudoreplication"]["risk"] is True
     assert g["identity_merge"] == []
+
+
+def test_shape_counts_describes_join_right_table():
+    table = _fixture()  # subjects ctrl_s0..2, drug_s0..2 (6 unique subjects)
+    right = {
+        "schema": {"schema_version": "1.0", "columns": [
+            {"name": "subject",  "label": "Subject",  "type": "identifier"},
+            {"name": "genotype", "label": "Genotype", "type": "categorical"}]},
+        "rows": [
+            {"subject": "ctrl_s0", "genotype": "wt"},
+            {"subject": "ctrl_s1", "genotype": "wt"},
+            {"subject": "ctrl_s2", "genotype": "ko"},
+            {"subject": "drug_s0", "genotype": "wt"},
+            {"subject": "drug_s1", "genotype": "ko"},
+            {"subject": "drug_s2", "genotype": "ko"}],
+    }
+    body = {"table": table,
+            "steps": [{"kind": "join", "on": ["subject"], "how": "inner", "right": right}],
+            "hierarchy": {"spine": ["subject", "rep"], "fn": {}}}
+    r = client.post("/shape_counts", json=body)
+    assert r.status_code == 200
+    joins = r.json()["joins"]
+    assert "0" in joins                                   # keyed by step index
+    assert (joins["0"]["rows"], joins["0"]["cols"]) == (6, 2)
+    assert [a["name"] for a in joins["0"]["axes"]] == ["subject"]
+    vals = {v["name"]: v for v in joins["0"]["values"]}
+    assert vals["genotype"]["type"] == "categorical"
+
+def test_shape_counts_joins_empty_without_a_join():
+    body = {"table": _fixture(), "steps": [],
+            "hierarchy": {"spine": ["subject", "rep"], "fn": {}}}
+    assert client.post("/shape_counts", json=body).json()["joins"] == {}
