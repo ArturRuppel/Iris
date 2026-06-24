@@ -96,6 +96,24 @@ phase — the UI can't author post steps yet, so normal sessions never hit them:
 Authoring post steps from the UI (the real feature) is a later sub-project; needs
 its own brainstorm → spec → plan before code.
 
+### GUI authoring parity — create the reduce-step kinds the engine already supports
+The workbench *edits* all seven reduce-step kinds (Phase 4b), but the GUI can only
+*create* two of them. `makeStep` (`src/state.ts`) constructs only `drop`/`filter`,
+and the add-step menus (`src/components/PipelineSection.tsx` and the menu in
+`src/workbench/cards/TableCard.tsx`) offer only those two. So the
+`derive`/`recode`/`join`/`pivot`/`grid_complete` editors shipped in 4b are dormant
+unless a step arrives from a loaded `.iris`. The create-side completion of 4b:
+- `makeStep` builds valid blank `derive`/`recode`/`pivot`/`grid_complete` steps and
+  the add-step menus offer them.
+- **`join` is the hard case** — it needs a right-table *source* picker (another
+  loaded table / file / session table), not a blank default; likely its own slice.
+- Settle where a new step lands in the DAG: append (today's `addStepAtom`) vs.
+  insert-at-position (click an edge → "insert step here"), which needs a new atom.
+
+This is one of three "engine can, GUI can't" authoring-parity gaps — the other two
+are already tracked: the `location`/`rate` test-picker controls (below) and
+post-step authoring (above). Needs brainstorm → spec → plan before code.
+
 ### Transformation explorer — backend SVG render of the graph
 A standalone export that renders the data-transformation graph itself as SVG —
 the lineage diagram (Source → filter/drop → collapse chain → geom/test →
