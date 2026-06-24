@@ -658,3 +658,34 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background: #fff; }
 .node-caution-dot { display: inline-block; width: 6px; height: 6px;
   border-radius: 50%; background: #d97706; }
+
+/* ── Array-shape workspace: node + chips (Phase 3) ───────────────────────── */
+.txw-node { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px;
+  padding:7px 11px; box-shadow:0 1px 2px rgba(15,23,42,.05); display:inline-block; }
+.txw-node.source { background:#fff; border-style:dashed; }
+.txw-node.hub { background:#cffafe; border-color:#67e8f9; }
+.txw-node.grain { background:#f5f3ff; border-color:#ddd6fe; }
+.txw-ntitle { font:600 10px/1; letter-spacing:.04em; text-transform:uppercase;
+  color:#64748b; margin-bottom:6px; }
+.txw-node.grain .txw-ntitle { color:#6d28d9; }
+.txw-node.hub .txw-ntitle { color:#0e7490; }
+.txw-row { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin:2px 0; }
+.txw-rk { font:600 9px/1; text-transform:uppercase; letter-spacing:.05em;
+  color:#94a3b8; width:34px; flex:none; }
+.txw-axwrap { display:inline-flex; align-items:center; gap:5px; }
+.txw-ax { display:inline-flex; align-items:center; gap:3px; background:#e0f2fe;
+  border:1px solid #7dd3fc; color:#0369a1; border-radius:4px; padding:1px 6px; font-size:11px; }
+.txw-ax .txw-n { font:600 9px/1 ui-monospace,monospace; color:#0284c7;
+  background:#fff; border-radius:2px; padding:1px 3px; }
+.txw-ax.ragged { border-style:dashed; }
+.txw-ax.gone { opacity:.3; text-decoration:line-through; }
+.txw-ax.keyhi { background:#fef3c7; border-color:#fcd34d; color:#b45309; }
+.txw-ax.keyhi .txw-n { color:#b45309; }
+.txw-val { display:inline-flex; align-items:center; gap:4px; border-radius:4px;
+  padding:1px 6px; font-size:11px; border:1px solid; }
+.txw-val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
+.txw-val.catg { background:#f3e8ff; border-color:#d8b4fe; color:#7e22ce; }
+.txw-val.bool { background:#fef3c7; border-color:#fcd34d; color:#b45309; }
+.txw-val .txw-grain { font:9px/1 ui-monospace,monospace; opacity:.75; }
+.txw-caret { color:#cbd5e1; font-size:11px; }
+.txw-count { font-size:12px; color:#64748b; font-variant-numeric:tabular-nums; }
