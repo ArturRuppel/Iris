@@ -687,6 +687,82 @@ figure.
 
 ---
 
+# Reshaping real data
+
+Everything so far assumed a tidy table: one row per observation, the columns you
+want to plot already present. Real experiments rarely arrive that way. A motility
+assay lands as one row per frame; a class label lives in a separate per-cell
+sheet; an event-rate denominator needs grid cells that never occurred to be
+counted as real zeros. Iris does this reshaping **inside the spec** — declarative
+reduce steps, not notebook code — so the figure stays reproducible and the
+transformation stays inspectable. The boundary is firm: Iris reshapes the pooled
+tidy table into a figure; producing that table from images or graphs stays
+upstream.
+
+## From per-frame rows to a SuperPlot
+
+The cell-size SuperPlot below starts from per-frame rows. A `join` broadcasts a
+per-cell class label onto every frame, a `recode` relabels it, and the nested
+median chain collapses frame → cell → position → experiment, so the paired test
+runs across the three replicates — not the thousands of frames.
+
+![](example:cov2d-tier-a/cov2d-tier-a-01)
+
+[Open in Iris](iris-open:cov2d-tier-a)
+
+## Honest rates need a complete grid
+
+An event rate is only honest if its denominator counts the cells where the event
+*could* have happened but didn't. Here a data-dependent `filter` clips the
+displacement tail at the 99th percentile of its own distribution, `grid_complete`
+builds the full position × transition-type grid (a combination with no events
+becomes a real **0**, not a missing cell), and a `derive` turns the counts into a
+rate.
+
+![](example:cov2d-rate-landscape/cov2d-rate-landscape-01)
+
+[Open in Iris](iris-open:cov2d-rate-landscape)
+
+## Deriving after the collapse
+
+Some quantities only exist once you have aggregated. Replicate enrichment is
+`log2(Σobs / Σexp)` — a ratio of *sums*, computable only after the per-cell counts
+collapse to the experiment grain. Iris runs this as a post-collapse step
+(`reduce.post`): collapse first by sum, then derive. Because a derive after an
+aggregate loses the raw-grain safety guarantee, Iris raises a caution — visible,
+never blocking. (Iris guides and educates; the user is responsible.)
+
+![](example:cov2d-enrichment/cov2d-enrichment-01)
+
+[Open in Iris](iris-open:cov2d-enrichment)
+
+## Choosing the unit of inference
+
+The nesting spine is a *default*, not a wall. The SuperPlot below routes its test
+to the experiment (replicate) grain — three points, three replicates. Route it
+instead to the cell grain and Iris keeps drawing, but fires a pseudoreplication
+caution: thousands of correlated cells are not independent replicates. Re-pairing
+across the wrong level trips the pairing-flip caution the same way. The guards
+move the protection from a locked door to a loud, specific warning. See also
+*Experimental design and nesting* above.
+
+![](example:cov2d-motility-superplot/cov2d-motility-superplot-01)
+
+[Open in Iris](iris-open:cov2d-motility-superplot)
+
+## From long measurements to a shape factor
+
+Measurements often arrive long: one row per cell per feature. A `pivot` unstacks
+them into wide form — a `perimeter` and an `area` column per cell — and a `derive`
+turns the pair into a shape factor, `q = perimeter / sqrt(area)`. Spread cells
+carry more perimeter per unit area, so their `q` runs higher.
+
+![](example:cov2d-shape-pivot/cov2d-shape-pivot-01)
+
+[Open in Iris](iris-open:cov2d-shape-pivot)
+
+---
+
 # References
 
 References are cited above by number in square brackets. A machine-readable

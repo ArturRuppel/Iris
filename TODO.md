@@ -28,13 +28,6 @@ family extension); the remaining work is plumbing the N-way join + `opp` pivot +
 `het` derive at per-cell grain through to the stat path. Being executed elsewhere
 — no in-repo plan file.
 
-**Follow-on (deferred with §4): `pivot` showcase example + guide chapter entry.**
-The capability showcase
-(`docs/superpowers/specs/2026-06-24-cov2d-capability-showcase-design.md`) covers
-the new reduce vocabulary except `pivot`, whose natural home is the §4 `opp`
-long-to-wide reshape. Once §4 lands, add a `pivot` showcase case + a "Reshaping
-real data" chapter entry, rather than author a competing example now.
-
 **Tier D — out by nature; do NOT absorb.** Upstream of the tidy table, or outside
 the SuperPlot+test model; absorbing them would break "spec is data, not code" /
 "never reimplement statistics":
