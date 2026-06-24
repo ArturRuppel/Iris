@@ -4,6 +4,7 @@ import { StatsCard } from "./cards/StatsCard";
 import { CollapseCard } from "./cards/CollapseCard";
 import { GeomCard } from "./cards/GeomCard";
 import { AnnotateCard } from "./cards/AnnotateCard";
+import { TestCard } from "./cards/TestCard";
 import { OpEditorCard } from "./cards/OpEditorCard";
 import { TableCard } from "./cards/TableCard";
 
@@ -39,20 +40,9 @@ export function targetToCardKind(graph: ExplorerGraph, target: Target): CardKind
   return edge ? EDGE_CARD[edge.kind] : null;
 }
 
-/* Props every card body receives. Phase 4 bodies read the graph/atoms they need
-   on their own; the shell only hands them the target. */
+/* Props every card body receives. Card bodies read the graph/atoms they need on
+   their own; the shell only hands them the target. */
 export interface CardBodyProps { target: Target; }
-
-/* Phase 3 stub: each body just announces its kind. Phase 4 replaces these with
-   the real panels (FigurePane, StatsPanel, GuidedTestPicker, …). */
-const stub = (kind: CardKind) =>
-  function StubBody({ target }: CardBodyProps) {
-    return (
-      <div className="txw-card-stub" data-testid="card-stub" data-card-kind={kind}>
-        {kind} — {target.kind}:{target.id}
-      </div>
-    );
-  };
 
 export const CARD_BODIES: Record<CardKind, (p: CardBodyProps) => JSX.Element> = {
   "table": TableCard,
@@ -61,7 +51,7 @@ export const CARD_BODIES: Record<CardKind, (p: CardBodyProps) => JSX.Element> = 
   "op-editor": OpEditorCard,
   "collapse-editor": CollapseCard,
   "geom-editor": GeomCard,
-  "test-editor": stub("test-editor"),
+  "test-editor": TestCard,
   "annotate-editor": AnnotateCard,
 };
 

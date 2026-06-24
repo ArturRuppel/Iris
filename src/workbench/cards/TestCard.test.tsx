@@ -1,13 +1,15 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Provider } from "jotai";
-import { StatsCard } from "./StatsCard";
+import { TestCard } from "./TestCard";
 import { seedStore } from "./cardTestStore";
 import { setAnalysisByIdAtom } from "../../state";
 import type { AnalyzeResponse } from "../../types";
 
-/* A partial AnalyzeResponse rich enough for the results (StatsResults) to render
-   — only the fields ResultRows + the results block read. */
+const target = { kind: "edge" as const, id: "t0" };
+
+/* A partial AnalyzeResponse rich enough for both the picker (TestPicker) and the
+   results (StatsResults) to render — only the fields the components read. */
 const fixture = {
   stats: {
     result: {
@@ -31,26 +33,15 @@ const fixture = {
   },
 } as unknown as AnalyzeResponse;
 
-describe("StatsCard", () => {
-  it("renders the results (not the picker) inside the card wrapper", () => {
+describe("TestCard", () => {
+  it("renders the picker (not the results) inside the card wrapper", () => {
     const { store, plottable } = seedStore();
     store.set(setAnalysisByIdAtom, { id: plottable.id, res: fixture });
-    render(
-      <Provider store={store}><StatsCard target={{ kind: "node", id: "stats" }} /></Provider>,
-    );
-    expect(screen.getByTestId("stats-card")).toBeInTheDocument();
-    // results marker present…
-    expect(screen.getByText(/Methods text/i)).toBeInTheDocument();
-    // …picker marker absent.
-    expect(screen.queryByText(/Describe only/i)).toBeNull();
-  });
-
-  it("shows the waiting placeholder when no analysis has run", () => {
-    const { store } = seedStore();
-    render(
-      <Provider store={store}><StatsCard target={{ kind: "node", id: "stats" }} /></Provider>,
-    );
-    expect(screen.getByTestId("stats-card")).toBeInTheDocument();
-    expect(screen.getByText(/waiting for first analysis/i)).toBeInTheDocument();
+    render(<Provider store={store}><TestCard target={target} /></Provider>);
+    expect(screen.getByTestId("test-card")).toBeInTheDocument();
+    // picker marker present…
+    expect(screen.getByText(/Describe only/i)).toBeInTheDocument();
+    // …results marker absent.
+    expect(screen.queryByText(/Methods text/i)).toBeNull();
   });
 });

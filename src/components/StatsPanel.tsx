@@ -187,7 +187,51 @@ function ResultRows({ s }: { s: StatsResult }) {
   }
 }
 
-export function StatsPanel() {
+const WAITING = (
+  <section className="pane stats-pane">
+    <div className="pane-head"><h2>Statistics</h2></div>
+    <p className="hint">Waiting for first analysis…</p>
+  </section>
+);
+
+/* The test-result readout: the `Result`, per-group summary, and methods text for
+   the active analysis. Reads only the analysis atom. */
+export function StatsResults() {
+  const analysis = useAtomValue(analysisAtom);
+  if (!analysis) return WAITING;
+  const s = analysis.stats;
+
+  return (
+    <section className="pane stats-pane">
+      <div className="stats-body">
+        <h3>Result <InfoTip k="significance_stars" /></h3>
+        <dl>
+          <ResultRows s={s} />
+          {s.result.test !== "descriptive" && s.summaries.length > 0 && (
+            <>
+              <dt className="pairwise-head">Per-group summary <InfoTip k="group_summary" /></dt><dd></dd>
+            </>
+          )}
+          {s.result.test !== "descriptive" && s.summaries.map((g) => (
+            <span key={g.group} style={{ display: "contents" }}>
+              <dt>{g.group}</dt>
+              <dd className="mono">n = {g.n}, mean {g.mean.toFixed(1)} (SD {g.sd.toFixed(1)})</dd>
+            </span>
+          ))}
+        </dl>
+
+        <h3>Methods text <InfoTip k="methods_text" /></h3>
+        <p className="methods">{s.methods_text}</p>
+        <button className="chip" onClick={() => navigator.clipboard.writeText(s.methods_text)}>Copy</button>
+      </div>
+    </section>
+  );
+}
+
+/* The test-choice editor: inferred model, the describe-only / vs-reference
+   toggles, assumption checks, and the guided picker / recommendation chip-row.
+   Reads the analysis + active plottable atoms (it writes test choices back). */
+export function TestPicker() {
   const analysis = useAtomValue(analysisAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
   const setViewMode = useSetAtom(viewModeAtom);
@@ -203,7 +247,7 @@ export function StatsPanel() {
   // edit the constant while already in vs-reference mode — keeps any test pick.
   const setReferenceValue = (v: number) =>
     active && setActive({ ...active, reference: v });
-  if (!analysis) return <section className="pane stats-pane"><div className="pane-head"><h2>Statistics</h2></div><p className="hint">Waiting for first analysis…</p></section>;
+  if (!analysis) return WAITING;
 
   const s = analysis.stats;
   const model = analysis.stat_model;
@@ -223,7 +267,6 @@ export function StatsPanel() {
   return (
     <section className="pane stats-pane">
       <div className="pane-head">
-        <h2>Statistics</h2>
         <button type="button" className="link-btn methods-link"
           title="How Iris recommends a test — rules, thresholds, and sources"
           onClick={() => { setGuideAnchor("how-iris-chooses-the-test"); setViewMode("guide"); }}>
@@ -316,26 +359,6 @@ export function StatsPanel() {
             )}
           </>
         )}
-
-        <h3>Result <InfoTip k="significance_stars" /></h3>
-        <dl>
-          <ResultRows s={s} />
-          {s.result.test !== "descriptive" && s.summaries.length > 0 && (
-            <>
-              <dt className="pairwise-head">Per-group summary <InfoTip k="group_summary" /></dt><dd></dd>
-            </>
-          )}
-          {s.result.test !== "descriptive" && s.summaries.map((g) => (
-            <span key={g.group} style={{ display: "contents" }}>
-              <dt>{g.group}</dt>
-              <dd className="mono">n = {g.n}, mean {g.mean.toFixed(1)} (SD {g.sd.toFixed(1)})</dd>
-            </span>
-          ))}
-        </dl>
-
-        <h3>Methods text <InfoTip k="methods_text" /></h3>
-        <p className="methods">{s.methods_text}</p>
-        <button className="chip" onClick={() => navigator.clipboard.writeText(s.methods_text)}>Copy</button>
       </div>
     </section>
   );

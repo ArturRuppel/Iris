@@ -1,5 +1,4 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
 import { targetToCardKind, CARD_BODIES, type CardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
 
@@ -47,26 +46,12 @@ describe("CARD_BODIES", () => {
     for (const k of kinds) expect(CARD_BODIES[k]).toBeTypeOf("function");
   });
 
-  it("renders a stub body that identifies its kind", () => {
-    const Body = CARD_BODIES["test-editor"];
-    render(<Body target={{ kind: "edge", id: "t0" }} />);
-    expect(screen.getByTestId("card-stub").dataset.cardKind).toBe("test-editor");
-  });
-
-  it("wires real (non-stub) bodies for the five Phase-4 card kinds", () => {
-    const realKinds: CardKind[] = ["table", "plot", "stats", "op-editor",
-      "collapse-editor", "geom-editor", "annotate-editor"];
-    for (const kind of realKinds) {
+  it("wires real (non-stub) bodies for every card kind", () => {
+    // every kind now has a real component — no stubs remain.
+    for (const kind of kinds) {
       // the real components require app atoms; here we only assert identity, not
-      // a deep render — the body must NOT be the shared stub factory output
-      // (whose inner fn is named "StubBody"; see the `stub` factory in cardRegistry.tsx).
+      // a deep render — the body must NOT be a shared stub factory output.
       expect(CARD_BODIES[kind].name).not.toBe("StubBody");
-    }
-  });
-
-  it("keeps test-editor as a stub (deferred to Phase 4b)", () => {
-    for (const k of ["test-editor"] as CardKind[]) {
-      expect(CARD_BODIES[k].name).toBe("StubBody");
     }
   });
 });
