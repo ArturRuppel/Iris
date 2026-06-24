@@ -52,4 +52,21 @@ describe("CARD_BODIES", () => {
     render(<Body target={{ kind: "edge", id: "t0" }} />);
     expect(screen.getByTestId("card-stub").dataset.cardKind).toBe("test-editor");
   });
+
+  it("wires real (non-stub) bodies for the five Phase-4 card kinds", () => {
+    const realKinds: CardKind[] = ["plot", "stats",
+      "collapse-editor", "geom-editor", "annotate-editor"];
+    for (const kind of realKinds) {
+      // the real components require app atoms; here we only assert identity, not
+      // a deep render — the body must NOT be the shared stub factory output
+      // (whose inner fn is named "StubBody"; see the `stub` factory in cardRegistry.tsx).
+      expect(CARD_BODIES[kind].name).not.toBe("StubBody");
+    }
+  });
+
+  it("keeps table / op-editor / test-editor as stubs (deferred to Phase 4b)", () => {
+    for (const k of ["table", "op-editor", "test-editor"] as CardKind[]) {
+      expect(CARD_BODIES[k].name).toBe("StubBody");
+    }
+  });
 });

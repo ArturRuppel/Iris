@@ -1,4 +1,9 @@
 import type { ExplorerGraph, EdgeKind } from "../explorer/graph";
+import { PlotCard } from "./cards/PlotCard";
+import { StatsCard } from "./cards/StatsCard";
+import { CollapseCard } from "./cards/CollapseCard";
+import { GeomCard } from "./cards/GeomCard";
+import { AnnotateCard } from "./cards/AnnotateCard";
 
 /* One card kind per clickable thing (design §5). Node kinds map to the three
    display/table cards; edge kinds map to the five editor cards. */
@@ -49,13 +54,13 @@ const stub = (kind: CardKind) =>
 
 export const CARD_BODIES: Record<CardKind, (p: CardBodyProps) => JSX.Element> = {
   "table": stub("table"),
-  "plot": stub("plot"),
-  "stats": stub("stats"),
+  "plot": PlotCard,
+  "stats": StatsCard,
   "op-editor": stub("op-editor"),
-  "collapse-editor": stub("collapse-editor"),
-  "geom-editor": stub("geom-editor"),
+  "collapse-editor": CollapseCard,
+  "geom-editor": GeomCard,
   "test-editor": stub("test-editor"),
-  "annotate-editor": stub("annotate-editor"),
+  "annotate-editor": AnnotateCard,
 };
 
 /* Human title for a card's bar, by kind. */

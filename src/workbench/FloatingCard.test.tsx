@@ -4,8 +4,10 @@ import { createStore, Provider } from "jotai";
 import { FloatingCard } from "./FloatingCard";
 import { cardsAtom, type Card } from "./state";
 
+// the shell tests use a STILL-STUBBED kind (`table`) so they exercise FloatingCard
+// in isolation, decoupled from whichever kinds have real, atom-bound bodies wired.
 const makeCard = (over: Partial<Card> = {}): Card => ({
-  id: "node:stats", target: { kind: "node", id: "stats" }, cardKind: "stats",
+  id: "node:source", target: { kind: "node", id: "source" }, cardKind: "table",
   x: 40, y: 50, w: 360, h: 260, collapsed: false, ...over,
 });
 
@@ -24,9 +26,9 @@ describe("FloatingCard", () => {
   it("renders the card title and the registry body for its kind", () => {
     mount(makeCard());
     // title is scoped to the bar so it does not collide with the stub body
-    // (`stats — node:stats`), which also matches /stats/i for this card.
-    expect(within(screen.getByTestId("card-bar")).getByText(/stats/i)).toBeInTheDocument();
-    expect(screen.getByTestId("card-stub").dataset.cardKind).toBe("stats");
+    // (`table — node:source`), which also matches /table/i for this card.
+    expect(within(screen.getByTestId("card-bar")).getByText(/table/i)).toBeInTheDocument();
+    expect(screen.getByTestId("card-stub").dataset.cardKind).toBe("table");
   });
 
   it("positions itself from the card geometry", () => {
