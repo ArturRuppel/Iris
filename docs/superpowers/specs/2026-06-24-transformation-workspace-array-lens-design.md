@@ -119,14 +119,21 @@ parents**, and the builder/layout must handle a second incoming edge.
 - **Multiple loaded input tables are first-class.** A join's right input can be
   **either** a separately loaded source **or** a derived/collapsed sibling branch
   of an existing source — the graph shows whichever it is. No special-casing.
+- **Flat graph — no collapsing.** The right input is **always drawn in full**: if
+  it is a pipeline, its source → reduce → collapse nodes are all spelled out as a
+  sibling branch. No collapsed/expandable nodes anywhere — every node is visible.
 - **Nested join keys.** On nested data the key is the **full identifier path**
   (`experiment, position, cell`), not the leaf `cell` — leaf IDs aren't unique on
   their own. The right table therefore carries its full keying axes; it does not
   appear at a bare-leaf grain. (This was the bug fixed between full-workspace v1→v2.)
-- **Terminal fork.** Plot and Stats can read **different grains** (a SuperPlot
-  reads per-cell points *and* the per-replicate summary; the test reads the
-  replicate grain). The end of the graph forks, and a terminal may have multiple
-  incoming grain edges.
+- **Terminal fork — one edge per grain, annotated with geoms.** A plot is
+  **composable** and may read several grains (a SuperPlot reads per-cell points
+  *and* the per-replicate summary, but it can be any number of grains). Draw it as
+  **one incoming edge per grain**, each edge **labelled with the geom(s) drawn at
+  that grain**, comma-separated when several geoms share a grain (e.g. a per-cell
+  edge `points, density`; a per-replicate edge `mean ± CI`). The test terminal
+  likewise has one edge from the grain it reads. These are real convergent edges,
+  consistent with the join confluence — not annotations.
 
 ## The workspace
 
@@ -169,20 +176,22 @@ no curation logic — and each op's authored example pair doubles as documentati
 or threading per-value grain provenance through the reduce pipeline (the data
 inference above replaces the need for it).
 
-## Open questions (resolve at plan time; none block understanding)
+## Settled decisions (were open questions)
 
-- **Join-key guard.** Joining on a leaf ID that isn't unique without its full path
-  (`cell` without `experiment, position`) should raise a never-blocking caution —
-  consistent with Iris's guard stance. Spec the guard with the plan.
-- **Right-input drawing depth.** When the right input is itself a pipeline, draw it
-  as a full sub-branch vs. a single collapsed node with click-to-expand. Lean:
-  collapsed-by-default, expandable.
-- **Multi-input terminal edges.** Draw the plot-reads-two-grains case as real
-  convergent edges (like the join) or as an annotation. Lean: real edges, for
-  consistency with the join confluence.
-- **Node density at full-pipeline scale.** Full axes+values readout on every node
-  vs. intermediate nodes showing only their *delta* with full shape on hover. Lean:
-  full readout (the array shape IS the content); revisit if canvases get noisy.
+- **Join-key guard — warn only.** Joining on a leaf ID that isn't unique without its
+  full path (`cell` without `experiment, position`) raises a **never-blocking
+  caution** — "did you mean the full path?" — consistent with Iris's guard stance.
+  The only new *behaviour* in this spec; everything else is rendering. Lives with
+  the other reduce guards in `engine/iris_engine/guards.py` and surfaces on the join
+  edge like existing verdicts. Spec the wording with the plan; it never blocks.
+- **Flat graph, no collapsing.** Every node is always fully drawn, including a
+  join's right-input pipeline. No collapsed/expandable nodes. (Folded into
+  *Topology*.)
+- **Plot edges — one per grain, geom-annotated.** Plots are composable over any
+  number of grains; draw one real edge per grain, labelled with the geom(s) at that
+  grain (comma-separated when several share a grain). (Folded into *Topology*.)
+- **Full node readout.** Every node shows its complete axes+values readout — no
+  delta-only intermediate nodes. The array shape IS the content.
 
 ## Out of scope
 
