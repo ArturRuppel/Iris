@@ -194,6 +194,8 @@ describe("buildGraph", () => {
     expect(g.nodes.find((n) => n.id === "source:0")?.label).toBe("Class");
     // both converging edges state the key path, using the right schema's label
     expect(incoming.every((e) => e.label === "join on Cell")).toBe(true);
+    // the join edges carry the RAW on-keys (not the display label) for keyhi matching
+    expect(incoming.every((e) => JSON.stringify(e.onKeys) === JSON.stringify(["cell_id"]))).toBe(true);
   });
 
   it("post-collapse phase: a derive runs after the collapse chain, with the caution badge", () => {

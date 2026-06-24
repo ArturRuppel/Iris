@@ -42,9 +42,6 @@ function toWsNode(node: ExplorerNode, isHub = false): WsNode {
   };
 }
 
-const parseOnKeys = (label: string): string[] =>
-  label.startsWith("join on ") ? label.slice("join on ".length).split(", ") : [];
-
 export function buildWorkspaceModel(graph: ExplorerGraph): WorkspaceModel {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
   const opEdges = graph.edges.filter((e) => !BRANCH.has(e.kind));
@@ -54,7 +51,7 @@ export function buildWorkspaceModel(graph: ExplorerGraph): WorkspaceModel {
   for (const e of opEdges) {
     if (e.fromId.startsWith("source:")) {
       const r = byId.get(e.fromId);
-      if (r) rightOf.set(e.toId, { node: r, keys: parseOnKeys(e.label) });
+      if (r) rightOf.set(e.toId, { node: r, keys: e.onKeys ?? [] });
     }
   }
 

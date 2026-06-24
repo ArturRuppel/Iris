@@ -40,6 +40,7 @@ export interface Edge {
   fromId: string;
   toId: string;
   guards?: GuardVerdict[];
+  onKeys?: string[];   // raw join-key column names (join edges only), for keyhi matching
 }
 
 export interface ExplorerGraph {
@@ -196,9 +197,9 @@ export function buildGraph(
       nodes.push({ id: srcId, kind: "table", label: joinSourceLabel(step.right),
         table: { via: "none" } });
       edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `join on ${onLabel}`,
-        fromId: prev, toId: id });
+        fromId: prev, toId: id, onKeys: step.on });
       edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `join on ${onLabel}`,
-        fromId: srcId, toId: id });
+        fromId: srcId, toId: id, onKeys: step.on });
     } else {
       edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
         label: stepEdgeLabel(step, schema), fromId: prev, toId: id });

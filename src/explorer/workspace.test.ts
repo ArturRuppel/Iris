@@ -55,7 +55,7 @@ describe("buildWorkspaceModel", () => {
     expect(grain.removed).toEqual(["cell"]);
   });
 
-  it("attaches a join's right input + on-keys to the hub, off the main spine", () => {
+  it("attaches a join's right input + RAW on-keys (matching axis names) to the hub", () => {
     const right: Table = { schema: { schema_version: "1.0", columns: [
       { name: "cell", type: "identifier", label: "Cell" },
       { name: "class", type: "categorical", label: "Class" }] }, rows: [{ id: "1", cell: "c1", class: "x" }] };
@@ -64,7 +64,10 @@ describe("buildWorkspaceModel", () => {
     const m = buildWorkspaceModel(withCounts(g));
     const join = m.spine.find((s) => s.node.kind === "table" && s.rightInput)!;
     expect(join.rightInput?.id).toBe("source:0");
-    expect(join.onKeys).toEqual(["Cell"]);
+    // RAW column name (matches AxisDesc.name), NOT the display label "Cell"
+    expect(join.onKeys).toEqual(["cell"]);
+    // cross-namespace check: an axis the node actually carries is highlighted
+    expect(join.node.axes.some((a) => a.name === "cell" && join.onKeys!.includes(a.name))).toBe(true);
     expect(m.spine.some((s) => s.node.id === "source:0")).toBe(false);
   });
 
