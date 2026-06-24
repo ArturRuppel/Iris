@@ -16,7 +16,13 @@ from pathlib import Path
 
 import pandas as pd
 
-FORMAT_VERSION = "1.0"
+from . import build_info
+
+# 2.0: manifest gains the `engine` identity block (version/commit/dirty) and the
+# stored analysis spec drops its derived stats fields (chosen_by /
+# alternatives_offered / assumption_checks / report) — those are recomputed on
+# open. See docs/superpowers/specs/2026-06-24-iris-file-format-redesign-design.md.
+FORMAT_VERSION = "2.0"
 
 
 def save_document(schema: dict, rows: list[dict], analyses: list[dict],
@@ -29,6 +35,10 @@ def save_document(schema: dict, rows: list[dict], analyses: list[dict],
         z.writestr("manifest.json", json.dumps({
             "format_version": FORMAT_VERSION,
             "modified": datetime.now(timezone.utc).isoformat(),
+            # the engine that produced this file: pins Iris's decision logic by
+            # commit, making every computed value reproducible. `engine_snapshot`
+            # (library versions) stays as a secondary, human-readable record.
+            "engine": build_info.build_identity(),
             "engine_snapshot": engine_snapshot,
         }, indent=2))
         # Parquet is already zstd-compressed; store it raw rather than waste CPU
