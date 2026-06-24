@@ -95,6 +95,11 @@ GALLERY_CASES = [
     "timeseries-growth",
     "superplot-nested",
     "nested-correlation",
+    "cov2d-tier-a",
+    "cov2d-rate-landscape",
+    "cov2d-enrichment",
+    "cov2d-motility-superplot",
+    "cov2d-shape-pivot",
 ]
 
 

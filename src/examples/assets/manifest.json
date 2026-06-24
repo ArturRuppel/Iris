@@ -289,5 +289,75 @@
         "geom": "scatter"
       }
     ]
+  },
+  {
+    "caseId": "cov2d-tier-a",
+    "title": "COV2D Tier A \u2014 cell size SuperPlot (absorbed graph)",
+    "source": "synthetic COV2D-shaped stand-in; reproduces the notebook's paired_by_replicate",
+    "irisFile": "cov2d-tier-a.iris",
+    "filename": "cov2d-tier-a.iris",
+    "plots": [
+      {
+        "analysisId": "cov2d-tier-a-01",
+        "svgFile": "cov2d-tier-a-01.svg",
+        "geom": "violin"
+      }
+    ]
+  },
+  {
+    "caseId": "cov2d-rate-landscape",
+    "title": "COV2D \u00a75 \u2014 event-rate landscape (grid-completed, tail-clipped)",
+    "source": "synthetic COV2D-shaped; smoke/visualization showcase (no pinned stats)",
+    "irisFile": "cov2d-rate-landscape.iris",
+    "filename": "cov2d-rate-landscape.iris",
+    "plots": [
+      {
+        "analysisId": "cov2d-rate-landscape-01",
+        "svgFile": "cov2d-rate-landscape-01.svg",
+        "geom": "box"
+      }
+    ]
+  },
+  {
+    "caseId": "cov2d-enrichment",
+    "title": "COV2D \u00a73 \u2014 replicate enrichment, log2(\u03a3obs/\u03a3exp) after collapse",
+    "source": "synthetic COV2D-shaped; smoke/visualization showcase (no pinned stats)",
+    "irisFile": "cov2d-enrichment.iris",
+    "filename": "cov2d-enrichment.iris",
+    "plots": [
+      {
+        "analysisId": "cov2d-enrichment-01",
+        "svgFile": "cov2d-enrichment-01.svg",
+        "geom": "dot"
+      }
+    ]
+  },
+  {
+    "caseId": "cov2d-motility-superplot",
+    "title": "COV2D \u00a71\u20132 \u2014 motility SuperPlot, inference routed to the replicate",
+    "source": "synthetic COV2D-shaped; smoke/visualization showcase (no pinned stats)",
+    "irisFile": "cov2d-motility-superplot.iris",
+    "filename": "cov2d-motility-superplot.iris",
+    "plots": [
+      {
+        "analysisId": "cov2d-motility-superplot-01",
+        "svgFile": "cov2d-motility-superplot-01.svg",
+        "geom": "violin"
+      }
+    ]
+  },
+  {
+    "caseId": "cov2d-shape-pivot",
+    "title": "COV2D \u00a74 \u2014 pivot to a shape factor, q = perimeter / sqrt(area)",
+    "source": "synthetic COV2D-shaped; smoke/visualization showcase (no pinned stats)",
+    "irisFile": "cov2d-shape-pivot.iris",
+    "filename": "cov2d-shape-pivot.iris",
+    "plots": [
+      {
+        "analysisId": "cov2d-shape-pivot-01",
+        "svgFile": "cov2d-shape-pivot-01.svg",
+        "geom": "box"
+      }
+    ]
   }
 ]
