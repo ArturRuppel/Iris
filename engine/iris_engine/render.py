@@ -71,16 +71,25 @@ def render(table: dict, spec: dict, *, memo=None):
     memo = memo if memo is not None else (lambda compute: compute())
     spec = specnorm.normalize(spec)
     df, schema = _prepare(table, spec)
-    steps = (spec.get("reduce") or {}).get("steps") or []
+    reduce_block = spec.get("reduce") or {}
+    steps = reduce_block.get("steps") or []
     try:
         df, schema = reduce_mod.apply_reduction(df, schema, steps)
     except reduce_mod.ReduceError as e:
         raise RenderError(f"reduction failed: {e}") from e
+    # Post-collapse reduce phase: further steps run on the chosen test-grain table
+    # AFTER collapse (below), expressing grain-dependent transforms a raw-grain
+    # reduce cannot (e.g. log2(Σobs/Σexp) after a sum-collapse). Their output
+    # columns are projected onto the schema NOW so statmodel.infer can see a column
+    # an encoding maps Y to before the phase actually runs. Absent `reduce.post`,
+    # `infer_schema is schema` and every path below is byte-for-byte unchanged.
+    post_steps = reduce_block.get("post") or []
+    infer_schema = reduce_mod.project_schema(schema, post_steps) if post_steps else schema
 
     describe_only = bool(spec.get("_describe_only"))
     stats_block = spec.get("stats") or {}
     model = statmodel.infer(
-        spec["encodings"], schema, spec.get("_override"),
+        spec["encodings"], infer_schema, spec.get("_override"),
         spec.get("facet"), layers=spec.get("layers"),
         declared_family=stats_block.get("family"),
         reference=stats_block.get("reference", 0.0),
@@ -176,9 +185,24 @@ def render(table: dict, spec: dict, *, memo=None):
         model["pairing"] = hierarchy.pairing(
             df, present_spine, cat_col, inferential_level=inf_level)
         if grains is not None and test_grain in grains:
-            stat_df, _ = grains[test_grain]
+            stat_df, stat_schema = grains[test_grain]
         else:
-            stat_df, _ = hierarchy.resolve_level(level_tables, inf_level)
+            stat_df, stat_schema = hierarchy.resolve_level(level_tables, inf_level)
+        # Run the post-collapse phase on the chosen grain, then surface the result
+        # to the figure at that grain's level so a post-derived column is drawable
+        # (a layer bound to the test grain reads this table). A spec with no
+        # `reduce.post` skips this entirely.
+        if post_steps:
+            try:
+                stat_df, stat_schema = reduce_mod.apply_reduction(
+                    stat_df, stat_schema, post_steps)
+            except reduce_mod.ReduceError as e:
+                raise RenderError(f"post-collapse reduction failed: {e}") from e
+            level_tables[inf_level] = (stat_df, stat_schema)
+            if grains is not None and test_grain in grains:
+                grains[test_grain] = (stat_df, stat_schema)
+        cat_schema = next((c for c in stat_schema["columns"] if c["name"] == cat_col),
+                          cat_schema)
         levels = cat_schema.get("levels", [])
         if describe_only:
             # faceted / describe-only: no inferential test, for either family.

@@ -407,3 +407,49 @@ def reduce_with_trace(
         trace.append({"n_rows_out": int(len(out)), "schema_out": sch, **info})
     out = out.reset_index(drop=True)
     return out, sch, trace
+
+
+def project_schema(schema: dict, steps: list[dict] | None) -> dict:
+    """Schema-only projection of `steps` — the columns they would produce, WITHOUT
+    touching data. Lets a caller know a post-phase derive's output column at family-
+    inference time, before the post phase actually runs against a collapsed table.
+
+    Mirrors each `_apply_*` step's schema effect using only `(schema, step)`. Where
+    a step's output type is data-dependent, the same conservative declared type the
+    data path uses is taken (derive → numeric, as in `_apply_derive`). Filters do
+    not change the schema."""
+    cols = [dict(c) for c in schema["columns"]]
+    names = {c["name"] for c in cols}
+    for step in (steps or []):
+        kind = step.get("kind")
+        if kind == "filter":
+            continue
+        if kind == "drop":
+            drop = set(step.get("columns") or [])
+            cols = [c for c in cols if c["name"] not in drop]
+        elif kind == "derive":
+            col = step.get("column")
+            if col and col not in names:
+                cols.append({"name": col, "type": "numeric", "label": col})
+        elif kind == "recode":
+            pass  # relabels levels in place; column type is unchanged
+        elif kind == "join":
+            on = set(step.get("on") or [])
+            right = (step.get("right") or {}).get("schema") or {}
+            cur = {c["name"] for c in cols}
+            cols += [dict(rc) for rc in right.get("columns", [])
+                     if rc["name"] not in cur and rc["name"] not in on]
+        elif kind == "pivot":
+            consumed = {step.get("column"), step.get("values")}
+            cols = [c for c in cols if c["name"] not in consumed]
+            cols += [{"name": v, "type": "numeric", "label": v}
+                     for v in (step.get("names") or {}).values()]
+        elif kind == "grid_complete":
+            by = set(step.get("by") or [])
+            column, count_name = step.get("column"), step.get("count_name", "count")
+            cols = [c for c in cols if c["name"] in by] + [
+                {"name": column, "type": "categorical", "label": column,
+                 "levels": list(step.get("levels") or [])},
+                {"name": count_name, "type": "numeric", "label": count_name}]
+        names = {c["name"] for c in cols}
+    return {**schema, "columns": cols}
