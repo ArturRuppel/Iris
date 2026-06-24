@@ -17,7 +17,7 @@ x-span and renders trajectories / trend band, with no inferential test.
 SCHEMA_OVERRIDES = {"tree": {"type": "categorical"}}
 
 _BASE = {
-    "spec_version": "2.0",
+    "spec_version": "2.1",
     "title": TITLE,
     "data": {"filter": []},
     "encodings": {"x": {"column": "age"}, "y": {"column": "circumference"},

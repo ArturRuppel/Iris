@@ -1,22 +1,26 @@
-"""Translate any legacy (<2.0) analysis spec into the 2.0 grammar shape.
+"""Translate any legacy (<2.0) analysis spec into the modern grammar shape.
 
-The engine accepts both shapes and normalizes on every request, so the old
-frontend and old .viz documents keep working while the client is migrated.
-Normalization is the ONLY place the translation happens — there is no
-dual-write. A 2.0 spec passes through unchanged (idempotent).
+The engine accepts both shapes and normalizes on every request, so an older
+mappings-shaped spec keeps working. Normalization is the ONLY place the
+translation happens — there is no dual-write. A modern spec (2.0/2.1) passes
+through unchanged (idempotent).
 
 Legacy:  mappings{x,y,color}            layers[{mark, options?, stat?}]
-2.0:     encodings{x,y,color,size,shape} layers[{geom, params}]
+Modern:  encodings{x,y,color,size,shape} layers[{geom, params}]
 
-`_override` carries the user's pinned test (from `stats.override`, or the legacy
-chosen_by == user_override signal) so statmodel.infer can honor it; it is read by
-main._run, not persisted.
+`_override` carries the user's pinned test (from `stats.override`) so
+statmodel.infer can honor it; `_describe_only` carries the describe-only decision
+(from `stats.describe_only`). Both are read by main._run, not persisted.
 """
 from __future__ import annotations
 
+# Spec versions that already use the modern encodings/layers shape — passed
+# through normalization idempotently rather than rebuilt from `mappings`.
+MODERN_VERSIONS = ("2.0", "2.1")
+
 
 def normalize(spec: dict) -> dict:
-    if spec.get("spec_version") == "2.0":
+    if spec.get("spec_version") in MODERN_VERSIONS:
         out = dict(spec)
         out["layers"] = _migrate_dist_layers(out.get("layers", []))
         _migrate_layer_params(out)
@@ -142,16 +146,11 @@ def _migrate_dist_layers(layers: list[dict]) -> list[dict]:
 
 
 def _override_of(spec: dict) -> str | None:
-    # The pinned test rides in `stats.override` (decoupled from the chosen_by
-    # provenance label). Fall back to the legacy chosen_by == user_override
-    # signal so pre-decoupling specs still carry the user's pin.
-    st = spec.get("stats", {})
-    if st.get("override"):
-        return st.get("override")
-    if st.get("chosen_by") == "user_override":
-        return st.get("test")
-    return None
+    # The pinned test rides in `stats.override`; null/absent means run the
+    # recommendation.
+    return spec.get("stats", {}).get("override") or None
 
 
 def _describe_only_of(spec: dict) -> bool:
-    return spec.get("stats", {}).get("chosen_by") == "describe_only"
+    # Describe-only is a stored decision (`stats.describe_only`).
+    return bool(spec.get("stats", {}).get("describe_only"))

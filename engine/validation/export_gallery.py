@@ -25,20 +25,25 @@ from . import harness
 ASSETS = harness.ROOT.parent.parent / "src" / "examples" / "assets"
 
 # These assets are committed to git, so the export must be byte-deterministic or
-# every rebuild churns the diff. Two sources of non-determinism are neutralised:
+# every rebuild churns the diff. Three sources of non-determinism are neutralised:
 #   - matplotlib stamps each SVG with a render date and salts its element ids;
 #   - save_document stamps the .iris manifest with a "modified" time and the ZIP
-#     records per-entry mtimes.
-# A fixed hashsalt + stripping the date settle the SVG; a fixed manifest time +
-# a fixed ZIP date_time settle the .iris. Pinned epoch: 1980-01-01 (the minimum
-# a ZIP can store).
+#     records per-entry mtimes;
+#   - the manifest's engine identity carries the build commit + dirty flag, which
+#     change on every repo commit.
+# A fixed hashsalt + stripping the date settle the SVG; a fixed manifest time, a
+# pinned engine identity, and a fixed ZIP date_time settle the .iris. Pinned
+# epoch: 1980-01-01 (the minimum a ZIP can store).
 _HASHSALT = "iris-gallery"
 matplotlib.rcParams["svg.hashsalt"] = _HASHSALT   # stable SVG element ids
 
 _FIXED_TS = "1980-01-01T00:00:00+00:00"
 _ZIP_DATE = (1980, 1, 1, 0, 0, 0)
+# Pinned engine identity for committed demo assets: these are regenerated from
+# source by the gallery exporter, not captured from a user's engine run, so they
+# advertise that provenance rather than a (churning) real commit.
+_FIXED_ENGINE = {"version": "0", "commit": "gallery-export", "dirty": False}
 _DC_DATE = re.compile(r"<dc:date>.*?</dc:date>", re.DOTALL)
-_MODIFIED = re.compile(r'("modified":\s*")[^"]*(")')
 
 
 def _normalize_svg(svg: str) -> str:
@@ -57,8 +62,10 @@ def _normalize_iris(data: bytes) -> bytes:
         for info in src.infolist():
             payload = src.read(info.filename)
             if info.filename == "manifest.json":
-                payload = _MODIFIED.sub(
-                    rf"\g<1>{_FIXED_TS}\g<2>", payload.decode()).encode()
+                manifest = json.loads(payload)
+                manifest["modified"] = _FIXED_TS
+                manifest["engine"] = dict(_FIXED_ENGINE)
+                payload = json.dumps(manifest, indent=2).encode()
             zi = zipfile.ZipInfo(info.filename, date_time=_ZIP_DATE)
             zi.compress_type = info.compress_type
             zi.external_attr = info.external_attr

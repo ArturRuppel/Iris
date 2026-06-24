@@ -54,7 +54,7 @@ def make_table():
 
 def make_spec(*, geoms=("line",), color=None, facet_row=None):
     return {
-        "spec_version": "2.0", "id": "ts_test", "title": "TS",
+        "spec_version": "2.1", "id": "ts_test", "title": "TS",
         "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {
@@ -67,8 +67,7 @@ def make_spec(*, geoms=("line",), color=None, facet_row=None):
         "hierarchy": {"spine": SPINE, "fn": {}},
         "layers": [{"geom": g, "params": {}} for g in geoms],
         "stats": {"family": "timeseries", "test": None,
-                  "chosen_by": "describe_only", "alternatives_offered": [],
-                  "assumption_checks": [], "alpha": 0.05, "report": []},
+                  "describe_only": True, "alpha": 0.05},
         "annotations": {"significance_brackets": "auto", "show_n": True},
         "style": {"preset": "demo_default", "overrides": {}},
         "engine_snapshot": {},

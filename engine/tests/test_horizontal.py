@@ -44,7 +44,7 @@ def make_horiz_spec(*geom_names):
     """Spec with categorical y (treatment) + numeric x (response) — horizontal."""
     names = geom_names or ("box",)
     return {
-        "spec_version": "2.0",
+        "spec_version": "2.1",
         "id": "h_test", "title": "Horizontal test",
         "data": {"filter": []},
         "reduce": {"steps": []},
@@ -56,10 +56,7 @@ def make_horiz_spec(*geom_names):
         "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
         "layers": [{"geom": g, "params": {}} for g in names],
         "stats": {
-            "family": "group_comparison", "test": "welch_t",
-            "chosen_by": "recommendation_accepted",
-            "alternatives_offered": [], "assumption_checks": [],
-            "alpha": 0.05, "report": [],
+            "family": "group_comparison", "test": "welch_t", "alpha": 0.05,
         },
         "annotations": {"significance_brackets": "auto", "show_n": True},
         "style": {"preset": "demo_default", "overrides": {}},
@@ -141,17 +138,14 @@ def test_horizontal_stats_match_vertical_stats():
     """Same data via horizontal vs vertical spec → same p-value and summaries."""
     # vertical spec
     vert_spec = {
-        "spec_version": "2.0", "id": "v", "title": "v",
+        "spec_version": "2.1", "id": "v", "title": "v",
         "data": {"filter": []},
         "reduce": {"steps": []},
         "encodings": {"x": {"column": "treatment"}, "y": {"column": "response"},
                       "color": None, "size": None, "shape": None},
         "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
         "layers": [{"geom": "box", "params": {}}],
-        "stats": {"family": "group_comparison", "test": "welch_t",
-                  "chosen_by": "recommendation_accepted",
-                  "alternatives_offered": [], "assumption_checks": [],
-                  "alpha": 0.05, "report": []},
+        "stats": {"family": "group_comparison", "test": "welch_t", "alpha": 0.05},
         "annotations": {"significance_brackets": "auto", "show_n": True},
         "style": {"preset": "demo_default", "overrides": {}},
         "engine_snapshot": {},

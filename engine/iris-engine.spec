@@ -1,7 +1,15 @@
 # PyInstaller spec for the Iris engine sidecar (single-file binary).
 # Build from engine/:  pyinstaller iris-engine.spec
 # Output: dist/iris-engine  — copy to src-tauri/binaries/iris-engine-<target-triple>
+from pathlib import Path
+
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
+
+# Stamp the engine identity (version/commit/dirty) into the package before the
+# binary is frozen — the packaged sidecar is not a git checkout and cannot read
+# its own commit at runtime. build_info reads this stamp; it is gitignored.
+from build_stamp_gen import write_stamp
+write_stamp(Path(SPECPATH))
 
 hiddenimports = (
     # uvicorn picks loop/protocol/lifespan implementations at runtime

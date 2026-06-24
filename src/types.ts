@@ -367,7 +367,7 @@ export interface StyleOverrides {
 }
 
 export interface AnalysisSpec {
-  spec_version: "2.0";
+  spec_version: "2.1";
   id: string;
   title: string;
   data: { filter: unknown[] };
@@ -390,16 +390,15 @@ export interface AnalysisSpec {
      `level` selects a grain from it. */
   hierarchy: Hierarchy;
   layers: Layer[];
+  /* Decisions and inputs only — never computed output. The engine re-derives the
+     recommendation, the assumption-check outcomes, and the deviation label on
+     open (they are functions of data + decisions + engine), so storing them here
+     would only invite drift. See the .iris format redesign design doc. */
   stats: {
     family: StatsFamily;
     test: TestName;
-    /* `chosen_by` is descriptive only — it never flags a pick as a deviation
-       ("user_override" remains in the union solely so legacy specs still parse).
-       The user's pinned test rides in `override`, decoupled from this label. */
-    chosen_by: "recommendation_accepted" | "user_override" | "default" | "describe_only";
     /* the test the user pinned, independent of the recommendation; null when no
-       test is pinned (the engine then runs its recommendation). Transport for
-       the override round-trip, replacing the old chosen_by == user_override signal. */
+       test is pinned (the engine then runs its recommendation). */
     override?: TestName | null;
     /* the constant the `location` (one-sample / vs-reference) family tests each
        group against — chance/control/unity. Absent for every other family, where
@@ -407,10 +406,11 @@ export interface AnalysisSpec {
        categorical-x / numeric-y plot is otherwise indistinguishable from an
        ordinary group comparison, so the opt-in must be carried in the spec. */
     reference?: number | null;
-    alternatives_offered: string[];
-    assumption_checks: { check: string; per: string }[];
+    /* the user's describe-only decision — show summaries, run no inferential
+       test. A decision, so it is stored (was carried in the removed `chosen_by`).
+       Omitted when false. */
+    describe_only?: boolean;
     alpha: number;
-    report: string[];
   };
   annotations: { significance_brackets: "auto"; show_n: boolean };
   style: { overrides: StyleOverrides };
@@ -491,13 +491,17 @@ export interface AnalyzeResponse {
   engine_snapshot: Record<string, string>;
 }
 
-/* Upgrade a serialized analysis to spec_version 2.0. Legacy reduce shapes become
+/* Upgrade a serialized analysis to spec_version 2.1. Legacy reduce shapes become
    the ordered steps[] pipeline (filter/drop only — aggregation moved to the
    data hierarchy); legacy mappings become encodings; legacy {mark, options|stat}
    layers become {geom, params}. Lossless: the engine does the same normalization
    server-side. */
+/* spec_versions already on the modern encodings/layers shape — returned as-is
+   rather than rebuilt from the legacy `mappings` form. 2.1 only drops optional
+   derived stats fields from 2.0, so both are structurally modern. */
+const MODERN_SPEC_VERSIONS = new Set(["2.0", "2.1"]);
 export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
-  if ((an as { spec_version?: string }).spec_version === "2.0") {
+  if (MODERN_SPEC_VERSIONS.has((an as { spec_version?: string }).spec_version ?? "")) {
     return an as unknown as AnalysisSpec;
   }
   const base = an as Record<string, unknown>;
@@ -533,7 +537,7 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
   void mappings;
   return {
     ...rest,
-    spec_version: "2.0",
+    spec_version: "2.1",
     reduce, encodings, layers,
     facet: { row: null, col: null, share_x: true, share_y: true },
     hierarchy: { ...EMPTY_HIERARCHY },
@@ -541,10 +545,25 @@ export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
   } as AnalysisSpec;
 }
 
+/* the engine build that produced a .iris — pins Iris's decision logic by commit
+   so a file's computed results are reproducible. `dirty` flags a build from a
+   modified tree, where exact reproduction is not guaranteed. */
+export interface EngineIdentity {
+  version: string;
+  commit: string;
+  dirty: boolean;
+}
+export interface DocumentManifest {
+  format_version: string;
+  modified: string;
+  engine: EngineIdentity;
+  engine_snapshot: Record<string, string>;   // library versions, secondary record
+}
+
 /* a loaded .viz: table + the analyses (raw specs, pre-migration) + provenance.
    Mirrors document.load_document's payload. */
 export interface LoadedDocument {
-  manifest: unknown;
+  manifest: DocumentManifest;
   schema: Schema;
   rows: Row[];                         // first window only; the engine owns the rest
   analyses: Record<string, unknown>[];

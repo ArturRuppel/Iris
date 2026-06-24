@@ -54,7 +54,7 @@ SCHEMA_OVERRIDES = {
 ANALYSES = [
     {
         "spec": {
-            "spec_version": "2.0",
+            "spec_version": "2.1",
             "title": TITLE,
             "encodings": {"x": {"column": "contact"},
                           "y": {"column": "enrich"},

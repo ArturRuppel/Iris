@@ -19,7 +19,7 @@ function makeSpec(id: string, opts: {
   y?: boolean; layers?: number; xCol?: string | null; tag?: string;
 } = {}): AnalysisSpec {
   return {
-    spec_version: "2.0", id, title: opts.tag ?? id,
+    spec_version: "2.1", id, title: opts.tag ?? id,
     data: { filter: [] },
     reduce: { steps: [] },
     encodings: {
@@ -31,9 +31,7 @@ function makeSpec(id: string, opts: {
     hierarchy: { spine: [], fn: {} },
     layers: opts.layers === 0 ? [] : [{ geom: "dot", params: {}, level: "" }],
     stats: {
-      family: "group_comparison", test: "welch_t", chosen_by: "default",
-      override: null, alternatives_offered: [], assumption_checks: [],
-      alpha: 0.05, report: [],
+      family: "group_comparison", test: "welch_t", override: null, alpha: 0.05,
     },
     annotations: { significance_brackets: "auto", show_n: true },
     style: { overrides: {} },
@@ -63,9 +61,8 @@ describe("location (vs-reference) family round-trips through save/load", () => {
   const locationSpec = (): AnalysisSpec => ({
     ...makeSpec("loc", { xCol: "grp" }),
     stats: {
-      family: "location", test: "one_sample_t", chosen_by: "default",
-      override: "one_sample_t", reference: 0, alternatives_offered: [],
-      assumption_checks: [], alpha: 0.05, report: [],
+      family: "location", test: "one_sample_t",
+      override: "one_sample_t", reference: 0, alpha: 0.05,
     },
   });
 
@@ -98,6 +95,40 @@ describe("location (vs-reference) family round-trips through save/load", () => {
     const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY);
     expect(resaved.stats.family).toBe("location");
     expect(resaved.stats.reference).toBe(0);
+  });
+});
+
+describe("stats block stores decisions only (format redesign)", () => {
+  const base = () => ({ ...makeDefaultPlottable(SCHEMA),
+                        mappings: { x: "grp", y: "val" } });
+
+  it("buildSpec emits no derived/process fields", () => {
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const keys = Object.keys(spec.stats);
+    for (const dead of ["chosen_by", "alternatives_offered", "assumption_checks", "report"]) {
+      expect(keys).not.toContain(dead);
+    }
+    expect(spec.spec_version).toBe("2.1");
+  });
+
+  it("describe_only is a stored decision and round-trips", () => {
+    const p = { ...base(), describeOnly: true };
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    expect(spec.stats.describe_only).toBe(true);
+    expect(plottableFromSpec(spec).describeOnly).toBe(true);
+  });
+
+  it("describe_only is omitted (not false) when the user did not choose it", () => {
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    expect("describe_only" in spec.stats).toBe(false);
+    expect(plottableFromSpec(spec).describeOnly).toBe(false);
+  });
+
+  it("override round-trips independently of the recommendation", () => {
+    const p = { ...base(), override: "mann_whitney" as const };
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    expect(spec.stats.override).toBe("mann_whitney");
+    expect(plottableFromSpec(spec).override).toBe("mann_whitney");
   });
 });
 
