@@ -755,3 +755,52 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-rfcanvas { position: absolute; inset: 44px 0 0 0; }
 .txw-tidy { margin-left: auto; }
 .react-flow__attribution { display: none; }
+
+/* ---- workbench floating cards (Phase 3) ---- */
+.txw-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+  z-index: 5;
+}
+.txw-card-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 10px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  cursor: move;
+  user-select: none;
+}
+.txw-card.collapsed .txw-card-bar { border-bottom: none; }
+.txw-card-title { flex: 1; font-size: 12px; font-weight: 600; color: #334155; }
+.txw-card-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  color: #475569;
+  border-radius: 4px;
+}
+.txw-card-btn:hover { background: #e2e8f0; }
+.txw-card-body { flex: 1; overflow: auto; padding: 10px; }
+.txw-card-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+  background:
+    linear-gradient(135deg, transparent 50%, #94a3b8 50%, #94a3b8 60%, transparent 60%);
+}
+.txw-card-stub { font-size: 12px; color: #64748b; }
