@@ -1,70 +1,32 @@
 # TODO
 
-Open items only. Shipped work — the composable grammar of graphics, the
-data-hierarchy model, the guided test picker, the validation corpus,
-style-rationalization + loadable style sheets, the n/N annotation, pan/zoom,
-real `.iris` save/load (File System Access), the one-sample `location` and
-count `rate` families + their plot types, the rank-floor recommendation guard,
-and the 2026-06-22 browser-verification batch (incl. the outlined-text SVG/PDF
-bug) — was removed from this file once it landed. See git history and
-`docs/superpowers/specs/` for the per-item write-ups.
+Open items only. Shipped work is removed from this file once it lands — see git
+history and `docs/superpowers/specs/` for the per-item write-ups. Already shipped:
+the composable grammar of graphics, the data-hierarchy model, the guided test
+picker, the validation corpus, style-rationalization + loadable style sheets, the
+n/N annotation, pan/zoom, real `.iris` save/load (File System Access), the
+one-sample `location` and count `rate` families + their plot types, the rank-floor
+recommendation guard, the transformation explorer (dataflow graph + un-forced
+nesting / editable collapse routing + never-blocking guards), the `.iris` file
+format redesign (engine identity in the manifest, stored stats = decisions only,
+spec 2.1), and the COV2D absorption work below through Tier C + Part-2 §3/§5.
 
-## COV2D absorption — data-prep targets (added 2026-06-23)
+## COV2D absorption
 
-The COV2D report's pandas prep (`code/cov2d/figures.py`, `tables.py` in the data
-repo) is the corpus for the transformation explorer
-(`docs/superpowers/specs/2026-06-23-transformation-explorer-design.md`). Mapping
-every prep op against the graph's node types sorts the work into four tiers. The
-engine already supports every **stat** family COV2D uses (`location`,
-`correlation`, `rate`/NB, `distribution`/`descriptive`) — the entire gap is on
-the **data-prep** side, which is exactly what this direction absorbs.
+The COV2D report's pandas prep (`code/cov2d/figures.py`, `tables.py`) was the
+corpus for the transformation explorer. Tiers A–C and Part-2 §3/§5 have landed on
+`main`: the nested-median SuperPlots; the `derive`/`recode`/`join`/`pivot`/
+`grid_complete`/expression-`filter` reduce vocabulary; arbitrary-grain collapse +
+the pseudoreplication / pairing-flip / identity-merge / post-aggregate-derive
+guards; the post-collapse `reduce.post` phase; and §3 enrichment verified on real
+data.
 
-**Tier A — the §1–§2 shape & motility SuperPlots.** The cleanest absorption: the
-replicate stat is the *default* nested-median flatten chain
-(`frame→cell→field→experiment`) and the paired-t + Hedges g already exists. The
-only new prep is the minimal first form of `derive`/`recode`/`join`, all
-raw-grain. First concrete target + equivalence test against the notebook's own
-numbers. Spec'd 2026-06-23 →
-`docs/superpowers/specs/2026-06-23-cov2d-absorption-tier-a-design.md`.
-
-**Tier B — the named deferred nodes, with COV2D as the corpus.** `derive` (#1:
-`q = perimeter/√area`, `speed×3600`, key concat, boolean flags), `recode` (#2:
-class-label relabel), `join`/spine-aligned union (#3: `_join_class`, the §4
-`per_cell_features` 4-table concat). Already the explorer spec's deferred plan;
-COV2D confirms the order — `derive` unblocks the most sections, `join` unblocks §4.
-
-**Tier C — gaps the explorer spec doesn't yet name a node for.** Surfaced by
-COV2D; design these before they're rediscovered mid-build:
-- **post-aggregate `derive`** — `log2(Σobs/Σexp)` (§3), `het = o/(s+o)` (§4): a
-  derive that runs *after* a flatten, where the grain-safety guarantee stops
-  being free (the spec's `derive` is raw-grain only). This is where guards earn
-  their keep.
-- **grid-completion / cross-join + 0-fill** — §5's `pos × tt` rate grid; an
-  absent (field × transition) is a real zero, not missing. Non-optional for
-  honest rate denominators; the spec names "grid-completion" but gives no node.
-- **data-dependent `filter` bounds** — §5's tail-clip at the 99th pct of `|L|`;
-  current filter takes static literals only (needs a derive feeding the filter,
-  or an expression-valued filter).
-- **pivot/unstack** (long→wide, §4's `opp`) and **vertical union/append**
-  (pooling per-position tables) — reshapes the horizontal-join framing misses.
-
-**Status (2026-06-24): Tiers A–C largely landed.** The §1–§2 SuperPlots (A) and
-the Tier B/C reduce vocabulary — `derive` bool/concat, `pivot`, `grid_complete`,
-expression-valued `filter` — are on `main`, as is the arbitrary-grain collapse
-machinery (C1's basis) and the pseudoreplication / pairing-flip / identity-merge
-guards (C3's basis), landed via the un-forced-nesting work. Spec + plan:
-[Tier B/C spec](docs/superpowers/specs/2026-06-24-cov2d-absorption-tier-b-c-design.md),
-[plan](docs/superpowers/plans/2026-06-24-cov2d-absorption-tier-b-c.md). **Part 2 —
-§3/§4/§5 figure assembly** is now spec'd + planned
-([spec](docs/superpowers/specs/2026-06-24-cov2d-absorption-part-2-design.md),
-[plan](docs/superpowers/plans/2026-06-24-cov2d-absorption-part-2.md)) and
-unblocked. Its one engine addition is a **post-collapse reduce phase**
-(`reduce.post`) — running derive/join/pivot at a chosen grain — since the pipeline
-is strictly `reduce → collapse → stat` today; plus the C3 post-aggregate-`derive`
-caution guard. §5 (T1 rates + landscape) is the free win: fully expressible on
-already-landed nodes. The one open risk is §4A's replicate-level correlation
-(per-`experiment` Spearman → Fisher-z → one-sample t), which may need a small
-`correlation`-family extension rather than pure composition.
+**Open — Part 2 §4 / §4A (the only remaining absorption gap).** The §4A crowding
+figure's statistical decision gate is resolved (the replicate-level Spearman →
+Fisher-z → one-sample t needs no `correlation`-family extension), but the plumbing
+is deferred: the N-way join + `opp` pivot + `het` derive at per-cell grain cannot
+yet reach the stat path. Plan + remaining phase:
+`docs/superpowers/plans/2026-06-24-cov2d-absorption-part-2.md` (Phase 4).
 
 **Tier D — out by nature; do NOT absorb.** Upstream of the tidy table, or outside
 the SuperPlot+test model; absorbing them would break "spec is data, not code" /
@@ -75,7 +37,7 @@ the SuperPlot+test model; absorbing them would break "spec is data, not code" /
 - `msd_alpha`/`alpha_per_cell` — per-track log-log MSD slope over a fixed lag
   window (a windowed-regression feature, not a group aggregate).
 - `coordination.py` — velocity correlation *functions* `C_v(r)`/`S(r)` + a shuffle
-  null → a line plot; already "outside Iris's per-replicate families".
+  null → a line plot; already outside Iris's per-replicate families.
 
 The dividing line: **Iris absorbs everything from the pooled tidy table onward
 (reshape → figure → stat); everything that produces that table from images/graphs
@@ -100,16 +62,15 @@ numeric/axis-mappable by default (or offer a one-click "use as axis" nudge like
 the 0/1→bool one) without losing their nesting-level role.
 
 ### Transformation explorer — inline editing on edges
-The explorer shipped 2026-06-23 (branch `transformation-explorer-remodel`, spec
-`docs/superpowers/specs/2026-06-23-transformation-explorer-remodel-design.md`) as
-a dataflow graph: nodes = data (`table`/`plot`/`stats`), edges = transformations
-(`filter`/`drop`/`collapse`/`geom`/`test`). Next sub-project: click an edge to
-edit that transformation in place (filter conditions, dropped columns, collapse
-level), and introduce the reserved new transformation types `derive` / `recode`
-/ `join` as new edge kinds. Plugs into the existing `src/explorer/graph.ts`
-nodes+edges frame. Needs its own brainstorm → spec → plan before code.
+The explorer ships as a dataflow graph: nodes = data (`table`/`plot`/`stats`),
+edges = transformations (`filter`/`drop`/`collapse`/`geom`/`test`). Next
+sub-project: click an edge to edit that transformation in place (filter
+conditions, dropped columns, collapse level), and surface the `derive` / `recode`
+/ `join` reduce kinds as editable edges. Plugs into the existing
+`src/explorer/graph.ts` nodes+edges frame. Needs its own brainstorm → spec → plan
+before code.
 
-### Transformation explorer — backend SVG render of the graph (side-feature, added 2026-06-23)
+### Transformation explorer — backend SVG render of the graph
 A standalone export that renders the data-transformation graph itself as SVG —
 the lineage diagram (Source → filter/drop → collapse chain → geom/test →
 plot/stats), not the plot. The seam already exists on the figure side: the *plot*
@@ -128,13 +89,4 @@ and mirroring `/export` — rather than having the client POST a pre-built
 unless the derivation is shared or pinned by a fixture test against the TS
 output; it also needs its own layout pass (the TS view is a left→right chain with
 branch edges below — SVG needs its own coordinates). Side-feature — own
-brainstorm → spec → plan before code.
-
-### Transformation explorer — un-force the nesting
-The bigger conceptual one. Make the canonical collapse chain a *removable
-default* rather than an enforced spine: the user can re-route/branch it, with
-pseudoreplication protection moved from a wall to loud, specific guard-warnings
-("Iris guides and educates; the user is ultimately responsible"). Reshapes how
-the spine + identifier/classifier roles drive the graph (roles demote from schema
-law to default-generators). See the remodel spec's "Out of scope" section. Own
 brainstorm → spec → plan before code.
