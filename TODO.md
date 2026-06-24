@@ -21,12 +21,12 @@ the pseudoreplication / pairing-flip / identity-merge / post-aggregate-derive
 guards; the post-collapse `reduce.post` phase; and §3 enrichment verified on real
 data.
 
-**Open — Part 2 §4 / §4A (the only remaining absorption gap).** The §4A crowding
-figure's statistical decision gate is resolved (the replicate-level Spearman →
-Fisher-z → one-sample t needs no `correlation`-family extension), but the plumbing
-is deferred: the N-way join + `opp` pivot + `het` derive at per-cell grain cannot
-yet reach the stat path. Plan + remaining phase:
-`docs/superpowers/plans/2026-06-24-cov2d-absorption-part-2.md` (Phase 4).
+**Open — Part 2 §4 / §4A (the only remaining absorption gap); in progress on a
+separate thread.** The §4A crowding figure's statistical decision gate is resolved
+(the replicate-level Spearman → Fisher-z → one-sample t needs no `correlation`-
+family extension); the remaining work is plumbing the N-way join + `opp` pivot +
+`het` derive at per-cell grain through to the stat path. Being executed elsewhere
+— no in-repo plan file.
 
 **Tier D — out by nature; do NOT absorb.** Upstream of the tidy table, or outside
 the SuperPlot+test model; absorbing them would break "spec is data, not code" /
