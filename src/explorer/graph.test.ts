@@ -99,6 +99,18 @@ describe("buildGraph", () => {
     expect(edge(g, "grain:experiment", "plot")?.label).toBe("box");
   });
 
+  it("two geoms at the same grain collapse to one comma-joined edge", () => {
+    const layers: Layer[] = [
+      { geom: "dot", level: RAW_LEVEL },
+      { geom: "box", level: RAW_LEVEL },
+    ];
+    const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, null);
+    const geoms = g.edges.filter((e) => e.kind === "geom");
+    expect(geoms).toHaveLength(1);
+    expect(geoms[0].label).toBe("dots, box");
+    expect(geoms[0].fromId).toBe("source");
+  });
+
   it("skips a geom edge for a level no longer on the spine", () => {
     const g = buildGraph([], ["experiment"], defaultPlan(["experiment"], {}),
       [{ geom: "dot", level: "cell" }], SCHEMA, null);

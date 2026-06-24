@@ -215,17 +215,23 @@ export function buildGraph(
   nodes.push({ id: PLOT_ID, kind: "plot", label: "Plot", table: { via: "none" } });
   nodes.push({ id: STATS_ID, kind: "stats", label: "Stats", table: { via: "none" } });
 
-  const seenGeom = new Set<string>();
+  // one edge per grain the plot reads, labelled with the geom(s) at that grain
+  // (distinct, in first-seen order, comma-joined). A plot is composable over any
+  // number of grains. § Topology / Settled decisions #3.
+  const geomByNode = new Map<string, string[]>();
   for (const layer of layers) {
     const fromId = levelGrainNode(layer.level, plan, rawNodeId);
     if (!fromId) continue;
     const label = geomLabel(layer.geom);
-    const k = `${fromId}:${label}`;
-    if (seenGeom.has(k)) continue;
-    seenGeom.add(k);
-    edges.push({ id: `g:${k}`, kind: "geom", label, fromId, toId: PLOT_ID });
+    const list = geomByNode.get(fromId) ?? [];
+    if (!list.includes(label)) list.push(label);
+    geomByNode.set(fromId, list);
   }
-  if (seenGeom.size === 0) {
+  for (const [fromId, labels] of geomByNode) {
+    edges.push({ id: `g:${fromId}`, kind: "geom", label: labels.join(", "),
+      fromId, toId: PLOT_ID });
+  }
+  if (geomByNode.size === 0) {
     edges.push({ id: "g:plain", kind: "geom", label: "plotted", fromId: rawNodeId, toId: PLOT_ID });
   }
 
