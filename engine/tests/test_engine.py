@@ -1082,6 +1082,7 @@ def test_save_by_session_id_roundtrips():
     table = {"schema": document.SAMPLE_SCHEMA, "rows": rows}
     tid = client.post("/table/create", json={"table": table}).json()["id"]
     saved = client.post("/document/save", json={
-        "table_id": tid, "analyses": [make_spec()],
-        "provenance": {}}).json()
+        "tables": [{"name": "table_1", "table_id": tid,
+                    "hierarchy": {"spine": [], "fn": {}}}],
+        "analyses": [make_spec()], "provenance": {}}).json()
     assert saved["filename"] == "document.iris"
