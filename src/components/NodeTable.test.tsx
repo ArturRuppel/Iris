@@ -168,5 +168,6 @@ describe("NodeTable role bands (groupRoles)", () => {
     const { store, node } = seedPreview();
     render(<Provider store={store}><NodeTable node={node} /></Provider>);
     expect(screen.queryByText("Organised by")).toBeNull();
+    expect(screen.queryByText(/what was measured/i)).toBeNull();
   });
 });

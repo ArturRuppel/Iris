@@ -76,6 +76,7 @@ function Grid(
 ) {
   const shown = table.rows.length;
   const colDefs = buildColumnDefs(table.schema.columns, { groupRoles, axisNames });
+  // ColGroupDef carries children; ColDef does not — this detects the grouped shape.
   const grouped = colDefs.some((d) => "children" in d);
   return (
     <div className="reduced-wrap">
@@ -100,8 +101,8 @@ function Grid(
       </div>
       {grouped && (
         <div className="reduced-legend">
-          <span className="lg idx">Organised by — what defines each row</span>
-          <span className="lg val">Values — what was measured</span>
+          <span className="legend-item idx">Organised by — what defines each row</span>
+          <span className="legend-item val">Values — what was measured</span>
         </div>
       )}
     </div>
