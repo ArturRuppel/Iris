@@ -10,8 +10,9 @@ import {
   effectivePlanAtom, effectiveTestGrainAtom,
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
-  removeStepAtom, moveStepAtom,
+  removeStepAtom, moveStepAtom, runnableSteps, EMPTY_RIGHT,
 } from "./state";
+import type { ReduceStep, Table } from "./types";
 import { EMPTY_HIERARCHY } from "./types";
 
 /* a minimal renderable spec: a Y encoding and one layer. Toggle `y`/`layers`/`x`
@@ -474,5 +475,40 @@ describe("step writers — insert, and reduce.post preservation", () => {
     store = makeStoreWithPost();
     store.set(moveStepAtom, { index: 0, dir: 1 });
     expect(post(store)).toEqual(["derive"]);
+  });
+});
+
+describe("runnableSteps — unfilled joins are skipped on the run path", () => {
+  const filledRight: Table = { schema: { schema_version: "1.0", columns: [
+    { name: "cell_id", type: "identifier", label: "Cell" },
+  ] }, rows: [] };
+
+  it("drops a join whose right is the empty sentinel, keeps everything else", () => {
+    const steps: ReduceStep[] = [makeStep("filter"), makeStep("join")];
+    expect(steps[1].kind === "join" && steps[1].right).toBe(EMPTY_RIGHT);
+    const out = runnableSteps(steps);
+    expect(out.map((s) => s.kind)).toEqual(["filter"]);
+  });
+
+  it("keeps a join once its right has columns", () => {
+    const join: ReduceStep = { ...makeStep("join"), right: filledRight } as ReduceStep;
+    const out = runnableSteps([makeStep("filter"), join]);
+    expect(out.map((s) => s.kind)).toEqual(["filter", "join"]);
+  });
+
+  it("buildSpec excludes an unfilled join from the engine request", () => {
+    const p = {
+      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      reduce: { steps: [makeStep("filter"), makeStep("join")] },
+    };
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    expect(spec.reduce.steps.map((s) => s.kind)).toEqual(["filter"]);
+
+    const pFilled = {
+      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      reduce: { steps: [makeStep("filter"), { ...makeStep("join"), right: filledRight } as ReduceStep] },
+    };
+    const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    expect(specFilled.reduce.steps.map((s) => s.kind)).toEqual(["filter", "join"]);
   });
 });

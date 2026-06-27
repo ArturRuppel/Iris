@@ -192,6 +192,15 @@ let _sk = 0;
 const nextStepKey = () => `sk_${Date.now().toString(36)}_${_sk++}`;
 const stripStepKey = ({ _key, ...s }: ReduceStep): ReduceStep => s;
 
+/* the steps that are actually runnable: a freshly-authored join carries the
+   EMPTY_RIGHT sentinel until its right table is wired, and POSTing an
+   under-specified join to the engine errors. Drop those when building the
+   request — the spec keeps the step so its editor card and the open "missing"
+   circle persist; it just isn't sent until filled. */
+export function runnableSteps(steps: ReduceStep[]): ReduceStep[] {
+  return steps.filter((s) => s.kind !== "join" || s.right.schema.columns.length > 0);
+}
+
 /* a brand-new plottable starts completely blank: no preselected mapping, no
    preselected geom. The user picks x/y and adds layers explicitly. */
 export function makeDefaultPlottable(schema: Schema): Plottable {
@@ -573,7 +582,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: { steps: p.reduce.steps.map(stripStepKey) },
+    reduce: { steps: runnableSteps(p.reduce.steps).map(stripStepKey) },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
