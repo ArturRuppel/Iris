@@ -768,6 +768,56 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border: 2px dashed #f59e0b;
 }
 
+/* the authoring + handle on a node's output side: click for the phase-keyed add
+   menu, drag onto another table to wire a join. */
+.react-flow__handle.txw-handle-add {
+  opacity: 1;
+  width: 16px;
+  height: 16px;
+  background: #0e7490;
+  border: 2px solid #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.react-flow__handle.txw-handle-add::after {
+  content: "+";
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+/* the add menu popped at the + handle: a small list-of-buttons popover. */
+.txw-add-menu-anchor {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  z-index: 5;
+  margin-left: 8px;
+}
+.txw-add-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.15);
+}
+.txw-add-menu button {
+  text-align: left;
+  padding: 5px 8px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.txw-add-menu button:hover { background: #ecfeff; }
+
 /* ---- workbench floating cards (Phase 3) ---- */
 .txw-card {
   position: absolute;
