@@ -6,7 +6,7 @@ import {
 } from "ag-grid-community";
 import {
   activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
-  materializedTablesAtom, resolveEngineSteps,
+  materializedTablesAtom, materializedVersionKeyAtom, resolveEngineSteps,
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
 import { engine, type Table } from "../types";
@@ -93,8 +93,7 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
     setTable(null);
   }
 
-  const materializedKey = JSON.stringify(
-    Object.entries(materialized).map(([id, v]) => [id, v.version]));
+  const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const fetchKey = node.table.via !== "none"
     ? JSON.stringify([active?.id, node.table, active?.reduce.steps, active?.collapse, hierarchy, materializedKey])
     : null;

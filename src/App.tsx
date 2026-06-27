@@ -19,7 +19,7 @@ import {
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
-  tablesNeedingMaterializeAtom, materializedTablesAtom, allSaveSpecsAtom, plottablesAtom,
+  tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
   resolveEngineSteps,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
@@ -200,8 +200,7 @@ export default function App() {
      rows land in materialized asynchronously (and bump on a version change). Key
      on the id→version map so the preview re-fetches once the right is inlined,
      without stringifying every joined row each render. */
-  const materializedKey = JSON.stringify(
-    Object.entries(materialized).map(([id, v]) => [id, v.version]));
+  const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const stepsKey = active
     ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel, materializedKey])
     : null;

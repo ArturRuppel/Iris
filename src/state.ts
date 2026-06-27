@@ -214,6 +214,13 @@ type RightCache = Record<string, { version: number; table: Table }>;
    keyed by handle version so an edit re-materializes (design §5, §11). Session-only. */
 export const materializedTablesAtom = atom<RightCache>({});
 
+/* a stable string of (tableId → version) over the materialized cache: the live
+   preview / shape-count / node-fetch effects fold this into their dep keys so they
+   re-run once a referenced join's rows land (and again on a version bump). One
+   definition so the call sites can't drift out of sync. */
+export const materializedVersionKeyAtom = atom((get) =>
+  JSON.stringify(Object.entries(get(materializedTablesAtom)).map(([id, v]) => [id, v.version])));
+
 /* derived view of the above, for the App materialization effect to read directly. */
 export const tablesNeedingMaterializeAtom = atom((get) =>
   tablesNeedingMaterialize(get(tablesAtom), get(plottablesAtom), get(materializedTablesAtom)));
