@@ -249,12 +249,14 @@ export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): Engi
       : s);
 }
 
-/* like resolveEngineSteps, but for SAVE: inline every FILLED join's right (the
-   caller guarantees referenced tables are materialized first). Only an UNSET
-   reference (rightTableId === "") is dropped — it has no table to write. */
+/* like resolveEngineSteps, but for SAVE: inline every FILLED, materialized join's
+   right (the caller pre-materializes every pool-referenced table first, so a valid
+   reference is always cached here). An UNSET reference has no table to write, and a
+   filled-but-uncached one is dangling (its table left the pool) — both are skipped
+   gracefully rather than written or crashed on (design §8). */
 export function resolveSaveSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
   return steps
-    .filter((s) => s.kind !== "join" || !!s.rightTableId)
+    .filter((s) => s.kind !== "join" || (!!s.rightTableId && !!cache[s.rightTableId]))
     .map((s) => (s.kind === "join"
       ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
       : s));
