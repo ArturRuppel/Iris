@@ -247,8 +247,11 @@ export interface RecodeStep { kind: "recode"; column: string; map: Record<string
    boundary (see state.resolveEngineSteps). */
 export interface JoinStep { kind: "join"; on: string[]; how: "inner"; rightTableId: string; _key?: string }
 
-/* what /analyze + /reduce actually receive: the right table inlined. */
-export interface EngineJoinStep { kind: "join"; on: string[]; how: "inner"; right: Table }
+/* what /analyze + /reduce actually receive (live path), and what a saved spec
+   serializes (save path) — both flow through AnalysisSpec.reduce. The live/legacy
+   form inlines the right table (`right`); a saved 2.1 spec references the right by
+   pool id (`right_table_id`) with no inline rows. Exactly one is present. */
+export interface EngineJoinStep { kind: "join"; on: string[]; how: "inner"; right?: Table; right_table_id?: string }
 export type EngineReduceStep = Exclude<ReduceStep, JoinStep> | EngineJoinStep;
 export interface EngineReduceSpec { steps: EngineReduceStep[]; post?: EngineReduceStep[] }
 /* unstack one categorical `column` (long -> wide): one numeric column per level,
@@ -425,6 +428,10 @@ export interface AnalysisSpec {
      deviation from the default. Absent -> regenerate from the spine on load. */
   collapse?: CollapsePlan;
   test_grain?: GrainKey;
+  /* the main table's pool id (design §4.2) — which pool table this analysis is
+     rooted in. Set by the save serializer; absent on a legacy 2.0 file, where the
+     loader binds the analysis to the single loaded table. */
+  table_id?: string;
 }
 
 export interface Check {
@@ -577,18 +584,24 @@ export interface DocumentManifest {
   engine_snapshot: Record<string, string>;   // library versions, secondary record
 }
 
-/* a loaded .viz: table + the analyses (raw specs, pre-migration) + provenance.
-   Mirrors document.load_document's payload. */
+/* one entry of the SAVE request's table pool: the engine reads the table's FULL
+   rows from its live session (`table_id`) and writes them under `name`. */
+export interface SaveTable { name: string; table_id: string; hierarchy: Hierarchy }
+
+/* one entry of the LOAD response's `tables[]`: the engine recreated a session
+   (`id`) holding every row; `rows` is only the first window (preview). */
+export interface LoadedTable {
+  name: string; id: string; schema: Schema; hierarchy: Hierarchy;
+  n: number; version: number; counts: TableCounts; rows: Row[];
+}
+
+/* a loaded .iris: the full table pool + the analyses (raw specs, pre-migration) +
+   provenance. Mirrors document.load_document's 2.1 payload. */
 export interface LoadedDocument {
   manifest: DocumentManifest;
-  schema: Schema;
-  rows: Row[];                         // first window only; the engine owns the rest
   analyses: Record<string, unknown>[];
   provenance: Record<string, unknown> | null;
-  id: string;                          // session handle for the loaded table
-  n: number;
-  version: number;
-  counts: TableCounts;
+  tables: LoadedTable[];
 }
 
 /* ---------------- import wizard ---------------- */
@@ -732,9 +745,9 @@ export const engine = {
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
     post<{ filename: string; data_base64: string }>(
       "/export", { ...tableField(t), spec, format, dpi: 300 }),
-  saveDocument: (tableId: string, analyses: AnalysisSpec[], provenance: unknown) =>
+  saveDocument: (tables: SaveTable[], analyses: AnalysisSpec[], provenance: unknown) =>
     post<{ filename: string; data_base64: string }>(
-      "/document/save", { table_id: tableId, analyses, provenance }),
+      "/document/save", { tables, analyses, provenance }),
   /* read back a saved .viz; analyses come as raw specs (run through migrateSpec) */
   loadDocument: (dataBase64: string) =>
     post<LoadedDocument>("/document/load", { data_base64: dataBase64 }),
