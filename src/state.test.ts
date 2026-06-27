@@ -705,4 +705,19 @@ describe("loadDocumentAtom — pool seeding + inline join right migration", () =
     expect(ids[0]).toBe(ids[1]);                                   // both analyses reference the same pool id
     expect(ids[0]).toBe(pool[1].id);
   });
+
+  it("loadDocument REPLACES the workspace (no orphan tables from a prior load)", async () => {
+    const store = createStore();
+    // a prior import left a table + a stale materialized entry in the pool
+    store.set(tablesAtom, [{ id: "old", name: "old", schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: "h_old", n: 1, version: 0, schema: SCHEMA, counts: {} as never } }]);
+    store.set(materializedTablesAtom, { old: { version: 0, table: { schema: SCHEMA, rows: [] } } });
+    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
+      counts: { total: 1 }, analyses: [makeSpec("a", { xCol: "grp" })] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.map((t) => t.id)).not.toContain("old");            // the orphan is gone
+    expect(pool.length).toBe(1);                                   // just the loaded doc's table
+    expect(store.get(materializedTablesAtom)).toEqual({});         // stale cache cleared
+  });
 });

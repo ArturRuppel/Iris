@@ -652,6 +652,11 @@ export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   const hierarchy: Hierarchy = saved && saved.spine?.length
     ? { spine: saved.spine, fn: saved.fn ?? {} }
     : { spine: identifierCols(doc.schema), fn: {} };
+  // Load REPLACES the workspace: clear the pool + materialized cache first so a
+  // prior import/load leaves no orphan tables and no stale rows (spec §6.2 — one
+  // in-memory shape after load). loadTableAtom accumulates; loadDocument does not.
+  set(tablesAtom, []);
+  set(materializedTablesAtom, {});
   // Seed the MAIN pool entry from the doc — pool[0], the table every analysis is
   // (today) bound to. Migrated join rights append after it, in first-seen order.
   const mainId = seedTableName(get(tablesAtom), undefined);

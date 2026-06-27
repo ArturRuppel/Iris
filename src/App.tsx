@@ -52,6 +52,7 @@ export default function App() {
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
+  const plottables = useAtomValue(plottablesAtom);
   const store = useStore();
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
@@ -309,7 +310,15 @@ export default function App() {
     if (!handle || allSpecs.length === 0) return;
     if (analyzeStatus === "running" || bgInFlight.current) return;  // one at a time
     const schemaFor = (id: string) => reducePreviews[id]?.preview.schema ?? schema ?? null;
-    const target = pickStaleSpec(allSpecs, {
+    // Only warm analyses rooted in the ACTIVE table — they share `handle` (its
+    // session). A plottable bound to a different pool table must NOT be analyzed
+    // against this session (wrong rows / spurious 422s); it warms when the user
+    // switches to its table. (Plan A's single-root limitation; Plan B generalizes.)
+    const activeTableId = active?.tableId;
+    const sameTable = allSpecs.filter((s) =>
+      plottables.find((p) => p.id === s.id)?.tableId === activeTableId);
+    if (sameTable.length === 0) return;
+    const target = pickStaleSpec(sameTable, {
       activeId, handleId: handle.id, version: handle.version,
       keyById: analysisKeyById, failedKeys: failedKeys.current, schemaFor,
     });
@@ -334,7 +343,7 @@ export default function App() {
       }
     })();
   }, [handle?.id, handle?.version, allSpecsKey, analysisKeyById, analyzeStatus,
-      activeId, bgTick]);
+      activeId, active?.tableId, bgTick]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec || !handle) return;
