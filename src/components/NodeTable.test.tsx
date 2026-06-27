@@ -8,7 +8,9 @@ import {
 import type { CollapsePlan, ReducePreview, Schema, Table } from "../types";
 import type { ExplorerNode } from "../explorer/graph";
 import { engine } from "../types";
-import { NodeTable } from "./NodeTable";
+import { NodeTable, buildColumnDefs } from "./NodeTable";
+import type { ColDef, ColGroupDef } from "ag-grid-community";
+import type { ColumnDef } from "../types";
 
 /* the single-table globals now derive off the active analysis's pool table. With
    `handle`, seed one pool entry (so tableHandleAtom resolves) and bind the
@@ -102,5 +104,36 @@ describe("NodeTable", () => {
     const args = spy.mock.calls[0];
     expect(args[5]).toEqual(collapse);   // collapse plan
     expect(args[6]).toBe("cell");        // grain key
+  });
+});
+
+describe("buildColumnDefs", () => {
+  const cols: ColumnDef[] = [
+    { name: "experiment", label: "experiment", type: "identifier" },
+    { name: "position", label: "position", type: "identifier" },
+    { name: "t1_event_id", label: "t1_event_id", type: "numeric" },
+    { name: "contact_type", label: "contact_type", type: "categorical" },
+  ];
+
+  it("returns flat colDefs when groupRoles is off", () => {
+    const defs = buildColumnDefs(cols);
+    expect(defs).toHaveLength(4);
+    expect(defs.every((d) => "field" in d)).toBe(true);
+  });
+
+  it("groups index vs value columns under role bands and shades index cells", () => {
+    const defs = buildColumnDefs(cols, { groupRoles: true, axisNames: ["experiment", "position"] });
+    expect(defs).toHaveLength(2);
+    const [organised, values] = defs as ColGroupDef[];
+    expect(organised.headerName).toBe("Organised by");
+    expect(organised.children.map((c) => (c as ColDef).field)).toEqual(["experiment", "position"]);
+    expect(String((organised.children[0] as ColDef).cellClass)).toContain("idxcol");
+    expect(values.headerName).toBe("Values");
+    expect(values.children.map((c) => (c as ColDef).field)).toEqual(["t1_event_id", "contact_type"]);
+  });
+
+  it("falls back to flat colDefs when there are no axis names or no value columns", () => {
+    expect(buildColumnDefs(cols, { groupRoles: true, axisNames: [] })).toHaveLength(4);
+    expect(buildColumnDefs(cols, { groupRoles: true, axisNames: cols.map((c) => c.name) })).toHaveLength(4);
   });
 });

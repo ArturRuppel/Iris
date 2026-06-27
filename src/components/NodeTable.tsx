@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
-  AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef,
+  AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type ColGroupDef,
 } from "ag-grid-community";
 import {
   activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
   materializedTablesAtom, materializedVersionKeyAtom, resolveEngineSteps,
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
-import { engine, type Table } from "../types";
+import { engine, type Table, type ColumnDef } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -24,6 +24,50 @@ const theme = themeQuartz.withParams({
   rowVerticalPaddingScale: 0.7,
   wrapperBorder: false,
 });
+
+/* Build AG Grid column defs for a reduced table. With `groupRoles` and a non-empty
+   `axisNames`, columns split into two header groups — "Organised by" (the index
+   dims, shaded) and "Values" (everything else) — so the index/payload roles read
+   at a glance. Falls back to a flat list when off, or when the split is degenerate
+   (no index or no value columns). Pure + exported for unit tests. */
+export function buildColumnDefs(
+  columns: ColumnDef[],
+  opts?: { groupRoles?: boolean; axisNames?: string[] },
+): (ColDef | ColGroupDef)[] {
+  const base = (c: ColumnDef): ColDef => ({
+    field: c.name,
+    headerName: c.label,
+    editable: false,
+    sortable: true,
+    flex: 1,
+    minWidth: 90,
+    cellClass: c.type === "numeric" ? "mono" : undefined,
+    ...(c.type === "numeric" && {
+      valueFormatter: (p: { value: unknown }) => (p.value == null ? "NA" : String(p.value)),
+    }),
+  });
+
+  const axisNames = opts?.axisNames ?? [];
+  const idx = new Set(axisNames);
+  const indexCols = columns.filter((c) => idx.has(c.name));
+  const valueCols = columns.filter((c) => !idx.has(c.name));
+
+  if (!opts?.groupRoles || indexCols.length === 0 || valueCols.length === 0) {
+    return columns.map(base);
+  }
+
+  const shade = (c: ColumnDef): ColDef => {
+    const d = base(c);
+    d.cellClass = c.type === "numeric" ? ["mono", "idxcol"] : "idxcol";
+    d.headerClass = "idxcol-head";
+    return d;
+  };
+
+  return [
+    { headerName: "Organised by", headerClass: "role-band idx", children: indexCols.map(shade) },
+    { headerName: "Values", headerClass: "role-band val", children: valueCols.map(base) },
+  ];
+}
 
 /* Render a (schema, rows, n_total) triple as the AG grid — the body lifted from
    ReducedTable so the data tab looks identical regardless of which node it shows. */
