@@ -140,3 +140,33 @@ describe("buildColumnDefs", () => {
     expect(buildColumnDefs(cols, { groupRoles: true, axisNames: cols.map((c) => c.name) })).toHaveLength(4);
   });
 });
+
+describe("NodeTable role bands (groupRoles)", () => {
+  function seedPreview() {
+    const { store, schema, plottable } = seed();
+    const table: Table = { schema, rows: [{ id: "r0", cell: "c1", val: 42 }] };
+    store.set(reducePreviewByIdAtom, {
+      [plottable.id]: { preview: table, n_total: 1, trace: [], summary: [] },
+    });
+    const node: ExplorerNode = {
+      id: "plot", kind: "plot", label: "Plot", table: { via: "none" },
+      count: { rows: 1, cols: 2,
+        axes: [{ name: "cell", n_levels: 1, ragged: false }],
+        values: [{ name: "val", type: "numeric", grain: null }] },
+    };
+    return { store, node };
+  }
+
+  it("renders role bands + legend when groupRoles is on", () => {
+    const { store, node } = seedPreview();
+    render(<Provider store={store}><NodeTable node={node} groupRoles /></Provider>);
+    expect(screen.getByText("Organised by")).toBeInTheDocument();
+    expect(screen.getByText(/what was measured/i)).toBeInTheDocument();
+  });
+
+  it("renders no role bands by default (Data tab grid is unchanged)", () => {
+    const { store, node } = seedPreview();
+    render(<Provider store={store}><NodeTable node={node} /></Provider>);
+    expect(screen.queryByText("Organised by")).toBeNull();
+  });
+});

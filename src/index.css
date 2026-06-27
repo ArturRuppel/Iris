@@ -436,6 +436,17 @@ button.icon:disabled { opacity: 0.3; }
 .agg-row select { font-size: 11px; }
 .reduced-wrap { display: flex; flex-direction: column; }
 .reduced-note { font-size: 11px; color: var(--faint); padding: 4px 8px; }
+/* Workbench table card: role-banded reduced grid (opt-in via groupRoles). */
+.reduced-table .ag-header-group-cell.role-band.idx { background:#f5f3ff; color:#6d28d9; }
+.reduced-table .ag-header-group-cell.role-band.val { background:#f0fdf4; color:#15803d; }
+.reduced-table .ag-header-cell.idxcol-head { background:#f5f3ff; }
+.reduced-table .idxcol { background:#faf8ff; }
+.reduced-legend { display:flex; gap:16px; flex-wrap:wrap; font-size:11px;
+  color:var(--faint); padding:6px 8px; }
+.reduced-legend .lg::before { content:""; display:inline-block; width:10px; height:10px;
+  border-radius:2px; margin-right:5px; vertical-align:-1px; }
+.reduced-legend .lg.idx::before { background:#ede9fe; }
+.reduced-legend .lg.val::before { background:#dcfce7; }
 
 footer { padding: 0 18px 22px; }
 footer pre { background: #0f172a; color: #cffafe; font-size: 11px;

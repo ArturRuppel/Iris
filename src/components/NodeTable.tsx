@@ -70,20 +70,13 @@ export function buildColumnDefs(
 
 /* Render a (schema, rows, n_total) triple as the AG grid — the body lifted from
    ReducedTable so the data tab looks identical regardless of which node it shows. */
-function Grid({ table, total }: { table: Table; total: number }) {
+function Grid(
+  { table, total, groupRoles, axisNames }:
+  { table: Table; total: number; groupRoles?: boolean; axisNames?: string[] },
+) {
   const shown = table.rows.length;
-  const colDefs: ColDef[] = table.schema.columns.map((c) => ({
-    field: c.name,
-    headerName: c.label,
-    editable: false,
-    sortable: true,
-    flex: 1,
-    minWidth: 90,
-    cellClass: c.type === "numeric" ? "mono" : undefined,
-    ...(c.type === "numeric" && {
-      valueFormatter: (p: { value: unknown }) => (p.value == null ? "NA" : String(p.value)),
-    }),
-  }));
+  const colDefs = buildColumnDefs(table.schema.columns, { groupRoles, axisNames });
+  const grouped = colDefs.some((d) => "children" in d);
   return (
     <div className="reduced-wrap">
       <div className="reduced-note">
@@ -105,6 +98,12 @@ function Grid({ table, total }: { table: Table; total: number }) {
           rowHeight={26}
         />
       </div>
+      {grouped && (
+        <div className="reduced-legend">
+          <span className="lg idx">Organised by — what defines each row</span>
+          <span className="lg val">Values — what was measured</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -112,7 +111,8 @@ function Grid({ table, total }: { table: Table; total: number }) {
 /* Fetch + render one ExplorerNode's reduced table. source/step/collapse nodes
    are fetched via engine.reduce keyed on node.table.via; the terminal
    plot/stats nodes (via:"none") use the live reducePreviewAtom (no fetch). */
-export function NodeTable({ node }: { node: ExplorerNode }) {
+export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles?: boolean }) {
+  const axisNames = (node.count?.axes ?? []).map((a) => a.name);
   const active = useAtomValue(activePlottableAtom);
   const hierarchy = useAtomValue(hierarchyAtom);
   const handle = useAtomValue(tableHandleAtom);
@@ -178,9 +178,9 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
   // plot/stats (or a no-table node) → the live final reduced table.
   if (node.table.via === "none") {
     if (!preview) return <div className="reduced-empty">Building preview…</div>;
-    return <Grid table={preview.preview} total={preview.n_total} />;
+    return <Grid table={preview.preview} total={preview.n_total} groupRoles={groupRoles} axisNames={axisNames} />;
   }
   if (err) return <div className="reduced-empty">Could not load this node: {err}</div>;
   if (loading || !table) return <div className="reduced-empty">Loading {node.label}…</div>;
-  return <Grid table={table} total={total} />;
+  return <Grid table={table} total={total} groupRoles={groupRoles} axisNames={axisNames} />;
 }
