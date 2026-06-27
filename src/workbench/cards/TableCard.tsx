@@ -20,7 +20,7 @@ export function TableCard({ target }: CardBodyProps) {
 
   return (
     <div className="txw-card-table" data-testid="table-card">
-      <NodeTable node={node} />
+      <NodeTable node={node} groupRoles />
     </div>
   );
 }

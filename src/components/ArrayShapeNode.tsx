@@ -18,6 +18,10 @@ const VAL_CLASS: Record<string, string> = {
   numeric: "num", categorical: "catg", bool: "bool",
 };
 
+const TYPE_LABEL: Record<string, string> = {
+  numeric: "number", categorical: "category", bool: "yes-no",
+};
+
 /* a tiny monochrome glyph per node variant, painted in the variant's accent via
    currentColor. Kept inline (no icon dep) and on a fixed 14×14 grid so every node
    reads as the same "box" with a type marker in the corner. */
@@ -46,7 +50,7 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
 export function ArrayShapeNode(
   { title, variant, axes, values, removed = [], onKeys = [], rows, cols }: ArrayShapeNodeProps,
 ) {
-  const hasDescriptor = axes.length > 0 || values.length > 0;
+  const hasDescriptor = axes.length > 0 || values.length > 0 || removed.length > 0;
   return (
     <div className={`txw-node ${variant}`}>
       <div className="txw-ntitle">
@@ -54,37 +58,47 @@ export function ArrayShapeNode(
         <span className="txw-ntitle-text">{title}</span>
       </div>
 
-      {axes.length > 0 && (
-        <div className="txw-row">
-          <span className="txw-rk">axes</span>
-          <span className="txw-chips">
+      {(axes.length > 0 || removed.length > 0) && (
+        <div className="txw-sec">
+          <div className="txw-sk">Organised by</div>
+          <ul className="txw-tree" role="list">
             {axes.map((a, i) => (
-              <span key={a.name} className="txw-axwrap">
-                <span className={`txw-ax${a.ragged ? " ragged" : ""}${onKeys.includes(a.name) ? " keyhi" : ""}`}>
+              <li key={a.name} className={`txw-lvl${i > 0 ? " nested" : ""}`}>
+                {i > 0 && <span className="txw-twig" aria-hidden>└</span>}
+                <span className={`txw-dim${a.ragged ? " ragged" : ""}${onKeys.includes(a.name) ? " keyhi" : ""}`}>
                   {a.name}
-                  <span className="txw-n">{a.ragged ? "~" : a.n_levels}</span>
                 </span>
-                {(i < axes.length - 1 || removed.length > 0) && <span className="txw-caret">▸</span>}
-              </span>
+                <span
+                  className={`txw-pill${a.ragged ? " varies" : ""}`}
+                  title={a.ragged ? "count varies by parent (ragged)" : undefined}
+                >
+                  {a.ragged ? "varies" : a.n_levels}
+                </span>
+              </li>
             ))}
             {removed.map((name) => (
-              <span key={name} className="txw-ax gone">{name}</span>
+              <li key={name} className="txw-lvl">
+                <span className="txw-dim gone">{name}</span>
+              </li>
             ))}
-          </span>
+          </ul>
         </div>
       )}
 
       {values.length > 0 && (
-        <div className="txw-row">
-          <span className="txw-rk">values</span>
-          <span className="txw-chips">
+        <div className="txw-sec">
+          <div className="txw-sk">Values</div>
+          <ul className="txw-vlist" role="list">
             {values.map((v) => (
-              <span key={v.name} className={`txw-val ${VAL_CLASS[v.type] ?? "num"}`}>
-                {v.name}
-                {v.grain && <span className="txw-grain">@{v.grain}</span>}
-              </span>
+              <li key={v.name} className="txw-vrow">
+                <span className={`txw-val ${VAL_CLASS[v.type] ?? "num"}`}>
+                  {v.name}
+                  {v.grain && <span className="txw-grain">@{v.grain}</span>}
+                </span>
+                <span className="txw-vtype">{TYPE_LABEL[v.type] ?? v.type}</span>
+              </li>
             ))}
-          </span>
+          </ul>
         </div>
       )}
 

@@ -14,29 +14,53 @@ const values: ValueDesc[] = [
 ];
 
 describe("ArrayShapeNode", () => {
-  it("renders axis chips with level counts; ragged axis is dashed and shows ~", () => {
+  it("lists index dims under 'Organised by' with counts; ragged shows 'varies' not ~", () => {
     render(<ArrayShapeNode title="filtered" variant="table" axes={axes} values={values} />);
-    const exp = screen.getByText("experiment").closest(".txw-ax")!;
+    expect(screen.getByText("Organised by")).toBeInTheDocument();
+
+    const exp = screen.getByText("experiment");
+    expect(exp).toHaveClass("txw-dim");
     expect(exp).not.toHaveClass("ragged");
-    expect(exp).toHaveTextContent("3");
-    const frame = screen.getByText("frame").closest(".txw-ax")!;
+    expect(exp.closest(".txw-lvl")).toHaveTextContent("3");
+
+    const frame = screen.getByText("frame");
     expect(frame).toHaveClass("ragged");
-    expect(frame).toHaveTextContent("~");
+    expect(frame.closest(".txw-lvl")).toHaveTextContent("varies");
+    expect(screen.queryByText("~")).toBeNull();
+
+    expect(screen.getByText("varies").closest(".txw-pill")).toHaveAttribute("title", "count varies by parent (ragged)");
+    expect(screen.getByText("3").closest(".txw-pill")).not.toHaveAttribute("title");
   });
 
-  it("colours value chips by type and shows the @grain tag", () => {
+  it("shows a nesting connector on every axis after the first", () => {
+    const { container } = render(
+      <ArrayShapeNode title="x" variant="table" axes={axes} values={[]} />);
+    const lvls = container.querySelectorAll(".txw-tree .txw-lvl");
+    expect(lvls[0]).not.toHaveClass("nested");
+    expect(lvls[0].querySelector(".txw-twig")).toBeNull();
+    expect(lvls[1]).toHaveClass("nested");
+    expect(lvls[1].querySelector(".txw-twig")).not.toBeNull();
+  });
+
+  it("lists values under 'Values' with a plain-English type label and the @grain tag", () => {
     render(<ArrayShapeNode title="x" variant="table" axes={axes} values={values} />);
-    expect(screen.getByText("speed").closest(".txw-val")).toHaveClass("num");
+    expect(screen.getByText("Values")).toBeInTheDocument();
+
+    const speed = screen.getByText("speed");
+    expect(speed.closest(".txw-val")).toHaveClass("num");
+    expect(speed.closest(".txw-vrow")).toHaveTextContent("number");
+
     const cls = screen.getByText("class").closest(".txw-val")!;
     expect(cls).toHaveClass("catg");
     expect(cls).toHaveTextContent("@cell");
+    expect(screen.getByText("class").closest(".txw-vrow")).toHaveTextContent("category");
   });
 
   it("renders removed axes struck-through (collapse), and join keys highlighted", () => {
     render(<ArrayShapeNode title="per cell" variant="grain"
       axes={axes.slice(0, 2)} values={[]} removed={["frame"]} onKeys={["experiment"]} />);
-    expect(screen.getByText("frame").closest(".txw-ax")).toHaveClass("gone");
-    expect(screen.getByText("experiment").closest(".txw-ax")).toHaveClass("keyhi");
+    expect(screen.getByText("frame")).toHaveClass("gone");
+    expect(screen.getByText("experiment")).toHaveClass("keyhi");
   });
 
   it("applies the variant class and falls back to rows×cols when no descriptor", () => {

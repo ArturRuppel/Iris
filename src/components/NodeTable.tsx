@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
-  AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef,
+  AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type ColGroupDef,
 } from "ag-grid-community";
 import {
   activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
   materializedTablesAtom, materializedVersionKeyAtom, resolveEngineSteps,
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
-import { engine, type Table } from "../types";
+import { engine, type Table, type ColumnDef } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -25,11 +25,16 @@ const theme = themeQuartz.withParams({
   wrapperBorder: false,
 });
 
-/* Render a (schema, rows, n_total) triple as the AG grid — the body lifted from
-   ReducedTable so the data tab looks identical regardless of which node it shows. */
-function Grid({ table, total }: { table: Table; total: number }) {
-  const shown = table.rows.length;
-  const colDefs: ColDef[] = table.schema.columns.map((c) => ({
+/* Build AG Grid column defs for a reduced table. With `groupRoles` and a non-empty
+   `axisNames`, columns split into two header groups — "Organised by" (the index
+   dims, shaded) and "Values" (everything else) — so the index/payload roles read
+   at a glance. Falls back to a flat list when off, or when the split is degenerate
+   (no index or no value columns). Pure + exported for unit tests. */
+export function buildColumnDefs(
+  columns: ColumnDef[],
+  opts?: { groupRoles?: boolean; axisNames?: string[] },
+): (ColDef | ColGroupDef)[] {
+  const base = (c: ColumnDef): ColDef => ({
     field: c.name,
     headerName: c.label,
     editable: false,
@@ -40,7 +45,39 @@ function Grid({ table, total }: { table: Table; total: number }) {
     ...(c.type === "numeric" && {
       valueFormatter: (p: { value: unknown }) => (p.value == null ? "NA" : String(p.value)),
     }),
-  }));
+  });
+
+  const axisNames = opts?.axisNames ?? [];
+  const idx = new Set(axisNames);
+  const indexCols = columns.filter((c) => idx.has(c.name));
+  const valueCols = columns.filter((c) => !idx.has(c.name));
+
+  if (!opts?.groupRoles || indexCols.length === 0 || valueCols.length === 0) {
+    return columns.map(base);
+  }
+
+  const shade = (c: ColumnDef): ColDef => ({
+    ...base(c),
+    cellClass: c.type === "numeric" ? ["mono", "idxcol"] : ["idxcol"],
+    headerClass: "idxcol-head",
+  });
+
+  return [
+    { headerName: "Organised by", headerClass: "role-band idx", children: indexCols.map(shade) },
+    { headerName: "Values", headerClass: "role-band val", children: valueCols.map(base) },
+  ];
+}
+
+/* Render a (schema, rows, n_total) triple as the AG grid — the body lifted from
+   ReducedTable so the data tab looks identical regardless of which node it shows. */
+function Grid(
+  { table, total, groupRoles, axisNames }:
+  { table: Table; total: number; groupRoles?: boolean; axisNames?: string[] },
+) {
+  const shown = table.rows.length;
+  const colDefs = buildColumnDefs(table.schema.columns, { groupRoles, axisNames });
+  // ColGroupDef carries children; ColDef does not — this detects the grouped shape.
+  const grouped = colDefs.some((d) => "children" in d);
   return (
     <div className="reduced-wrap">
       <div className="reduced-note">
@@ -62,6 +99,12 @@ function Grid({ table, total }: { table: Table; total: number }) {
           rowHeight={26}
         />
       </div>
+      {grouped && (
+        <div className="reduced-legend">
+          <span className="legend-item idx">Organised by — what defines each row</span>
+          <span className="legend-item val">Values — what was measured</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -69,7 +112,8 @@ function Grid({ table, total }: { table: Table; total: number }) {
 /* Fetch + render one ExplorerNode's reduced table. source/step/collapse nodes
    are fetched via engine.reduce keyed on node.table.via; the terminal
    plot/stats nodes (via:"none") use the live reducePreviewAtom (no fetch). */
-export function NodeTable({ node }: { node: ExplorerNode }) {
+export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles?: boolean }) {
+  const axisNames = (node.count?.axes ?? []).map((a) => a.name);
   const active = useAtomValue(activePlottableAtom);
   const hierarchy = useAtomValue(hierarchyAtom);
   const handle = useAtomValue(tableHandleAtom);
@@ -135,9 +179,9 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
   // plot/stats (or a no-table node) → the live final reduced table.
   if (node.table.via === "none") {
     if (!preview) return <div className="reduced-empty">Building preview…</div>;
-    return <Grid table={preview.preview} total={preview.n_total} />;
+    return <Grid table={preview.preview} total={preview.n_total} groupRoles={groupRoles} axisNames={axisNames} />;
   }
   if (err) return <div className="reduced-empty">Could not load this node: {err}</div>;
   if (loading || !table) return <div className="reduced-empty">Loading {node.label}…</div>;
-  return <Grid table={table} total={total} />;
+  return <Grid table={table} total={total} groupRoles={groupRoles} axisNames={axisNames} />;
 }
