@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createStore } from "jotai";
 import type { AnalysisSpec, AnalyzeResponse, Schema } from "./types";
 import {
@@ -6,15 +6,16 @@ import {
   analysisRecencyAtom, buildSpec, cacheBudgetAtom, cacheKey, estimateBytes,
   isSpecRenderable, makeDefaultPlottable, pickStaleSpec, plottableFromSpec,
   selectedNodeIdAtom, setAnalysisResultAtom,
-  schemaAtom, hierarchyAtom, plottablesAtom, activePlottableAtom,
+  schemaAtom, hierarchyAtom, tableHandleAtom, plottablesAtom, activePlottableAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
+  loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, EMPTY_RIGHT,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
-import { EMPTY_HIERARCHY } from "./types";
+import { EMPTY_HIERARCHY, engine } from "./types";
 
 /* a minimal renderable spec: a Y encoding and one layer. Toggle `y`/`layers`/`x`
    to exercise the renderable gate; `tag` lets a test mutate the spec so its key
@@ -352,6 +353,54 @@ describe("table pool atoms", () => {
   });
 });
 
+describe("single-table globals derive off the active analysis's pool table", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("schemaAtom/hierarchyAtom/tableHandleAtom reflect the active analysis's pool table", () => {
+    const store = createStore();
+    const S2: Schema = { schema_version: "1.0", columns: [{ name: "x", type: "numeric", label: "X" }] };
+    const wt = (id: string, s: Schema) => ({ id, name: id, schema: s,
+      hierarchy: { spine: [id], fn: {} },
+      handle: { id: `h_${id}`, n: 5, version: 1, schema: s, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
+    const p = { ...makeDefaultPlottable(SCHEMA, "annot"), tableId: "annot" };
+    store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    expect(store.get(schemaAtom)).toBe(S2);
+    expect(store.get(tableHandleAtom)?.id).toBe("h_annot");
+    expect(store.get(hierarchyAtom).spine).toEqual(["annot"]);
+  });
+
+  it("loadTableAtom appends to the pool, selects it, and seeds an analysis bound to it", async () => {
+    const store = createStore();
+    vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "h1", n: 2, version: 0, schema: SCHEMA, counts: { total: 2 } as never });
+    await store.set(loadTableAtom, { schema: SCHEMA, rows: [], token: undefined } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool).toHaveLength(1);
+    expect(store.get(activeTableIdAtom)).toBe(pool[0].id);
+    expect(store.get(activePlottableAtom)?.tableId).toBe(pool[0].id);
+  });
+
+  it("setColumnRoleAtom edits the ACTIVE pool table's schema and leaves other tables untouched", async () => {
+    const store = createStore();
+    const S2: Schema = { schema_version: "1.0", columns: [{ name: "x", type: "numeric", label: "X" }] };
+    const wt = (id: string, s: Schema) => ({ id, name: id, schema: s,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: s, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
+    store.set(activeTableIdAtom, "cells");
+    const annot0 = store.get(tablesAtom).find((t) => t.id === "annot")!;
+    // grp -> identifier: not categorical, so no engine.distinct re-fetch.
+    await store.set(setColumnRoleAtom, { name: "grp", role: "identifier" });
+    const pool = store.get(tablesAtom);
+    const cells = pool.find((t) => t.id === "cells")!;
+    expect(cells.schema.columns.find((c) => c.name === "grp")?.type).toBe("identifier");
+    expect(cells.hierarchy.spine).toEqual(["grp"]);
+    // the non-active table is referentially unchanged
+    expect(pool.find((t) => t.id === "annot")).toBe(annot0);
+  });
+});
+
 describe("per-analysis collapse plan + test grain", () => {
   /* a store with the given spine: a schema whose columns include the spine dims
      as identifiers + a numeric measure, a hierarchy of that spine, and one active
@@ -362,9 +411,11 @@ describe("per-analysis collapse plan + test grain", () => {
       ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
       { name: "val", type: "numeric" as const, label: "Value" },
     ] };
-    store.set(schemaAtom, schema);
-    store.set(hierarchyAtom, { spine, fn: {} });
-    const p = makeDefaultPlottable(schema);
+    store.set(tablesAtom, [{ id: "main", name: "main", schema,
+      hierarchy: { spine, fn: {} },
+      handle: { id: "h_main", n: 0, version: 0, schema, counts: {} as never } }]);
+    store.set(activeTableIdAtom, "main");
+    const p = makeDefaultPlottable(schema, "main");
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     return store;
@@ -453,7 +504,6 @@ describe("step writers — insert, and reduce.post preservation", () => {
     const schema: Schema = { schema_version: "1.0", columns: [
       { name: "val", type: "numeric", label: "Value" },
     ] };
-    store.set(schemaAtom, schema);
     const p = {
       ...makeDefaultPlottable(schema),
       reduce: {

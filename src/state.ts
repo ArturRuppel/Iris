@@ -10,14 +10,19 @@ import { defaultPlan, grainKey, planGrains } from "./collapse";
 import { familyForMappingsRef } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
-import { byId, type WorkspaceTable } from "./tables";
+import { byId, upsertTable, seedTableName, type WorkspaceTable } from "./tables";
 export type { WorkspaceTable } from "./tables";
 
-export const schemaAtom = atom<Schema | null>(null);
+/* The three single-table globals are no longer primitive state: they are
+   read-only views onto the ACTIVE ANALYSIS's pool table (analysisTableAtom),
+   so the ~20 analysis read sites keep working while the pool owns the truth.
+   Writers (loadTableAtom, setColumnRoleAtom, …) edit the pool entry, not these.
+   Defined as forward closures off analysisTableAtom (declared below). */
+export const schemaAtom = atom<Schema | null>((get) => get(analysisTableAtom)?.schema ?? null);
 /* The browser no longer owns the dataset: the engine does, behind this handle
    (id + version + schema + row count). The grid pulls row windows by id; nothing
    in the browser holds all N rows. */
-export const tableHandleAtom = atom<TableHandle | null>(null);
+export const tableHandleAtom = atom<TableHandle | null>((get) => get(analysisTableAtom)?.handle ?? null);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
 
@@ -47,7 +52,8 @@ export const styleRegistryAtom = atom<StyleKnob[]>([]);
    (categorical) columns attach at their home levels. Layers/preview pick a level
    from it. Spine order is stored here; membership mirrors which columns are typed
    `identifier`. */
-export const hierarchyAtom = atom<Hierarchy>({ spine: [], fn: {} });
+export const hierarchyAtom = atom<Hierarchy>((get) =>
+  get(analysisTableAtom)?.hierarchy ?? { spine: [], fn: {} });
 
 /* identifier columns of the current (master) schema, in schema order — the
    canonical spine membership the stored order is reconciled against. */
@@ -254,6 +260,15 @@ export const activeTableAtom = atom((get) => byId(get(tablesAtom), get(activeTab
 export const analysisTableAtom = atom((get) =>
   byId(get(tablesAtom), get(activePlottableAtom)?.tableId ?? null));
 
+/* bump the active pool table's handle (a data edit / version change). The grid's
+   cell edit goes through here so the new version refetches the affected block and
+   re-runs compute. (Replaces the old `set(tableHandleAtom, …)` now that the three
+   globals are read-only views off the pool.) */
+export const bumpActiveHandleAtom = atom(null, (get, set, h: TableHandle) => {
+  const t = get(activeTableAtom); if (!t) return;
+  set(tablesAtom, upsertTable(get(tablesAtom), { ...t, handle: h }));
+});
+
 export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 
 /* Per plottable, the key the cached result in analysisByIdAtom was computed from:
@@ -401,7 +416,6 @@ export const setAnalysisByIdAtom = atom(
    referred to the old one: plottables, analysis */
 export const loadTableAtom = atom(null, async (get, set,
     table: Table & { token?: string }) => {
-  set(schemaAtom, table.schema);
   // The engine owns the table behind a session handle, created here from the
   // rows the importer handed us. The browser keeps the handle, not the dataset.
   set(dataLoadingAtom, true);
@@ -428,17 +442,24 @@ export const loadTableAtom = atom(null, async (get, set,
   const handle: TableHandle = {
     id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts,
   };
-  set(tableHandleAtom, handle);
-  // seed the hierarchy spine from the imported identifier columns (coarsest →
-  // finest by schema order); the user refines it in the Data tab.
-  set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
+  // import ACCUMULATES into the pool (design §4.1): append a new pool entry and
+  // select it for the Data tab. The hierarchy spine seeds from the imported
+  // identifier columns (coarsest → finest by schema order); the user refines it.
+  const id = seedTableName(get(tablesAtom), (table as { name?: string }).name);
+  const entry: WorkspaceTable = {
+    id, name: id, schema: table.schema,
+    hierarchy: { spine: identifierCols(table.schema), fn: {} }, handle,
+  };
+  set(tablesAtom, upsertTable(get(tablesAtom), entry));
+  set(activeTableIdAtom, id);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
-  const first = makeDefaultPlottable(table.schema);
-  set(plottablesAtom, [first]);
+  // add a default analysis bound to the new table (do NOT reset existing ones).
+  const first = makeDefaultPlottable(table.schema, id);
+  set(plottablesAtom, [...get(plottablesAtom), first]);
   set(activePlottableIdAtom, first.id);
 });
 
@@ -550,25 +571,31 @@ export interface LoadedDoc {
    (rebuilt as editable plottables) and the shared hierarchy instead of starting
    blank. */
 export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
-  set(schemaAtom, doc.schema);
   // the engine created the session as it read the .iris; adopt its handle.
-  set(tableHandleAtom, {
+  const handle: TableHandle = {
     id: doc.id, n: doc.n, version: doc.version, schema: doc.schema, counts: doc.counts,
-  });
-  // the hierarchy is table-level (shared by every analysis); take it off the
-  // first saved spec, falling back to the identifier columns for older files.
+  };
+  // the hierarchy is table-level; take it off the first saved spec, falling back
+  // to the identifier columns for older files.
   const saved = doc.analyses[0]?.hierarchy;
-  set(hierarchyAtom, saved && saved.spine?.length
+  const hierarchy: Hierarchy = saved && saved.spine?.length
     ? { spine: saved.spine, fn: saved.fn ?? {} }
-    : { spine: identifierCols(doc.schema), fn: {} });
+    : { spine: identifierCols(doc.schema), fn: {} };
+  // Seed ONE pool entry from the doc (full multi-table join-migration is Task 9).
+  const id = seedTableName(get(tablesAtom), undefined);
+  const entry: WorkspaceTable = { id, name: id, schema: doc.schema, hierarchy, handle };
+  set(tablesAtom, upsertTable(get(tablesAtom), entry));
+  set(activeTableIdAtom, id);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
+  // bind the restored analyses to the seeded pool entry (they were saved with
+  // no table_id, or a stale one); a fresh doc gets one default analysis.
   const plottables = doc.analyses.length
-    ? doc.analyses.map(plottableFromSpec)
-    : [makeDefaultPlottable(doc.schema)];
+    ? doc.analyses.map((spec) => ({ ...plottableFromSpec(spec), tableId: id }))
+    : [makeDefaultPlottable(doc.schema, id)];
   set(plottablesAtom, plottables);
   set(activePlottableIdAtom, plottables[0].id);
 });
@@ -838,8 +865,9 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
    so the engine sees the new types on the next analyze/preview. */
 export const setColumnRoleAtom = atom(null,
   async (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
-    const schema = get(schemaAtom); if (!schema) return;
-    const handle = get(tableHandleAtom);
+    const t = get(activeTableAtom); if (!t) return;
+    const schema = t.schema;
+    const handle = t.handle;
     const newType: "identifier" | "categorical" =
       arg.role === "identifier" ? "identifier" : "categorical";
     // a column becoming a classifier needs levels for the editor / ordering;
@@ -854,20 +882,23 @@ export const setColumnRoleAtom = atom(null,
       return { ...c, type: newType, levels };
     });
     const nextSchema = { ...schema, columns };
-    set(schemaAtom, nextSchema);
-    const h = get(hierarchyAtom);
-    set(hierarchyAtom, { ...h, spine: reconcileSpine(h.spine, identifierCols(nextSchema)) });
+    const nextHierarchy = {
+      ...t.hierarchy, spine: reconcileSpine(t.hierarchy.spine, identifierCols(nextSchema)),
+    };
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, schema: nextSchema, hierarchy: nextHierarchy }));
   });
 
 /* reorder the spine (coarsest → finest). Table-level: shared by all analyses. */
 export const moveSpineAtom = atom(null,
   (get, set, arg: { index: number; dir: -1 | 1 }) => {
-    const h = get(hierarchyAtom);
-    const spine = [...h.spine];
+    const t = get(activeTableAtom); if (!t) return;
+    const spine = [...t.hierarchy.spine];
     const j = arg.index + arg.dir;
     if (j < 0 || j >= spine.length) return;
     [spine[arg.index], spine[j]] = [spine[j], spine[arg.index]];
-    set(hierarchyAtom, { ...h, spine });
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, hierarchy: { ...t.hierarchy, spine } }));
   });
 
 /* set the aggregate fn for a spine level — how finer rows collapse into that
@@ -875,8 +906,9 @@ export const moveSpineAtom = atom(null,
    the level. Unset means mean (the engine's default). */
 export const setLevelFnAtom = atom(null,
   (get, set, arg: { level: string; fn: LevelFn }) => {
-    const h = get(hierarchyAtom);
-    set(hierarchyAtom, { ...h, fn: { ...h.fn, [arg.level]: arg.fn } });
+    const t = get(activeTableAtom); if (!t) return;
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, hierarchy: { ...t.hierarchy, fn: { ...t.hierarchy.fn, [arg.level]: arg.fn } } }));
   });
 
 /* ---- per-analysis collapse plan + test grain (un-forcing the nesting) ----

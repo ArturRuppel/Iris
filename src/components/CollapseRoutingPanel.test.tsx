@@ -4,7 +4,7 @@ import { Provider, createStore } from "jotai";
 import { CollapseRoutingPanel } from "./CollapseRoutingPanel";
 import {
   setTestGrainAtom, activePlottableAtom,
-  schemaAtom, hierarchyAtom, plottablesAtom, activePlottableIdAtom,
+  tablesAtom, activeTableIdAtom, plottablesAtom, activePlottableIdAtom,
   makeDefaultPlottable,
 } from "../state";
 import type { Schema } from "../types";
@@ -18,9 +18,11 @@ function makeStoreWithSpine(spine: string[]) {
     ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
     { name: "val", type: "numeric" as const, label: "Value" },
   ] };
-  store.set(schemaAtom, schema);
-  store.set(hierarchyAtom, { spine, fn: {} });
-  const p = makeDefaultPlottable(schema);
+  store.set(tablesAtom, [{ id: "main", name: "main", schema,
+    hierarchy: { spine, fn: {} },
+    handle: { id: "h_main", n: 0, version: 0, schema, counts: {} as never } }]);
+  store.set(activeTableIdAtom, "main");
+  const p = makeDefaultPlottable(schema, "main");
   store.set(plottablesAtom, [p]);
   store.set(activePlottableIdAtom, p.id);
   return store;
