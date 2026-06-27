@@ -27,6 +27,9 @@ describe("ArrayShapeNode", () => {
     expect(frame).toHaveClass("ragged");
     expect(frame.closest(".txw-lvl")).toHaveTextContent("varies");
     expect(screen.queryByText("~")).toBeNull();
+
+    expect(screen.getByText("varies").closest(".txw-pill")).toHaveAttribute("title", "count varies by parent (ragged)");
+    expect(screen.getByText("3").closest(".txw-pill")).not.toHaveAttribute("title");
   });
 
   it("shows a nesting connector on every axis after the first", () => {
@@ -34,6 +37,7 @@ describe("ArrayShapeNode", () => {
       <ArrayShapeNode title="x" variant="table" axes={axes} values={[]} />);
     const lvls = container.querySelectorAll(".txw-tree .txw-lvl");
     expect(lvls[0]).not.toHaveClass("nested");
+    expect(lvls[0].querySelector(".txw-twig")).toBeNull();
     expect(lvls[1]).toHaveClass("nested");
     expect(lvls[1].querySelector(".txw-twig")).not.toBeNull();
   });

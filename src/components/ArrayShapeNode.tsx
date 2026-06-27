@@ -50,7 +50,7 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
 export function ArrayShapeNode(
   { title, variant, axes, values, removed = [], onKeys = [], rows, cols }: ArrayShapeNodeProps,
 ) {
-  const hasDescriptor = axes.length > 0 || values.length > 0;
+  const hasDescriptor = axes.length > 0 || values.length > 0 || removed.length > 0;
   return (
     <div className={`txw-node ${variant}`}>
       <div className="txw-ntitle">
@@ -61,7 +61,7 @@ export function ArrayShapeNode(
       {(axes.length > 0 || removed.length > 0) && (
         <div className="txw-sec">
           <div className="txw-sk">Organised by</div>
-          <ul className="txw-tree">
+          <ul className="txw-tree" role="list">
             {axes.map((a, i) => (
               <li key={a.name} className={`txw-lvl${i > 0 ? " nested" : ""}`}>
                 {i > 0 && <span className="txw-twig" aria-hidden>└</span>}
@@ -77,7 +77,7 @@ export function ArrayShapeNode(
               </li>
             ))}
             {removed.map((name) => (
-              <li key={name} className="txw-lvl removed">
+              <li key={name} className="txw-lvl">
                 <span className="txw-dim gone">{name}</span>
               </li>
             ))}
@@ -88,7 +88,7 @@ export function ArrayShapeNode(
       {values.length > 0 && (
         <div className="txw-sec">
           <div className="txw-sk">Values</div>
-          <ul className="txw-vlist">
+          <ul className="txw-vlist" role="list">
             {values.map((v) => (
               <li key={v.name} className="txw-vrow">
                 <span className={`txw-val ${VAL_CLASS[v.type] ?? "num"}`}>
