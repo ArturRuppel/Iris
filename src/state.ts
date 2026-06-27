@@ -704,7 +704,9 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
 export const addPlottableAtom = atom(null, (get, set) => {
   const schema = get(schemaAtom);
   if (!schema) return;
-  const p = makeDefaultPlottable(schema);
+  // bind the new analysis to the table the active analysis is on (guaranteed
+  // non-empty whenever the schema guard above passes — see design §4.2).
+  const p = makeDefaultPlottable(schema, get(activePlottableAtom)?.tableId ?? "");
   p.name = `Analysis ${get(plottablesAtom).length + 1}`;
   set(plottablesAtom, [...get(plottablesAtom), p]);
   set(activePlottableIdAtom, p.id);

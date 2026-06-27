@@ -13,6 +13,7 @@ import {
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, EMPTY_RIGHT,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
+  addPlottableAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
 import { EMPTY_HIERARCHY, engine } from "./types";
@@ -441,6 +442,16 @@ describe("per-analysis collapse plan + test grain", () => {
     // shrink the plan so "experiment/cell" is no longer a node
     store.set(setCollapsePlanAtom, [{ keep: ["experiment"], fn: "mean" }]);
     expect(store.get(effectiveTestGrainAtom)).toBe("experiment");
+  });
+
+  it("addPlottable binds the new analysis to the active analysis's table (not unbound)", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    store.set(addPlottableAtom);
+    const added = store.get(activePlottableAtom)!;
+    expect(added.tableId).toBe("main");
+    // the new analysis resolves to a real table, not a blank schema
+    expect(store.get(analysisTableAtom)?.id).toBe("main");
+    expect(store.get(schemaAtom)).not.toBeNull();
   });
 
   it("setTestGrain/setCollapsePlan write the active plottable; reset clears them", () => {
