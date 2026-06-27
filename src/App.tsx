@@ -1,4 +1,4 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import irisMark from "./assets/iris-mark.svg";
 import { DataEntry } from "./components/DataEntry";
@@ -18,10 +18,10 @@ import {
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
-  tablesNeedingMaterializeAtom, materializedTablesAtom,
+  tablesNeedingMaterializeAtom, materializedTablesAtom, allSaveSpecsAtom, plottablesAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
-import type { NodeShape } from "./types";
+import type { NodeShape, AnalysisSpec } from "./types";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
@@ -50,6 +50,7 @@ export default function App() {
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
+  const store = useStore();
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
@@ -343,8 +344,29 @@ export default function App() {
   /* Ask the engine for the document bytes, then write them through the OS file
      handle. The frontend never holds the full table, so save can fail if the
      session was evicted (409) — that now surfaces instead of being swallowed. */
+  // Before saving, fetch any join-referenced table that is missing/stale in the
+  // cache (the live effect usually has them already), so every filled join inlines
+  // its FULL rows — never the 500-row preview, never a silently dropped join.
+  const collectSaveSpecs = async (): Promise<AnalysisSpec[]> => {
+    for (let guard = 0; guard < 50; guard++) {
+      const need = store.get(tablesNeedingMaterializeAtom);
+      if (need.length === 0) break;
+      for (const t of need) {
+        const res = await engine.rowsWindow(t.handle.id, 0, t.handle.n);
+        store.set(materializedTablesAtom, (prev) => ({ ...prev,
+          [t.id]: { version: t.handle.version, table: { schema: t.schema, rows: res.rows } } }));
+      }
+    }
+    // Plan A ships one main-table session: warn if analyses span multiple roots.
+    const roots = new Set(store.get(plottablesAtom).map((p) => p.tableId));
+    if (roots.size > 1)
+      window.alert("This workspace has analyses rooted in different tables. "
+        + "Plan A saves them all against the active table; multi-root save needs Plan B.");
+    return store.get(allSaveSpecsAtom);
+  };
   const writeIris = async (fh: FileSystemFileHandle) => {
-    const f = await engine.saveDocument(handle!.id, allSpecs, {});
+    const specs = await collectSaveSpecs();
+    const f = await engine.saveDocument(handle!.id, specs, {});
     const w = await fh.createWritable();
     await w.write(new Blob([base64ToBytes(f.data_base64)]));
     await w.close();
@@ -352,7 +374,8 @@ export default function App() {
   // No FS Access API (Firefox/Safari): we can't write back to a bound file, so
   // every save is just a download. Both Save and Save As funnel through here.
   const downloadIris = async () => {
-    const f = await engine.saveDocument(handle!.id, allSpecs, {});
+    const specs = await collectSaveSpecs();
+    const f = await engine.saveDocument(handle!.id, specs, {});
     downloadBase64("document.iris", f.data_base64);
   };
   // Guard the shipped examples: overwriting one makes the Examples gallery

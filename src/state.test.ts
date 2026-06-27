@@ -11,7 +11,7 @@ import {
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
   loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
-  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, materializedTablesAtom,
+  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, materializedTablesAtom,
   tablesNeedingMaterialize,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
@@ -137,6 +137,23 @@ describe("stats block stores decisions only (format redesign)", () => {
     const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.override).toBe("mann_whitney");
     expect(plottableFromSpec(spec).override).toBe("mann_whitney");
+  });
+});
+
+describe("specForSave — inline filled joins for today's .iris format", () => {
+  it("specForSave inlines a join's right from the cache (for today's .iris format)", () => {
+    const right: Table = { schema: { schema_version: "1.0", columns: [
+      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    const cache = { annot: { version: 0, table: right } };
+    const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
+      reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
+    const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, cache);
+    expect(spec.reduce.steps[0]).toMatchObject({ kind: "join", on: ["k"], right });
+  });
+
+  it("resolveSaveSteps drops only UNSET joins (buildSpec drops uncached too)", () => {
+    const steps = [{ ...makeStep("join"), rightTableId: "", on: ["k"] }];
+    expect(resolveSaveSteps(steps, {})).toEqual([]);
   });
 });
 

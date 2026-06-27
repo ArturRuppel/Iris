@@ -1,4 +1,4 @@
-import { atom } from "jotai";
+import { atom, type Getter } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, GrainKey, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
@@ -247,6 +247,17 @@ export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): Engi
     s.kind === "join"
       ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
       : s);
+}
+
+/* like resolveEngineSteps, but for SAVE: inline every FILLED join's right (the
+   caller guarantees referenced tables are materialized first). Only an UNSET
+   reference (rightTableId === "") is dropped — it has no table to write. */
+export function resolveSaveSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
+  return steps
+    .filter((s) => s.kind !== "join" || !!s.rightTableId)
+    .map((s) => (s.kind === "join"
+      ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
+      : s));
 }
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
@@ -705,7 +716,9 @@ export function buildSpec(p: Plottable, family: StatsFamily,
                           rec: TestName | undefined,
                           snapshot: Record<string, string>,
                           hierarchy: Hierarchy,
-                          cache: RightCache): AnalysisSpec {
+                          cache: RightCache,
+                          resolve: (steps: ReduceStep[], cache: RightCache) => EngineReduceStep[]
+                            = resolveEngineSteps): AnalysisSpec {
   const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
@@ -722,7 +735,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: { steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey) },
+    reduce: { steps: resolve(p.reduce.steps, cache).map(stripStepKey) },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -760,6 +773,13 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   };
 }
 
+/* save spec: identical to buildSpec but inlines every filled join (no graceful
+   drop) so a saved .iris never loses a join. Referenced tables must be cached. */
+export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | undefined,
+  snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache): AnalysisSpec {
+  return buildSpec(p, family, rec, snapshot, hierarchy, cache, resolveSaveSteps);
+}
+
 /* the keystone: spec derived live from the active plottable. The stats family is
    derived from the post-reduction column types so the test offered matches the
    data actually mapped. */
@@ -775,9 +795,12 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
     get(materializedTablesAtom));
 });
 
-/* every plottable's spec, each carrying its own recommended test — the save
-   path serializes all of these into the document's analyses[] */
-export const allSpecsAtom = atom((get): AnalysisSpec[] => {
+/* shared core of allSpecsAtom / allSaveSpecsAtom: build a spec per plottable,
+   each with its own derived family/recommended-test, via the given builder. */
+function buildAllSpecs(get: Getter,
+  build: (p: Plottable, family: StatsFamily, rec: TestName | undefined,
+          snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache) => AnalysisSpec
+): AnalysisSpec[] {
   const schema = get(schemaAtom);
   if (!schema) return [];
   const snap = get(engineSnapshotAtom) ?? {};
@@ -794,9 +817,17 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-    return buildSpec(p, family, rec, snap, hierarchy, cache);
+    return build(p, family, rec, snap, hierarchy, cache);
   });
-});
+}
+
+/* every plottable's spec, each carrying its own recommended test — the live
+   background render loop reads these (graceful join drop). */
+export const allSpecsAtom = atom((get): AnalysisSpec[] => buildAllSpecs(get, buildSpec));
+
+/* the save variant: identical, but inlines every filled join (no drop) so a
+   saved .iris never loses a join. The save path serializes these. */
+export const allSaveSpecsAtom = atom((get): AnalysisSpec[] => buildAllSpecs(get, specForSave));
 
 /* ---- CRUD atoms for managing the plottables list ---- */
 
