@@ -604,7 +604,7 @@ export interface LoadedDoc {
 /* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
    (rebuilt as editable plottables) and the shared hierarchy instead of starting
    blank. */
-export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
+export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   // the engine created the session as it read the .iris; adopt its handle.
   const handle: TableHandle = {
     id: doc.id, n: doc.n, version: doc.version, schema: doc.schema, counts: doc.counts,
@@ -615,23 +615,68 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   const hierarchy: Hierarchy = saved && saved.spine?.length
     ? { spine: saved.spine, fn: saved.fn ?? {} }
     : { spine: identifierCols(doc.schema), fn: {} };
-  // Seed ONE pool entry from the doc (full multi-table join-migration is Task 9).
-  const id = seedTableName(get(tablesAtom), undefined);
-  const entry: WorkspaceTable = { id, name: id, schema: doc.schema, hierarchy, handle };
+  // Seed the MAIN pool entry from the doc — pool[0], the table every analysis is
+  // (today) bound to. Migrated join rights append after it, in first-seen order.
+  const mainId = seedTableName(get(tablesAtom), undefined);
+  const entry: WorkspaceTable = { id: mainId, name: mainId, schema: doc.schema, hierarchy, handle };
   set(tablesAtom, upsertTable(get(tablesAtom), entry));
-  set(activeTableIdAtom, id);
+  set(activeTableIdAtom, mainId);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
-  // bind the restored analyses to the seeded pool entry (they were saved with
-  // no table_id, or a stale one); a fresh doc gets one default analysis.
-  const plottables = doc.analyses.length
-    ? doc.analyses.map((spec) => ({ ...plottableFromSpec(spec), tableId: id }))
-    : [makeDefaultPlottable(doc.schema, id)];
-  set(plottablesAtom, plottables);
-  set(activePlottableIdAtom, plottables[0].id);
+  // a fresh doc with no saved analyses gets a single default plottable.
+  if (!doc.analyses.length) {
+    const first = makeDefaultPlottable(doc.schema, mainId);
+    set(plottablesAtom, [first]);
+    set(activePlottableIdAtom, first.id);
+    return;
+  }
+  // bind the restored analyses to the seeded pool entry (they were saved with no
+  // table_id, or a stale one) and migrate each inline join right into the pool.
+  //
+  // A SAVED join step carries its right table INLINE (EngineJoinStep.right);
+  // plottableFromSpec already stripped that to rightTableId:"". Walk the RAW spec
+  // steps alongside the plottable's steps: create a session per distinct right,
+  // append it to the pool, and point the plottable's join step at the new pool id.
+  // Identical rights (same schema+rows) dedup to one pool entry across analyses.
+  const byContent = new Map<string, string>();           // content key -> pool id
+  const migrated: Plottable[] = [];
+  for (const spec of doc.analyses) {
+    const p = { ...plottableFromSpec(spec), tableId: mainId };
+    const rawSteps = spec.reduce?.steps ?? [];
+    // sequential (not Promise.all) so the pool grows deterministically and two
+    // identical rights within ONE analysis dedup to a single createSession too.
+    const steps: ReduceStep[] = [];
+    for (let j = 0; j < p.reduce.steps.length; j++) {
+      const step = p.reduce.steps[j];
+      const raw = rawSteps[j];
+      if (step.kind !== "join" || !raw || raw.kind !== "join"
+          || !raw.right || raw.right.schema.columns.length === 0) {
+        steps.push(step);
+        continue;
+      }
+      const right = raw.right;
+      const key = JSON.stringify({ schema: right.schema, rows: right.rows });
+      let poolId = byContent.get(key);
+      if (!poolId) {
+        const s = await engine.createSession({ schema: right.schema, rows: right.rows });
+        poolId = seedTableName(get(tablesAtom), undefined);
+        const rt: WorkspaceTable = {
+          id: poolId, name: poolId, schema: right.schema,
+          hierarchy: { spine: identifierCols(right.schema), fn: {} },
+          handle: { id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts },
+        };
+        set(tablesAtom, upsertTable(get(tablesAtom), rt));
+        byContent.set(key, poolId);
+      }
+      steps.push({ ...step, rightTableId: poolId });
+    }
+    migrated.push({ ...p, reduce: { ...p.reduce, steps } });
+  }
+  set(plottablesAtom, migrated);
+  set(activePlottableIdAtom, migrated[0].id);
 });
 
 /* Pure builder: a plottable + its derived stats family + (optional) recommended

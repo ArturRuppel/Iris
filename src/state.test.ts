@@ -14,7 +14,7 @@ import {
   removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, materializedTablesAtom,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
-  addPlottableAtom,
+  addPlottableAtom, loadDocumentAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
 import { EMPTY_HIERARCHY, engine } from "./types";
@@ -629,5 +629,44 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
     const store = createStore();
     store.set(materializedTablesAtom, cache);
     expect(store.get(materializedTablesAtom).annot.table).toBe(right);
+  });
+});
+
+describe("loadDocumentAtom — pool seeding + inline join right migration", () => {
+  it("loadDocument seeds the pool, binds analyses, and migrates inline join.right to a reference", async () => {
+    const store = createStore();
+    vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
+    const right = { schema: { schema_version: "1.0", columns: [
+      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    const spec = { ...makeSpec("a", { xCol: "grp" }),
+      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } } as never;
+    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
+      counts: { total: 1 }, analyses: [spec] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.length).toBe(2);                                   // main + the migrated right
+    const p = store.get(plottablesAtom)[0];
+    expect(p.tableId).toBe(pool[0].id);                            // bound to the main table
+    const join = p.reduce.steps[0];
+    expect(join.kind === "join" && join.rightTableId).toBe(pool[1].id);
+  });
+
+  it("loadDocument dedups two analyses that share an identical inline right into one pool entry", async () => {
+    const store = createStore();
+    vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
+    const right = { schema: { schema_version: "1.0", columns: [
+      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    const mk = (id: string) => ({ ...makeSpec(id, { xCol: "grp" }),
+      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } }) as never;
+    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
+      counts: { total: 1 }, analyses: [mk("a"), mk("b")] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.length).toBe(2);                                   // main + ONE shared right (deduped)
+    const ids = store.get(plottablesAtom).map((p) => {
+      const s = p.reduce.steps[0]; return s.kind === "join" ? s.rightTableId : "";
+    });
+    expect(ids[0]).toBe(ids[1]);                                   // both analyses reference the same pool id
+    expect(ids[0]).toBe(pool[1].id);
   });
 });

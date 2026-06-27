@@ -382,7 +382,7 @@ export default function App() {
         file = picked;
       }
       const doc = await engine.loadDocument(fileToBase64(await file.arrayBuffer()));
-      loadDocument({
+      await loadDocument({
         schema: doc.schema, rows: doc.rows,
         analyses: doc.analyses.map(migrateSpec),   // tolerate older .viz specs
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
@@ -402,7 +402,7 @@ export default function App() {
       if (!url) throw new Error(`example "${caseId}" is not bundled`);
       const buf = await (await fetch(url)).arrayBuffer();
       const doc = await engine.loadDocument(fileToBase64(buf));
-      loadDocument({
+      await loadDocument({
         schema: doc.schema, rows: doc.rows,
         analyses: doc.analyses.map(migrateSpec),
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
