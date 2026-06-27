@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createStore } from "jotai";
 import type { AnalysisSpec, AnalyzeResponse, Schema } from "./types";
 import {
@@ -6,13 +6,19 @@ import {
   analysisRecencyAtom, buildSpec, cacheBudgetAtom, cacheKey, estimateBytes,
   isSpecRenderable, makeDefaultPlottable, pickStaleSpec, plottableFromSpec,
   selectedNodeIdAtom, setAnalysisResultAtom,
-  schemaAtom, hierarchyAtom, plottablesAtom, activePlottableAtom,
+  schemaAtom, hierarchyAtom, tableHandleAtom, plottablesAtom, activePlottableAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
+  loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
-  removeStepAtom, moveStepAtom,
+  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, materializedTablesAtom,
+  tablesNeedingMaterialize,
+  tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
+  activeSchemaAtom,
+  addPlottableAtom, loadDocumentAtom,
 } from "./state";
-import { EMPTY_HIERARCHY } from "./types";
+import type { ReduceStep, Table } from "./types";
+import { EMPTY_HIERARCHY, engine } from "./types";
 
 /* a minimal renderable spec: a Y encoding and one layer. Toggle `y`/`layers`/`x`
    to exercise the renderable gate; `tag` lets a test mutate the spec so its key
@@ -84,7 +90,7 @@ describe("location (vs-reference) family round-trips through save/load", () => {
 
   it("buildSpec re-emits family=location with the reference (no silent group_comparison)", () => {
     const p = { ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" }, reference: 0 };
-    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.family).toBe("location");
     expect(spec.stats.reference).toBe(0);
     expect(spec.stats.test).toBe("one_sample_t");
@@ -94,7 +100,7 @@ describe("location (vs-reference) family round-trips through save/load", () => {
 
   it("a full save→load→save cycle preserves the location family", () => {
     const loaded = plottableFromSpec(locationSpec());
-    const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY);
+    const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY, {});
     expect(resaved.stats.family).toBe("location");
     expect(resaved.stats.reference).toBe(0);
   });
@@ -105,7 +111,7 @@ describe("stats block stores decisions only (format redesign)", () => {
                         mappings: { x: "grp", y: "val" } });
 
   it("buildSpec emits no derived/process fields", () => {
-    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     const keys = Object.keys(spec.stats);
     for (const dead of ["chosen_by", "alternatives_offered", "assumption_checks", "report"]) {
       expect(keys).not.toContain(dead);
@@ -115,22 +121,39 @@ describe("stats block stores decisions only (format redesign)", () => {
 
   it("describe_only is a stored decision and round-trips", () => {
     const p = { ...base(), describeOnly: true };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.describe_only).toBe(true);
     expect(plottableFromSpec(spec).describeOnly).toBe(true);
   });
 
   it("describe_only is omitted (not false) when the user did not choose it", () => {
-    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect("describe_only" in spec.stats).toBe(false);
     expect(plottableFromSpec(spec).describeOnly).toBe(false);
   });
 
   it("override round-trips independently of the recommendation", () => {
     const p = { ...base(), override: "mann_whitney" as const };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.override).toBe("mann_whitney");
     expect(plottableFromSpec(spec).override).toBe("mann_whitney");
+  });
+});
+
+describe("specForSave — inline filled joins for today's .iris format", () => {
+  it("specForSave inlines a join's right from the cache (for today's .iris format)", () => {
+    const right: Table = { schema: { schema_version: "1.0", columns: [
+      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    const cache = { annot: { version: 0, table: right } };
+    const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
+      reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
+    const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, cache);
+    expect(spec.reduce.steps[0]).toMatchObject({ kind: "join", on: ["k"], right });
+  });
+
+  it("resolveSaveSteps drops only UNSET joins (buildSpec drops uncached too)", () => {
+    const steps = [{ ...makeStep("join"), rightTableId: "", on: ["k"] }];
+    expect(resolveSaveSteps(steps, {})).toEqual([]);
   });
 });
 
@@ -323,6 +346,94 @@ describe("selectedNodeIdAtom", () => {
   });
 });
 
+describe("table pool atoms", () => {
+  it("activeTableAtom follows the Data-tab selection; analysisTableAtom follows the active plottable's tableId", () => {
+    const store = createStore();
+    const wt = (id: string) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells"), wt("annot")]);
+    store.set(activeTableIdAtom, "annot");
+    const p = { ...makeDefaultPlottable(SCHEMA), tableId: "cells" };
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, p.id);
+    expect(store.get(activeTableAtom)?.id).toBe("annot");
+    expect(store.get(analysisTableAtom)?.id).toBe("cells");
+  });
+
+  it("makeDefaultPlottable seeds tableId from the most-recently-imported pool table", () => {
+    const store = createStore();
+    const wt = (id: string) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells"), wt("annot")]);
+    // makeDefaultPlottable takes the seed id explicitly (pure); the writer passes the last pool id.
+    expect(makeDefaultPlottable(SCHEMA, "annot").tableId).toBe("annot");
+    expect(makeDefaultPlottable(SCHEMA).tableId).toBe("");   // no pool → empty, resolved later
+  });
+});
+
+describe("single-table globals derive off the active analysis's pool table", () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("schemaAtom/hierarchyAtom/tableHandleAtom reflect the active analysis's pool table", () => {
+    const store = createStore();
+    const S2: Schema = { schema_version: "1.0", columns: [{ name: "x", type: "numeric", label: "X" }] };
+    const wt = (id: string, s: Schema) => ({ id, name: id, schema: s,
+      hierarchy: { spine: [id], fn: {} },
+      handle: { id: `h_${id}`, n: 5, version: 1, schema: s, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
+    const p = { ...makeDefaultPlottable(SCHEMA, "annot"), tableId: "annot" };
+    store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    expect(store.get(schemaAtom)).toBe(S2);
+    expect(store.get(tableHandleAtom)?.id).toBe("h_annot");
+    expect(store.get(hierarchyAtom).spine).toEqual(["annot"]);
+  });
+
+  it("active* atoms follow the Data-tab selection, independent of the active analysis's table", () => {
+    const store = createStore();
+    const S2: Schema = { schema_version: "1.0", columns: [{ name: "x", type: "numeric", label: "X" }] };
+    const wt = (id: string, s: Schema) => ({ id, name: id, schema: s, hierarchy: { spine: [id], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: s, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
+    store.set(activeTableIdAtom, "annot");                 // Data tab on annot
+    const p = { ...makeDefaultPlottable(SCHEMA, "cells") };  // active analysis on cells
+    store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    expect(store.get(activeSchemaAtom)).toBe(S2);          // Data-tab table
+    expect(store.get(schemaAtom)).toBe(SCHEMA);            // analysis table — different
+  });
+
+  it("loadTableAtom appends to the pool, selects it, and seeds an analysis bound to it", async () => {
+    const store = createStore();
+    vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "h1", n: 2, version: 0, schema: SCHEMA, counts: { total: 2 } as never });
+    await store.set(loadTableAtom, { schema: SCHEMA, rows: [], token: undefined } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool).toHaveLength(1);
+    expect(store.get(activeTableIdAtom)).toBe(pool[0].id);
+    expect(store.get(activePlottableAtom)?.tableId).toBe(pool[0].id);
+  });
+
+  it("setColumnRoleAtom edits the ACTIVE pool table's schema and leaves other tables untouched", async () => {
+    const store = createStore();
+    const S2: Schema = { schema_version: "1.0", columns: [{ name: "x", type: "numeric", label: "X" }] };
+    const wt = (id: string, s: Schema) => ({ id, name: id, schema: s,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: s, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
+    store.set(activeTableIdAtom, "cells");
+    const annot0 = store.get(tablesAtom).find((t) => t.id === "annot")!;
+    // grp -> identifier: not categorical, so no engine.distinct re-fetch.
+    await store.set(setColumnRoleAtom, { name: "grp", role: "identifier" });
+    const pool = store.get(tablesAtom);
+    const cells = pool.find((t) => t.id === "cells")!;
+    expect(cells.schema.columns.find((c) => c.name === "grp")?.type).toBe("identifier");
+    expect(cells.hierarchy.spine).toEqual(["grp"]);
+    // the non-active table is referentially unchanged
+    expect(pool.find((t) => t.id === "annot")).toBe(annot0);
+  });
+});
+
 describe("per-analysis collapse plan + test grain", () => {
   /* a store with the given spine: a schema whose columns include the spine dims
      as identifiers + a numeric measure, a hierarchy of that spine, and one active
@@ -333,9 +444,11 @@ describe("per-analysis collapse plan + test grain", () => {
       ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
       { name: "val", type: "numeric" as const, label: "Value" },
     ] };
-    store.set(schemaAtom, schema);
-    store.set(hierarchyAtom, { spine, fn: {} });
-    const p = makeDefaultPlottable(schema);
+    store.set(tablesAtom, [{ id: "main", name: "main", schema,
+      hierarchy: { spine, fn: {} },
+      handle: { id: "h_main", n: 0, version: 0, schema, counts: {} as never } }]);
+    store.set(activeTableIdAtom, "main");
+    const p = makeDefaultPlottable(schema, "main");
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     return store;
@@ -363,6 +476,16 @@ describe("per-analysis collapse plan + test grain", () => {
     expect(store.get(effectiveTestGrainAtom)).toBe("experiment");
   });
 
+  it("addPlottable binds the new analysis to the active analysis's table (not unbound)", () => {
+    const store = makeStoreWithSpine(["experiment", "cell"]);
+    store.set(addPlottableAtom);
+    const added = store.get(activePlottableAtom)!;
+    expect(added.tableId).toBe("main");
+    // the new analysis resolves to a real table, not a blank schema
+    expect(store.get(analysisTableAtom)?.id).toBe("main");
+    expect(store.get(schemaAtom)).not.toBeNull();
+  });
+
   it("setTestGrain/setCollapsePlan write the active plottable; reset clears them", () => {
     const store = makeStoreWithSpine(["experiment", "cell"]);
     store.set(setTestGrainAtom, "experiment/cell");
@@ -378,7 +501,7 @@ describe("per-analysis collapse plan + test grain", () => {
     store.set(setCollapsePlanAtom, plan);
     store.set(setTestGrainAtom, "experiment/cell");
     const p = store.get(activePlottableAtom)!;
-    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom));
+    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom), {});
     expect(spec.collapse).toEqual(plan);
     expect(spec.test_grain).toBe("experiment/cell");
     const back = plottableFromSpec(spec);
@@ -406,10 +529,9 @@ describe("makeStep — valid blanks for every reduce kind", () => {
       kind: "grid_complete", by: [], column: "", levels: [], count: true,
       count_unique: null, fill: 0, count_name: "n",
     });
-    // join starts with an EMPTY right (the unfilled "missing input" sentinel)
+    // join starts with an empty rightTableId (the unfilled "missing input" reference)
     const j = makeStep("join");
-    expect(j).toMatchObject({ kind: "join", on: [], how: "inner" });
-    expect(j.kind === "join" && j.right.schema.columns).toEqual([]);
+    expect(j).toMatchObject({ kind: "join", on: [], how: "inner", rightTableId: "" });
 
     for (const k of ["drop", "filter", "derive", "recode", "pivot", "grid_complete", "join"] as const) {
       expect(makeStep(k)._key).toBeTruthy();
@@ -424,7 +546,6 @@ describe("step writers — insert, and reduce.post preservation", () => {
     const schema: Schema = { schema_version: "1.0", columns: [
       { name: "val", type: "numeric", label: "Value" },
     ] };
-    store.set(schemaAtom, schema);
     const p = {
       ...makeDefaultPlottable(schema),
       reduce: {
@@ -474,5 +595,129 @@ describe("step writers — insert, and reduce.post preservation", () => {
     store = makeStoreWithPost();
     store.set(moveStepAtom, { index: 0, dir: 1 });
     expect(post(store)).toEqual(["derive"]);
+  });
+});
+
+describe("runnableSteps / resolveEngineSteps — joins resolve at the engine boundary", () => {
+  const right: Table = { schema: { schema_version: "1.0", columns: [
+    { name: "k", type: "identifier", label: "K" },
+  ] }, rows: [{ id: "1", k: "a" }] };
+  const cache = { annot: { version: 0, table: right } };
+
+  it("runnableSteps drops a join whose rightTableId is unset or not materialized", () => {
+    expect(runnableSteps([makeStep("filter"), makeStep("join")], {}).map((s) => s.kind))
+      .toEqual(["filter"]);
+    // set id but not materialized -> still dropped
+    const dangling: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "missing" } as ReduceStep];
+    expect(runnableSteps(dangling, cache).map((s) => s.kind)).toEqual([]);
+  });
+
+  it("runnableSteps keeps a join once its right is materialized", () => {
+    const steps: ReduceStep[] = [makeStep("filter"),
+      { ...makeStep("join"), rightTableId: "annot" } as ReduceStep];
+    expect(runnableSteps(steps, cache).map((s) => s.kind)).toEqual(["filter", "join"]);
+  });
+
+  it("resolveEngineSteps inlines a materialized right table", () => {
+    const steps: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep];
+    const out = resolveEngineSteps(steps, cache);
+    expect(out[0]).toMatchObject({ kind: "join", on: ["k"], right });
+  });
+
+  it("buildSpec excludes an unset join and inlines a materialized one", () => {
+    const p = {
+      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      reduce: { steps: [makeStep("filter"), makeStep("join")] },
+    };
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
+    expect(spec.reduce.steps.map((s) => s.kind)).toEqual(["filter"]);
+
+    const pFilled = {
+      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      reduce: { steps: [makeStep("filter"),
+        { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep] },
+    };
+    const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, cache);
+    expect(specFilled.reduce.steps.map((s) => s.kind)).toEqual(["filter", "join"]);
+    const joinStep = specFilled.reduce.steps[1];
+    expect(joinStep).toMatchObject({ kind: "join", right });
+  });
+
+  it("materializedTablesAtom feeds specAtom-style resolution through buildSpec", () => {
+    const store = createStore();
+    store.set(materializedTablesAtom, cache);
+    expect(store.get(materializedTablesAtom).annot.table).toBe(right);
+  });
+
+  it("tablesNeedingMaterialize lists referenced tables missing or stale in the cache", () => {
+    const wt = (id: string, version: number) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 3, version, schema: SCHEMA, counts: {} as never } });
+    const pool = [wt("cells", 1), wt("annot", 2)];
+    const join = { ...makeStep("join"), rightTableId: "annot" };
+    const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
+      reduce: { steps: [join] } } as never;
+    // cache empty → annot needs fetch (cells is not referenced by a join)
+    expect(tablesNeedingMaterialize(pool, [p], {}).map((t) => t.id)).toEqual(["annot"]);
+    // cache has annot at the WRONG version → still stale
+    expect(tablesNeedingMaterialize(pool, [p],
+      { annot: { version: 1, table: { schema: SCHEMA, rows: [] } } }).map((t) => t.id)).toEqual(["annot"]);
+    // cache has annot at the CURRENT version (2) → nothing needed
+    expect(tablesNeedingMaterialize(pool, [p],
+      { annot: { version: 2, table: { schema: SCHEMA, rows: [] } } })).toEqual([]);
+  });
+});
+
+describe("loadDocumentAtom — pool seeding + inline join right migration", () => {
+  it("loadDocument seeds the pool, binds analyses, and migrates inline join.right to a reference", async () => {
+    const store = createStore();
+    vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
+    const right = { schema: { schema_version: "1.0", columns: [
+      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    const spec = { ...makeSpec("a", { xCol: "grp" }),
+      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } } as never;
+    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
+      counts: { total: 1 }, analyses: [spec] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.length).toBe(2);                                   // main + the migrated right
+    const p = store.get(plottablesAtom)[0];
+    expect(p.tableId).toBe(pool[0].id);                            // bound to the main table
+    const join = p.reduce.steps[0];
+    expect(join.kind === "join" && join.rightTableId).toBe(pool[1].id);
+  });
+
+  it("loadDocument dedups two analyses that share an identical inline right into one pool entry", async () => {
+    const store = createStore();
+    vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
+    const right = { schema: { schema_version: "1.0", columns: [
+      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    const mk = (id: string) => ({ ...makeSpec(id, { xCol: "grp" }),
+      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } }) as never;
+    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
+      counts: { total: 1 }, analyses: [mk("a"), mk("b")] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.length).toBe(2);                                   // main + ONE shared right (deduped)
+    const ids = store.get(plottablesAtom).map((p) => {
+      const s = p.reduce.steps[0]; return s.kind === "join" ? s.rightTableId : "";
+    });
+    expect(ids[0]).toBe(ids[1]);                                   // both analyses reference the same pool id
+    expect(ids[0]).toBe(pool[1].id);
+  });
+
+  it("loadDocument REPLACES the workspace (no orphan tables from a prior load)", async () => {
+    const store = createStore();
+    // a prior import left a table + a stale materialized entry in the pool
+    store.set(tablesAtom, [{ id: "old", name: "old", schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: "h_old", n: 1, version: 0, schema: SCHEMA, counts: {} as never } }]);
+    store.set(materializedTablesAtom, { old: { version: 0, table: { schema: SCHEMA, rows: [] } } });
+    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
+      counts: { total: 1 }, analyses: [makeSpec("a", { xCol: "grp" })] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.map((t) => t.id)).not.toContain("old");            // the orphan is gone
+    expect(pool.length).toBe(1);                                   // just the loaded doc's table
+    expect(store.get(materializedTablesAtom)).toEqual({});         // stale cache cleared
   });
 });

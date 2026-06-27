@@ -6,6 +6,7 @@ import {
 } from "ag-grid-community";
 import {
   activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
+  materializedTablesAtom, materializedVersionKeyAtom, resolveEngineSteps,
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
 import { engine, type Table } from "../types";
@@ -73,6 +74,7 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
   const hierarchy = useAtomValue(hierarchyAtom);
   const handle = useAtomValue(tableHandleAtom);
   const preview = useAtomValue(reducePreviewAtom);
+  const materialized = useAtomValue(materializedTablesAtom);
 
   /* fetched intermediate table for source/step/collapse nodes. The terminal
      plot/stats nodes use the live reducePreviewAtom instead (no fetch). */
@@ -91,8 +93,9 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
     setTable(null);
   }
 
+  const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const fetchKey = node.table.via !== "none"
-    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, active?.collapse, hierarchy])
+    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, active?.collapse, hierarchy, materializedKey])
     : null;
 
   useEffect(() => {
@@ -100,7 +103,9 @@ export function NodeTable({ node }: { node: ExplorerNode }) {
       setTable(null); setLoading(false); setErr(null); return;
     }
     let cancelled = false;
-    const steps = active.reduce.steps;
+    // inline filled joins from the materialized cache so an intermediate node's
+    // /reduce sees the right table's rows (mirrors the live preview + specAtom).
+    const steps = resolveEngineSteps(active.reduce.steps, materialized);
     setTable(null); setLoading(true); setErr(null);
     void (async () => {
       try {

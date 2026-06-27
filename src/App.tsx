@@ -1,4 +1,4 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import irisMark from "./assets/iris-mark.svg";
 import { DataEntry } from "./components/DataEntry";
@@ -6,6 +6,7 @@ import { DataTable } from "./components/DataTable";
 import { HierarchyPanel } from "./components/HierarchyPanel";
 import { ImportWizard } from "./components/ImportWizard";
 import { PlottableSidebar } from "./components/PlottableSidebar";
+import { TableList } from "./components/TableList";
 import { Guide } from "./examples/Guide";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
 import { clearWorkbenchAtom } from "./workbench/state";
@@ -18,9 +19,11 @@ import {
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
+  tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
+  resolveEngineSteps,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
-import type { NodeShape } from "./types";
+import type { NodeShape, AnalysisSpec } from "./types";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
@@ -49,6 +52,8 @@ export default function App() {
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadTable = useSetAtom(loadTableAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
+  const plottables = useAtomValue(plottablesAtom);
+  const store = useStore();
   const spec = useAtomValue(specAtom);
   const allSpecs = useAtomValue(allSpecsAtom);
   const setAnalysisById = useSetAtom(setAnalysisByIdAtom);
@@ -191,14 +196,23 @@ export default function App() {
      pipeline changes. Independent of the analyze loop and valid before any
      mapping is set, so the Reduced-table section updates while you build steps. */
   const hierarchy = useAtomValue(hierarchyAtom);
+  const materialized = useAtomValue(materializedTablesAtom);
+  /* cheap re-run key for the join cache: a step references a right by id, whose
+     rows land in materialized asynchronously (and bump on a version change). Key
+     on the id→version map so the preview re-fetches once the right is inlined,
+     without stringifying every joined row each render. */
+  const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const stepsKey = active
-    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel])
+    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel, materializedKey])
     : null;
   useEffect(() => {
     if (!handle || !active) return;
     window.clearTimeout(previewTimer.current);
     const targetId = active.id;
-    const steps = active.reduce.steps;
+    // inline each filled join's right from the materialized cache (mirrors specAtom);
+    // an uncached/unset join is dropped until its rows land, so the preview never
+    // ships a rightTableId the engine can't resolve.
+    const steps = resolveEngineSteps(active.reduce.steps, materialized);
     const level = active.previewLevel;
     previewTimer.current = window.setTimeout(async () => {
       try {
@@ -230,7 +244,8 @@ export default function App() {
   useEffect(() => {
     if (!handle || !active) return;
     window.clearTimeout(shapeTimer.current);
-    const steps = active.reduce.steps;
+    // inline filled joins from the materialized cache, as the reduce preview does.
+    const steps = resolveEngineSteps(active.reduce.steps, materialized);
     shapeTimer.current = window.setTimeout(async () => {
       try {
         const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy,
@@ -257,6 +272,26 @@ export default function App() {
     return () => window.clearTimeout(shapeTimer.current);
   }, [handle?.id, handle?.version, stepsKey, activeId, collapseKey]);
 
+  /* keep the materialized cache populated: whenever a join references a pool table,
+     fetch that table's FULL rows from its session and write them at the table's
+     current handle version. The selector goes quiet once each referenced table is
+     cached at its current version, so this fetches once per (table, version). */
+  const needMaterialize = useAtomValue(tablesNeedingMaterializeAtom);
+  const setMaterialized = useSetAtom(materializedTablesAtom);
+  useEffect(() => {
+    if (needMaterialize.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const t of needMaterialize) {
+        const res = await engine.rowsWindow(t.handle.id, 0, t.handle.n);   // FULL rows, no preview cap
+        if (cancelled) return;
+        setMaterialized((prev) => ({ ...prev,
+          [t.id]: { version: t.handle.version, table: { schema: t.schema, rows: res.rows } } }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [needMaterialize, setMaterialized]);
+
   /* clear the explorer's selected node when the active analysis changes, so a
      node id from a different analysis never drives the wrong data tab. */
   const setSelectedNode = useSetAtom(selectedNodeIdAtom);
@@ -275,7 +310,15 @@ export default function App() {
     if (!handle || allSpecs.length === 0) return;
     if (analyzeStatus === "running" || bgInFlight.current) return;  // one at a time
     const schemaFor = (id: string) => reducePreviews[id]?.preview.schema ?? schema ?? null;
-    const target = pickStaleSpec(allSpecs, {
+    // Only warm analyses rooted in the ACTIVE table — they share `handle` (its
+    // session). A plottable bound to a different pool table must NOT be analyzed
+    // against this session (wrong rows / spurious 422s); it warms when the user
+    // switches to its table. (Plan A's single-root limitation; Plan B generalizes.)
+    const activeTableId = active?.tableId;
+    const sameTable = allSpecs.filter((s) =>
+      plottables.find((p) => p.id === s.id)?.tableId === activeTableId);
+    if (sameTable.length === 0) return;
+    const target = pickStaleSpec(sameTable, {
       activeId, handleId: handle.id, version: handle.version,
       keyById: analysisKeyById, failedKeys: failedKeys.current, schemaFor,
     });
@@ -300,7 +343,7 @@ export default function App() {
       }
     })();
   }, [handle?.id, handle?.version, allSpecsKey, analysisKeyById, analyzeStatus,
-      activeId, bgTick]);
+      activeId, active?.tableId, bgTick]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
     if (!schema || !spec || !handle) return;
@@ -322,8 +365,29 @@ export default function App() {
   /* Ask the engine for the document bytes, then write them through the OS file
      handle. The frontend never holds the full table, so save can fail if the
      session was evicted (409) — that now surfaces instead of being swallowed. */
+  // Before saving, fetch any join-referenced table that is missing/stale in the
+  // cache (the live effect usually has them already), so every filled join inlines
+  // its FULL rows — never the 500-row preview, never a silently dropped join.
+  const collectSaveSpecs = async (): Promise<AnalysisSpec[]> => {
+    for (let guard = 0; guard < 50; guard++) {
+      const need = store.get(tablesNeedingMaterializeAtom);
+      if (need.length === 0) break;
+      for (const t of need) {
+        const res = await engine.rowsWindow(t.handle.id, 0, t.handle.n);
+        store.set(materializedTablesAtom, (prev) => ({ ...prev,
+          [t.id]: { version: t.handle.version, table: { schema: t.schema, rows: res.rows } } }));
+      }
+    }
+    // Plan A ships one main-table session: warn if analyses span multiple roots.
+    const roots = new Set(store.get(plottablesAtom).map((p) => p.tableId));
+    if (roots.size > 1)
+      window.alert("This workspace has analyses rooted in different tables. "
+        + "Plan A saves them all against the active table; multi-root save needs Plan B.");
+    return store.get(allSaveSpecsAtom);
+  };
   const writeIris = async (fh: FileSystemFileHandle) => {
-    const f = await engine.saveDocument(handle!.id, allSpecs, {});
+    const specs = await collectSaveSpecs();
+    const f = await engine.saveDocument(handle!.id, specs, {});
     const w = await fh.createWritable();
     await w.write(new Blob([base64ToBytes(f.data_base64)]));
     await w.close();
@@ -331,7 +395,8 @@ export default function App() {
   // No FS Access API (Firefox/Safari): we can't write back to a bound file, so
   // every save is just a download. Both Save and Save As funnel through here.
   const downloadIris = async () => {
-    const f = await engine.saveDocument(handle!.id, allSpecs, {});
+    const specs = await collectSaveSpecs();
+    const f = await engine.saveDocument(handle!.id, specs, {});
     downloadBase64("document.iris", f.data_base64);
   };
   // Guard the shipped examples: overwriting one makes the Examples gallery
@@ -382,7 +447,7 @@ export default function App() {
         file = picked;
       }
       const doc = await engine.loadDocument(fileToBase64(await file.arrayBuffer()));
-      loadDocument({
+      await loadDocument({
         schema: doc.schema, rows: doc.rows,
         analyses: doc.analyses.map(migrateSpec),   // tolerate older .viz specs
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
@@ -402,7 +467,7 @@ export default function App() {
       if (!url) throw new Error(`example "${caseId}" is not bundled`);
       const buf = await (await fetch(url)).arrayBuffer();
       const doc = await engine.loadDocument(fileToBase64(buf));
-      loadDocument({
+      await loadDocument({
         schema: doc.schema, rows: doc.rows,
         analyses: doc.analyses.map(migrateSpec),
         id: doc.id, n: doc.n, version: doc.version, counts: doc.counts,
@@ -458,7 +523,7 @@ export default function App() {
         {viewMode === "guide" ? (
           <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
         ) : viewMode === "data" ? (
-          <div className="data-mode"><HierarchyPanel /><DataTable /></div>
+          <div className="data-mode"><TableList /><HierarchyPanel /><DataTable /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />

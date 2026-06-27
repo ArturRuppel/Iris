@@ -1,6 +1,6 @@
 import { createStore } from "jotai";
 import {
-  schemaAtom, hierarchyAtom, plottablesAtom, activePlottableIdAtom,
+  tablesAtom, activeTableIdAtom, plottablesAtom, activePlottableIdAtom,
   registryAtom, makeDefaultPlottable,
 } from "../../state";
 import type { Schema, Registry } from "../../types";
@@ -15,11 +15,15 @@ export function seedStore(spine: string[] = ["experiment", "cell"]) {
     ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
     { name: "val", type: "numeric" as const, label: "Value" },
   ] };
-  store.set(schemaAtom, schema);
-  store.set(hierarchyAtom, { spine, fn: {} });
+  // the three single-table globals now derive off the active analysis's pool
+  // table — seed one pool entry and bind the plottable to it.
+  store.set(tablesAtom, [{ id: "main", name: "main", schema,
+    hierarchy: { spine, fn: {} },
+    handle: { id: "h_main", n: 0, version: 0, schema, counts: {} as never } }]);
+  store.set(activeTableIdAtom, "main");
   const registry: Registry = { point_cap: 5000, facet_cell_cap: 200, geoms: {} };
   store.set(registryAtom, registry);
-  const p = makeDefaultPlottable(schema);
+  const p = makeDefaultPlottable(schema, "main");
   store.set(plottablesAtom, [p]);
   store.set(activePlottableIdAtom, p.id);
   return { store, plottable: p };

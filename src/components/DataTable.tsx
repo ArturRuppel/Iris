@@ -5,7 +5,7 @@ import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
   type CellEditRequestEvent, type ColDef, type GridApi, type IDatasource,
 } from "ag-grid-community";
-import { schemaAtom, tableHandleAtom, typeColorsAtom } from "../state";
+import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
 import { engine, type Row } from "../types";
 
@@ -31,9 +31,11 @@ const TYPE_LABEL: Record<ColumnType, string> = {
 };
 
 export function DataTable() {
-  const schema = useAtomValue(schemaAtom);
-  const handle = useAtomValue(tableHandleAtom);
-  const setHandle = useSetAtom(tableHandleAtom);
+  const schema = useAtomValue(activeSchemaAtom);
+  const handle = useAtomValue(activeHandleAtom);
+  // a cell edit bumps the ACTIVE pool table's handle (activeHandleAtom is a
+  // read-only view off the pool, so the version bump writes through the pool).
+  const bumpHandle = useSetAtom(bumpActiveHandleAtom);
   const [typeColors, setTypeColors] = useAtom(typeColorsAtom);
   const gridApiRef = useRef<GridApi<Row> | null>(null);
 
@@ -109,7 +111,7 @@ export function DataTable() {
       value = value == null || value === "" ? null
         : value === "true" || value === true;
     const { version, counts } = await engine.editCell(handle.id, e.data.id, field, value);
-    setHandle((h) => (h ? { ...h, version, counts } : h));
+    bumpHandle({ ...handle, version, counts });
   };
 
   /* expose the configurable type colours to the grid headers as CSS vars */

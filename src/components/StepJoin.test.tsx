@@ -8,25 +8,13 @@ const cols: ColumnDef[] = [
   { name: "batch", type: "categorical", label: "Batch" },
 ];
 
-const r = {};
-const right = {
-  schema: {
-    columns: [
-      { name: "id", type: "identifier", label: "ID" },
-      { name: "x", type: "numeric", label: "X" },
-      { name: "y", type: "numeric", label: "Y" },
-    ],
-  },
-  rows: [r, r, r, r, r],
-};
 const makeStep = (on: string[]): JoinStep =>
-  ({ kind: "join", on, how: "inner", right } as unknown as JoinStep);
+  ({ kind: "join", on, how: "inner", rightTableId: "annot" });
 
-it("shows a read-only summary of the right table and join type", () => {
+it("shows the referenced right table id and join type", () => {
   render(<StepJoin step={makeStep(["id"])} columns={cols} onChange={vi.fn()} />);
   const text = document.body.textContent ?? "";
-  expect(text).toContain("5");
-  expect(text).toContain("3");
+  expect(text).toContain("annot");
   expect(text).toContain("inner");
 });
 

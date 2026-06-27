@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ExplorerNode } from "../explorer/graph";
-import { affordances, isValidDropTarget } from "./authoring";
+import { affordances, isValidDropTarget, stepIndexOf, authorDispatch } from "./authoring";
 
 const tableNode = (id: string): ExplorerNode =>
   ({ id, kind: "table", label: id, table: { via: "none" } });
@@ -33,6 +33,12 @@ describe("affordances — the phase-keyed add menu", () => {
     expect(affordances(tableNode("source:2"))).toEqual([]);
   });
 
+  it("a post-collapse node (post:i) offers nothing — post authoring is out of scope", () => {
+    // a post:i node is reduce-shaped but lives in reduce.post; offering reduce
+    // kinds here would misroute insertStepAtom into reduce.steps.
+    expect(affordances(tableNode("post:0"))).toEqual([]);
+  });
+
   it("terminals offer nothing (sinks emit no forward edge)", () => {
     expect(affordances(term("plot", "plot"))).toEqual([]);
     expect(affordances(term("stats", "stats"))).toEqual([]);
@@ -53,5 +59,34 @@ describe("isValidDropTarget — drag-to-node is the binary (join) case", () => {
   it("rejects terminals", () => {
     expect(isValidDropTarget("step:0", term("plot", "plot"))).toBe(false);
     expect(isValidDropTarget("step:0", term("stats", "stats"))).toBe(false);
+  });
+});
+
+describe("stepIndexOf — where a node's + inserts after", () => {
+  it("the root source is -1 (insert at 0)", () => {
+    expect(stepIndexOf("source")).toBe(-1);
+  });
+  it("a step:i node is i", () => {
+    expect(stepIndexOf("step:0")).toBe(0);
+    expect(stepIndexOf("step:3")).toBe(3);
+  });
+});
+
+describe("authorDispatch — a +-pick resolves to its atom call", () => {
+  it("a reduce action splices after this node's step index", () => {
+    expect(authorDispatch("step:1", { kind: "reduce", step: "derive" }))
+      .toEqual({ atom: "insertStep", arg: { afterIndex: 1, kind: "derive" } });
+  });
+  it("a reduce action on the root source inserts at 0 (afterIndex -1)", () => {
+    expect(authorDispatch("source", { kind: "reduce", step: "filter" }))
+      .toEqual({ atom: "insertStep", arg: { afterIndex: -1, kind: "filter" } });
+  });
+  it("geom/collapse/test open their terminal editor card", () => {
+    expect(authorDispatch("step:0", { kind: "geom" }))
+      .toMatchObject({ atom: "openCard", arg: { cardKind: "geom-editor" } });
+    expect(authorDispatch("grain:cell", { kind: "collapse" }))
+      .toMatchObject({ atom: "openCard", arg: { cardKind: "collapse-editor" } });
+    expect(authorDispatch("step:0", { kind: "test" }))
+      .toMatchObject({ atom: "openCard", arg: { cardKind: "test-editor" } });
   });
 });

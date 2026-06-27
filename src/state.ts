@@ -1,21 +1,28 @@
-import { atom } from "jotai";
+import { atom, type Getter } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, GrainKey, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec,
-  ReduceStep, ReduceStepKind, ReducePreview,
+  ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
 import { familyForMappingsRef } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
+import { byId, upsertTable, seedTableName, type WorkspaceTable } from "./tables";
+export type { WorkspaceTable } from "./tables";
 
-export const schemaAtom = atom<Schema | null>(null);
+/* The three single-table globals are no longer primitive state: they are
+   read-only views onto the ACTIVE ANALYSIS's pool table (analysisTableAtom),
+   so the ~20 analysis read sites keep working while the pool owns the truth.
+   Writers (loadTableAtom, setColumnRoleAtom, …) edit the pool entry, not these.
+   Defined as forward closures off analysisTableAtom (declared below). */
+export const schemaAtom = atom<Schema | null>((get) => get(analysisTableAtom)?.schema ?? null);
 /* The browser no longer owns the dataset: the engine does, behind this handle
    (id + version + schema + row count). The grid pulls row windows by id; nothing
    in the browser holds all N rows. */
-export const tableHandleAtom = atom<TableHandle | null>(null);
+export const tableHandleAtom = atom<TableHandle | null>((get) => get(analysisTableAtom)?.handle ?? null);
 export const engineErrorAtom = atom<string | null>(null);
 export const engineSnapshotAtom = atom<Record<string, string> | null>(null);
 
@@ -45,7 +52,8 @@ export const styleRegistryAtom = atom<StyleKnob[]>([]);
    (categorical) columns attach at their home levels. Layers/preview pick a level
    from it. Spine order is stored here; membership mirrors which columns are typed
    `identifier`. */
-export const hierarchyAtom = atom<Hierarchy>({ spine: [], fn: {} });
+export const hierarchyAtom = atom<Hierarchy>((get) =>
+  get(analysisTableAtom)?.hierarchy ?? { spine: [], fn: {} });
 
 /* identifier columns of the current (master) schema, in schema order — the
    canonical spine membership the stored order is reconciled against. */
@@ -144,6 +152,7 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
 export interface Plottable {
   id: string;
   name: string;
+  tableId: string;  // the main table's pool id (design §4.2)
   mappings: { x: string; y: string };
   /* aesthetic channels (Phase 2), "" = unmapped. Each is an independent,
      explicit choice — color is never auto-derived from x. */
@@ -190,13 +199,81 @@ export const nextLayerId = () => `ly_${Date.now().toString(36)}_${_lid++}`;
    stripped in buildSpec, so it never reaches the engine or a saved .viz. */
 let _sk = 0;
 const nextStepKey = () => `sk_${Date.now().toString(36)}_${_sk++}`;
-const stripStepKey = ({ _key, ...s }: ReduceStep): ReduceStep => s;
+/* distribute Omit over a union so each member keeps its own (key-stripped) shape;
+   a plain Omit<A|B, …> would collapse to the members' common keys only. */
+type StripKey<T> = T extends unknown ? Omit<T, "_key"> : never;
+const stripStepKey = <T extends { kind: string }>(s: T): StripKey<T> => {
+  const { _key, ...rest } = s as T & { _key?: string };
+  void _key;
+  return rest as StripKey<T>;
+};
+
+type RightCache = Record<string, { version: number; table: Table }>;
+
+/* full rows of pool tables referenced by a join, fetched from their sessions and
+   keyed by handle version so an edit re-materializes (design §5, §11). Session-only. */
+export const materializedTablesAtom = atom<RightCache>({});
+
+/* a stable string of (tableId → version) over the materialized cache: the live
+   preview / shape-count / node-fetch effects fold this into their dep keys so they
+   re-run once a referenced join's rows land (and again on a version bump). One
+   definition so the call sites can't drift out of sync. */
+export const materializedVersionKeyAtom = atom((get) =>
+  JSON.stringify(Object.entries(get(materializedTablesAtom)).map(([id, v]) => [id, v.version])));
+
+/* derived view of the above, for the App materialization effect to read directly. */
+export const tablesNeedingMaterializeAtom = atom((get) =>
+  tablesNeedingMaterialize(get(tablesAtom), get(plottablesAtom), get(materializedTablesAtom)));
+
+/* pool tables referenced by some analysis's join that are absent from the
+   materialized cache or stale (handle version moved) — these must be fetched so
+   the engine boundary can inline their full rows. Pure over its inputs. */
+export function tablesNeedingMaterialize(
+  pool: WorkspaceTable[], plottables: Plottable[], cache: RightCache): WorkspaceTable[] {
+  const referenced = new Set<string>();
+  for (const p of plottables)
+    for (const s of p.reduce.steps)
+      if (s.kind === "join" && s.rightTableId) referenced.add(s.rightTableId);
+  return pool.filter((t) => referenced.has(t.id)
+    && (!cache[t.id] || cache[t.id].version !== t.handle.version));
+}
+
+/* a join is runnable once its right is materialized; unset/unmaterialized joins are
+   skipped (display degrades gracefully until the fetch lands). The spec keeps the
+   step so its editor card and the open "missing" circle persist; it just isn't sent
+   until filled. */
+export function runnableSteps(steps: ReduceStep[], cache: RightCache): ReduceStep[] {
+  return steps.filter((s) => s.kind !== "join" || (!!s.rightTableId && !!cache[s.rightTableId]));
+}
+
+/* map internal steps to engine-facing steps, inlining each runnable join's right
+   table from the cache. Filters via runnableSteps first, so every remaining join
+   is materialized (the cache access below is therefore safe). */
+export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
+  return runnableSteps(steps, cache).map((s) =>
+    s.kind === "join"
+      ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
+      : s);
+}
+
+/* like resolveEngineSteps, but for SAVE: inline every FILLED, materialized join's
+   right (the caller pre-materializes every pool-referenced table first, so a valid
+   reference is always cached here). An UNSET reference has no table to write, and a
+   filled-but-uncached one is dangling (its table left the pool) — both are skipped
+   gracefully rather than written or crashed on (design §8). */
+export function resolveSaveSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
+  return steps
+    .filter((s) => s.kind !== "join" || (!!s.rightTableId && !!cache[s.rightTableId]))
+    .map((s) => (s.kind === "join"
+      ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
+      : s));
+}
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
    preselected geom. The user picks x/y and adds layers explicitly. */
-export function makeDefaultPlottable(schema: Schema): Plottable {
+export function makeDefaultPlottable(schema: Schema, tableId = ""): Plottable {
   return {
-    id: nextId(), name: "Analysis 1",
+    id: nextId(), name: "Analysis 1", tableId,
     mappings: { x: "", y: "" },
     color: "", size: "", shape: "",
     facetRow: "", facetCol: "", shareX: true, shareY: true,
@@ -229,6 +306,33 @@ export const activePlottableAtom = atom(
     set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === next.id ? next : p)));
   },
 );
+
+/* the workspace pool: every loaded input table (design §4.1). Import accumulates
+   into it; analyses reference entries by id. */
+export const tablesAtom = atom<WorkspaceTable[]>([]);
+/* which pool table the Data tab is currently viewing / editing. */
+export const activeTableIdAtom = atom<string | null>(null);
+
+/* the table the Data tab edits (its preview, spine, column roles). */
+export const activeTableAtom = atom((get) => byId(get(tablesAtom), get(activeTableIdAtom)));
+/* the table the ACTIVE ANALYSIS computes against (its main table). */
+export const analysisTableAtom = atom((get) =>
+  byId(get(tablesAtom), get(activePlottableAtom)?.tableId ?? null));
+
+/* the Data tab edits the table it is currently on (its selection), which may differ
+   from the active analysis's table — so it reads these, not the analysis-derived globals. */
+export const activeSchemaAtom = atom((get) => get(activeTableAtom)?.schema ?? null);
+export const activeHierarchyAtom = atom((get) => get(activeTableAtom)?.hierarchy ?? { spine: [], fn: {} });
+export const activeHandleAtom = atom((get) => get(activeTableAtom)?.handle ?? null);
+
+/* bump the active pool table's handle (a data edit / version change). The grid's
+   cell edit goes through here so the new version refetches the affected block and
+   re-runs compute. (Replaces the old `set(tableHandleAtom, …)` now that the three
+   globals are read-only views off the pool.) */
+export const bumpActiveHandleAtom = atom(null, (get, set, h: TableHandle) => {
+  const t = get(activeTableAtom); if (!t) return;
+  set(tablesAtom, upsertTable(get(tablesAtom), { ...t, handle: h }));
+});
 
 export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 
@@ -377,7 +481,6 @@ export const setAnalysisByIdAtom = atom(
    referred to the old one: plottables, analysis */
 export const loadTableAtom = atom(null, async (get, set,
     table: Table & { token?: string }) => {
-  set(schemaAtom, table.schema);
   // The engine owns the table behind a session handle, created here from the
   // rows the importer handed us. The browser keeps the handle, not the dataset.
   set(dataLoadingAtom, true);
@@ -404,17 +507,24 @@ export const loadTableAtom = atom(null, async (get, set,
   const handle: TableHandle = {
     id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts,
   };
-  set(tableHandleAtom, handle);
-  // seed the hierarchy spine from the imported identifier columns (coarsest →
-  // finest by schema order); the user refines it in the Data tab.
-  set(hierarchyAtom, { spine: identifierCols(table.schema), fn: {} });
+  // import ACCUMULATES into the pool (design §4.1): append a new pool entry and
+  // select it for the Data tab. The hierarchy spine seeds from the imported
+  // identifier columns (coarsest → finest by schema order); the user refines it.
+  const id = seedTableName(get(tablesAtom), (table as { name?: string }).name);
+  const entry: WorkspaceTable = {
+    id, name: id, schema: table.schema,
+    hierarchy: { spine: identifierCols(table.schema), fn: {} }, handle,
+  };
+  set(tablesAtom, upsertTable(get(tablesAtom), entry));
+  set(activeTableIdAtom, id);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
-  const first = makeDefaultPlottable(table.schema);
-  set(plottablesAtom, [first]);
+  // add a default analysis bound to the new table (do NOT reset existing ones).
+  const first = makeDefaultPlottable(table.schema, id);
+  set(plottablesAtom, [...get(plottablesAtom), first]);
   set(activePlottableIdAtom, first.id);
 });
 
@@ -484,6 +594,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   return {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",
+    tableId: (spec as { table_id?: string }).table_id ?? "",
     mappings: { x: spec.encodings.x?.column ?? "", y: spec.encodings.y?.column ?? "" },
     color: spec.encodings.color?.column ?? "",
     size: spec.encodings.size?.column ?? "",
@@ -505,7 +616,13 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     describeOnly: s?.describe_only ?? false,
     previewLevel: RAW_LEVEL,
     style,
-    reduce: { steps: (spec.reduce?.steps ?? []).map((s) => ({ ...s, _key: nextStepKey() })) },
+    /* a saved join step inlines its right table; the internal model references the
+       right by id instead. Drop the inline rows here (rightTableId starts UNFILLED —
+       a later task migrates them into the pool) and key every step for React. */
+    reduce: { steps: (spec.reduce?.steps ?? []).map((s) =>
+      s.kind === "join"
+        ? { kind: "join" as const, on: s.on, how: s.how, rightTableId: "", _key: nextStepKey() }
+        : { ...s, _key: nextStepKey() }) },
     collapse: spec.collapse,
     testGrain: spec.test_grain,
   };
@@ -524,28 +641,84 @@ export interface LoadedDoc {
 /* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
    (rebuilt as editable plottables) and the shared hierarchy instead of starting
    blank. */
-export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
-  set(schemaAtom, doc.schema);
+export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   // the engine created the session as it read the .iris; adopt its handle.
-  set(tableHandleAtom, {
+  const handle: TableHandle = {
     id: doc.id, n: doc.n, version: doc.version, schema: doc.schema, counts: doc.counts,
-  });
-  // the hierarchy is table-level (shared by every analysis); take it off the
-  // first saved spec, falling back to the identifier columns for older files.
+  };
+  // the hierarchy is table-level; take it off the first saved spec, falling back
+  // to the identifier columns for older files.
   const saved = doc.analyses[0]?.hierarchy;
-  set(hierarchyAtom, saved && saved.spine?.length
+  const hierarchy: Hierarchy = saved && saved.spine?.length
     ? { spine: saved.spine, fn: saved.fn ?? {} }
-    : { spine: identifierCols(doc.schema), fn: {} });
+    : { spine: identifierCols(doc.schema), fn: {} };
+  // Load REPLACES the workspace: clear the pool + materialized cache first so a
+  // prior import/load leaves no orphan tables and no stale rows (spec §6.2 — one
+  // in-memory shape after load). loadTableAtom accumulates; loadDocument does not.
+  set(tablesAtom, []);
+  set(materializedTablesAtom, {});
+  // Seed the MAIN pool entry from the doc — pool[0], the table every analysis is
+  // (today) bound to. Migrated join rights append after it, in first-seen order.
+  const mainId = seedTableName(get(tablesAtom), undefined);
+  const entry: WorkspaceTable = { id: mainId, name: mainId, schema: doc.schema, hierarchy, handle };
+  set(tablesAtom, upsertTable(get(tablesAtom), entry));
+  set(activeTableIdAtom, mainId);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
-  const plottables = doc.analyses.length
-    ? doc.analyses.map(plottableFromSpec)
-    : [makeDefaultPlottable(doc.schema)];
-  set(plottablesAtom, plottables);
-  set(activePlottableIdAtom, plottables[0].id);
+  // a fresh doc with no saved analyses gets a single default plottable.
+  if (!doc.analyses.length) {
+    const first = makeDefaultPlottable(doc.schema, mainId);
+    set(plottablesAtom, [first]);
+    set(activePlottableIdAtom, first.id);
+    return;
+  }
+  // bind the restored analyses to the seeded pool entry (they were saved with no
+  // table_id, or a stale one) and migrate each inline join right into the pool.
+  //
+  // A SAVED join step carries its right table INLINE (EngineJoinStep.right);
+  // plottableFromSpec already stripped that to rightTableId:"". Walk the RAW spec
+  // steps alongside the plottable's steps: create a session per distinct right,
+  // append it to the pool, and point the plottable's join step at the new pool id.
+  // Identical rights (same schema+rows) dedup to one pool entry across analyses.
+  const byContent = new Map<string, string>();           // content key -> pool id
+  const migrated: Plottable[] = [];
+  for (const spec of doc.analyses) {
+    const p = { ...plottableFromSpec(spec), tableId: mainId };
+    const rawSteps = spec.reduce?.steps ?? [];
+    // sequential (not Promise.all) so the pool grows deterministically and two
+    // identical rights within ONE analysis dedup to a single createSession too.
+    const steps: ReduceStep[] = [];
+    for (let j = 0; j < p.reduce.steps.length; j++) {
+      const step = p.reduce.steps[j];
+      const raw = rawSteps[j];
+      if (step.kind !== "join" || !raw || raw.kind !== "join"
+          || !raw.right || raw.right.schema.columns.length === 0) {
+        steps.push(step);
+        continue;
+      }
+      const right = raw.right;
+      const key = JSON.stringify({ schema: right.schema, rows: right.rows });
+      let poolId = byContent.get(key);
+      if (!poolId) {
+        const s = await engine.createSession({ schema: right.schema, rows: right.rows });
+        poolId = seedTableName(get(tablesAtom), undefined);
+        const rt: WorkspaceTable = {
+          id: poolId, name: poolId, schema: right.schema,
+          hierarchy: { spine: identifierCols(right.schema), fn: {} },
+          handle: { id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts },
+        };
+        set(tablesAtom, upsertTable(get(tablesAtom), rt));
+        byContent.set(key, poolId);
+      }
+      steps.push({ ...step, rightTableId: poolId });
+    }
+    migrated.push({ ...p, reduce: { ...p.reduce, steps } });
+  }
+  set(plottablesAtom, migrated);
+  set(activePlottableIdAtom, migrated[0].id);
 });
 
 /* Pure builder: a plottable + its derived stats family + (optional) recommended
@@ -556,7 +729,10 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
 export function buildSpec(p: Plottable, family: StatsFamily,
                           rec: TestName | undefined,
                           snapshot: Record<string, string>,
-                          hierarchy: Hierarchy): AnalysisSpec {
+                          hierarchy: Hierarchy,
+                          cache: RightCache,
+                          resolve: (steps: ReduceStep[], cache: RightCache) => EngineReduceStep[]
+                            = resolveEngineSteps): AnalysisSpec {
   const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
@@ -573,7 +749,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: { steps: p.reduce.steps.map(stripStepKey) },
+    reduce: { steps: resolve(p.reduce.steps, cache).map(stripStepKey) },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -611,6 +787,13 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   };
 }
 
+/* save spec: identical to buildSpec but inlines every filled join (no graceful
+   drop) so a saved .iris never loses a join. Referenced tables must be cached. */
+export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | undefined,
+  snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache): AnalysisSpec {
+  return buildSpec(p, family, rec, snapshot, hierarchy, cache, resolveSaveSteps);
+}
+
 /* the keystone: spec derived live from the active plottable. The stats family is
    derived from the post-reduction column types so the test offered matches the
    data actually mapped. */
@@ -622,17 +805,22 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const tests = TEST_BY_FAMILY[family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {}, get(hierarchyAtom));
+  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {}, get(hierarchyAtom),
+    get(materializedTablesAtom));
 });
 
-/* every plottable's spec, each carrying its own recommended test — the save
-   path serializes all of these into the document's analyses[] */
-export const allSpecsAtom = atom((get): AnalysisSpec[] => {
+/* shared core of allSpecsAtom / allSaveSpecsAtom: build a spec per plottable,
+   each with its own derived family/recommended-test, via the given builder. */
+function buildAllSpecs(get: Getter,
+  build: (p: Plottable, family: StatsFamily, rec: TestName | undefined,
+          snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache) => AnalysisSpec
+): AnalysisSpec[] {
   const schema = get(schemaAtom);
   if (!schema) return [];
   const snap = get(engineSnapshotAtom) ?? {};
   const hierarchy = get(hierarchyAtom);
   const byId = get(analysisByIdAtom);
+  const cache = get(materializedTablesAtom);
   // mirror specAtom: derive each plottable's family from ITS post-reduction
   // schema (the reduce preview, when present) so the saved family/test matches
   // what the live spec computes, falling back to the master schema.
@@ -643,16 +831,26 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-    return buildSpec(p, family, rec, snap, hierarchy);
+    return build(p, family, rec, snap, hierarchy, cache);
   });
-});
+}
+
+/* every plottable's spec, each carrying its own recommended test — the live
+   background render loop reads these (graceful join drop). */
+export const allSpecsAtom = atom((get): AnalysisSpec[] => buildAllSpecs(get, buildSpec));
+
+/* the save variant: identical, but inlines every filled join (no drop) so a
+   saved .iris never loses a join. The save path serializes these. */
+export const allSaveSpecsAtom = atom((get): AnalysisSpec[] => buildAllSpecs(get, specForSave));
 
 /* ---- CRUD atoms for managing the plottables list ---- */
 
 export const addPlottableAtom = atom(null, (get, set) => {
   const schema = get(schemaAtom);
   if (!schema) return;
-  const p = makeDefaultPlottable(schema);
+  // bind the new analysis to the table the active analysis is on (guaranteed
+  // non-empty whenever the schema guard above passes — see design §4.2).
+  const p = makeDefaultPlottable(schema, get(activePlottableAtom)?.tableId ?? "");
   p.name = `Analysis ${get(plottablesAtom).length + 1}`;
   set(plottablesAtom, [...get(plottablesAtom), p]);
   set(activePlottableIdAtom, p.id);
@@ -663,6 +861,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   if (!src) return;
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
+    tableId: src.tableId,
     mappings: { ...src.mappings },
     layers: src.layers.map((l) => ({ id: nextLayerId(), geom: l.geom,
                                      level: l.level })),
@@ -697,12 +896,6 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
 
-/* the unfilled right-side sentinel for a freshly-created join: an empty-schema
-   table. A join whose `right.schema.columns` is empty is "missing its right
-   input" — rendered as the open circle on the canvas and skipped on the run
-   path (it is not yet a runnable step). */
-export const EMPTY_RIGHT: Table = { schema: { schema_version: "1.0", columns: [] }, rows: [] };
-
 export function makeStep(kind: ReduceStepKind): ReduceStep {
   const _key = nextStepKey();
   switch (kind) {
@@ -716,9 +909,9 @@ export function makeStep(kind: ReduceStepKind): ReduceStep {
       return { _key, kind, by: [], column: "", levels: [], count: true,
         count_unique: null, fill: 0, count_name: "n" };
     case "join":
-      // starts with an EMPTY right — the unfilled "missing input" state, filled
-      // by dragging a data node onto its open circle.
-      return { _key, kind, on: [], how: "inner", right: EMPTY_RIGHT };
+      // starts with an empty rightTableId — the unfilled "missing input" state,
+      // filled by dragging a data node onto its open circle.
+      return { _key, kind, on: [], how: "inner", rightTableId: "" };
     default: {
       const _exhaustive: never = kind;
       return _exhaustive;
@@ -812,8 +1005,9 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
    so the engine sees the new types on the next analyze/preview. */
 export const setColumnRoleAtom = atom(null,
   async (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
-    const schema = get(schemaAtom); if (!schema) return;
-    const handle = get(tableHandleAtom);
+    const t = get(activeTableAtom); if (!t) return;
+    const schema = t.schema;
+    const handle = t.handle;
     const newType: "identifier" | "categorical" =
       arg.role === "identifier" ? "identifier" : "categorical";
     // a column becoming a classifier needs levels for the editor / ordering;
@@ -828,20 +1022,23 @@ export const setColumnRoleAtom = atom(null,
       return { ...c, type: newType, levels };
     });
     const nextSchema = { ...schema, columns };
-    set(schemaAtom, nextSchema);
-    const h = get(hierarchyAtom);
-    set(hierarchyAtom, { ...h, spine: reconcileSpine(h.spine, identifierCols(nextSchema)) });
+    const nextHierarchy = {
+      ...t.hierarchy, spine: reconcileSpine(t.hierarchy.spine, identifierCols(nextSchema)),
+    };
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, schema: nextSchema, hierarchy: nextHierarchy }));
   });
 
 /* reorder the spine (coarsest → finest). Table-level: shared by all analyses. */
 export const moveSpineAtom = atom(null,
   (get, set, arg: { index: number; dir: -1 | 1 }) => {
-    const h = get(hierarchyAtom);
-    const spine = [...h.spine];
+    const t = get(activeTableAtom); if (!t) return;
+    const spine = [...t.hierarchy.spine];
     const j = arg.index + arg.dir;
     if (j < 0 || j >= spine.length) return;
     [spine[arg.index], spine[j]] = [spine[j], spine[arg.index]];
-    set(hierarchyAtom, { ...h, spine });
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, hierarchy: { ...t.hierarchy, spine } }));
   });
 
 /* set the aggregate fn for a spine level — how finer rows collapse into that
@@ -849,8 +1046,9 @@ export const moveSpineAtom = atom(null,
    the level. Unset means mean (the engine's default). */
 export const setLevelFnAtom = atom(null,
   (get, set, arg: { level: string; fn: LevelFn }) => {
-    const h = get(hierarchyAtom);
-    set(hierarchyAtom, { ...h, fn: { ...h.fn, [arg.level]: arg.fn } });
+    const t = get(activeTableAtom); if (!t) return;
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, hierarchy: { ...t.hierarchy, fn: { ...t.hierarchy.fn, [arg.level]: arg.fn } } }));
   });
 
 /* ---- per-analysis collapse plan + test grain (un-forcing the nesting) ----

@@ -2,23 +2,31 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import {
-  schemaAtom, hierarchyAtom, plottablesAtom, activePlottableIdAtom,
-  reducePreviewByIdAtom, tableHandleAtom, makeDefaultPlottable,
+  tablesAtom, activeTableIdAtom, plottablesAtom, activePlottableIdAtom,
+  reducePreviewByIdAtom, bumpActiveHandleAtom, makeDefaultPlottable,
 } from "../state";
 import type { CollapsePlan, ReducePreview, Schema, Table } from "../types";
 import type { ExplorerNode } from "../explorer/graph";
 import { engine } from "../types";
 import { NodeTable } from "./NodeTable";
 
-function seed() {
+/* the single-table globals now derive off the active analysis's pool table. With
+   `handle`, seed one pool entry (so tableHandleAtom resolves) and bind the
+   plottable to it; without, leave the pool empty so tableHandleAtom stays null
+   (the "no handle / no engine" branch). */
+function seed({ handle = true }: { handle?: boolean } = {}) {
   const store = createStore();
   const schema: Schema = { schema_version: "1.0", columns: [
     { name: "cell", type: "identifier", label: "cell" },
     { name: "val", type: "numeric", label: "Value" },
   ] };
-  store.set(schemaAtom, schema);
-  store.set(hierarchyAtom, { spine: ["cell"], fn: {} });
-  const p = makeDefaultPlottable(schema);
+  if (handle) {
+    store.set(tablesAtom, [{ id: "main", name: "main", schema,
+      hierarchy: { spine: ["cell"], fn: {} },
+      handle: { id: "tok-1", n: 1, version: 1, schema, counts: {} as never } }]);
+    store.set(activeTableIdAtom, "main");
+  }
+  const p = makeDefaultPlottable(schema, "main");
   store.set(plottablesAtom, [p]);
   store.set(activePlottableIdAtom, p.id);
   return { store, schema, plottable: p };
@@ -28,7 +36,7 @@ describe("NodeTable", () => {
   afterEach(() => { vi.restoreAllMocks(); });
 
   it("shows a loading state for a fetchable node with no table handle (no engine under jsdom)", () => {
-    const { store } = seed();
+    const { store } = seed({ handle: false });
     const node: ExplorerNode = {
       id: "step:0", kind: "table", label: "filtered",
       table: { via: "at_step", at_step: 0 },
@@ -68,8 +76,7 @@ describe("NodeTable", () => {
     // an active plottable carrying a collapse plan (the grain's source).
     const collapse: CollapsePlan = [{ keep: ["cell"], fn: "mean" }];
     store.set(plottablesAtom, [{ ...plottable, collapse }]);
-    // a handle so the fetch effect actually runs (jsdom has no live engine).
-    store.set(tableHandleAtom, { id: "tok-1", n: 1, version: 1, schema });
+    // seed() already bound a pool table with a handle, so the fetch effect runs.
 
     const result: ReducePreview = {
       preview: { schema, rows: [{ id: "g0", cell: "c1", val: 7 }] },

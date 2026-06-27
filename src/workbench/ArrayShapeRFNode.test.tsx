@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
 import type { ExplorerNode } from "../explorer/graph";
@@ -26,6 +26,12 @@ describe("nodeShapeProps", () => {
       ({ id, kind: "table", label: id, table: { via: "none" }, missing });
     expect(nodeShapeProps(mk("source:0", true)).missing).toBe(true);
     expect(nodeShapeProps(mk("source:0")).missing).toBeFalsy();
+  });
+  it("carries the node's phase-keyed + options (a step node gets reduce kinds)", () => {
+    const mk = (id: string): ExplorerNode => ({ id, kind: "table", label: id, table: { via: "none" } });
+    expect(nodeShapeProps(mk("step:0")).options?.some((o) => o.action.kind === "reduce")).toBe(true);
+    // a join-input node has no + menu.
+    expect(nodeShapeProps(mk("source:0")).options).toEqual([]);
   });
 });
 
@@ -59,5 +65,34 @@ describe("ArrayShapeRFNode", () => {
       </ReactFlowProvider>,
     );
     expect(container.querySelector(".txw-handle-missing")).not.toBeNull();
+  });
+  it("shows the + add handle on a reduce node and opens the menu on click", () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <ArrayShapeRFNode
+          id="step:0"
+          data={nodeShapeProps({ id: "step:0", kind: "table", label: "filtered", table: { via: "none" } })}
+          selected={false}
+        />
+      </ReactFlowProvider>,
+    );
+    const add = container.querySelector(".txw-handle-add");
+    expect(add).not.toBeNull();
+    expect(screen.queryByRole("menu")).toBeNull();
+    fireEvent.click(add!);
+    expect(screen.getByRole("menu")).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Filter rows" })).toBeInTheDocument();
+  });
+  it("a terminal node shows no + add handle", () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <ArrayShapeRFNode
+          id="plot"
+          data={nodeShapeProps({ id: "plot", kind: "plot", label: "Plot", table: { via: "none" } })}
+          selected={false}
+        />
+      </ReactFlowProvider>,
+    );
+    expect(container.querySelector(".txw-handle-add")).toBeNull();
   });
 });

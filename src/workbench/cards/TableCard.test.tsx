@@ -1,7 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { Provider } from "jotai";
-import { activePlottableAtom } from "../../state";
 import { TableCard } from "./TableCard";
 import { seedStore } from "./cardTestStore";
 
@@ -16,21 +15,14 @@ describe("TableCard", () => {
     expect(container.querySelector('[data-testid="table-card"]')).toBeInTheDocument();
   });
 
-  it("appends a filter step via the add-step menu", () => {
+  it("is table-only — no in-card add-step menu (the on-canvas + handle owns add)", () => {
     const { store } = seedStore(["experiment", "cell"]);
-    const before = store.get(activePlottableAtom)!.reduce.steps.length;
     render(
       <Provider store={store}>
         <TableCard target={{ kind: "node", id: "source" }} />
       </Provider>,
     );
-    // open the toggle menu, then pick Filter.
-    fireEvent.click(screen.getByRole("button", { name: /Filter \/ Drop/i }));
-    fireEvent.click(screen.getByRole("button", { name: /Filter rows/i }));
-
-    const steps = store.get(activePlottableAtom)!.reduce.steps;
-    expect(steps.length).toBe(before + 1);
-    expect(steps[steps.length - 1].kind).toBe("filter");
+    expect(screen.queryByRole("button", { name: /Filter \/ Drop/i })).toBeNull();
   });
 
   it("shows a notice for a target id not in the graph", () => {

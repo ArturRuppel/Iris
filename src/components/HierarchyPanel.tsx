@@ -1,8 +1,8 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
-  hierarchyAtom, moveSpineAtom, schemaAtom, setColumnRoleAtom, setLevelFnAtom,
-  tableHandleAtom,
+  activeHierarchyAtom, moveSpineAtom, activeSchemaAtom, setColumnRoleAtom, setLevelFnAtom,
+  activeHandleAtom,
 } from "../state";
 import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
 
@@ -13,9 +13,9 @@ import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
    grain where they stay single-valued (class_label at the cell level, condition
    at the date level). The visualization makes that attachment visible. */
 export function HierarchyPanel() {
-  const schema = useAtomValue(schemaAtom);
-  const hierarchy = useAtomValue(hierarchyAtom);
-  const handle = useAtomValue(tableHandleAtom);
+  const schema = useAtomValue(activeSchemaAtom);
+  const hierarchy = useAtomValue(activeHierarchyAtom);
+  const handle = useAtomValue(activeHandleAtom);
   const setRole = useSetAtom(setColumnRoleAtom);
   const moveSpine = useSetAtom(moveSpineAtom);
   const setLevelFn = useSetAtom(setLevelFnAtom);
