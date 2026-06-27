@@ -16,11 +16,16 @@ const EDGE_TYPE: Record<EdgeKind, string> = {
 };
 
 /* The collapse chain is the literal data flow and keeps the inline corridor.
-   The fan-in families get their own lanes so their labels never stack on the
-   collapse labels: geom edges (-> the shared Plot) bow UP, test edges (-> Stats)
-   drop DOWN. LANE_Y clears a tall table node (title + Organised-by + Values);
-   STUB is the short horizontal exit before the wire turns into its lane. */
+   The fan-in families (geom -> the shared Plot, test -> Stats) get routed so
+   their labels never stack on the collapse labels. The lane follows the TARGET:
+   when Plot/Stats is stacked off the main row, the wire drops straight to that
+   row (no detour); only when the target sits ON the main row (so the edge would
+   otherwise run horizontally through the collapse corridor) do we lift the wire
+   into a top (geom) / bottom (test) lane. LANE_Y clears a tall table node (title
+   + Organised-by + Values); OFF_ROW is how far off-row counts as "its own row";
+   STUB is the short horizontal exit before the wire turns. */
 const LANE_Y = 150;
+const OFF_ROW = 90;
 const STUB = 16;
 
 /* An orthogonal path through the given corner points, with rounded elbows of
@@ -58,14 +63,19 @@ export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
   const [hover, setHover] = useState(false);
+  // geom -> Plot, test -> Stats: pick the lane the TARGET is on so the wire never
+  // detours. Off-row target -> route straight to its row; on-row target -> lift
+  // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
+  const fanIn = data?.kind === "geom" || data?.kind === "test";
+  const laneY = !fanIn ? 0
+    : Math.abs(targetY - sourceY) >= OFF_ROW ? targetY
+    : sourceY + (data?.kind === "geom" ? -LANE_Y : LANE_Y);
   const [path, labelX, labelY] = data?.back
     ? getBezierPath({ sourceX, sourceY, targetX, targetY, curvature: 0.6 })
-    : data?.kind === "geom"
-      ? laneRoute(sourceX, sourceY, targetX, targetY, Math.min(sourceY, targetY) - LANE_Y)
-    : data?.kind === "test"
-      ? laneRoute(sourceX, sourceY, targetX, targetY, Math.max(sourceY, targetY) + LANE_Y)
-    : getSmoothStepPath({ sourceX, sourceY, targetX, targetY,
-        sourcePosition, targetPosition, borderRadius: 8 });
+    : fanIn
+      ? laneRoute(sourceX, sourceY, targetX, targetY, laneY)
+      : getSmoothStepPath({ sourceX, sourceY, targetX, targetY,
+          sourcePosition, targetPosition, borderRadius: 8 });
   const ex = data ? cannedExample(data.kind) : null;
   const type = data ? EDGE_TYPE[data.kind] : "";
   return (

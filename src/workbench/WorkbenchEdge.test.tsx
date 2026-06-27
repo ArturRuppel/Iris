@@ -31,11 +31,21 @@ const edge = (kind: string, label: string): Edge[] => [
     data: { kind, label, back: false } },
 ];
 
-const renderEdge = (edges: Edge[]) =>
+// a target stacked well below the source row (Plot/Stats off the main row).
+const stackedNodes: Node[] = [
+  nodes[0],
+  { ...nodes[1], position: { x: 200, y: 300 },
+    handles: [
+      { id: null, type: "source", position: Position.Right, x: 100, y: 25 },
+      { id: null, type: "target", position: Position.Left, x: 0, y: 25 },
+    ] },
+];
+
+const renderEdge = (edges: Edge[], ns: Node[] = nodes) =>
   render(
     <ReactFlowProvider>
-      <div style={{ width: 400, height: 300 }}>
-        <ReactFlow nodes={nodes} edges={edges} edgeTypes={edgeTypes} />
+      <div style={{ width: 400, height: 600 }}>
+        <ReactFlow nodes={ns} edges={edges} edgeTypes={edgeTypes} />
       </div>
     </ReactFlowProvider>,
   );
@@ -65,6 +75,13 @@ describe("WorkbenchEdge", () => {
   it("drops a test (Stats) label into the bottom lane", () => {
     renderEdge(edge("test", "MW"));
     expect(labelY("MW")).toBeGreaterThan(50);
+  });
+
+  it("routes a geom edge toward its target's row (no detour) when Plot is stacked below", () => {
+    // target handle sits at y≈325; the wire must go DOWN to it, not up into the
+    // top lane and back (the round-trip bug).
+    renderEdge(edge("geom", "dots"), stackedNodes);
+    expect(labelY("dots")).toBeGreaterThan(200);
   });
 
   it("keeps a collapse label on the inline corridor (no lane offset)", () => {
