@@ -20,6 +20,7 @@ import {
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
   tablesNeedingMaterializeAtom, materializedTablesAtom, allSaveSpecsAtom, plottablesAtom,
+  resolveEngineSteps,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { NodeShape, AnalysisSpec } from "./types";
@@ -194,14 +195,24 @@ export default function App() {
      pipeline changes. Independent of the analyze loop and valid before any
      mapping is set, so the Reduced-table section updates while you build steps. */
   const hierarchy = useAtomValue(hierarchyAtom);
+  const materialized = useAtomValue(materializedTablesAtom);
+  /* cheap re-run key for the join cache: a step references a right by id, whose
+     rows land in materialized asynchronously (and bump on a version change). Key
+     on the id→version map so the preview re-fetches once the right is inlined,
+     without stringifying every joined row each render. */
+  const materializedKey = JSON.stringify(
+    Object.entries(materialized).map(([id, v]) => [id, v.version]));
   const stepsKey = active
-    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel])
+    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel, materializedKey])
     : null;
   useEffect(() => {
     if (!handle || !active) return;
     window.clearTimeout(previewTimer.current);
     const targetId = active.id;
-    const steps = active.reduce.steps;
+    // inline each filled join's right from the materialized cache (mirrors specAtom);
+    // an uncached/unset join is dropped until its rows land, so the preview never
+    // ships a rightTableId the engine can't resolve.
+    const steps = resolveEngineSteps(active.reduce.steps, materialized);
     const level = active.previewLevel;
     previewTimer.current = window.setTimeout(async () => {
       try {
@@ -233,7 +244,8 @@ export default function App() {
   useEffect(() => {
     if (!handle || !active) return;
     window.clearTimeout(shapeTimer.current);
-    const steps = active.reduce.steps;
+    // inline filled joins from the materialized cache, as the reduce preview does.
+    const steps = resolveEngineSteps(active.reduce.steps, materialized);
     shapeTimer.current = window.setTimeout(async () => {
       try {
         const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy,
