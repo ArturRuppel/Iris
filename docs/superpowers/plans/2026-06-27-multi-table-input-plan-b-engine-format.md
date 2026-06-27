@@ -296,3 +296,8 @@ it("loadDocument (2.1) rebuilds the pool and keeps references", () => {
 
 ## Out of scope
 - Table rename/remove/reorder; per-analysis main-table picker UI; the workbench drag-to-join gesture (separate slices).
+
+## Known follow-ups (surfaced by the final review, non-blocking)
+- **>8-table workspaces are unsafe (engine LRU cap).** `SessionStore` holds ≤8 sessions; pool tables are referenced by session id only, so a >8-table save `409`s and `/document/load` evicts the earliest sessions before returning them. Not reachable in normal use today. Fix = raise/remove the cap or rehydrate evicted sessions from the persisted rows. See design §8.
+- **`validation/test_export_gallery.py` dirties committed assets.** It regenerates `src/examples/assets/*.iris` into the committed dir as a pytest side effect — now flipping them to 2.1, which (if accidentally committed) would silently retire the runtime back-compat exercise (examples are intentionally kept at 2.0). Redirect the gallery export to a tmp dir under test.
+- **`buildAllSpecs` family fallback uses the active table's schema** for a non-active plottable rooted in a *different* table with no cached preview (`state.ts`), so the saved spec's derived `family`/`test` can be wrong. Cosmetic only — the engine re-derives on open and `specAtom` re-derives when the plottable becomes active. Resolve each plottable's fallback schema from its own pool table.
