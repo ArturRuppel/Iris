@@ -21,6 +21,12 @@ describe("nodeShapeProps", () => {
     expect(nodeShapeProps(mk("source:0")).variant).toBe("source");
     expect(nodeShapeProps(mk("step:1")).variant).toBe("table");
   });
+  it("passes the node's missing flag through", () => {
+    const mk = (id: string, missing?: boolean): ExplorerNode =>
+      ({ id, kind: "table", label: id, table: { via: "none" }, missing });
+    expect(nodeShapeProps(mk("source:0", true)).missing).toBe(true);
+    expect(nodeShapeProps(mk("source:0")).missing).toBeFalsy();
+  });
 });
 
 describe("ArrayShapeRFNode", () => {
@@ -38,5 +44,20 @@ describe("ArrayShapeRFNode", () => {
       </ReactFlowProvider>,
     );
     expect(screen.getByText("per Cell")).toBeInTheDocument();
+  });
+  it("renders an open 'missing' input handle when the node is missing", () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <ArrayShapeRFNode
+          id="source:0"
+          data={nodeShapeProps({
+            id: "source:0", kind: "table", label: "drop a table here",
+            table: { via: "none" }, missing: true,
+          })}
+          selected={false}
+        />
+      </ReactFlowProvider>,
+    );
+    expect(container.querySelector(".txw-handle-missing")).not.toBeNull();
   });
 });

@@ -31,6 +31,9 @@ export interface ExplorerNode {
   label: string;
   table: NodeTable;
   count?: NodeCount;
+  /* a required input this node doesn't yet have (an unfilled join right): rendered
+     as an open "missing" circle prompting a drag to fill it. */
+  missing?: boolean;
 }
 
 export interface Edge {
@@ -191,11 +194,15 @@ export function buildGraph(
       label: STEP_NODE_LABEL[step.kind] ?? step.kind,
       table: { via: "at_step", at_step: i } });
     if (step.kind === "join") {
-      // a second source feeds the join: draw it converging into this node
+      // a second source feeds the join: draw it converging into this node. An
+      // empty-schema right is the unfilled "missing input" state — an open circle
+      // labelled to invite a drop, not a value-column summary.
       const srcId = `source:${i}`;
+      const filled = step.right.schema.columns.length > 0;
       const onLabel = step.on.map((k) => joinKeyLabel(schema, step.right, k)).join(", ");
-      nodes.push({ id: srcId, kind: "table", label: joinSourceLabel(step.right),
-        table: { via: "none" } });
+      nodes.push({ id: srcId, kind: "table",
+        label: filled ? joinSourceLabel(step.right) : "drop a table here",
+        table: { via: "none" }, missing: !filled });
       edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `join on ${onLabel}`,
         fromId: prev, toId: id, onKeys: step.on });
       edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `join on ${onLabel}`,

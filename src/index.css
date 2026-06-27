@@ -758,6 +758,16 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-tidy { margin-left: auto; }
 .react-flow__attribution { display: none; }
 
+/* an unfilled required input (a join with no right table yet): an open, dashed
+   circle prompting a drag to fill it. */
+.react-flow__handle.txw-handle-missing {
+  opacity: 1;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px dashed #f59e0b;
+}
+
 /* ---- workbench floating cards (Phase 3) ---- */
 .txw-card {
   position: absolute;
