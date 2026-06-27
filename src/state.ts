@@ -208,11 +208,11 @@ const stripStepKey = <T extends { kind: string }>(s: T): StripKey<T> => {
   return rest as StripKey<T>;
 };
 
+type RightCache = Record<string, { version: number; table: Table }>;
+
 /* full rows of pool tables referenced by a join, fetched from their sessions and
    keyed by handle version so an edit re-materializes (design §5, §11). Session-only. */
-export const materializedTablesAtom = atom<Record<string, { version: number; table: Table }>>({});
-
-type RightCache = Record<string, { version: number; table: Table }>;
+export const materializedTablesAtom = atom<RightCache>({});
 
 /* a join is runnable once its right is materialized; unset/unmaterialized joins are
    skipped (display degrades gracefully until the fetch lands). The spec keeps the
@@ -223,7 +223,8 @@ export function runnableSteps(steps: ReduceStep[], cache: RightCache): ReduceSte
 }
 
 /* map internal steps to engine-facing steps, inlining each runnable join's right
-   table from the cache. Assumes runnableSteps already dropped unresolved joins. */
+   table from the cache. Filters via runnableSteps first, so every remaining join
+   is materialized (the cache access below is therefore safe). */
 export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
   return runnableSteps(steps, cache).map((s) =>
     s.kind === "join"

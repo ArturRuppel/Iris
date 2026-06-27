@@ -98,7 +98,7 @@ const STEP_NODE_LABEL: Record<string, string> = {
   pivot: "pivoted", grid_complete: "gridded",
 };
 
-const condText =(c: { column: string; op: string; value?: unknown; bound?: string },
+const condText = (c: { column: string; op: string; value?: unknown; bound?: string },
                   schema: Schema | null): string =>
   `${labelForCol(schema, c.column)} ${c.op} ${c.bound ?? String(c.value ?? "")}`.trim();
 
