@@ -697,28 +697,64 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
 
+/* the unfilled right-side sentinel for a freshly-created join: an empty-schema
+   table. A join whose `right.schema.columns` is empty is "missing its right
+   input" — rendered as the open circle on the canvas and skipped on the run
+   path (it is not yet a runnable step). */
+export const EMPTY_RIGHT: Table = { schema: { schema_version: "1.0", columns: [] }, rows: [] };
+
 export function makeStep(kind: ReduceStepKind): ReduceStep {
-  if (kind === "drop") return { _key: nextStepKey(), kind, columns: [] };  // starts blank, by design
-  return { _key: nextStepKey(), kind: "filter", conditions: [] };
+  const _key = nextStepKey();
+  switch (kind) {
+    case "drop": return { _key, kind, columns: [] };
+    case "filter": return { _key, kind, conditions: [] };
+    case "derive": return { _key, kind, column: "", expr: "" };
+    case "recode": return { _key, kind, column: "", map: {} };
+    case "pivot":
+      return { _key, kind, index: [], column: "", values: "", agg: "sum", fill: 0, names: {} };
+    case "grid_complete":
+      return { _key, kind, by: [], column: "", levels: [], count: true,
+        count_unique: null, fill: 0, count_name: "n" };
+    case "join":
+      // starts with an EMPTY right — the unfilled "missing input" state, filled
+      // by dragging a data node onto its open circle.
+      return { _key, kind, on: [], how: "inner", right: EMPTY_RIGHT };
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
+  }
 }
 
 export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) => {
   const p = get(activePlottableAtom); if (!p) return;
   set(activePlottableAtom,
-    { ...p, reduce: { steps: [...p.reduce.steps, makeStep(kind)] } });
+    { ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, makeStep(kind)] } });
 });
+
+/* splice a blank step in immediately AFTER `afterIndex` (the source node's step
+   index; Source = -1 → insert at 0). Append and insert are the same operation at
+   different positions — a node's `+` adds after it, splicing if a downstream
+   neighbour exists. */
+export const insertStepAtom = atom(null,
+  (get, set, arg: { afterIndex: number; kind: ReduceStepKind }) => {
+    const p = get(activePlottableAtom); if (!p) return;
+    const steps = [...p.reduce.steps];
+    steps.splice(arg.afterIndex + 1, 0, makeStep(arg.kind));
+    set(activePlottableAtom, { ...p, reduce: { ...p.reduce, steps } });
+  });
 
 export const updateStepAtom = atom(null,
   (get, set, arg: { index: number; step: ReduceStep }) => {
     const p = get(activePlottableAtom); if (!p) return;
-    set(activePlottableAtom, { ...p, reduce: { steps:
+    set(activePlottableAtom, { ...p, reduce: { ...p.reduce, steps:
       p.reduce.steps.map((s, i) => (i === arg.index ? arg.step : s)) } });
   });
 
 export const removeStepAtom = atom(null, (get, set, index: number) => {
   const p = get(activePlottableAtom); if (!p) return;
   set(activePlottableAtom,
-    { ...p, reduce: { steps: p.reduce.steps.filter((_, i) => i !== index) } });
+    { ...p, reduce: { ...p.reduce, steps: p.reduce.steps.filter((_, i) => i !== index) } });
 });
 
 export const moveStepAtom = atom(null,
@@ -728,7 +764,7 @@ export const moveStepAtom = atom(null,
     const j = arg.index + arg.dir;
     if (j < 0 || j >= steps.length) return;
     [steps[arg.index], steps[j]] = [steps[j], steps[arg.index]];
-    set(activePlottableAtom, { ...p, reduce: { steps } });
+    set(activePlottableAtom, { ...p, reduce: { ...p.reduce, steps } });
   });
 
 /* ---- live /reduce preview ---- */

@@ -9,6 +9,8 @@ import {
   schemaAtom, hierarchyAtom, plottablesAtom, activePlottableAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
+  makeStep, addStepAtom, insertStepAtom, updateStepAtom,
+  removeStepAtom, moveStepAtom,
 } from "./state";
 import { EMPTY_HIERARCHY } from "./types";
 
@@ -388,5 +390,89 @@ describe("per-analysis collapse plan + test grain", () => {
     const back = plottableFromSpec(makeSpec("plain"));
     expect(back.collapse).toBeUndefined();
     expect(back.testGrain).toBeUndefined();
+  });
+});
+
+describe("makeStep — valid blanks for every reduce kind", () => {
+  it("builds the right blank for each kind, each with a _key", () => {
+    expect(makeStep("drop")).toMatchObject({ kind: "drop", columns: [] });
+    expect(makeStep("filter")).toMatchObject({ kind: "filter", conditions: [] });
+    expect(makeStep("derive")).toMatchObject({ kind: "derive", column: "", expr: "" });
+    expect(makeStep("recode")).toMatchObject({ kind: "recode", column: "", map: {} });
+    expect(makeStep("pivot")).toMatchObject({
+      kind: "pivot", index: [], column: "", values: "", agg: "sum", fill: 0, names: {},
+    });
+    expect(makeStep("grid_complete")).toMatchObject({
+      kind: "grid_complete", by: [], column: "", levels: [], count: true,
+      count_unique: null, fill: 0, count_name: "n",
+    });
+    // join starts with an EMPTY right (the unfilled "missing input" sentinel)
+    const j = makeStep("join");
+    expect(j).toMatchObject({ kind: "join", on: [], how: "inner" });
+    expect(j.kind === "join" && j.right.schema.columns).toEqual([]);
+
+    for (const k of ["drop", "filter", "derive", "recode", "pivot", "grid_complete", "join"] as const) {
+      expect(makeStep(k)._key).toBeTruthy();
+    }
+  });
+});
+
+describe("step writers — insert, and reduce.post preservation", () => {
+  /* an active plottable carrying both a steps chain and a post phase. */
+  function makeStoreWithPost() {
+    const store = createStore();
+    const schema: Schema = { schema_version: "1.0", columns: [
+      { name: "val", type: "numeric", label: "Value" },
+    ] };
+    store.set(schemaAtom, schema);
+    const p = {
+      ...makeDefaultPlottable(schema),
+      reduce: {
+        steps: [makeStep("filter"), makeStep("drop")],
+        post: [makeStep("derive")],
+      },
+    };
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, p.id);
+    return store;
+  }
+
+  it("insertStepAtom splices after the given index", () => {
+    const store = makeStoreWithPost();
+    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
+    const steps = store.get(activePlottableAtom)!.reduce.steps;
+    expect(steps.map((s) => s.kind)).toEqual(["filter", "filter", "drop"]);
+  });
+
+  it("insertStepAtom after the last index appends", () => {
+    const store = makeStoreWithPost();
+    store.set(insertStepAtom, { afterIndex: 1, kind: "derive" });
+    const steps = store.get(activePlottableAtom)!.reduce.steps;
+    expect(steps.map((s) => s.kind)).toEqual(["filter", "drop", "derive"]);
+  });
+
+  it("every step writer preserves reduce.post", () => {
+    const post = (s: ReturnType<typeof createStore>) =>
+      s.get(activePlottableAtom)!.reduce.post?.map((x) => x.kind);
+
+    let store = makeStoreWithPost();
+    store.set(addStepAtom, "drop");
+    expect(post(store)).toEqual(["derive"]);
+
+    store = makeStoreWithPost();
+    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
+    expect(post(store)).toEqual(["derive"]);
+
+    store = makeStoreWithPost();
+    store.set(updateStepAtom, { index: 0, step: makeStep("drop") });
+    expect(post(store)).toEqual(["derive"]);
+
+    store = makeStoreWithPost();
+    store.set(removeStepAtom, 1);
+    expect(post(store)).toEqual(["derive"]);
+
+    store = makeStoreWithPost();
+    store.set(moveStepAtom, { index: 0, dir: 1 });
+    expect(post(store)).toEqual(["derive"]);
   });
 });
