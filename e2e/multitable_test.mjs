@@ -6,8 +6,12 @@ import { chromium } from "playwright";
    referencing the second table (through a DEV-only store seam — Plan A has no
    drag-to-join UI yet), confirm it renders without an error bar (the join
    materialized + computed), save to .iris, then reload in a FRESH page and
-   confirm the join survives — the inline-right was migrated back into a 2-entry
-   pool. Needs the engine (8765) and the vite dev server (5173).
+   confirm the join survives. Under the 2.1 .iris format this is a REFERENCE
+   round-trip: save writes annot into the top-level `tables/` section and the
+   join carries its `right_table_id`; load rebuilds the pool from `tables[]` and
+   the join points back at the pooled right by name (no inline-right migration —
+   that path now only handles legacy 2.0 files). Needs the engine (8765) and the
+   vite dev server (5173).
 
    The File System Access pickers are stubbed in-memory (copied from
    save_load_test.mjs) so Playwright can drive Save/Load without a native dialog. */
@@ -154,7 +158,7 @@ if (head !== "PK") fail(`saved bytes are not a ZIP/.iris (got ${head.charCodeAt(
 console.log("saved a valid .iris (PK magic), length", atob(saved).length);
 await page.close();
 
-// ── Phase 4: FRESH page round-trip — load migrates the inline right back ──────
+// ── Phase 4: FRESH page round-trip — 2.1 load rebuilds the pool by reference ──
 const page2 = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 page2.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page2.addInitScript(installPickerStub, saved);
@@ -168,8 +172,9 @@ await page2.waitForTimeout(3000);
 if (await page2.locator(".error-bar").count() > 0)
   fail("error bar after load: " + await page2.locator(".error-bar").innerText());
 
-// The load must have rebuilt the pool with the migrated right → 2 entries, and the
-// restored analysis must still carry a join with a rightTableId pointing at one.
+// The 2.1 load must have rebuilt the pool from `tables[]` → 2 entries, and the
+// restored analysis must still carry a join whose rightTableId references one of
+// them (the right survives by reference, not by inlining).
 const after = await page2.evaluate(() => {
   const { store, atoms } = window.__iris;
   const pool = store.get(atoms.tablesAtom);
@@ -185,7 +190,7 @@ if (after.poolLen !== 2)
   fail(`load did not rebuild a 2-entry pool (got ${after.poolLen}: ${after.poolIds.join(", ")})`);
 if (!after.rightId || !after.poolIds.includes(after.rightId))
   fail(`restored join right (${after.rightId}) is not a pool member (${after.poolIds.join(", ")})`);
-console.log("load migrated the inline join right back into a 2-entry pool;",
+console.log("load rebuilt the 2-entry pool from tables[] (2.1 reference round-trip);",
   "join rightTableId =", after.rightId);
 
 console.log("multi-table e2e ok");
