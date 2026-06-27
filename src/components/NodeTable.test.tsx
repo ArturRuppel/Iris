@@ -127,7 +127,10 @@ describe("buildColumnDefs", () => {
     const [organised, values] = defs as ColGroupDef[];
     expect(organised.headerName).toBe("Organised by");
     expect(organised.children.map((c) => (c as ColDef).field)).toEqual(["experiment", "position"]);
-    expect(String((organised.children[0] as ColDef).cellClass)).toContain("idxcol");
+    expect((organised.children[0] as ColDef).cellClass).toEqual(["idxcol"]);
+    expect((organised.children[0] as ColDef).headerClass).toBe("idxcol-head");
+    expect(organised.headerClass).toBe("role-band idx");
+    expect(values.headerClass).toBe("role-band val");
     expect(values.headerName).toBe("Values");
     expect(values.children.map((c) => (c as ColDef).field)).toEqual(["t1_event_id", "contact_type"]);
   });

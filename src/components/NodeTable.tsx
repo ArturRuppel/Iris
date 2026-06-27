@@ -56,12 +56,11 @@ export function buildColumnDefs(
     return columns.map(base);
   }
 
-  const shade = (c: ColumnDef): ColDef => {
-    const d = base(c);
-    d.cellClass = c.type === "numeric" ? ["mono", "idxcol"] : "idxcol";
-    d.headerClass = "idxcol-head";
-    return d;
-  };
+  const shade = (c: ColumnDef): ColDef => ({
+    ...base(c),
+    cellClass: c.type === "numeric" ? ["mono", "idxcol"] : ["idxcol"],
+    headerClass: "idxcol-head",
+  });
 
   return [
     { headerName: "Organised by", headerClass: "role-band idx", children: indexCols.map(shade) },
