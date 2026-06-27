@@ -242,10 +242,15 @@ export interface FilterStep { kind: "filter"; conditions: FilterCond[]; _key?: s
 export interface DeriveStep { kind: "derive"; column: string; expr: string; _key?: string }
 /* relabel a categorical column's values (level -> level); unmapped pass through. */
 export interface RecodeStep { kind: "recode"; column: string; map: Record<string, string>; _key?: string }
-/* inner, spine-aligned, coarse->fine broadcast join; the right table rides inline. */
-export interface JoinStep {
-  kind: "join"; on: string[]; how: "inner"; right: Table; _key?: string;
-}
+/* inner, spine-aligned, coarse->fine broadcast join. The right side is a pool
+   table referenced by id; it is resolved to an inline table at the engine
+   boundary (see state.resolveEngineSteps). */
+export interface JoinStep { kind: "join"; on: string[]; how: "inner"; rightTableId: string; _key?: string }
+
+/* what /analyze + /reduce actually receive: the right table inlined. */
+export interface EngineJoinStep { kind: "join"; on: string[]; how: "inner"; right: Table }
+export type EngineReduceStep = Exclude<ReduceStep, JoinStep> | EngineJoinStep;
+export interface EngineReduceSpec { steps: EngineReduceStep[]; post?: EngineReduceStep[] }
 /* unstack one categorical `column` (long -> wide): one numeric column per level,
    each cell an internal aggregate (sum) of `values` over the `index` keys, absent
    combinations 0-filled. `names` maps each level to its new column name. */
@@ -372,7 +377,7 @@ export interface AnalysisSpec {
   id: string;
   title: string;
   data: { filter: unknown[] };
-  reduce: ReduceSpec;
+  reduce: EngineReduceSpec;
   encodings: {
     x: { column: string } | null;
     y: { column: string } | null;

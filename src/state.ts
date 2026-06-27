@@ -3,7 +3,7 @@ import { atomWithStorage } from "jotai/utils";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, GrainKey, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec,
-  ReduceStep, ReduceStepKind, ReducePreview,
+  ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
@@ -199,15 +199,36 @@ export const nextLayerId = () => `ly_${Date.now().toString(36)}_${_lid++}`;
    stripped in buildSpec, so it never reaches the engine or a saved .viz. */
 let _sk = 0;
 const nextStepKey = () => `sk_${Date.now().toString(36)}_${_sk++}`;
-const stripStepKey = ({ _key, ...s }: ReduceStep): ReduceStep => s;
+/* distribute Omit over a union so each member keeps its own (key-stripped) shape;
+   a plain Omit<A|B, …> would collapse to the members' common keys only. */
+type StripKey<T> = T extends unknown ? Omit<T, "_key"> : never;
+const stripStepKey = <T extends { kind: string }>(s: T): StripKey<T> => {
+  const { _key, ...rest } = s as T & { _key?: string };
+  void _key;
+  return rest as StripKey<T>;
+};
 
-/* the steps that are actually runnable: a freshly-authored join carries the
-   EMPTY_RIGHT sentinel until its right table is wired, and POSTing an
-   under-specified join to the engine errors. Drop those when building the
-   request — the spec keeps the step so its editor card and the open "missing"
-   circle persist; it just isn't sent until filled. */
-export function runnableSteps(steps: ReduceStep[]): ReduceStep[] {
-  return steps.filter((s) => s.kind !== "join" || s.right.schema.columns.length > 0);
+/* full rows of pool tables referenced by a join, fetched from their sessions and
+   keyed by handle version so an edit re-materializes (design §5, §11). Session-only. */
+export const materializedTablesAtom = atom<Record<string, { version: number; table: Table }>>({});
+
+type RightCache = Record<string, { version: number; table: Table }>;
+
+/* a join is runnable once its right is materialized; unset/unmaterialized joins are
+   skipped (display degrades gracefully until the fetch lands). The spec keeps the
+   step so its editor card and the open "missing" circle persist; it just isn't sent
+   until filled. */
+export function runnableSteps(steps: ReduceStep[], cache: RightCache): ReduceStep[] {
+  return steps.filter((s) => s.kind !== "join" || (!!s.rightTableId && !!cache[s.rightTableId]));
+}
+
+/* map internal steps to engine-facing steps, inlining each runnable join's right
+   table from the cache. Assumes runnableSteps already dropped unresolved joins. */
+export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
+  return runnableSteps(steps, cache).map((s) =>
+    s.kind === "join"
+      ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
+      : s);
 }
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
@@ -557,7 +578,13 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     describeOnly: s?.describe_only ?? false,
     previewLevel: RAW_LEVEL,
     style,
-    reduce: { steps: (spec.reduce?.steps ?? []).map((s) => ({ ...s, _key: nextStepKey() })) },
+    /* a saved join step inlines its right table; the internal model references the
+       right by id instead. Drop the inline rows here (rightTableId starts UNFILLED —
+       a later task migrates them into the pool) and key every step for React. */
+    reduce: { steps: (spec.reduce?.steps ?? []).map((s) =>
+      s.kind === "join"
+        ? { kind: "join" as const, on: s.on, how: s.how, rightTableId: "", _key: nextStepKey() }
+        : { ...s, _key: nextStepKey() }) },
     collapse: spec.collapse,
     testGrain: spec.test_grain,
   };
@@ -614,7 +641,8 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
 export function buildSpec(p: Plottable, family: StatsFamily,
                           rec: TestName | undefined,
                           snapshot: Record<string, string>,
-                          hierarchy: Hierarchy): AnalysisSpec {
+                          hierarchy: Hierarchy,
+                          cache: RightCache): AnalysisSpec {
   const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
@@ -631,7 +659,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: { steps: runnableSteps(p.reduce.steps).map(stripStepKey) },
+    reduce: { steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey) },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -680,7 +708,8 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const tests = TEST_BY_FAMILY[family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {}, get(hierarchyAtom));
+  return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {}, get(hierarchyAtom),
+    get(materializedTablesAtom));
 });
 
 /* every plottable's spec, each carrying its own recommended test — the save
@@ -691,6 +720,7 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
   const snap = get(engineSnapshotAtom) ?? {};
   const hierarchy = get(hierarchyAtom);
   const byId = get(analysisByIdAtom);
+  const cache = get(materializedTablesAtom);
   // mirror specAtom: derive each plottable's family from ITS post-reduction
   // schema (the reduce preview, when present) so the saved family/test matches
   // what the live spec computes, falling back to the master schema.
@@ -701,7 +731,7 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => {
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-    return buildSpec(p, family, rec, snap, hierarchy);
+    return buildSpec(p, family, rec, snap, hierarchy, cache);
   });
 });
 
@@ -758,12 +788,6 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
 
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */
 
-/* the unfilled right-side sentinel for a freshly-created join: an empty-schema
-   table. A join whose `right.schema.columns` is empty is "missing its right
-   input" — rendered as the open circle on the canvas and skipped on the run
-   path (it is not yet a runnable step). */
-export const EMPTY_RIGHT: Table = { schema: { schema_version: "1.0", columns: [] }, rows: [] };
-
 export function makeStep(kind: ReduceStepKind): ReduceStep {
   const _key = nextStepKey();
   switch (kind) {
@@ -777,9 +801,9 @@ export function makeStep(kind: ReduceStepKind): ReduceStep {
       return { _key, kind, by: [], column: "", levels: [], count: true,
         count_unique: null, fill: 0, count_name: "n" };
     case "join":
-      // starts with an EMPTY right — the unfilled "missing input" state, filled
-      // by dragging a data node onto its open circle.
-      return { _key, kind, on: [], how: "inner", right: EMPTY_RIGHT };
+      // starts with an empty rightTableId — the unfilled "missing input" state,
+      // filled by dragging a data node onto its open circle.
+      return { _key, kind, on: [], how: "inner", rightTableId: "" };
     default: {
       const _exhaustive: never = kind;
       return _exhaustive;

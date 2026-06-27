@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { buildGraph } from "./graph";
 import { buildWorkspaceModel } from "./workspace";
-import type { Layer, ReduceStep, Schema, Table } from "../types";
+import type { Layer, ReduceStep, Schema } from "../types";
 import { RAW_LEVEL } from "../types";
 import { defaultPlan } from "../collapse";
 
@@ -56,10 +56,7 @@ describe("buildWorkspaceModel", () => {
   });
 
   it("attaches a join's right input + RAW on-keys (matching axis names) to the hub", () => {
-    const right: Table = { schema: { schema_version: "1.0", columns: [
-      { name: "cell", type: "identifier", label: "Cell" },
-      { name: "class", type: "categorical", label: "Class" }] }, rows: [{ id: "1", cell: "c1", class: "x" }] };
-    const g = buildGraph([{ kind: "join", on: ["cell"], how: "inner", right }], SPINE, PLAN,
+    const g = buildGraph([{ kind: "join", on: ["cell"], how: "inner", rightTableId: "annot" }], SPINE, PLAN,
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const m = buildWorkspaceModel(withCounts(g));
     const join = m.spine.find((s) => s.node.kind === "table" && s.rightInput)!;

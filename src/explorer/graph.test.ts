@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildGraph, nodeIdForGrain } from "./graph";
-import type { Layer, ReduceStep, Schema, Table } from "../types";
+import type { Layer, ReduceStep, Schema } from "../types";
 import { RAW_LEVEL } from "../types";
 import { defaultPlan } from "../collapse";
 
@@ -176,50 +176,35 @@ describe("buildGraph", () => {
     expect(edge(g, "step:0", "step:1")?.label).toBe("q = perimeter / sqrt(area)");
   });
 
-  it("a join emits a named right node and two 'join on <keys>' edges", () => {
-    const right: Table = {
-      schema: { schema_version: "1.0", columns: [
-        { name: "cell_id", type: "identifier", label: "Cell" },
-        { name: "class_label", type: "categorical", label: "Class" },
-      ] },
-      rows: [{ id: "1", cell_id: "c1", class_label: "negative" }],
-    };
-    const steps: ReduceStep[] = [{ kind: "join", on: ["cell_id"], how: "inner", right }];
+  it("a join emits a referenced right node and two 'join on <keys>' edges", () => {
+    const steps: ReduceStep[] = [{ kind: "join", on: ["cell_id"], how: "inner", rightTableId: "annot" }];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const sources = g.nodes.filter((n) => n.kind === "table" && n.id.startsWith("source"));
     expect(sources.length).toBeGreaterThanOrEqual(2);
     const incoming = g.edges.filter((e) => e.toId === "step:0" && e.kind === "join");
     expect(incoming.length).toBe(2);
-    // right node is named for the value column(s) it brings in, not "join source"
-    expect(g.nodes.find((n) => n.id === "source:0")?.label).toBe("Class");
-    // both converging edges state the key path, using the right schema's label
-    expect(incoming.every((e) => e.label === "join on Cell")).toBe(true);
+    // right node is named for the referenced table id
+    expect(g.nodes.find((n) => n.id === "source:0")?.label).toBe("annot");
+    // both converging edges state the raw key path
+    expect(incoming.every((e) => e.label === "join on cell_id")).toBe(true);
     // the join edges carry the RAW on-keys (not the display label) for keyhi matching
     expect(incoming.every((e) => JSON.stringify(e.onKeys) === JSON.stringify(["cell_id"]))).toBe(true);
   });
 
-  it("an UNFILLED join (empty right) renders its right input as a missing/open node", () => {
-    const right: Table = { schema: { schema_version: "1.0", columns: [] }, rows: [] };
-    const steps: ReduceStep[] = [{ kind: "join", on: [], how: "inner", right }];
+  it("an UNFILLED join (empty rightTableId) renders its right input as a missing node", () => {
+    const steps: ReduceStep[] = [{ kind: "join", on: [], how: "inner", rightTableId: "" }];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const src = g.nodes.find((n) => n.id === "source:0");
     expect(src?.missing).toBe(true);
     expect(src?.label).toBe("drop a table here");
   });
 
-  it("a FILLED join's right input is not missing (label = its value column)", () => {
-    const right: Table = {
-      schema: { schema_version: "1.0", columns: [
-        { name: "cell_id", type: "identifier", label: "Cell" },
-        { name: "class_label", type: "categorical", label: "Class" },
-      ] },
-      rows: [{ id: "1", cell_id: "c1", class_label: "negative" }],
-    };
-    const steps: ReduceStep[] = [{ kind: "join", on: ["cell_id"], how: "inner", right }];
+  it("a FILLED join (rightTableId set) is not missing (label = the table name)", () => {
+    const steps: ReduceStep[] = [{ kind: "join", on: ["k"], how: "inner", rightTableId: "annot" }];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const src = g.nodes.find((n) => n.id === "source:0");
     expect(src?.missing).toBeFalsy();
-    expect(src?.label).toBe("Class");
+    expect(src?.label).toBe("annot");
   });
 
   it("post-collapse phase: a derive runs after the collapse chain, with the caution badge", () => {

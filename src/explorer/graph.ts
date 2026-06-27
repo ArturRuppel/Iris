@@ -1,4 +1,4 @@
-import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, Table, ValueDesc } from "../types";
+import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, ValueDesc } from "../types";
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
 
@@ -98,22 +98,7 @@ const STEP_NODE_LABEL: Record<string, string> = {
   pivot: "pivoted", grid_complete: "gridded",
 };
 
-/* a join's `on` key, labelled — prefer the left schema, fall back to the right
-   table's own schema (its keys often aren't columns of the left), else the raw name. */
-const joinKeyLabel = (schema: Schema | null, right: { schema: Schema }, k: string): string => {
-  const left = labelForCol(schema, k);
-  if (left !== k) return left;
-  return right.schema.columns.find((c) => c.name === k)?.label ?? k;
-};
-
-/* the right input's node label: the value column(s) it contributes (non-identifier),
-   by label; falls back to "right table". */
-const joinSourceLabel = (right: { schema: Schema }): string => {
-  const vals = right.schema.columns.filter((c) => c.type !== "identifier");
-  return vals.length ? vals.map((c) => c.label ?? c.name).join(", ") : "right table";
-};
-
-const condText = (c: { column: string; op: string; value?: unknown; bound?: string },
+const condText =(c: { column: string; op: string; value?: unknown; bound?: string },
                   schema: Schema | null): string =>
   `${labelForCol(schema, c.column)} ${c.op} ${c.bound ?? String(c.value ?? "")}`.trim();
 
@@ -195,13 +180,13 @@ export function buildGraph(
       table: { via: "at_step", at_step: i } });
     if (step.kind === "join") {
       // a second source feeds the join: draw it converging into this node. An
-      // empty-schema right is the unfilled "missing input" state — an open circle
-      // labelled to invite a drop, not a value-column summary.
+      // unset rightTableId is the unfilled "missing input" state — an open circle
+      // labelled to invite a drop, not the referenced table name.
       const srcId = `source:${i}`;
-      const filled = step.right.schema.columns.length > 0;
-      const onLabel = step.on.map((k) => joinKeyLabel(schema, step.right, k)).join(", ");
+      const filled = step.rightTableId.length > 0;
+      const onLabel = step.on.join(", ");
       nodes.push({ id: srcId, kind: "table",
-        label: filled ? joinSourceLabel(step.right) : "drop a table here",
+        label: filled ? step.rightTableId : "drop a table here",
         table: { via: "none" }, missing: !filled });
       edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `join on ${onLabel}`,
         fromId: prev, toId: id, onKeys: step.on });

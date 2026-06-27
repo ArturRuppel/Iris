@@ -11,7 +11,7 @@ import {
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
   loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
-  removeStepAtom, moveStepAtom, runnableSteps, EMPTY_RIGHT,
+  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, materializedTablesAtom,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
   addPlottableAtom,
@@ -89,7 +89,7 @@ describe("location (vs-reference) family round-trips through save/load", () => {
 
   it("buildSpec re-emits family=location with the reference (no silent group_comparison)", () => {
     const p = { ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" }, reference: 0 };
-    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.family).toBe("location");
     expect(spec.stats.reference).toBe(0);
     expect(spec.stats.test).toBe("one_sample_t");
@@ -99,7 +99,7 @@ describe("location (vs-reference) family round-trips through save/load", () => {
 
   it("a full save→load→save cycle preserves the location family", () => {
     const loaded = plottableFromSpec(locationSpec());
-    const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY);
+    const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY, {});
     expect(resaved.stats.family).toBe("location");
     expect(resaved.stats.reference).toBe(0);
   });
@@ -110,7 +110,7 @@ describe("stats block stores decisions only (format redesign)", () => {
                         mappings: { x: "grp", y: "val" } });
 
   it("buildSpec emits no derived/process fields", () => {
-    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     const keys = Object.keys(spec.stats);
     for (const dead of ["chosen_by", "alternatives_offered", "assumption_checks", "report"]) {
       expect(keys).not.toContain(dead);
@@ -120,20 +120,20 @@ describe("stats block stores decisions only (format redesign)", () => {
 
   it("describe_only is a stored decision and round-trips", () => {
     const p = { ...base(), describeOnly: true };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.describe_only).toBe(true);
     expect(plottableFromSpec(spec).describeOnly).toBe(true);
   });
 
   it("describe_only is omitted (not false) when the user did not choose it", () => {
-    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect("describe_only" in spec.stats).toBe(false);
     expect(plottableFromSpec(spec).describeOnly).toBe(false);
   });
 
   it("override round-trips independently of the recommendation", () => {
     const p = { ...base(), override: "mann_whitney" as const };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.override).toBe("mann_whitney");
     expect(plottableFromSpec(spec).override).toBe("mann_whitney");
   });
@@ -483,7 +483,7 @@ describe("per-analysis collapse plan + test grain", () => {
     store.set(setCollapsePlanAtom, plan);
     store.set(setTestGrainAtom, "experiment/cell");
     const p = store.get(activePlottableAtom)!;
-    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom));
+    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom), {});
     expect(spec.collapse).toEqual(plan);
     expect(spec.test_grain).toBe("experiment/cell");
     const back = plottableFromSpec(spec);
@@ -511,10 +511,9 @@ describe("makeStep — valid blanks for every reduce kind", () => {
       kind: "grid_complete", by: [], column: "", levels: [], count: true,
       count_unique: null, fill: 0, count_name: "n",
     });
-    // join starts with an EMPTY right (the unfilled "missing input" sentinel)
+    // join starts with an empty rightTableId (the unfilled "missing input" reference)
     const j = makeStep("join");
-    expect(j).toMatchObject({ kind: "join", on: [], how: "inner" });
-    expect(j.kind === "join" && j.right.schema.columns).toEqual([]);
+    expect(j).toMatchObject({ kind: "join", on: [], how: "inner", rightTableId: "" });
 
     for (const k of ["drop", "filter", "derive", "recode", "pivot", "grid_complete", "join"] as const) {
       expect(makeStep(k)._key).toBeTruthy();
@@ -581,37 +580,54 @@ describe("step writers — insert, and reduce.post preservation", () => {
   });
 });
 
-describe("runnableSteps — unfilled joins are skipped on the run path", () => {
-  const filledRight: Table = { schema: { schema_version: "1.0", columns: [
-    { name: "cell_id", type: "identifier", label: "Cell" },
-  ] }, rows: [] };
+describe("runnableSteps / resolveEngineSteps — joins resolve at the engine boundary", () => {
+  const right: Table = { schema: { schema_version: "1.0", columns: [
+    { name: "k", type: "identifier", label: "K" },
+  ] }, rows: [{ id: "1", k: "a" }] };
+  const cache = { annot: { version: 0, table: right } };
 
-  it("drops a join whose right is the empty sentinel, keeps everything else", () => {
-    const steps: ReduceStep[] = [makeStep("filter"), makeStep("join")];
-    expect(steps[1].kind === "join" && steps[1].right).toBe(EMPTY_RIGHT);
-    const out = runnableSteps(steps);
-    expect(out.map((s) => s.kind)).toEqual(["filter"]);
+  it("runnableSteps drops a join whose rightTableId is unset or not materialized", () => {
+    expect(runnableSteps([makeStep("filter"), makeStep("join")], {}).map((s) => s.kind))
+      .toEqual(["filter"]);
+    // set id but not materialized -> still dropped
+    const dangling: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "missing" } as ReduceStep];
+    expect(runnableSteps(dangling, cache).map((s) => s.kind)).toEqual([]);
   });
 
-  it("keeps a join once its right has columns", () => {
-    const join: ReduceStep = { ...makeStep("join"), right: filledRight } as ReduceStep;
-    const out = runnableSteps([makeStep("filter"), join]);
-    expect(out.map((s) => s.kind)).toEqual(["filter", "join"]);
+  it("runnableSteps keeps a join once its right is materialized", () => {
+    const steps: ReduceStep[] = [makeStep("filter"),
+      { ...makeStep("join"), rightTableId: "annot" } as ReduceStep];
+    expect(runnableSteps(steps, cache).map((s) => s.kind)).toEqual(["filter", "join"]);
   });
 
-  it("buildSpec excludes an unfilled join from the engine request", () => {
+  it("resolveEngineSteps inlines a materialized right table", () => {
+    const steps: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep];
+    const out = resolveEngineSteps(steps, cache);
+    expect(out[0]).toMatchObject({ kind: "join", on: ["k"], right });
+  });
+
+  it("buildSpec excludes an unset join and inlines a materialized one", () => {
     const p = {
       ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
       reduce: { steps: [makeStep("filter"), makeStep("join")] },
     };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.reduce.steps.map((s) => s.kind)).toEqual(["filter"]);
 
     const pFilled = {
       ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
-      reduce: { steps: [makeStep("filter"), { ...makeStep("join"), right: filledRight } as ReduceStep] },
+      reduce: { steps: [makeStep("filter"),
+        { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep] },
     };
-    const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY);
+    const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, cache);
     expect(specFilled.reduce.steps.map((s) => s.kind)).toEqual(["filter", "join"]);
+    const joinStep = specFilled.reduce.steps[1];
+    expect(joinStep).toMatchObject({ kind: "join", right });
+  });
+
+  it("materializedTablesAtom feeds specAtom-style resolution through buildSpec", () => {
+    const store = createStore();
+    store.set(materializedTablesAtom, cache);
+    expect(store.get(materializedTablesAtom).annot.table).toBe(right);
   });
 });

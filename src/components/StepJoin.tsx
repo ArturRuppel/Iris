@@ -1,9 +1,9 @@
 import type { ColumnDef, JoinStep } from "../types";
 
-/* ---- Join: inner-join the (read-only) embedded right table on shared keys ----
-   Only `on` (the join-key columns) is editable here. `right` carries a whole
-   embedded table — too heavy to edit inside this card, so it's shown as a
-   read-only summary. `how` is fixed to "inner" by the type, rendered as text. */
+/* ---- Join: inner-join a referenced pool table on shared keys ----
+   Only `on` (the join-key columns) is editable here. `rightTableId` references the
+   right table by id (resolved to inline rows at the engine boundary), shown as a
+   read-only name. `how` is fixed to "inner" by the type, rendered as text. */
 export function StepJoin(
   { step, columns, onChange }:
   { step: JoinStep; columns: ColumnDef[]; onChange: (s: JoinStep) => void },
@@ -15,10 +15,7 @@ export function StepJoin(
   };
   return (
     <>
-      <div className="step-meta">
-        right table · {step.right.rows.length} rows ·
-        {" "}{step.right.schema.columns.length} columns
-      </div>
+      <div className="step-meta">right table · {step.rightTableId || "—"}</div>
       <div className="step-meta">join type: inner</div>
       <ul className="cp-cols">
         {columns.map((c) => (
