@@ -5,7 +5,7 @@ import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
   type CellEditRequestEvent, type ColDef, type GridApi, type IDatasource,
 } from "ag-grid-community";
-import { schemaAtom, tableHandleAtom, bumpActiveHandleAtom, typeColorsAtom } from "../state";
+import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
 import { engine, type Row } from "../types";
 
@@ -31,9 +31,9 @@ const TYPE_LABEL: Record<ColumnType, string> = {
 };
 
 export function DataTable() {
-  const schema = useAtomValue(schemaAtom);
-  const handle = useAtomValue(tableHandleAtom);
-  // a cell edit bumps the ACTIVE pool table's handle (tableHandleAtom is now a
+  const schema = useAtomValue(activeSchemaAtom);
+  const handle = useAtomValue(activeHandleAtom);
+  // a cell edit bumps the ACTIVE pool table's handle (activeHandleAtom is a
   // read-only view off the pool, so the version bump writes through the pool).
   const bumpHandle = useSetAtom(bumpActiveHandleAtom);
   const [typeColors, setTypeColors] = useAtom(typeColorsAtom);

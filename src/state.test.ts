@@ -13,6 +13,7 @@ import {
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, EMPTY_RIGHT,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
+  activeSchemaAtom,
   addPlottableAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
@@ -369,6 +370,19 @@ describe("single-table globals derive off the active analysis's pool table", () 
     expect(store.get(schemaAtom)).toBe(S2);
     expect(store.get(tableHandleAtom)?.id).toBe("h_annot");
     expect(store.get(hierarchyAtom).spine).toEqual(["annot"]);
+  });
+
+  it("active* atoms follow the Data-tab selection, independent of the active analysis's table", () => {
+    const store = createStore();
+    const S2: Schema = { schema_version: "1.0", columns: [{ name: "x", type: "numeric", label: "X" }] };
+    const wt = (id: string, s: Schema) => ({ id, name: id, schema: s, hierarchy: { spine: [id], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: s, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
+    store.set(activeTableIdAtom, "annot");                 // Data tab on annot
+    const p = { ...makeDefaultPlottable(SCHEMA, "cells") };  // active analysis on cells
+    store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    expect(store.get(activeSchemaAtom)).toBe(S2);          // Data-tab table
+    expect(store.get(schemaAtom)).toBe(SCHEMA);            // analysis table — different
   });
 
   it("loadTableAtom appends to the pool, selects it, and seeds an analysis bound to it", async () => {

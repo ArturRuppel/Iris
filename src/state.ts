@@ -260,6 +260,12 @@ export const activeTableAtom = atom((get) => byId(get(tablesAtom), get(activeTab
 export const analysisTableAtom = atom((get) =>
   byId(get(tablesAtom), get(activePlottableAtom)?.tableId ?? null));
 
+/* the Data tab edits the table it is currently on (its selection), which may differ
+   from the active analysis's table — so it reads these, not the analysis-derived globals. */
+export const activeSchemaAtom = atom((get) => get(activeTableAtom)?.schema ?? null);
+export const activeHierarchyAtom = atom((get) => get(activeTableAtom)?.hierarchy ?? { spine: [], fn: {} });
+export const activeHandleAtom = atom((get) => get(activeTableAtom)?.handle ?? null);
+
 /* bump the active pool table's handle (a data edit / version change). The grid's
    cell edit goes through here so the new version refetches the affected block and
    re-runs compute. (Replaces the old `set(tableHandleAtom, …)` now that the three
