@@ -730,8 +730,13 @@ def doc_save(req: SaveRequest):
     # rare, so paying the frame->rows serialization here (rather than on every
     # analyze) is fine.
     rows = table["rows"] if "rows" in table else session_mod.records(table["frame"])
-    data = document.save_document(table["schema"], rows,
-                                  req.analyses, req.provenance,
+    # Temporary single-table bridge to the multi-table 2.1 format: wrap the one
+    # resolved table into the `tables` pool. The real multi-table endpoints
+    # (a table per pool entry) land in a later dispatch.
+    tables = {"table_1": {"schema": table["schema"],
+                          "hierarchy": {"spine": [], "fn": {}},
+                          "rows": rows}}
+    data = document.save_document(tables, req.analyses, req.provenance,
                                   engine_snapshot())
     return {"filename": "document.iris",
             "data_base64": base64.b64encode(data).decode()}
@@ -743,10 +748,15 @@ def doc_load(req: LoadRequest):
         doc = document.load_document(base64.b64decode(req.data_base64))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not read document: {e}") from e
-    tid = _SESSIONS.create(doc["schema"], frame_from_table(doc))
-    t = _SESSIONS.get(tid)
-    return {**doc, "id": tid, "n": t.n, "version": t.version,
-            "rows": t.window(0, 200), "counts": t.counts()}     # first window only
+    # Single-table bridge: pull the one pool entry out and respond in today's
+    # flat shape (schema/rows/id/...). The multi-table response is a later dispatch.
+    _, t = next(iter(doc["tables"].items()))
+    tid = _SESSIONS.create(t["schema"], frame_from_table(t))
+    sess = _SESSIONS.get(tid)
+    return {"manifest": doc["manifest"], "schema": t["schema"],
+            "analyses": doc["analyses"], "provenance": doc["provenance"],
+            "id": tid, "n": sess.n, "version": sess.version,
+            "rows": sess.window(0, 200), "counts": sess.counts()}  # first window only
 
 
 def _exit_when_stdin_closes():

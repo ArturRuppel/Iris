@@ -147,13 +147,16 @@ def test_pdf_export_has_exact_mm_size():
 
 def test_document_roundtrip():
     table = make_table()
-    saved = document.save_document(table["schema"], table["rows"],
-                                   [make_spec()], {"exclusions": []},
+    tables = {"table_1": {"schema": table["schema"],
+                          "hierarchy": {"spine": [], "fn": {}},
+                          "rows": table["rows"]}}
+    saved = document.save_document(tables, [make_spec()], {"exclusions": []},
                                    {"engine": "test"})
     doc = document.load_document(saved)
-    assert doc["schema"] == table["schema"]
-    assert len(doc["rows"]) == 40
-    assert doc["rows"][0]["response"] == pytest.approx(72.1)
+    t = doc["tables"]["table_1"]
+    assert t["schema"] == table["schema"]
+    assert len(t["rows"]) == 40
+    assert t["rows"][0]["response"] == pytest.approx(72.1)
     assert doc["analyses"][0]["id"] == "an_test"
 
 
@@ -167,7 +170,10 @@ def test_document_roundtrip_keeps_reduce_clause():
         {"kind": "filter",
          "conditions": [{"column": "treatment", "op": "==", "value": "control"}]},
         {"kind": "drop", "columns": ["subject", "dose"]}]}
-    saved = document.save_document(table["schema"], table["rows"], [spec, make_spec()],
+    tables = {"table_1": {"schema": table["schema"],
+                          "hierarchy": {"spine": [], "fn": {}},
+                          "rows": table["rows"]}}
+    saved = document.save_document(tables, [spec, make_spec()],
                                    {"exclusions": []}, {"engine": "test"})
     doc = document.load_document(saved)
     assert len(doc["analyses"]) == 2

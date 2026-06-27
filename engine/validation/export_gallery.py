@@ -109,7 +109,8 @@ def _export_case(case_name: str) -> dict:
     (ASSETS / f"{case_name}.iris").write_bytes(data)
 
     doc = document.load_document(data)
-    table = {"schema": doc["schema"], "rows": doc["rows"]}
+    _, t = next(iter(doc["tables"].items()))
+    table = {"schema": t["schema"], "rows": t["rows"]}
     plots = []
     for spec in doc["analyses"]:
         analysis_id = spec.get("id") or case_name

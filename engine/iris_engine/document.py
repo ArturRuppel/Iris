@@ -18,18 +18,23 @@ import pandas as pd
 
 from . import build_info
 
+# 2.1: the document persists a multi-table workspace — one Parquet per named
+# table under `tables/<name>/`, each stored ONCE (de-duplicated). Analyses carry a
+# `table_id`; join steps carry a `right_table_id`. 2.0 (single inline table under
+# `data/`) still loads via a legacy migration to a one-entry pool.
 # 2.0: manifest gains the `engine` identity block (version/commit/dirty) and the
 # stored analysis spec drops its derived stats fields (chosen_by /
 # alternatives_offered / assumption_checks / report) — those are recomputed on
 # open. See docs/superpowers/specs/2026-06-24-iris-file-format-redesign-design.md.
-FORMAT_VERSION = "2.0"
+FORMAT_VERSION = "2.1"
 
 
-def save_document(schema: dict, rows: list[dict], analyses: list[dict],
+def save_document(tables: dict, analyses: list[dict],
                   provenance: dict, engine_snapshot: dict) -> bytes:
-    df = pd.DataFrame(rows)
-    table = io.BytesIO()
-    df.to_parquet(table, index=False, engine="pyarrow", compression="zstd")
+    """Write a self-contained multi-table `.iris`.
+
+    `tables` is `{name -> {"schema": dict, "hierarchy": dict, "rows": list[dict]}}`;
+    each table is stored once under `tables/<name>/`."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps({
@@ -41,11 +46,19 @@ def save_document(schema: dict, rows: list[dict], analyses: list[dict],
             "engine": build_info.build_identity(),
             "engine_snapshot": engine_snapshot,
         }, indent=2))
-        # Parquet is already zstd-compressed; store it raw rather than waste CPU
-        # re-deflating incompressible bytes.
-        z.writestr("data/table.parquet", table.getvalue(),
-                   compress_type=zipfile.ZIP_STORED)
-        z.writestr("data/schema.json", json.dumps(schema, indent=2))
+        for name, t in tables.items():
+            pq = io.BytesIO()
+            pd.DataFrame(t["rows"]).to_parquet(
+                pq, index=False, engine="pyarrow", compression="zstd")
+            # Parquet is already zstd-compressed; store it raw rather than waste
+            # CPU re-deflating incompressible bytes.
+            z.writestr(f"tables/{name}/table.parquet", pq.getvalue(),
+                       compress_type=zipfile.ZIP_STORED)
+            z.writestr(f"tables/{name}/schema.json",
+                       json.dumps(t["schema"], indent=2))
+            z.writestr(f"tables/{name}/hierarchy.json",
+                       json.dumps(t.get("hierarchy", {"spine": [], "fn": {}}),
+                                  indent=2))
         for i, an in enumerate(analyses, 1):
             z.writestr(f"analyses/{i:02d}-{an.get('id', 'analysis')}.json",
                        json.dumps(an, indent=2))
@@ -63,18 +76,42 @@ def _version_tuple(v: str) -> tuple[int, ...]:
 
 
 def load_document(data: bytes) -> dict:
+    """Read a `.iris` into `{"manifest", "tables", "analyses", "provenance"}`,
+    where `tables` is `{name -> {"schema", "hierarchy", "rows"}}`. 2.1 files
+    carry their tables under `tables/<name>/`; legacy 2.0 files (a single inline
+    table under `data/`) migrate to a one-entry pool named `table_1`."""
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         manifest = json.loads(z.read("manifest.json"))
         if _version_tuple(manifest.get("format_version", "0")) > _version_tuple(FORMAT_VERSION):
             raise ValueError("document was saved by a newer version")
-        schema = json.loads(z.read("data/schema.json"))
-        df = pd.read_parquet(io.BytesIO(z.read("data/table.parquet")),
-                             engine="pyarrow")
-        rows = json.loads(df.to_json(orient="records"))
-        analyses = [json.loads(z.read(n)) for n in sorted(z.namelist())
+        names = z.namelist()
+        analyses = [json.loads(z.read(n)) for n in sorted(names)
                     if n.startswith("analyses/")]
         provenance = json.loads(z.read("provenance.json"))
-    return {"manifest": manifest, "schema": schema, "rows": rows,
+        # Gate on the declared version, not on sniffing for `tables/` entries: a
+        # 2.1 file with an empty table pool writes zero such entries and must not
+        # fall through to the legacy `data/` reader.
+        if _version_tuple(manifest.get("format_version", "0")) >= _version_tuple("2.1"):  # 2.1
+            tables = {}
+            tnames = sorted({n.split("/")[1] for n in names
+                             if n.startswith("tables/")})
+            for name in tnames:
+                df = pd.read_parquet(
+                    io.BytesIO(z.read(f"tables/{name}/table.parquet")),
+                    engine="pyarrow")
+                tables[name] = {
+                    "schema": json.loads(z.read(f"tables/{name}/schema.json")),
+                    "hierarchy": json.loads(z.read(f"tables/{name}/hierarchy.json")),
+                    "rows": json.loads(df.to_json(orient="records")),
+                }
+        else:                                                            # legacy 2.0
+            schema = json.loads(z.read("data/schema.json"))
+            df = pd.read_parquet(io.BytesIO(z.read("data/table.parquet")),
+                                 engine="pyarrow")
+            tables = {"table_1": {"schema": schema,
+                                  "hierarchy": {"spine": [], "fn": {}},
+                                  "rows": json.loads(df.to_json(orient="records"))}}
+    return {"manifest": manifest, "tables": tables,
             "analyses": analyses, "provenance": provenance}
 
 

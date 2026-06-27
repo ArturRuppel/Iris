@@ -24,7 +24,8 @@ def build_one(case_dir) -> None:
     data = harness.build_iris(case)
     harness.ARTIFACTS.mkdir(exist_ok=True)
     doc = document.load_document(data)
-    table = {"schema": doc["schema"], "rows": doc["rows"]}
+    _, t = next(iter(doc["tables"].items()))
+    table = {"schema": t["schema"], "rows": t["rows"]}
     n_svg = 0
     for spec in doc["analyses"]:
         fig, *_ = main._run(table, spec)
