@@ -25,7 +25,14 @@ One sentence: **the data tab accumulates N named tables; an analysis names one a
 2. **An analysis binds to tables by name.** A plottable gains a **`tableId`** — the name of its main table. Its preview/figure/stats run against *that* table's session and hierarchy, looked up in the pool. A new analysis defaults `tableId` to the most-recently-imported table; **no picker UI**.
 3. **Joins reference by name, resolve at the boundary.** A join holds the **name** of a pool table, not a copy. The full table is materialized only when computing (fetched live from its session, so edits are reflected) and when saving (written into the file). The preview never feeds a join.
 4. **Self-contained, de-duplicated saves.** A `.iris` gains a top-level **`tables`** section storing each referenced table once (schema + full rows); analyses refer to tables by name. Old single-table files still load (migration in §7).
-5. **No engine or `.iris`-read regressions.** No new engine endpoint; no new spec capability the engine doesn't already support. Iris must still read today's single-table `.iris` (it is the CellFlow→Iris export contract).
+5. **Compute needs no engine change; the dedup save format does.** The join *computation* uses the engine exactly as today (left = session, right = inline rows). But `.iris` save/load is **engine-owned** (`/document/save` takes one `table_id` + analyses; `/document/load` parses the file and creates one session). So the **de-duplicated, named-`tables` save format (§6.1) needs Python engine work** and is split into a **second plan (Plan B)**. **Plan A** ships the pool + join + compute with **no engine change**, persisting via today's format (§6.2). Iris must still read today's single-table `.iris` (the CellFlow→Iris export contract).
+
+## 3b. Two-plan split
+
+This spec is delivered as two independent, separately-shippable plans:
+
+- **Plan A — frontend, no engine change.** The table pool, per-analysis main table, join-by-reference, and boundary resolution for **compute**. Save/load uses **today's** engine format: a saved workspace has one main-table session and analyses whose joins carry their `right` **inline** (resolved from the pool at the save boundary); load migrates inline `right` back into the pool as a reference. **Limitation:** a workspace with analyses rooted in *different* main tables cannot be saved until Plan B.
+- **Plan B — engine + frontend.** The de-duplicated, named-`tables` `.iris` format (§6.1): `document.py` read/write, `/document/save` + `/document/load` accepting multiple tables/sessions, and the load path rebuilding the full pool. Lifts Plan A's single-main-table save limitation.
 
 ## 4. Data model
 
@@ -91,7 +98,9 @@ Resolution is async, which is fine: the analyze/reduce/save paths are already as
 
 ## 6. Save / load format (`.iris`)
 
-### 6.1 New shape (what Iris writes)
+**Plan A** uses today's engine format (§6.2 *Legacy* path, run in both directions): on save, each analysis's joins are resolved from the pool to an **inline** `right` and handed to the existing `/document/save` (one main-table session); on load, inline `right` tables migrate into the pool as references. **Plan B** introduces the new shape below.
+
+### 6.1 New shape — Plan B (what Iris writes once the engine supports it)
 
 ```jsonc
 {
