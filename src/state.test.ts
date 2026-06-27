@@ -333,11 +333,22 @@ describe("table pool atoms", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     store.set(tablesAtom, [wt("cells"), wt("annot")]);
     store.set(activeTableIdAtom, "annot");
-    const p = { ...makeDefaultPlottable(SCHEMA), tableId: "cells" } as never;
+    const p = { ...makeDefaultPlottable(SCHEMA), tableId: "cells" };
     store.set(plottablesAtom, [p]);
-    store.set(activePlottableIdAtom, (p as { id: string }).id);
+    store.set(activePlottableIdAtom, p.id);
     expect(store.get(activeTableAtom)?.id).toBe("annot");
     expect(store.get(analysisTableAtom)?.id).toBe("cells");
+  });
+
+  it("makeDefaultPlottable seeds tableId from the most-recently-imported pool table", () => {
+    const store = createStore();
+    const wt = (id: string) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells"), wt("annot")]);
+    // makeDefaultPlottable takes the seed id explicitly (pure); the writer passes the last pool id.
+    expect(makeDefaultPlottable(SCHEMA, "annot").tableId).toBe("annot");
+    expect(makeDefaultPlottable(SCHEMA).tableId).toBe("");   // no pool → empty, resolved later
   });
 });
 

@@ -146,6 +146,7 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
 export interface Plottable {
   id: string;
   name: string;
+  tableId: string;  // the main table's pool id (design §4.2)
   mappings: { x: string; y: string };
   /* aesthetic channels (Phase 2), "" = unmapped. Each is an independent,
      explicit choice — color is never auto-derived from x. */
@@ -205,9 +206,9 @@ export function runnableSteps(steps: ReduceStep[]): ReduceStep[] {
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
    preselected geom. The user picks x/y and adds layers explicitly. */
-export function makeDefaultPlottable(schema: Schema): Plottable {
+export function makeDefaultPlottable(schema: Schema, tableId = ""): Plottable {
   return {
-    id: nextId(), name: "Analysis 1",
+    id: nextId(), name: "Analysis 1", tableId,
     mappings: { x: "", y: "" },
     color: "", size: "", shape: "",
     facetRow: "", facetCol: "", shareX: true, shareY: true,
@@ -251,7 +252,7 @@ export const activeTableIdAtom = atom<string | null>(null);
 export const activeTableAtom = atom((get) => byId(get(tablesAtom), get(activeTableIdAtom)));
 /* the table the ACTIVE ANALYSIS computes against (its main table). */
 export const analysisTableAtom = atom((get) =>
-  byId(get(tablesAtom), (get(activePlottableAtom) as { tableId?: string } | null)?.tableId ?? null));
+  byId(get(tablesAtom), get(activePlottableAtom)?.tableId ?? null));
 
 export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 
@@ -507,6 +508,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   return {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",
+    tableId: (spec as { table_id?: string }).table_id ?? "",
     mappings: { x: spec.encodings.x?.column ?? "", y: spec.encodings.y?.column ?? "" },
     color: spec.encodings.color?.column ?? "",
     size: spec.encodings.size?.column ?? "",
@@ -686,6 +688,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   if (!src) return;
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
+    tableId: src.tableId,
     mappings: { ...src.mappings },
     layers: src.layers.map((l) => ({ id: nextLayerId(), geom: l.geom,
                                      level: l.level })),
