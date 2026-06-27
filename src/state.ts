@@ -10,6 +10,8 @@ import { defaultPlan, grainKey, planGrains } from "./collapse";
 import { familyForMappingsRef } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
+import { byId, type WorkspaceTable } from "./tables";
+export type { WorkspaceTable } from "./tables";
 
 export const schemaAtom = atom<Schema | null>(null);
 /* The browser no longer owns the dataset: the engine does, behind this handle
@@ -238,6 +240,18 @@ export const activePlottableAtom = atom(
     set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === next.id ? next : p)));
   },
 );
+
+/* the workspace pool: every loaded input table (design §4.1). Import accumulates
+   into it; analyses reference entries by id. */
+export const tablesAtom = atom<WorkspaceTable[]>([]);
+/* which pool table the Data tab is currently viewing / editing. */
+export const activeTableIdAtom = atom<string | null>(null);
+
+/* the table the Data tab edits (its preview, spine, column roles). */
+export const activeTableAtom = atom((get) => byId(get(tablesAtom), get(activeTableIdAtom)));
+/* the table the ACTIVE ANALYSIS computes against (its main table). */
+export const analysisTableAtom = atom((get) =>
+  byId(get(tablesAtom), (get(activePlottableAtom) as { tableId?: string } | null)?.tableId ?? null));
 
 export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
 

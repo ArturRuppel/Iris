@@ -11,6 +11,7 @@ import {
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, EMPTY_RIGHT,
+  tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
 import { EMPTY_HIERARCHY } from "./types";
@@ -321,6 +322,22 @@ describe("selectedNodeIdAtom", () => {
     expect(store.get(selectedNodeIdAtom)).toBeNull();
     store.set(selectedNodeIdAtom, "flatten:experiment");
     expect(store.get(selectedNodeIdAtom)).toBe("flatten:experiment");
+  });
+});
+
+describe("table pool atoms", () => {
+  it("activeTableAtom follows the Data-tab selection; analysisTableAtom follows the active plottable's tableId", () => {
+    const store = createStore();
+    const wt = (id: string) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
+    store.set(tablesAtom, [wt("cells"), wt("annot")]);
+    store.set(activeTableIdAtom, "annot");
+    const p = { ...makeDefaultPlottable(SCHEMA), tableId: "cells" } as never;
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, (p as { id: string }).id);
+    expect(store.get(activeTableAtom)?.id).toBe("annot");
+    expect(store.get(analysisTableAtom)?.id).toBe("cells");
   });
 });
 
