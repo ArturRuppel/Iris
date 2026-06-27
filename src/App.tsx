@@ -6,6 +6,7 @@ import { DataTable } from "./components/DataTable";
 import { HierarchyPanel } from "./components/HierarchyPanel";
 import { ImportWizard } from "./components/ImportWizard";
 import { PlottableSidebar } from "./components/PlottableSidebar";
+import { TableList } from "./components/TableList";
 import { Guide } from "./examples/Guide";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
 import { clearWorkbenchAtom } from "./workbench/state";
@@ -502,7 +503,7 @@ export default function App() {
         {viewMode === "guide" ? (
           <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
         ) : viewMode === "data" ? (
-          <div className="data-mode"><HierarchyPanel /><DataTable /></div>
+          <div className="data-mode"><TableList /><HierarchyPanel /><DataTable /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />
