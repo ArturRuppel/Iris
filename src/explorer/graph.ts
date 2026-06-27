@@ -102,24 +102,27 @@ const condText = (c: { column: string; op: string; value?: unknown; bound?: stri
                   schema: Schema | null): string =>
   `${labelForCol(schema, c.column)} ${c.op} ${c.bound ?? String(c.value ?? "")}`.trim();
 
+/* the edge's QUALIFIER line (the detail). The transformation type word lives on
+   the edge's first line (WorkbenchEdge.EDGE_TYPE), so these deliberately omit the
+   verb — "speed ≤ 98", not "filter speed ≤ 98". */
 function stepEdgeLabel(step: ReduceStep, schema: Schema | null): string {
   switch (step.kind) {
     case "filter":
       return step.conditions.length === 1
-        ? `mask: ${condText(step.conditions[0], schema)}`
-        : `mask (${step.conditions.length} conditions)`;
+        ? condText(step.conditions[0], schema)
+        : `${step.conditions.length} conditions`;
     case "drop":
-      return `drop ${step.columns.map((c) => labelForCol(schema, c)).join(", ")}`;
+      return step.columns.map((c) => labelForCol(schema, c)).join(", ");
     case "derive":
       return `${step.column} = ${step.expr}`;
     case "recode":
-      return `relabel ${labelForCol(schema, step.column)}`;
+      return labelForCol(schema, step.column);
     case "join":
-      return `join on ${step.on.join(", ")}`;
+      return `on ${step.on.join(", ")}`;
     case "pivot":
-      return `unstack ${labelForCol(schema, step.column)} → {${Object.values(step.names).join(", ")}}`;
+      return `${labelForCol(schema, step.column)} → {${Object.values(step.names).join(", ")}}`;
     case "grid_complete":
-      return `densify ${step.by.map((c) => labelForCol(schema, c)).join(" × ")} × ` +
+      return `${step.by.map((c) => labelForCol(schema, c)).join(" × ")} × ` +
              `${labelForCol(schema, step.column)} · fill ${step.fill}`;
     default: {
       // exhaustiveness: a new ReduceStep kind becomes a compile error here,
@@ -188,9 +191,9 @@ export function buildGraph(
       nodes.push({ id: srcId, kind: "table",
         label: filled ? step.rightTableId : "drop a table here",
         table: { via: "none" }, missing: !filled });
-      edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `join on ${onLabel}`,
+      edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `on ${onLabel}`,
         fromId: prev, toId: id, onKeys: step.on });
-      edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `join on ${onLabel}`,
+      edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `on ${onLabel}`,
         fromId: srcId, toId: id, onKeys: step.on });
     } else {
       edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
@@ -236,7 +239,7 @@ export function buildGraph(
       fromId, toId: PLOT_ID });
   }
   if (geomByNode.size === 0) {
-    edges.push({ id: "g:plain", kind: "geom", label: "plotted", fromId: rawNodeId, toId: PLOT_ID });
+    edges.push({ id: "g:plain", kind: "geom", label: "", fromId: rawNodeId, toId: PLOT_ID });
   }
 
   const grainsList = planGrains(plan);            // ["", ...keys]

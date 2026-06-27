@@ -677,18 +677,29 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border-radius: 50%; background: #d97706; }
 
 /* ── Array-shape workspace: node + chips (Phase 3) ───────────────────────── */
-.txw-node { background:#f1f5f9; border:1px solid #cbd5e1; border-radius:8px;
-  padding:7px 11px; box-shadow:0 1px 2px rgba(15,23,42,.05); display:inline-block; }
-.txw-node.source { background:#fff; border-style:dashed; }
-.txw-node.hub { background:#cffafe; border-color:#67e8f9; }
-.txw-node.grain { background:#f5f3ff; border-color:#ddd6fe; }
-.txw-ntitle { font:600 10px/1; letter-spacing:.04em; text-transform:uppercase;
-  color:#64748b; margin-bottom:6px; }
-.txw-node.grain .txw-ntitle { color:#6d28d9; }
-.txw-node.hub .txw-ntitle { color:#0e7490; }
-.txw-row { display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin:2px 0; }
-.txw-rk { font:600 9px/1; text-transform:uppercase; letter-spacing:.05em;
-  color:#94a3b8; width:34px; flex:none; }
+/* every node is the SAME fixed-width box (a "blackbox" with side ports); content
+   stacks vertically and chips wrap — horizontal space is precious, vertical cheap. */
+.txw-node { box-sizing:border-box; width:190px; background:var(--panel);
+  border:1px solid var(--line); border-radius:10px; padding:8px 11px 9px;
+  box-shadow:0 1px 2px rgba(15,23,42,.06); }
+.txw-node.source { border-style:dashed; }
+.txw-node.hub { background:#ecfeff; border-color:#a5f3fc; }
+.txw-node.grain { background:#f7f5ff; border-color:#ddd6fe; }
+.txw-node.plot { background:#f0fdfa; border-color:#99f6e4; }
+.txw-node.stats { background:#eef2ff; border-color:#c7d2fe; }
+.txw-ntitle { display:flex; align-items:center; gap:6px; font:600 10px/1.1;
+  letter-spacing:.04em; text-transform:uppercase; color:var(--dim); margin-bottom:6px; }
+.txw-ntitle-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.txw-nicon { flex:none; display:inline-flex; color:#94a3b8; }
+.txw-node.source .txw-nicon, .txw-node.source .txw-ntitle { color:#64748b; }
+.txw-node.grain .txw-ntitle, .txw-node.grain .txw-nicon { color:#6d28d9; }
+.txw-node.hub .txw-ntitle, .txw-node.hub .txw-nicon { color:#0e7490; }
+.txw-node.plot .txw-ntitle, .txw-node.plot .txw-nicon { color:#0d9488; }
+.txw-node.stats .txw-ntitle, .txw-node.stats .txw-nicon { color:#4f46e5; }
+.txw-row { display:flex; align-items:flex-start; gap:6px; margin:3px 0; }
+.txw-rk { font:600 9px/1.4; text-transform:uppercase; letter-spacing:.05em;
+  color:var(--faint); flex:none; padding-top:2px; }
+.txw-chips { display:flex; align-items:center; gap:4px 5px; flex-wrap:wrap; min-width:0; }
 .txw-axwrap { display:inline-flex; align-items:center; gap:5px; }
 .txw-ax { display:inline-flex; align-items:center; gap:3px; background:#e0f2fe;
   border:1px solid #7dd3fc; color:#0369a1; border-radius:4px; padding:1px 6px; font-size:11px; }
@@ -770,6 +781,59 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-rfcanvas { position: absolute; inset: 44px 0 0 0; }
 .txw-tidy { margin-left: auto; }
 .react-flow__attribution { display: none; }
+
+/* ── workbench edges: orthogonal side-to-side wiring + two-line annotation ───── */
+.react-flow__edge-path.txw-rfedge { stroke:#94a3b8; stroke-width:1.5; }
+.react-flow__edge-path.txw-rfedge.filter        { stroke:#e11d48; }
+.react-flow__edge-path.txw-rfedge.drop          { stroke:#d97706; }
+.react-flow__edge-path.txw-rfedge.derive        { stroke:#16a34a; }
+.react-flow__edge-path.txw-rfedge.recode        { stroke:#ca8a04; }
+.react-flow__edge-path.txw-rfedge.join          { stroke:#0891b2; }
+.react-flow__edge-path.txw-rfedge.pivot         { stroke:#0d9488; }
+.react-flow__edge-path.txw-rfedge.grid_complete { stroke:#9333ea; }
+.react-flow__edge-path.txw-rfedge.collapse      { stroke:#7c3aed; }
+.react-flow__edge-path.txw-rfedge.geom          { stroke:#0e7490; }
+.react-flow__edge-path.txw-rfedge.test          { stroke:#4f46e5; }
+.react-flow__edge-path.txw-rfedge.annotate,
+.react-flow__edge-path.txw-rfedge.back { stroke:#db2777; stroke-dasharray:5 4; }
+
+/* the centred annotation: TYPE on top (per-kind colour), qualifier (the detail)
+   below in mono/dim. A small floating pill that sits in the gutter between boxes. */
+.txw-rfedge-label {
+  display:flex; flex-direction:column; align-items:center; gap:1px;
+  max-width:160px; padding:3px 9px; text-align:center;
+  background:var(--panel); border:1px solid var(--line); border-radius:8px;
+  box-shadow:0 1px 3px rgba(15,23,42,.10); cursor:default;
+}
+.txw-rfedge-label.hover { z-index:20; }
+.txw-edge-type { font:600 10px/1.15; letter-spacing:.02em; color:var(--dim); }
+.txw-edge-qual { max-width:144px; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; font:10px/1.3 var(--mono); color:var(--faint); }
+.txw-rfedge-label.filter        .txw-edge-type { color:#e11d48; }
+.txw-rfedge-label.drop          .txw-edge-type { color:#d97706; }
+.txw-rfedge-label.derive        .txw-edge-type { color:#16a34a; }
+.txw-rfedge-label.recode        .txw-edge-type { color:#ca8a04; }
+.txw-rfedge-label.join          .txw-edge-type { color:#0891b2; }
+.txw-rfedge-label.pivot         .txw-edge-type { color:#0d9488; }
+.txw-rfedge-label.grid_complete .txw-edge-type { color:#9333ea; }
+.txw-rfedge-label.collapse      .txw-edge-type { color:#7c3aed; }
+.txw-rfedge-label.geom          .txw-edge-type { color:#0e7490; }
+.txw-rfedge-label.test          .txw-edge-type { color:#4f46e5; }
+.txw-rfedge-label.annotate      .txw-edge-type { color:#db2777; }
+
+/* hover schematic pops ABOVE the edge (centred), not to the side. */
+.txw-rfedge-label .txw-hover {
+  left:50%; right:auto; top:auto; bottom:100%;
+  transform:translateX(-50%); margin:0 0 10px 0;
+}
+
+/* tame React Flow's stock chrome to the app's tokens. */
+.react-flow__controls { border:1px solid var(--line); border-radius:8px;
+  overflow:hidden; box-shadow:0 1px 4px rgba(15,23,42,.12); }
+.react-flow__controls-button { width:26px; height:26px; background:var(--panel);
+  border-bottom:1px solid var(--line); color:var(--dim); }
+.react-flow__controls-button:hover { background:var(--bg); }
+.react-flow__controls-button svg { fill:currentColor; }
 
 /* an unfilled required input (a join with no right table yet): an open, dashed
    circle prompting a drag to fill it. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls,
+  ReactFlow, ReactFlowProvider, Background, Controls, Position,
   useNodesState, useEdgesState,
   type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes,
 } from "@xyflow/react";
@@ -38,10 +38,16 @@ export function toRF(
     nodes: L.nodes.map((n) => ({
       id: n.id, type: "arrayShape",
       position: overrides[n.id] ?? { x: n.x, y: n.y },
+      // wire from the right edge into the left edge: RF derives edge endpoints
+      // from these node fields, not from the <Handle> dot placement.
+      sourcePosition: Position.Right, targetPosition: Position.Left,
       data: nodeShapeProps(n.node) as unknown as Record<string, unknown>,
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
+      // bind to the named side handles so edges leave the right edge and enter
+      // the left edge (otherwise RF falls back to a default bottom/top handle).
+      sourceHandle: "out", targetHandle: "in",
       data: { kind: e.kind, label: e.label, back: e.back },
     })),
   };
@@ -136,7 +142,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           fitView proOptions={{ hideAttribution: true }}
         >
-          <Background />
+          <Background gap={22} size={1} color="#d7dee7" />
           <Controls />
         </ReactFlow>
       </div>

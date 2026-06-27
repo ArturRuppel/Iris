@@ -1,8 +1,12 @@
 import type { Edge, EdgeKind, ExplorerGraph, ExplorerNode } from "../explorer/graph";
 
-/* horizontal gap between ranks (columns) and vertical gap between same-rank nodes. */
-export const COL_GAP = 240;
-export const ROW_GAP = 130;
+/* Nodes are a fixed 190px-wide box (see .txw-node). COL_GAP is the per-rank x
+   stride: node width + a gutter wide enough for the two-line edge label to sit in
+   the gap without touching either box. ROW_GAP stacks same-rank nodes with enough
+   clearance for a tall node (title + wrapped axes/values). */
+export const NODE_W = 190;
+export const COL_GAP = NODE_W + 130;
+export const ROW_GAP = 175;
 
 export interface PositionedNode { id: string; x: number; y: number; node: ExplorerNode }
 export interface LayoutEdge {

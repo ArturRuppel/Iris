@@ -65,8 +65,8 @@ describe("buildGraph", () => {
       { kind: "drop", columns: ["area"] },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "filter", label: "mask (2 conditions)" });
-    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "drop", label: "drop Area" });
+    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "filter", label: "2 conditions" });
+    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "drop", label: "Area" });
   });
 
   it("maps each node to its data-tab fetch strategy", () => {
@@ -116,7 +116,7 @@ describe("buildGraph", () => {
       [{ geom: "dot", level: "cell" }], SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toEqual([{ id: expect.any(String), kind: "geom",
-      label: "plotted", fromId: "source", toId: "plot" }]);
+      label: "", fromId: "source", toId: "plot" }]);
   });
 
   it("test edge runs at the coarsest layer-bound grain, into stats", () => {
@@ -159,8 +159,8 @@ describe("buildGraph", () => {
         levels: ["a", "b"], count: true, fill: 0, count_name: "count" },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "unstack opp → {same, opp}" });
-    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "densify Experiment × tt · fill 0" });
+    expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "opp → {same, opp}" });
+    expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "Experiment × tt · fill 0" });
     const kinds = g.edges.filter((e) => e.kind === "pivot" || e.kind === "grid_complete")
       .map((e) => e.kind);
     expect(kinds).toEqual(["pivot", "grid_complete"]);
@@ -172,7 +172,7 @@ describe("buildGraph", () => {
       { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "source", "step:0")?.label).toBe("mask: Area > 1");
+    expect(edge(g, "source", "step:0")?.label).toBe("Area > 1");
     expect(edge(g, "step:0", "step:1")?.label).toBe("q = perimeter / sqrt(area)");
   });
 
@@ -186,7 +186,7 @@ describe("buildGraph", () => {
     // right node is named for the referenced table id
     expect(g.nodes.find((n) => n.id === "source:0")?.label).toBe("annot");
     // both converging edges state the raw key path
-    expect(incoming.every((e) => e.label === "join on cell_id")).toBe(true);
+    expect(incoming.every((e) => e.label === "on cell_id")).toBe(true);
     // the join edges carry the RAW on-keys (not the display label) for keyhi matching
     expect(incoming.every((e) => JSON.stringify(e.onKeys) === JSON.stringify(["cell_id"]))).toBe(true);
   });

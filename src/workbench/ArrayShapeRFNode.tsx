@@ -8,9 +8,13 @@ import { openCardAtom } from "./state";
 import { affordances, authorDispatch, type AuthorAction, type AuthorOption } from "./authoring";
 import { AddStepMenu } from "./AddStepMenu";
 
-/* id -> node variant (mirrors workspace.ts's variantOf; removed/onKeys highlighting
-   is deferred to a later phase, so they are not derived here). */
-function variantOf(id: string): NodeVariant {
+/* node -> variant. Terminals key off kind (plot/stats get their own glyph + accent);
+   data tables key off id (source / grain / plain table). removed/onKeys highlighting
+   is deferred to a later phase, so they are not derived here. */
+function variantOf(node: ExplorerNode): NodeVariant {
+  if (node.kind === "plot") return "plot";
+  if (node.kind === "stats") return "stats";
+  const id = node.id;
   if (id === "source" || id.startsWith("source:")) return "source";
   if (id.startsWith("grain:")) return "grain";
   return "table";
@@ -26,7 +30,7 @@ export type RFNodeData = ArrayShapeNodeProps & { missing?: boolean; options?: Au
 export function nodeShapeProps(node: ExplorerNode): RFNodeData {
   const c = node.count;
   return {
-    title: node.label, variant: variantOf(node.id),
+    title: node.label, variant: variantOf(node),
     axes: c?.axes ?? [], values: c?.values ?? [], rows: c?.rows, cols: c?.cols,
     missing: node.missing,
     options: affordances(node),
@@ -57,13 +61,13 @@ export function ArrayShapeRFNode(
   return (
     <div className="txw-rfnode">
       <Handle
-        type="target" position={Position.Left}
+        id="in" type="target" position={Position.Left}
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
       <ArrayShapeNode {...shape} />
       <Handle
-        type="source" position={Position.Right}
+        id="out" type="source" position={Position.Right}
         className={canAdd ? "txw-handle-add" : undefined}
         style={canAdd ? undefined : { opacity: 0 }}
         onClick={canAdd ? (e) => { e.stopPropagation(); setMenuOpen((o) => !o); } : undefined}
