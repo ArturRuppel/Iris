@@ -687,52 +687,78 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .node-caution-dot { display: inline-block; width: 6px; height: 6px;
   border-radius: 50%; background: #d97706; }
 
-/* ── Array-shape workspace: node + chips (Phase 3) ───────────────────────── */
-/* every node is the SAME fixed-width box (a "blackbox" with side ports); content
-   stacks vertically and chips wrap — horizontal space is precious, vertical cheap. */
-.txw-node { box-sizing:border-box; width:190px; background:var(--panel);
-  border:1px solid var(--line); border-radius:10px; padding:8px 11px 9px;
-  box-shadow:0 1px 2px rgba(15,23,42,.06); }
+/* ── Workbench node: the "delta" card (eyebrow + detail + grain bar + values) ──
+   Each node shows only what its step CHANGED. A per-kind --accent colours the top
+   bar, eyebrow, shed grain segment, and new-value ring. */
+.txw-node { box-sizing:border-box; width:172px; background:var(--panel);
+  border:1px solid #e7eaf1; border-radius:12px; overflow:hidden;
+  box-shadow:0 1px 3px rgba(20,30,60,.06); --accent:#64748b; }
 .txw-node.source { border-style:dashed; }
-.txw-node.hub { background:#ecfeff; border-color:#a5f3fc; }
-.txw-node.grain { background:#f7f5ff; border-color:#ddd6fe; }
-.txw-node.plot { background:#f0fdfa; border-color:#99f6e4; }
-.txw-node.stats { background:#eef2ff; border-color:#c7d2fe; }
-.txw-ntitle { display:flex; align-items:center; gap:6px; font:600 10px/1.1;
-  letter-spacing:.04em; text-transform:uppercase; color:var(--dim); margin-bottom:6px; }
-.txw-ntitle-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.txw-nicon { flex:none; display:inline-flex; color:#94a3b8; }
-.txw-node.source .txw-nicon, .txw-node.source .txw-ntitle { color:#64748b; }
-.txw-node.grain .txw-ntitle, .txw-node.grain .txw-nicon { color:#6d28d9; }
-.txw-node.hub .txw-ntitle, .txw-node.hub .txw-nicon { color:#0e7490; }
-.txw-node.plot .txw-ntitle, .txw-node.plot .txw-nicon { color:#0d9488; }
-.txw-node.stats .txw-ntitle, .txw-node.stats .txw-nicon { color:#4f46e5; }
-/* node body: two labelled sections — "Organised by" (index dims, nested) and
-   "Values" (measured columns). Replaces the old axes/values chip rows. */
-.txw-sec { margin:4px 0; }
-.txw-sk { font:600 9px/1.4; text-transform:uppercase; letter-spacing:.05em;
-  color:var(--faint); margin-bottom:3px; }
-.txw-tree, .txw-vlist { list-style:none; margin:0; padding:0; }
-.txw-lvl { display:flex; align-items:center; gap:5px; padding:1.5px 0; min-width:0; }
-.txw-lvl.nested { padding-left:7px; }
-.txw-twig { flex:none; color:#cbd5e1; font:11px/1 ui-monospace,monospace; }
-.txw-dim { font-size:11px; color:#334155; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; }
-.txw-dim.ragged { font-style:italic; }
-.txw-dim.gone { opacity:.4; text-decoration:line-through; }
-.txw-dim.keyhi { color:#b45309; font-weight:600; }
-.txw-pill { margin-left:auto; flex:none; font:600 9px/1 ui-monospace,monospace;
-  color:#6d28d9; background:#f3e8ff; border-radius:9px; padding:1px 7px; }
-.txw-pill.varies { color:#b45309; background:#fef3c7; }
-.txw-vrow { display:flex; align-items:center; gap:6px; padding:1.5px 0; min-width:0; }
-.txw-vtype { margin-left:auto; flex:none; font-size:9px; color:var(--faint); }
-.txw-val { display:inline-flex; align-items:center; gap:4px; border-radius:4px;
-  padding:1px 6px; font-size:11px; border:1px solid; }
-.txw-val.num  { background:#dcfce7; border-color:#86efac; color:#15803d; }
-.txw-val.catg { background:#f3e8ff; border-color:#d8b4fe; color:#7e22ce; }
-.txw-val.bool { background:#fef3c7; border-color:#fcd34d; color:#b45309; }
-.txw-val .txw-grain { font:9px/1 ui-monospace,monospace; opacity:.75; }
+.txw-node.k-source{--accent:#64748b} .txw-node.k-table{--accent:#64748b}
+.txw-node.k-derive{--accent:#1f9e57} .txw-node.k-join{--accent:#0e7aa6}
+.txw-node.k-recode{--accent:#c4860a} .txw-node.k-collapse{--accent:#7c3aed}
+.txw-node.k-filter{--accent:#e11d48} .txw-node.k-drop{--accent:#d97706}
+.txw-node.k-pivot{--accent:#0d9488} .txw-node.k-grid_complete{--accent:#9333ea}
+.txw-node.k-geom{--accent:#0e8a8a} .txw-node.k-test{--accent:#4f46e5}
+.txw-nbar { height:3px; background:var(--accent); }
+.txw-nbody { padding:9px 11px 10px; }
+.txw-eyebrow { position:relative; display:flex; align-items:center; gap:6px;
+  font:600 9px/1 system-ui; letter-spacing:.09em; text-transform:uppercase;
+  color:var(--accent); cursor:default; }
+.txw-nicon { flex:none; display:inline-flex; color:var(--accent); }
+.txw-eyebrow-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.txw-ndetail { position:relative; margin-top:4px; font:11.5px/1.25 var(--mono);
+  color:#1d2430; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.txw-ndetail.editable { cursor:pointer; }
+.txw-ndetail.editable:hover { color:var(--accent); }
+.txw-edit-hint { margin-left:5px; opacity:0; color:var(--accent); font-size:10px; }
+.txw-ndetail.editable:hover .txw-edit-hint { opacity:.85; }
+.txw-nhr { height:1px; background:#eef0f5; margin:9px -11px 8px; }
+/* grain bar: one fixed segment per nesting level (live / shed-this-step / gone) */
+.txw-grain { display:flex; align-items:center; gap:3px; white-space:nowrap; }
+.txw-seg { display:inline-flex; align-items:center; justify-content:center;
+  width:18px; height:16px; border-radius:4px; font:700 9px/1 var(--mono); }
+.txw-seg.live { background:#e6eaf1; color:#5b6473; }
+.txw-seg.gone { background:transparent; color:#cdd2dc; box-shadow:inset 0 0 0 1px #ecf0f5;
+  text-decoration:line-through; text-decoration-color:#dfe3ea; }
+.txw-seg.shed { background:color-mix(in srgb, var(--accent) 13%, #fff); color:var(--accent);
+  box-shadow:inset 0 0 0 1.5px var(--accent); }
+.txw-gtick { color:#d3d8e1; font:9px/1 var(--mono); }
+/* a step that doesn't change the grain: quiet, so collapses carry the rhythm */
+.txw-grain.calm .txw-seg.live { background:#f3f5f9; color:#aab0bd; }
+.txw-grain.calm .txw-gtick { color:#e6e9f0; }
+/* values: measured columns; the one(s) this step introduced get an accent ring */
+.txw-vrow { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+.txw-vchip { display:inline-flex; align-items:center; gap:3px; font:600 10px/1 var(--mono);
+  padding:2px 7px; border-radius:5px; }
+.txw-vchip.num  { background:#e8f6ee; color:#157a47; }
+.txw-vchip.catg { background:#f3e9fb; color:#8a3fc0; }
+.txw-vchip.bool { background:#fff3d6; color:#9a6a12; }
+.txw-vchip.isnew { box-shadow:0 0 0 1.5px var(--accent),
+  0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
+.txw-vgrain { opacity:.7; font-weight:500; }
 .txw-count { font-size:12px; color:#64748b; font-variant-numeric:tabular-nums; }
+/* eyebrow hover → before/after schematic; detail hover → one-line definition */
+.txw-pop { position:absolute; top:calc(100% + 7px); left:0; z-index:40; }
+.txw-pop .txw-hover { position:static; left:auto; top:auto; margin:0; }
+.txw-deftip { position:absolute; top:calc(100% + 6px); left:0; z-index:40;
+  width:max-content; max-width:230px; white-space:normal;
+  background:#1f2430; color:#f3f5f9; font:11px/1.35 system-ui; padding:7px 9px;
+  border-radius:7px; box-shadow:0 6px 22px rgba(15,23,42,.22); }
+/* persistent grain legend (React Flow top-left panel) */
+.txw-grain-legend { display:flex; align-items:center; gap:9px; padding:7px 13px;
+  background:#fff; border:1px solid #e7eaf1; border-radius:999px;
+  box-shadow:0 1px 3px rgba(20,30,60,.07); }
+.txw-gl-k { font:600 9px/1 system-ui; letter-spacing:.1em; text-transform:uppercase;
+  color:var(--faint); }
+.txw-gl-lvls { display:flex; align-items:center; gap:7px; font:600 11.5px/1 var(--mono);
+  color:#414b5c; }
+.txw-gl-lvl { display:inline-flex; align-items:center; gap:5px; }
+.txw-gl-seg { display:inline-flex; align-items:center; justify-content:center;
+  width:18px; height:16px; border-radius:4px; background:#e6eaf1; color:#5b6473;
+  font:700 9px/1 var(--mono); }
+.txw-gl-chev { color:var(--faint); font-weight:400; margin-right:2px; }
+.txw-gl-note { color:var(--faint); font:italic 11px/1 system-ui; }
 
 /* ── Array-shape workspace: surface, edges, join, fork (Phase 3) ──────────── */
 .txw-overlay { position:fixed; inset:0; z-index:50; background:#f8fafc;
@@ -798,7 +824,7 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-tidy { margin-left: auto; }
 .react-flow__attribution { display: none; }
 
-/* ── workbench edges: orthogonal side-to-side wiring + two-line annotation ───── */
+/* ── workbench edges: pure orthogonal "blackbox" wiring (labels live in nodes) ── */
 .react-flow__edge-path.txw-rfedge { stroke:#94a3b8; stroke-width:1.5; }
 .react-flow__edge-path.txw-rfedge.filter        { stroke:#e11d48; }
 .react-flow__edge-path.txw-rfedge.drop          { stroke:#d97706; }
@@ -812,36 +838,6 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .react-flow__edge-path.txw-rfedge.test          { stroke:#4f46e5; }
 .react-flow__edge-path.txw-rfedge.annotate,
 .react-flow__edge-path.txw-rfedge.back { stroke:#db2777; stroke-dasharray:5 4; }
-
-/* the centred annotation: TYPE on top (per-kind colour), qualifier (the detail)
-   below in mono/dim. A small floating pill that sits in the gutter between boxes. */
-.txw-rfedge-label {
-  display:flex; flex-direction:column; align-items:center; gap:1px;
-  max-width:160px; padding:3px 9px; text-align:center;
-  background:var(--panel); border:1px solid var(--line); border-radius:8px;
-  box-shadow:0 1px 3px rgba(15,23,42,.10); cursor:default;
-}
-.txw-rfedge-label.hover { z-index:20; }
-.txw-edge-type { font:600 10px/1.15; letter-spacing:.02em; color:var(--dim); }
-.txw-edge-qual { max-width:144px; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; font:10px/1.3 var(--mono); color:var(--faint); }
-.txw-rfedge-label.filter        .txw-edge-type { color:#e11d48; }
-.txw-rfedge-label.drop          .txw-edge-type { color:#d97706; }
-.txw-rfedge-label.derive        .txw-edge-type { color:#16a34a; }
-.txw-rfedge-label.recode        .txw-edge-type { color:#ca8a04; }
-.txw-rfedge-label.join          .txw-edge-type { color:#0891b2; }
-.txw-rfedge-label.pivot         .txw-edge-type { color:#0d9488; }
-.txw-rfedge-label.grid_complete .txw-edge-type { color:#9333ea; }
-.txw-rfedge-label.collapse      .txw-edge-type { color:#7c3aed; }
-.txw-rfedge-label.geom          .txw-edge-type { color:#0e7490; }
-.txw-rfedge-label.test          .txw-edge-type { color:#4f46e5; }
-.txw-rfedge-label.annotate      .txw-edge-type { color:#db2777; }
-
-/* hover schematic pops ABOVE the edge (centred), not to the side. */
-.txw-rfedge-label .txw-hover {
-  left:50%; right:auto; top:auto; bottom:100%;
-  transform:translateX(-50%); margin:0 0 10px 0;
-}
 
 /* tame React Flow's stock chrome to the app's tokens. */
 .react-flow__controls { border:1px solid var(--line); border-radius:8px;

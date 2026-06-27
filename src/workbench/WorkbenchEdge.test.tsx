@@ -1,94 +1,56 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { ReactFlow, ReactFlowProvider, Position, type Node, type Edge } from "@xyflow/react";
-import { WorkbenchEdge } from "./WorkbenchEdge";
+import { WorkbenchEdge, laneOf } from "./WorkbenchEdge";
 
 const edgeTypes = { workbench: WorkbenchEdge };
 /* Pre-supply measured dimensions and handles so React Flow considers nodes
-   initialized on the first render without a ResizeObserver firing (jsdom mock
-   is a no-op, so handles are never computed from DOM; providing them directly
-   satisfies isNodeInitialized and getEdgePosition, enabling edge rendering). */
+   initialized on the first render (jsdom's ResizeObserver mock is a no-op). */
 const nodes: Node[] = [
-  {
-    id: "a", position: { x: 0, y: 0 }, data: {},
-    measured: { width: 100, height: 50 },
+  { id: "a", position: { x: 0, y: 0 }, data: {}, measured: { width: 100, height: 50 },
     handles: [
       { id: null, type: "source", position: Position.Right, x: 100, y: 25 },
       { id: null, type: "target", position: Position.Left, x: 0, y: 25 },
-    ],
-  },
-  {
-    id: "b", position: { x: 200, y: 0 }, data: {},
-    measured: { width: 100, height: 50 },
-    handles: [
-      { id: null, type: "source", position: Position.Right, x: 100, y: 25 },
-      { id: null, type: "target", position: Position.Left, x: 0, y: 25 },
-    ],
-  },
-];
-const edge = (kind: string, label: string): Edge[] => [
-  { id: "e0", source: "a", target: "b", type: "workbench",
-    data: { kind, label, back: false } },
-];
-
-// a target stacked well below the source row (Plot/Stats off the main row).
-const stackedNodes: Node[] = [
-  nodes[0],
-  { ...nodes[1], position: { x: 200, y: 300 },
+    ] },
+  { id: "b", position: { x: 200, y: 0 }, data: {}, measured: { width: 100, height: 50 },
     handles: [
       { id: null, type: "source", position: Position.Right, x: 100, y: 25 },
       { id: null, type: "target", position: Position.Left, x: 0, y: 25 },
     ] },
 ];
 
-const renderEdge = (edges: Edge[], ns: Node[] = nodes) =>
+const renderEdge = (data: Record<string, unknown>) =>
   render(
     <ReactFlowProvider>
-      <div style={{ width: 400, height: 600 }}>
-        <ReactFlow nodes={ns} edges={edges} edgeTypes={edgeTypes} />
+      <div style={{ width: 400, height: 300 }}>
+        <ReactFlow nodes={nodes} edges={[{ id: "e0", source: "a", target: "b", type: "workbench", data }]}
+          edgeTypes={edgeTypes} />
       </div>
     </ReactFlowProvider>,
   );
 
-/* the label wrapper is translated to (labelX, labelY); pull labelY back out of
-   the transform so we can assert which lane the label rides in. Nodes a/b sit at
-   y=0 with handles at y=25, so the inline corridor is ~y=25. */
-const labelY = (text: string): number => {
-  const el = screen.getByText(text).closest(".txw-rfedge-label") as HTMLElement;
-  const m = /translate\(-50%,-50%\) translate\([-\d.]+px,([-\d.]+)px\)/.exec(el.style.transform);
-  if (!m) throw new Error(`no labelY in transform: ${el.style.transform}`);
-  return Number(m[1]);
-};
-
 describe("WorkbenchEdge", () => {
-  it("renders the edge label inside a canvas", () => {
-    renderEdge(edge("geom", "dots"));
-    expect(screen.getByText("dots")).toBeInTheDocument();
+  it("draws a wire and carries the kind class, with no floating label", () => {
+    const { container } = renderEdge({ kind: "geom", label: "dots", back: false });
+    const path = container.querySelector(".react-flow__edge-path.txw-rfedge.geom");
+    expect(path).not.toBeNull();
+    expect(container.querySelector(".txw-rfedge-label")).toBeNull(); // label moved into the node
   });
+});
 
-  it("lifts a geom (Plot) label into the top lane, clear of the inline row", () => {
-    renderEdge(edge("geom", "dots"));
-    // -LANE_Y from the (min) handle y of 25 -> well above the inline corridor.
-    expect(labelY("dots")).toBeLessThan(0);
+describe("laneOf (fan-in routing)", () => {
+  it("lifts an on-row geom edge into a top lane (above source)", () => {
+    expect(laneOf("geom", 100, 100)!).toBeLessThan(100);
   });
-
-  it("drops a test (Stats) label into the bottom lane", () => {
-    renderEdge(edge("test", "MW"));
-    expect(labelY("MW")).toBeGreaterThan(50);
+  it("drops an on-row test edge into a bottom lane (below source)", () => {
+    expect(laneOf("test", 100, 100)!).toBeGreaterThan(100);
   });
-
-  it("routes a geom edge toward its target's row (no detour) when Plot is stacked below", () => {
-    // target handle sits at y≈325; the wire must go DOWN to it, not up into the
-    // top lane and back (the round-trip bug).
-    renderEdge(edge("geom", "dots"), stackedNodes);
-    expect(labelY("dots")).toBeGreaterThan(200);
+  it("routes straight to the target's row when it's stacked off-row (no detour)", () => {
+    expect(laneOf("geom", 0, 300)).toBe(300);
+    expect(laneOf("test", 0, 300)).toBe(300);
   });
-
-  it("keeps a collapse label on the inline corridor (no lane offset)", () => {
-    renderEdge(edge("collapse", "median over x"));
-    // stays near the handle row (~25), neither lane.
-    const y = labelY("median over x");
-    expect(y).toBeGreaterThan(0);
-    expect(y).toBeLessThan(50);
+  it("returns null for a normal inline edge (no lane)", () => {
+    expect(laneOf("collapse", 0, 0)).toBeNull();
+    expect(laneOf(undefined, 0, 0)).toBeNull();
   });
 });

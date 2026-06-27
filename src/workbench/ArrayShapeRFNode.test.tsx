@@ -5,15 +5,29 @@ import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
 import type { ExplorerNode } from "../explorer/graph";
 
 describe("nodeShapeProps", () => {
-  it("maps a grain node's descriptor to ArrayShapeNode props", () => {
+  it("maps a step node + delta to eyebrow / detail / grain / values", () => {
     const node: ExplorerNode = {
-      id: "grain:cell", kind: "table", label: "per Cell", table: { via: "grain", grain: "cell" },
-      count: { rows: 3, cols: 2, axes: [{ name: "cell", n_levels: 3, ragged: false }], values: [] },
+      id: "grain:exp", kind: "table", label: "per Experiment", table: { via: "grain", grain: "exp" },
+      count: { rows: 3, cols: 2, axes: [{ name: "experiment_id", n_levels: 3, ragged: false }],
+        values: [{ name: "value", type: "numeric", grain: null }] },
     };
-    expect(nodeShapeProps(node)).toMatchObject({
-      title: "per Cell", variant: "grain",
-      axes: [{ name: "cell", n_levels: 3, ragged: false }], values: [], rows: 3, cols: 2,
+    const delta = {
+      spine: ["experiment_id", "frame"], live: ["experiment_id"], shed: ["frame"], newValues: [],
+      inEdge: { id: "e:c", kind: "collapse" as const, label: "median over frame" },
+    };
+    expect(nodeShapeProps(node, delta)).toMatchObject({
+      variant: "grain", kind: "collapse", eyebrow: "Collapse", detail: "median over frame",
+      spine: ["experiment_id", "frame"], live: ["experiment_id"], shed: ["frame"],
+      values: [{ name: "value", type: "numeric", grain: null }],
+      inEdge: { id: "e:c", kind: "collapse" },
     });
+  });
+  it("gives the source an eyebrow and no detail; terminals key off kind", () => {
+    const mk = (id: string, kind: "table" | "plot" | "stats"): ExplorerNode =>
+      ({ id, kind, label: id, table: { via: "none" } });
+    expect(nodeShapeProps(mk("source", "table"))).toMatchObject({ eyebrow: "Source", detail: "" });
+    expect(nodeShapeProps(mk("plot", "plot"))).toMatchObject({ eyebrow: "Plot", kind: "geom" });
+    expect(nodeShapeProps(mk("stats", "stats"))).toMatchObject({ eyebrow: "Stats", kind: "test" });
   });
   it("derives variant from id: source -> source, source:0 -> source, plain -> table", () => {
     const mk = (id: string): ExplorerNode => ({ id, kind: "table", label: id, table: { via: "none" } });

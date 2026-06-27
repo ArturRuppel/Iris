@@ -1,12 +1,12 @@
 import type { Edge, EdgeKind, ExplorerGraph, ExplorerNode } from "../explorer/graph";
 
-/* Nodes are a fixed 190px-wide box (see .txw-node). COL_GAP is the per-rank x
-   stride: node width + a gutter wide enough for the two-line edge label to sit in
-   the gap without touching either box. ROW_GAP stacks same-rank nodes with enough
-   clearance for a tall node (title + wrapped axes/values). */
-export const NODE_W = 190;
-export const COL_GAP = NODE_W + 130;
-export const ROW_GAP = 175;
+/* Nodes are a fixed ~172px-wide box (see .txw-node). The transformation label now
+   lives INSIDE each node (eyebrow + detail), not in the gap, so COL_GAP only needs
+   a slim gutter for the connector. ROW_GAP stacks same-rank nodes with clearance
+   for a compact node (eyebrow + detail + grain bar + values). */
+export const NODE_W = 172;
+export const COL_GAP = NODE_W + 74;
+export const ROW_GAP = 150;
 
 export interface PositionedNode { id: string; x: number; y: number; node: ExplorerNode }
 export interface LayoutEdge {

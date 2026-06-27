@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, Position,
+  ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
   useNodesState, useEdgesState,
   type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes,
 } from "@xyflow/react";
@@ -9,6 +9,7 @@ import { useSetAtom, useAtomValue } from "jotai";
 import type { ExplorerGraph } from "../explorer/graph";
 import { layoutGraph } from "./layout";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
+import { nodeDeltas, spineOf, levelInitial } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import { openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom } from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
@@ -34,6 +35,7 @@ export function toRF(
   overrides: Record<string, { x: number; y: number }>,
 ): { nodes: Node[]; edges: RFEdge[] } {
   const L = layoutGraph(graph);
+  const deltas = nodeDeltas(graph);
   return {
     nodes: L.nodes.map((n) => ({
       id: n.id, type: "arrayShape",
@@ -41,7 +43,7 @@ export function toRF(
       // wire from the right edge into the left edge: RF derives edge endpoints
       // from these node fields, not from the <Handle> dot placement.
       sourcePosition: Position.Right, targetPosition: Position.Left,
-      data: nodeShapeProps(n.node) as unknown as Record<string, unknown>,
+      data: nodeShapeProps(n.node, deltas.get(n.id)) as unknown as Record<string, unknown>,
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
@@ -51,6 +53,27 @@ export function toRF(
       data: { kind: e.kind, label: e.label, back: e.back },
     })),
   };
+}
+
+/* the persistent grain legend: decodes the per-node segment glyphs (E, P, …) to
+   their full level names, in nesting order, so the shedding bars are readable. */
+function GrainLegend({ spine }: { spine: string[] }) {
+  if (spine.length === 0) return null;
+  return (
+    <div className="txw-grain-legend">
+      <span className="txw-gl-k">Grain</span>
+      <span className="txw-gl-lvls">
+        {spine.map((name, i) => (
+          <span key={name} className="txw-gl-lvl">
+            {i > 0 && <span className="txw-gl-chev" aria-hidden>›</span>}
+            <span className="txw-gl-seg" aria-hidden>{levelInitial(name)}</span>
+            {name}
+          </span>
+        ))}
+      </span>
+      <span className="txw-gl-note">each step pools one level →</span>
+    </div>
+  );
 }
 
 function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void }) {
@@ -144,6 +167,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
         >
           <Background gap={22} size={1} color="#d7dee7" />
           <Controls />
+          <Panel position="top-left"><GrainLegend spine={spineOf(graph)} /></Panel>
         </ReactFlow>
       </div>
       <div className="txw-cards">

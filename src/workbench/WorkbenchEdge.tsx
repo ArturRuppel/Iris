@@ -1,19 +1,7 @@
-import { useState } from "react";
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
-import { cannedExample } from "../explorer/cannedExamples";
-import { OpHoverExample } from "../components/OpHoverExample";
+import { BaseEdge, getBezierPath, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
 import type { EdgeKind } from "../explorer/graph";
 
 export interface WorkbenchEdgeData { kind: EdgeKind; label: string; back: boolean }
-
-/* the transformation TYPE shown as the label's first line; the edge's `label`
-   carries the qualifier (the detail) on the second line. Keeps the annotation
-   readable — type first, jargon demoted. */
-const EDGE_TYPE: Record<EdgeKind, string> = {
-  filter: "Filter", drop: "Drop", derive: "Derive", recode: "Recode",
-  join: "Join", pivot: "Pivot", grid_complete: "Complete",
-  collapse: "Collapse", geom: "Plot", test: "Test", annotate: "Annotate",
-};
 
 /* The collapse chain is the literal data flow and keeps the inline corridor.
    The fan-in families (geom -> the shared Plot, test -> Stats) get routed so
@@ -53,49 +41,34 @@ function laneRoute(
   return [d, (sx + tx) / 2, laneY]; // label rides the across segment, mid-span
 }
 
-/* a graph edge: a horizontal side-to-side connector (orthogonal "blackbox" wiring)
-   with a centred, hover-expandable two-line label. The label's colour class keys
-   off the edge kind (reusing the existing per-kind styles). A back-edge (annotate)
-   keeps a curved bezier so the stats->plot link reads as an overlay, not a flow
-   step. geom/test fan-in edges route through a top/bottom lane so the horizontal
-   run — and the label that rides it — clears the inline collapse row. */
+/* the lane Y a fan-in (geom/test) wire runs in, or null for a normal inline edge.
+   Pure + exported so the routing decision is unit-tested without React Flow. */
+export function laneOf(kind: EdgeKind | undefined, sourceY: number, targetY: number): number | null {
+  if (kind !== "geom" && kind !== "test") return null;
+  if (Math.abs(targetY - sourceY) >= OFF_ROW) return targetY; // target on its own row
+  return sourceY + (kind === "geom" ? -LANE_Y : LANE_Y);       // on-row: lift to a lane
+}
+
+/* a graph edge: a pure orthogonal "blackbox" wire — the transformation it carries
+   is now named inside the TARGET node (eyebrow + detail), so the edge no longer
+   renders a label. A back-edge (annotate) keeps a curved bezier so the
+   stats->plot link reads as an overlay, not a flow step. geom/test fan-in edges
+   route through a top/bottom lane so the wire never crosses the inline collapse
+   row on its way to the shared Plot/Stats node. */
 export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
-  const [hover, setHover] = useState(false);
   // geom -> Plot, test -> Stats: pick the lane the TARGET is on so the wire never
   // detours. Off-row target -> route straight to its row; on-row target -> lift
   // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
-  const fanIn = data?.kind === "geom" || data?.kind === "test";
-  const laneY = !fanIn ? 0
-    : Math.abs(targetY - sourceY) >= OFF_ROW ? targetY
-    : sourceY + (data?.kind === "geom" ? -LANE_Y : LANE_Y);
-  const [path, labelX, labelY] = data?.back
+  const lane = laneOf(data?.kind, sourceY, targetY);
+  const [path] = data?.back
     ? getBezierPath({ sourceX, sourceY, targetX, targetY, curvature: 0.6 })
-    : fanIn
-      ? laneRoute(sourceX, sourceY, targetX, targetY, laneY)
+    : lane != null
+      ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
       : getSmoothStepPath({ sourceX, sourceY, targetX, targetY,
           sourcePosition, targetPosition, borderRadius: 8 });
-  const ex = data ? cannedExample(data.kind) : null;
-  const type = data ? EDGE_TYPE[data.kind] : "";
   return (
-    <>
-      <BaseEdge id={id} path={path} className={`txw-rfedge ${data?.kind ?? ""}${data?.back ? " back" : ""}`} />
-      <EdgeLabelRenderer>
-        <div
-          className={`txw-rfedge-label ${data?.kind ?? ""}${hover ? " hover" : ""}`}
-          style={{ position: "absolute", transform: `translate(-50%,-50%) translate(${labelX}px,${labelY}px)`, pointerEvents: "all" }}
-          onMouseEnter={() => setHover(true)}
-          onMouseLeave={() => setHover(false)}
-          tabIndex={0}
-          onFocus={() => setHover(true)}
-          onBlur={() => setHover(false)}
-        >
-          <span className="txw-edge-type">{type}</span>
-          {data?.label && <span className="txw-edge-qual">{data.label}</span>}
-          {hover && ex && <OpHoverExample example={ex} />}
-        </div>
-      </EdgeLabelRenderer>
-    </>
+    <BaseEdge id={id} path={path} className={`txw-rfedge ${data?.kind ?? ""}${data?.back ? " back" : ""}`} />
   );
 }

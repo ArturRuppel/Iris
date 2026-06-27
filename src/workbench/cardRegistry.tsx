@@ -20,7 +20,7 @@ export interface Target { kind: "node" | "edge"; id: string; }
 
 /* reduce-step edges all share the one op-editor; collapse/geom/test/annotate
    each have their own editor. */
-const EDGE_CARD: Record<EdgeKind, CardKind> = {
+export const EDGE_CARD: Record<EdgeKind, CardKind> = {
   filter: "op-editor", drop: "op-editor", derive: "op-editor",
   recode: "op-editor", join: "op-editor", pivot: "op-editor",
   grid_complete: "op-editor",
