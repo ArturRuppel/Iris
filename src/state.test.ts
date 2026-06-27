@@ -11,7 +11,7 @@ import {
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
   loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
-  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, materializedTablesAtom,
+  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, saveTablesFor, materializedTablesAtom,
   tablesNeedingMaterialize,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
@@ -140,20 +140,55 @@ describe("stats block stores decisions only (format redesign)", () => {
   });
 });
 
-describe("specForSave — inline filled joins for today's .iris format", () => {
-  it("specForSave inlines a join's right from the cache (for today's .iris format)", () => {
-    const right: Table = { schema: { schema_version: "1.0", columns: [
-      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
-    const cache = { annot: { version: 0, table: right } };
+describe("specForSave — save joins by reference (Plan B 2.1)", () => {
+  it("serializes a filled join as a right_table_id reference and sets table_id", () => {
     const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
       reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
-    const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, cache);
-    expect(spec.reduce.steps[0]).toMatchObject({ kind: "join", on: ["k"], right });
+    const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, {});
+    // the analysis records which pool table it roots in
+    expect(spec.table_id).toBe("cells");
+    // the join references its right by pool id — NO inline rows
+    expect(spec.reduce.steps[0]).toMatchObject({ kind: "join", on: ["k"], right_table_id: "annot" });
+    expect("right" in spec.reduce.steps[0]).toBe(false);
   });
 
-  it("resolveSaveSteps drops only UNSET joins (buildSpec drops uncached too)", () => {
-    const steps = [{ ...makeStep("join"), rightTableId: "", on: ["k"] }];
-    expect(resolveSaveSteps(steps, {})).toEqual([]);
+  it("resolveSaveSteps drops UNSET joins and keeps filled ones as references", () => {
+    const unset: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "", on: ["k"] } as ReduceStep];
+    expect(resolveSaveSteps(unset)).toEqual([]);
+    const filled: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep];
+    expect(resolveSaveSteps(filled))
+      .toEqual([{ kind: "join", on: ["k"], how: "inner", right_table_id: "annot" }]);
+  });
+});
+
+describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
+  it("collects each rooted/joined pool table once, as {name, table_id, hierarchy}", () => {
+    const wt = (id: string) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [id], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
+    const pool = [wt("cells"), wt("annot")];
+    // two analyses both rooted in cells; the first also joins annot
+    const p1 = { ...makeDefaultPlottable(SCHEMA, "cells"),
+      reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
+    const p2 = { ...makeDefaultPlottable(SCHEMA, "cells") } as never;
+    expect(saveTablesFor([p1, p2], pool)).toEqual([
+      { name: "cells", table_id: "h_cells", hierarchy: { spine: ["cells"], fn: {} } },
+      { name: "annot", table_id: "h_annot", hierarchy: { spine: ["annot"], fn: {} } },
+    ]);
+  });
+
+  it("saves a table referenced ONLY as a join right (no analysis roots in it)", () => {
+    const wt = (id: string) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [id], fn: {} },
+      handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
+    const pool = [wt("main"), wt("lookup")];
+    // the only analysis roots in main and joins lookup; nothing ever roots in lookup.
+    const p = { ...makeDefaultPlottable(SCHEMA, "main"),
+      reduce: { steps: [{ ...makeStep("join"), rightTableId: "lookup", on: ["k"] }] } } as never;
+    const tables = saveTablesFor([p], pool);
+    // lookup must still be saved, else its join reference dangles on reload.
+    expect(tables.map((t) => t.name)).toEqual(["main", "lookup"]);
+    expect(tables.find((t) => t.name === "lookup")?.table_id).toBe("h_lookup");
   });
 });
 
@@ -668,26 +703,69 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
   });
 });
 
-describe("loadDocumentAtom — pool seeding + inline join right migration", () => {
-  it("loadDocument seeds the pool, binds analyses, and migrates inline join.right to a reference", async () => {
+describe("loadDocumentAtom — full-pool rebuild (2.1) + legacy inline-right migration (2.0)", () => {
+  // one entry of the load response's tables[]; the session (id) holds every row.
+  const lt = (name: string, hierarchy = { spine: [] as string[], fn: {} }) => ({
+    name, id: `h_${name}`, schema: SCHEMA, hierarchy,
+    n: 1, version: 0, counts: { total: 1 }, rows: [],
+  });
+
+  it("(2.1) rebuilds the full pool and binds joins by reference — no migration", async () => {
     const store = createStore();
+    const createSession = vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "x", n: 0, version: 0, schema: SCHEMA, counts: { total: 0 } } as never);
+    // analysis 1 roots in cells and joins annot by reference; analysis 2 roots in annot.
+    const a1 = { ...makeSpec("a1", { xCol: "grp" }), table_id: "cells",
+      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right_table_id: "annot" }] } } as never;
+    const a2 = { ...makeSpec("a2", { xCol: "grp" }), table_id: "annot" } as never;
+    await store.set(loadDocumentAtom,
+      { analyses: [a1, a2], tables: [lt("cells"), lt("annot")] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.map((t) => t.id)).toEqual(["cells", "annot"]);     // the whole pool, rebuilt
+    const ps = store.get(plottablesAtom);
+    expect(ps[0].tableId).toBe("cells");
+    const join = ps[0].reduce.steps[0];
+    expect(join.kind === "join" && join.rightTableId).toBe("annot");
+    expect(ps[1].tableId).toBe("annot");
+    expect(createSession).not.toHaveBeenCalled();                  // references need no migration
+  });
+
+  it("(2.1) warns and falls back to pool[0] when an analysis's table_id is not in tables[]", async () => {
+    const store = createStore();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     vi.spyOn(engine, "createSession").mockResolvedValue(
+      { id: "x", n: 0, version: 0, schema: SCHEMA, counts: { total: 0 } } as never);
+    // the analysis references "ghost", which the doc never ships.
+    const a = { ...makeSpec("a", { xCol: "grp" }), table_id: "ghost" } as never;
+    await store.set(loadDocumentAtom, { analyses: [a], tables: [lt("cells")] } as never);
+    const pool = store.get(tablesAtom);
+    expect(pool.map((t) => t.id)).toEqual(["cells"]);        // does not throw; pool intact
+    expect(store.get(plottablesAtom)[0].tableId).toBe("cells");   // bound to pool[0]
+    expect(warn).toHaveBeenCalled();                         // the dangling ref is surfaced
+    warn.mockRestore();
+  });
+
+  it("(legacy 2.0) seeds the single table, binds the analysis to it, and migrates inline join.right", async () => {
+    const store = createStore();
+    const createSession = vi.spyOn(engine, "createSession").mockResolvedValue(
       { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
     const right = { schema: { schema_version: "1.0", columns: [
       { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
+    // a 2.0 analysis: no table_id, the join carries its right INLINE.
     const spec = { ...makeSpec("a", { xCol: "grp" }),
       reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } } as never;
-    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
-      counts: { total: 1 }, analyses: [spec] } as never);
+    await store.set(loadDocumentAtom, { analyses: [spec], tables: [lt("table_1")] } as never);
     const pool = store.get(tablesAtom);
-    expect(pool.length).toBe(2);                                   // main + the migrated right
+    expect(pool.length).toBe(2);                                   // table_1 + the migrated right
+    expect(pool[0].id).toBe("table_1");
     const p = store.get(plottablesAtom)[0];
-    expect(p.tableId).toBe(pool[0].id);                            // bound to the main table
+    expect(p.tableId).toBe("table_1");                             // bound to the single loaded table
     const join = p.reduce.steps[0];
     expect(join.kind === "join" && join.rightTableId).toBe(pool[1].id);
+    expect(createSession).toHaveBeenCalledTimes(1);
   });
 
-  it("loadDocument dedups two analyses that share an identical inline right into one pool entry", async () => {
+  it("(legacy 2.0) dedups two analyses that share an identical inline right into one pool entry", async () => {
     const store = createStore();
     vi.spyOn(engine, "createSession").mockResolvedValue(
       { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
@@ -695,10 +773,9 @@ describe("loadDocumentAtom — pool seeding + inline join right migration", () =
       { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
     const mk = (id: string) => ({ ...makeSpec(id, { xCol: "grp" }),
       reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } }) as never;
-    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
-      counts: { total: 1 }, analyses: [mk("a"), mk("b")] } as never);
+    await store.set(loadDocumentAtom, { analyses: [mk("a"), mk("b")], tables: [lt("table_1")] } as never);
     const pool = store.get(tablesAtom);
-    expect(pool.length).toBe(2);                                   // main + ONE shared right (deduped)
+    expect(pool.length).toBe(2);                                   // table_1 + ONE shared right (deduped)
     const ids = store.get(plottablesAtom).map((p) => {
       const s = p.reduce.steps[0]; return s.kind === "join" ? s.rightTableId : "";
     });
@@ -706,15 +783,15 @@ describe("loadDocumentAtom — pool seeding + inline join right migration", () =
     expect(ids[0]).toBe(pool[1].id);
   });
 
-  it("loadDocument REPLACES the workspace (no orphan tables from a prior load)", async () => {
+  it("REPLACES the workspace (no orphan tables / stale cache from a prior load)", async () => {
     const store = createStore();
     // a prior import left a table + a stale materialized entry in the pool
     store.set(tablesAtom, [{ id: "old", name: "old", schema: SCHEMA,
       hierarchy: { spine: [], fn: {} },
       handle: { id: "h_old", n: 1, version: 0, schema: SCHEMA, counts: {} as never } }]);
     store.set(materializedTablesAtom, { old: { version: 0, table: { schema: SCHEMA, rows: [] } } });
-    await store.set(loadDocumentAtom, { schema: SCHEMA, rows: [], id: "h0", n: 1, version: 0,
-      counts: { total: 1 }, analyses: [makeSpec("a", { xCol: "grp" })] } as never);
+    await store.set(loadDocumentAtom,
+      { analyses: [makeSpec("a", { xCol: "grp" })], tables: [lt("table_1")] } as never);
     const pool = store.get(tablesAtom);
     expect(pool.map((t) => t.id)).not.toContain("old");            // the orphan is gone
     expect(pool.length).toBe(1);                                   // just the loaded doc's table

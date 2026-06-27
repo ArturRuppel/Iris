@@ -83,8 +83,11 @@ from iris_engine import document
 def test_iris_round_trip_preserves_join_and_stats():
     spec = _tier_a_spec()
     left = fx.left_table()
+    tables = {"table_1": {"schema": left["schema"],
+                          "hierarchy": {"spine": [], "fn": {}},
+                          "rows": left["rows"]}}
     data = document.save_document(
-        left["schema"], left["rows"], [spec],
+        tables, [spec],
         provenance={"source": "cov2d tier-a round-trip test"},
         engine_snapshot={})
     doc = document.load_document(data)
@@ -94,7 +97,8 @@ def test_iris_round_trip_preserves_join_and_stats():
     join = next(s for s in reloaded["reduce"]["steps"] if s["kind"] == "join")
     assert len(join["right"]["rows"]) == len(fx.right_table()["rows"])
     # re-render the reloaded spec over the reloaded table -> identical stats
-    table = {"schema": doc["schema"], "rows": doc["rows"]}
+    t = doc["tables"]["table_1"]
+    table = {"schema": t["schema"], "rows": t["rows"]}
     ref = fx.paired_by_replicate_reference()
     fig, res, *_ = render_mod.render(table, reloaded)
     assert res["result"]["p"] == pytest.approx(ref["p"], abs=1e-12)

@@ -131,7 +131,7 @@ Minimal. The data tab renders the **list of pool tables** with a selector for th
 
 - **Unset / dangling `rightTableId`:** the join renders its open "missing" circle and is skipped on the run path (graceful; same as a fresh blank join).
 - **Editing a referenced table:** materialization reads live from the session, so a join always sees current rows; no stale client copy.
-- **Engine 8-session cap:** if the pool exceeds the engine's LRU, an evicted table's session is recreated on demand from its rows (the existing token/inline `createSession` fallback). Not expected in this slice, but the design doesn't assume unbounded sessions.
+- **Engine 8-session cap (known limitation, not yet handled):** the engine's `SessionStore` LRU holds up to 8 sessions. A workspace with **>8 tables** is not safe today: pool tables are referenced by session id only (the browser does not retain their rows), so an evicted session has no recreate-on-demand fallback on the save/load path — save would `409` and `/document/load` would evict the earliest sessions before returning them. >8 input tables is not expected in this slice; lifting the cap (or rehydrating evicted sessions from the persisted `.iris` rows) is a documented follow-up, not implemented here.
 - **Empty pool:** the Data tab shows the existing import affordance; analyses can't be created until one table exists (unchanged from today).
 
 ## 9. Testing strategy

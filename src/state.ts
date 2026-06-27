@@ -1,8 +1,8 @@
 import { atom, type Getter } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type {
-  AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, GrainKey, Hierarchy, Layer, LevelFn, Registry, Schema, Row,
-  StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName, ReduceSpec,
+  AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
+  StatsFamily, StyleKnob, StyleOverrides, Table, TableHandle, TestName, ReduceSpec,
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
@@ -256,17 +256,33 @@ export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): Engi
       : s);
 }
 
-/* like resolveEngineSteps, but for SAVE: inline every FILLED, materialized join's
-   right (the caller pre-materializes every pool-referenced table first, so a valid
-   reference is always cached here). An UNSET reference has no table to write, and a
-   filled-but-uncached one is dangling (its table left the pool) — both are skipped
-   gracefully rather than written or crashed on (design §8). */
-export function resolveSaveSteps(steps: ReduceStep[], cache: RightCache): EngineReduceStep[] {
+/* SAVE serialization (Plan B): a FILLED join serializes as a REFERENCE to its
+   right pool table (`right_table_id`), not inline rows — the engine reads the
+   right's full rows from its session when it saves the table pool. An UNSET join
+   (no rightTableId) has nothing to reference and is dropped. No cache, no inline. */
+export function resolveSaveSteps(steps: ReduceStep[]): EngineReduceStep[] {
   return steps
-    .filter((s) => s.kind !== "join" || (!!s.rightTableId && !!cache[s.rightTableId]))
+    .filter((s) => s.kind !== "join" || s.rightTableId.length > 0)
     .map((s) => (s.kind === "join"
-      ? { kind: "join", on: s.on, how: s.how, right: cache[s.rightTableId].table }
+      ? { kind: "join" as const, on: s.on, how: s.how, right_table_id: s.rightTableId }
       : s));
+}
+
+/* the SAVE table pool: every pool table some analysis roots in (its main table) or
+   references through a filled join, once each, in first-seen order. The engine
+   reads each table's FULL rows from its live session (`handle.id`) and writes them
+   under the pool id (`name`), so a saved .iris carries the whole pool by reference. */
+export function saveTablesFor(plottables: Plottable[], pool: WorkspaceTable[]): SaveTable[] {
+  const ids = new Set<string>();
+  for (const p of plottables) {
+    if (p.tableId) ids.add(p.tableId);
+    for (const s of p.reduce.steps)
+      if (s.kind === "join" && s.rightTableId) ids.add(s.rightTableId);
+  }
+  return [...ids]
+    .map((id) => pool.find((t) => t.id === id))
+    .filter((t): t is WorkspaceTable => !!t)
+    .map((t) => ({ name: t.id, table_id: t.handle.id, hierarchy: t.hierarchy }));
 }
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
@@ -616,12 +632,15 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     describeOnly: s?.describe_only ?? false,
     previewLevel: RAW_LEVEL,
     style,
-    /* a saved join step inlines its right table; the internal model references the
-       right by id instead. Drop the inline rows here (rightTableId starts UNFILLED —
-       a later task migrates them into the pool) and key every step for React. */
+    /* a saved 2.1 join step REFERENCES its right pool table by id (right_table_id) —
+       adopt it straight into the internal rightTableId. A legacy 2.0 join instead
+       inlines its `right` rows and carries NO right_table_id, so rightTableId starts
+       "" and loadDocumentAtom migrates the inline right into the pool. Key every
+       step for React. */
     reduce: { steps: (spec.reduce?.steps ?? []).map((s) =>
       s.kind === "join"
-        ? { kind: "join" as const, on: s.on, how: s.how, rightTableId: "", _key: nextStepKey() }
+        ? { kind: "join" as const, on: s.on, how: s.how,
+            rightTableId: (s as { right_table_id?: string }).right_table_id ?? "", _key: nextStepKey() }
         : { ...s, _key: nextStepKey() }) },
     collapse: spec.collapse,
     testGrain: spec.test_grain,
@@ -629,64 +648,86 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
 }
 
 export interface LoadedDoc {
-  schema: Schema;
-  rows: Row[];                              // first window only (preview)
+  manifest?: DocumentManifest;
   analyses: AnalysisSpec[];                 // already migrated to the current spec
-  id: string;                              // session handle the loader created
-  n: number;
-  version: number;
-  counts: TableCounts;
+  provenance?: Record<string, unknown> | null;
+  tables: LoadedTable[];                    // the full pool the engine rebuilt
 }
 
-/* swap in a loaded .viz: like loadTableAtom but restores the saved analyses
-   (rebuilt as editable plottables) and the shared hierarchy instead of starting
-   blank. */
+/* swap in a loaded .iris: like loadTableAtom but rebuilds the FULL table pool from
+   the doc's `tables[]` (Plan B), then restores the saved analyses (rebuilt as
+   editable plottables, each bound to its saved `table_id`) instead of starting
+   blank. A legacy 2.0 file returns ONE table + inline-right joins, which migrate
+   into the pool exactly as before. */
 export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
-  // the engine created the session as it read the .iris; adopt its handle.
-  const handle: TableHandle = {
-    id: doc.id, n: doc.n, version: doc.version, schema: doc.schema, counts: doc.counts,
-  };
-  // the hierarchy is table-level; take it off the first saved spec, falling back
-  // to the identifier columns for older files.
-  const saved = doc.analyses[0]?.hierarchy;
-  const hierarchy: Hierarchy = saved && saved.spine?.length
-    ? { spine: saved.spine, fn: saved.fn ?? {} }
-    : { spine: identifierCols(doc.schema), fn: {} };
   // Load REPLACES the workspace: clear the pool + materialized cache first so a
   // prior import/load leaves no orphan tables and no stale rows (spec §6.2 — one
   // in-memory shape after load). loadTableAtom accumulates; loadDocument does not.
   set(tablesAtom, []);
   set(materializedTablesAtom, {});
-  // Seed the MAIN pool entry from the doc — pool[0], the table every analysis is
-  // (today) bound to. Migrated join rights append after it, in first-seen order.
-  const mainId = seedTableName(get(tablesAtom), undefined);
-  const entry: WorkspaceTable = { id: mainId, name: mainId, schema: doc.schema, hierarchy, handle };
-  set(tablesAtom, upsertTable(get(tablesAtom), entry));
-  set(activeTableIdAtom, mainId);
+  // a malformed / hand-written file with no tables can't seed a pool; bail rather
+  // than crash on doc.tables[0] below (the workspace is already cleared).
+  if (!doc.tables.length) return;
+  // Rebuild the pool from the doc's tables, preserving order; the engine recreated
+  // a session per table as it read the .iris, so adopt each handle. A table keeps
+  // its saved name as its pool id (what each analysis's table_id references).
+  const firstHierarchy = doc.analyses[0]?.hierarchy;
+  for (const lt of doc.tables) {
+    // hierarchy is table-level: prefer the table's own (2.1 carries it), else — a
+    // legacy 2.0 table returns an empty hierarchy — fall back to the first saved
+    // spec's hierarchy, then to the identifier columns.
+    const hierarchy: Hierarchy = lt.hierarchy && lt.hierarchy.spine?.length
+      ? { spine: lt.hierarchy.spine, fn: lt.hierarchy.fn ?? {} }
+      : firstHierarchy && firstHierarchy.spine?.length
+        ? { spine: firstHierarchy.spine, fn: firstHierarchy.fn ?? {} }
+        : { spine: identifierCols(lt.schema), fn: {} };
+    const entry: WorkspaceTable = {
+      id: lt.name, name: lt.name, schema: lt.schema, hierarchy,
+      handle: { id: lt.id, n: lt.n, version: lt.version, schema: lt.schema, counts: lt.counts },
+    };
+    set(tablesAtom, upsertTable(get(tablesAtom), entry));
+  }
+  set(activeTableIdAtom, doc.tables[0].name);
   set(engineErrorAtom, null);
   set(analysisByIdAtom, {});
   set(analysisKeyByIdAtom, {});
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
-  // a fresh doc with no saved analyses gets a single default plottable.
+  // a fresh doc with no saved analyses gets a single default plottable bound to
+  // the first pool table.
   if (!doc.analyses.length) {
-    const first = makeDefaultPlottable(doc.schema, mainId);
+    const first = makeDefaultPlottable(doc.tables[0].schema, doc.tables[0].name);
     set(plottablesAtom, [first]);
     set(activePlottableIdAtom, first.id);
     return;
   }
-  // bind the restored analyses to the seeded pool entry (they were saved with no
-  // table_id, or a stale one) and migrate each inline join right into the pool.
-  //
-  // A SAVED join step carries its right table INLINE (EngineJoinStep.right);
-  // plottableFromSpec already stripped that to rightTableId:"". Walk the RAW spec
-  // steps alongside the plottable's steps: create a session per distinct right,
-  // append it to the pool, and point the plottable's join step at the new pool id.
-  // Identical rights (same schema+rows) dedup to one pool entry across analyses.
+  // Restore each analysis. A 2.1 join already carries its right_table_id (adopted
+  // by plottableFromSpec into rightTableId, pointing at a pool table seeded above)
+  // and needs NO migration. A legacy 2.0 join inlines its right rows (no
+  // right_table_id): walk the RAW spec steps, create a session per distinct right,
+  // append it to the pool, and point the join at the new pool id. Identical rights
+  // (same schema+rows) dedup to one pool entry across analyses.
   const byContent = new Map<string, string>();           // content key -> pool id
   const migrated: Plottable[] = [];
   for (const spec of doc.analyses) {
-    const p = { ...plottableFromSpec(spec), tableId: mainId };
+    const p = plottableFromSpec(spec);
+    // bind to the saved table_id when it names a real pool table; else (legacy 2.0
+    // with no table_id) bind to the first pool table. A non-empty table_id that is
+    // NOT in the pool is a dangling reference — bind to pool[0] so the doc still
+    // opens, but warn loudly (integrity via guidance, not a wall). An empty
+    // table_id is the normal legacy-2.0 case, not a dangling ref.
+    const pool = get(tablesAtom);
+    let tableId = pool[0].id;
+    if (p.tableId) {
+      if (pool.some((t) => t.id === p.tableId)) tableId = p.tableId;
+      else console.warn(`analysis "${p.name}" references unknown table "${p.tableId}"; binding to "${pool[0].id}"`);
+    }
+    // a 2.1 join may reference a right table that isn't in the pool (a hand-edited
+    // or partial file): the live path degrades gracefully (the cache never holds
+    // it, so the join is dropped), but surface it so the missing right isn't silent.
+    for (const s of p.reduce.steps)
+      if (s.kind === "join" && s.rightTableId && !pool.some((t) => t.id === s.rightTableId))
+        console.warn(`analysis "${p.name}" joins unknown table "${s.rightTableId}"; the join will be skipped until it is present`);
     const rawSteps = spec.reduce?.steps ?? [];
     // sequential (not Promise.all) so the pool grows deterministically and two
     // identical rights within ONE analysis dedup to a single createSession too.
@@ -715,7 +756,7 @@ export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
       }
       steps.push({ ...step, rightTableId: poolId });
     }
-    migrated.push({ ...p, reduce: { ...p.reduce, steps } });
+    migrated.push({ ...p, tableId, reduce: { ...p.reduce, steps } });
   }
   set(plottablesAtom, migrated);
   set(activePlottableIdAtom, migrated[0].id);
@@ -730,9 +771,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
                           rec: TestName | undefined,
                           snapshot: Record<string, string>,
                           hierarchy: Hierarchy,
-                          cache: RightCache,
-                          resolve: (steps: ReduceStep[], cache: RightCache) => EngineReduceStep[]
-                            = resolveEngineSteps): AnalysisSpec {
+                          cache: RightCache): AnalysisSpec {
   const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
@@ -749,7 +788,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: { steps: resolve(p.reduce.steps, cache).map(stripStepKey) },
+    reduce: { steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey) },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -787,11 +826,20 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   };
 }
 
-/* save spec: identical to buildSpec but inlines every filled join (no graceful
-   drop) so a saved .iris never loses a join. Referenced tables must be cached. */
+/* save spec (Plan B): the buildSpec result, but with `table_id` set (which pool
+   table the analysis roots in) and every FILLED join serialized as a REFERENCE
+   (right_table_id) instead of inline rows — the full pool is saved separately, by
+   reference. `cache` is unused here (kept so buildAllSpecs can call buildSpec and
+   specForSave through one builder signature). */
 export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | undefined,
   snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache): AnalysisSpec {
-  return buildSpec(p, family, rec, snapshot, hierarchy, cache, resolveSaveSteps);
+  void cache;
+  const base = buildSpec(p, family, rec, snapshot, hierarchy, {});
+  return {
+    ...base,
+    table_id: p.tableId,
+    reduce: { steps: resolveSaveSteps(p.reduce.steps).map(stripStepKey) },
+  };
 }
 
 /* the keystone: spec derived live from the active plottable. The stats family is

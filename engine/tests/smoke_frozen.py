@@ -92,11 +92,12 @@ def main() -> None:
         assert abs(w_mm - 89) < 0.5 and abs(h_mm - 70) < 0.5, (w_mm, h_mm)
         ok(f"PDF export measures {w_mm:.1f} x {h_mm:.1f} mm")
 
-        saved = req("/document/save", {"table": make_table(),
-                                       "analyses": [make_spec()],
-                                       "provenance": {}})
+        saved = req("/document/save",
+                    {"tables": [{"name": "table_1", "table": make_table(),
+                                 "hierarchy": {"spine": [], "fn": {}}}],
+                     "analyses": [make_spec()], "provenance": {}})
         loaded = req("/document/load", {"data_base64": saved["data_base64"]})
-        assert len(loaded["rows"]) == 40
+        assert len(loaded["tables"][0]["rows"]) == 40
         ok(".iris save/load roundtrip")
 
         # port collision: a second instance on the same port must exit nonzero

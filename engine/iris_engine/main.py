@@ -55,11 +55,17 @@ class ExportRequest(AnalyzeRequest):
     dpi: int = 300
 
 
+class SaveTable(BaseModel):
+    name: str
+    table_id: str | None = None      # session id to read full rows from
+    table: dict | None = None        # inline fallback ({schema, rows})
+    hierarchy: dict = {"spine": [], "fn": {}}
+
+
 class SaveRequest(BaseModel):
-    table: dict | None = None
-    table_id: str | None = None
+    tables: list[SaveTable]
     analyses: list[dict]
-    provenance: dict
+    provenance: dict = {}
 
 
 class LoadRequest(BaseModel):
@@ -725,13 +731,19 @@ def import_commit(req: ImportCommitRequest):
 
 @app.post("/document/save")
 def doc_save(req: SaveRequest):
-    table = _resolve_table(req.table, req.table_id)
-    # A session resolves to a `frame`; an inline request carries `rows`. Save is
-    # rare, so paying the frame->rows serialization here (rather than on every
-    # analyze) is fine.
-    rows = table["rows"] if "rows" in table else session_mod.records(table["frame"])
-    data = document.save_document(table["schema"], rows,
-                                  req.analyses, req.provenance,
+    # Each requested table resolves to its FULL rows (never a preview window): a
+    # session yields a `frame` we serialize here; an inline request carries `rows`.
+    # Save is rare, so paying the frame->rows serialization here is fine.
+    tables = {}
+    for st in req.tables:
+        if st.name in tables:
+            raise HTTPException(
+                422, f"duplicate table name in save request: {st.name}")
+        t = _resolve_table(st.table, st.table_id)
+        rows = t["rows"] if "rows" in t else session_mod.records(t["frame"])
+        tables[st.name] = {"schema": t["schema"], "hierarchy": st.hierarchy,
+                           "rows": rows}
+    data = document.save_document(tables, req.analyses, req.provenance,
                                   engine_snapshot())
     return {"filename": "document.iris",
             "data_base64": base64.b64encode(data).decode()}
@@ -743,10 +755,18 @@ def doc_load(req: LoadRequest):
         doc = document.load_document(base64.b64decode(req.data_base64))
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not read document: {e}") from e
-    tid = _SESSIONS.create(doc["schema"], frame_from_table(doc))
-    t = _SESSIONS.get(tid)
-    return {**doc, "id": tid, "n": t.n, "version": t.version,
-            "rows": t.window(0, 200), "counts": t.counts()}     # first window only
+    # One live session per named table; each returns its first window. The
+    # analyses/provenance carry their own table refs and ride back untouched.
+    out = []
+    for name, t in doc["tables"].items():
+        tid = _SESSIONS.create(t["schema"], frame_from_table(t))
+        sess = _SESSIONS.get(tid)
+        out.append({"name": name, "id": tid, "schema": t["schema"],
+                    "hierarchy": t["hierarchy"], "n": sess.n,
+                    "version": sess.version, "counts": sess.counts(),
+                    "rows": sess.window(0, 200)})  # first window only
+    return {"manifest": doc["manifest"], "analyses": doc["analyses"],
+            "provenance": doc["provenance"], "tables": out}
 
 
 def _exit_when_stdin_closes():

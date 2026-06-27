@@ -94,8 +94,10 @@ def build_iris(case: ModuleType, *, write: bool = True) -> bytes:
                   "title": getattr(case, "TITLE", case.__case_dir__.name),
                   "data_source": getattr(case, "SOURCE", ""),
                   "exclusions": []}
-    data = document.save_document(table["schema"], table["rows"],
-                                  _analyses(case), provenance,
+    tables = {"table_1": {"schema": table["schema"],
+                          "hierarchy": {"spine": [], "fn": {}},
+                          "rows": table["rows"]}}
+    data = document.save_document(tables, _analyses(case), provenance,
                                   main.engine_snapshot())
     if write:
         ARTIFACTS.mkdir(exist_ok=True)
@@ -214,7 +216,8 @@ def assert_figure(facts: svgstruct.SvgFacts, expected: dict) -> None:
 def render_svg(case: ModuleType, spec: dict, *, write: bool = True) -> str:
     """Run one analysis through the engine and return its figure SVG, writing it
     to ``artifacts/`` for human spot-checking ('look for yourself')."""
-    table = {"schema": case.__built__["schema"], "rows": case.__built__["rows"]}
+    _, t = next(iter(case.__built__["tables"].items()))
+    table = {"schema": t["schema"], "rows": t["rows"]}
     fig, res, _, _, model, issues = main._run(table, spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
