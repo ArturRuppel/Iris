@@ -12,6 +12,7 @@ import {
   loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, materializedTablesAtom,
+  tablesNeedingMaterialize,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
   addPlottableAtom, loadDocumentAtom,
@@ -629,6 +630,24 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
     const store = createStore();
     store.set(materializedTablesAtom, cache);
     expect(store.get(materializedTablesAtom).annot.table).toBe(right);
+  });
+
+  it("tablesNeedingMaterialize lists referenced tables missing or stale in the cache", () => {
+    const wt = (id: string, version: number) => ({ id, name: id, schema: SCHEMA,
+      hierarchy: { spine: [], fn: {} },
+      handle: { id: `h_${id}`, n: 3, version, schema: SCHEMA, counts: {} as never } });
+    const pool = [wt("cells", 1), wt("annot", 2)];
+    const join = { ...makeStep("join"), rightTableId: "annot" };
+    const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
+      reduce: { steps: [join] } } as never;
+    // cache empty → annot needs fetch (cells is not referenced by a join)
+    expect(tablesNeedingMaterialize(pool, [p], {}).map((t) => t.id)).toEqual(["annot"]);
+    // cache has annot at the WRONG version → still stale
+    expect(tablesNeedingMaterialize(pool, [p],
+      { annot: { version: 1, table: { schema: SCHEMA, rows: [] } } }).map((t) => t.id)).toEqual(["annot"]);
+    // cache has annot at the CURRENT version (2) → nothing needed
+    expect(tablesNeedingMaterialize(pool, [p],
+      { annot: { version: 2, table: { schema: SCHEMA, rows: [] } } })).toEqual([]);
   });
 });
 

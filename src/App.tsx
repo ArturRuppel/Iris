@@ -18,6 +18,7 @@ import {
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
+  tablesNeedingMaterializeAtom, materializedTablesAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { NodeShape } from "./types";
@@ -256,6 +257,26 @@ export default function App() {
     }, 200);
     return () => window.clearTimeout(shapeTimer.current);
   }, [handle?.id, handle?.version, stepsKey, activeId, collapseKey]);
+
+  /* keep the materialized cache populated: whenever a join references a pool table,
+     fetch that table's FULL rows from its session and write them at the table's
+     current handle version. The selector goes quiet once each referenced table is
+     cached at its current version, so this fetches once per (table, version). */
+  const needMaterialize = useAtomValue(tablesNeedingMaterializeAtom);
+  const setMaterialized = useSetAtom(materializedTablesAtom);
+  useEffect(() => {
+    if (needMaterialize.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      for (const t of needMaterialize) {
+        const res = await engine.rowsWindow(t.handle.id, 0, t.handle.n);   // FULL rows, no preview cap
+        if (cancelled) return;
+        setMaterialized((prev) => ({ ...prev,
+          [t.id]: { version: t.handle.version, table: { schema: t.schema, rows: res.rows } } }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [needMaterialize, setMaterialized]);
 
   /* clear the explorer's selected node when the active analysis changes, so a
      node id from a different analysis never drives the wrong data tab. */

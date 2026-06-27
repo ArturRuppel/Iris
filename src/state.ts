@@ -214,6 +214,23 @@ type RightCache = Record<string, { version: number; table: Table }>;
    keyed by handle version so an edit re-materializes (design §5, §11). Session-only. */
 export const materializedTablesAtom = atom<RightCache>({});
 
+/* derived view of the above, for the App materialization effect to read directly. */
+export const tablesNeedingMaterializeAtom = atom((get) =>
+  tablesNeedingMaterialize(get(tablesAtom), get(plottablesAtom), get(materializedTablesAtom)));
+
+/* pool tables referenced by some analysis's join that are absent from the
+   materialized cache or stale (handle version moved) — these must be fetched so
+   the engine boundary can inline their full rows. Pure over its inputs. */
+export function tablesNeedingMaterialize(
+  pool: WorkspaceTable[], plottables: Plottable[], cache: RightCache): WorkspaceTable[] {
+  const referenced = new Set<string>();
+  for (const p of plottables)
+    for (const s of p.reduce.steps)
+      if (s.kind === "join" && s.rightTableId) referenced.add(s.rightTableId);
+  return pool.filter((t) => referenced.has(t.id)
+    && (!cache[t.id] || cache[t.id].version !== t.handle.version));
+}
+
 /* a join is runnable once its right is materialized; unset/unmaterialized joins are
    skipped (display degrades gracefully until the fetch lands). The spec keeps the
    step so its editor card and the open "missing" circle persist; it just isn't sent
