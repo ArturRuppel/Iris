@@ -27,8 +27,24 @@ const CASCADE = 28;
    too). null = nothing selected. */
 export const selectedTargetAtom = atom<Target | null>(null);
 
-/* Every open floating card. */
+/* Every open floating card. Now used only for edge editors — node data cards
+   (table/plot/stats) dock into the stash below instead of floating. */
 export const cardsAtom = atom<Card[]>([]);
+
+/* ---- the pop stash: 3 docked slots for node data cards ---- */
+
+/* A pinned data card. No geometry — the stash lays the slots out itself. */
+export interface StashEntry {
+  id: string;
+  target: Target;
+  cardKind: CardKind;
+}
+
+/* how many slots the stash shows; pushing a 4th distinct card evicts the oldest. */
+export const STASH_SLOTS = 3;
+
+/* The pinned cards, oldest first. Capped at STASH_SLOTS (a FIFO ring). */
+export const stashAtom = atom<StashEntry[]>([]);
 
 /* Per-node position overrides for nudged nodes on the canvas; cleared by tidy
    and on analysis switch. Keyed by node id. */
@@ -56,6 +72,26 @@ export const openCardAtom = atom(
     ]);
   },
 );
+
+/* Pin a node's data card into the stash ring. Idempotent per target: re-pinning
+   one already stashed just re-selects it (no duplicate, no reorder). A new card
+   appends; once past STASH_SLOTS the oldest drops off the front. */
+export const pushStashAtom = atom(
+  null,
+  (get, set, arg: { target: Target; cardKind: CardKind }) => {
+    set(selectedTargetAtom, arg.target);
+    const id = cardId(arg.target);
+    const stash = get(stashAtom);
+    if (stash.some((e) => e.id === id)) return;
+    const next = [...stash, { id, target: arg.target, cardKind: arg.cardKind }];
+    set(stashAtom, next.slice(-STASH_SLOTS));
+  },
+);
+
+/* Unpin one card from the stash by id. */
+export const popStashAtom = atom(null, (get, set, id: string) => {
+  set(stashAtom, get(stashAtom).filter((e) => e.id !== id));
+});
 
 export const closeCardAtom = atom(null, (get, set, id: string) => {
   set(cardsAtom, get(cardsAtom).filter((c) => c.id !== id));
@@ -90,6 +126,7 @@ export const collapseAllCardsAtom = atom(null, (get, set) => {
    stale card/selection/nudge from another analysis never sticks (design §3). */
 export const clearWorkbenchAtom = atom(null, (_get, set) => {
   set(cardsAtom, []);
+  set(stashAtom, []);
   set(selectedTargetAtom, null);
   set(nodePositionsAtom, {});
 });

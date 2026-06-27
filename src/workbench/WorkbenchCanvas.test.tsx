@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { WorkbenchCanvas, applyNudge, toRF } from "./WorkbenchCanvas";
-import { cardsAtom, nodePositionsAtom } from "./state";
+import { cardsAtom, nodePositionsAtom, stashAtom } from "./state";
 import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
 
@@ -46,14 +46,15 @@ describe("WorkbenchCanvas", () => {
     expect(closed).toBe(true);
   });
 
-  it("clicking a node opens its card (node id -> table card)", () => {
+  it("clicking a node pins its data card into the stash (not a floating popup)", () => {
     const { store, container } = mount();
     const node = container.querySelector('.react-flow__node[data-id="plot"]')!;
     expect(node).toBeTruthy();
     fireEvent.click(node);
-    const cards = store.get(cardsAtom);
-    expect(cards).toHaveLength(1);
-    expect(cards[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot" } });
+    expect(store.get(cardsAtom)).toHaveLength(0); // no floating popup
+    const stash = store.get(stashAtom);
+    expect(stash).toHaveLength(1);
+    expect(stash[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot" } });
   });
 
   // React Flow does not render any `.react-flow__edge` DOM under jsdom (edges

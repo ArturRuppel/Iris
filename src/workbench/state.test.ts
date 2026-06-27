@@ -4,6 +4,7 @@ import {
   selectedTargetAtom, cardsAtom, nodePositionsAtom,
   openCardAtom, closeCardAtom, moveCardAtom, resizeCardAtom,
   toggleCardCollapsedAtom, collapseAllCardsAtom, clearWorkbenchAtom,
+  stashAtom, pushStashAtom, popStashAtom, STASH_SLOTS,
 } from "./state";
 import type { Target } from "./cardRegistry";
 
@@ -57,13 +58,51 @@ describe("workbench state", () => {
     expect(s.get(cardsAtom).every((c) => c.collapsed)).toBe(true);
   });
 
-  it("clearWorkbench resets cards, selection, and node positions", () => {
+  it("clearWorkbench resets cards, stash, selection, and node positions", () => {
     const s = createStore();
     s.set(openCardAtom, { target: tNode("source"), cardKind: "table" as const });
+    s.set(pushStashAtom, { target: tNode("plot"), cardKind: "plot" as const });
     s.set(nodePositionsAtom, { source: { x: 10, y: 20 } });
     s.set(clearWorkbenchAtom);
     expect(s.get(cardsAtom)).toHaveLength(0);
+    expect(s.get(stashAtom)).toHaveLength(0);
     expect(s.get(selectedTargetAtom)).toBeNull();
     expect(s.get(nodePositionsAtom)).toEqual({});
+  });
+});
+
+describe("pop stash", () => {
+  it("pushStash pins a card and selects its target", () => {
+    const s = createStore();
+    s.set(pushStashAtom, { target: tNode("source"), cardKind: "table" as const });
+    expect(s.get(stashAtom)).toHaveLength(1);
+    expect(s.get(stashAtom)[0].cardKind).toBe("table");
+    expect(s.get(selectedTargetAtom)).toEqual(tNode("source"));
+  });
+
+  it("pushStash is idempotent per target (no duplicate, no reorder, re-selects)", () => {
+    const s = createStore();
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    s.set(pushStashAtom, { target: tNode("b"), cardKind: "table" as const });
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["a", "b"]);
+    expect(s.get(selectedTargetAtom)).toEqual(tNode("a"));
+  });
+
+  it("evicts the oldest when a 4th distinct card is pinned (FIFO ring)", () => {
+    const s = createStore();
+    for (const id of ["a", "b", "c", "d"]) {
+      s.set(pushStashAtom, { target: tNode(id), cardKind: "table" as const });
+    }
+    expect(s.get(stashAtom)).toHaveLength(STASH_SLOTS);
+    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b", "c", "d"]);
+  });
+
+  it("popStash unpins one card by id", () => {
+    const s = createStore();
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    s.set(pushStashAtom, { target: tNode("b"), cardKind: "table" as const });
+    s.set(popStashAtom, s.get(stashAtom)[0].id);
+    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b"]);
   });
 });

@@ -961,3 +961,68 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-cards { position: absolute; inset: 44px 0 0 0; pointer-events: none; }
 .txw-cards > .txw-card { pointer-events: auto; }
 .txw-collapse-all { margin-left: 8px; }
+
+/* ---- the pop stash: 3 docked slots along the canvas bottom ---- */
+/* when the stash is open, the canvas and floating layer give it room. */
+:root { --stash-h: 270px; }
+.txw-rfcanvas.with-stash, .txw-cards.with-stash { bottom: var(--stash-h); }
+
+.txw-stash {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: var(--stash-h);
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  background: #fff;
+  border-top: 1px solid #e2e8f0;
+  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
+  z-index: 6;
+}
+.txw-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.txw-slot.sel { border-color: #6366f1; box-shadow: 0 0 0 1px #6366f1; }
+.txw-slot.ghost {
+  border-style: dashed;
+  border-color: #d7dee7;
+  background: repeating-linear-gradient(135deg, #fafbfc, #fafbfc 9px, #f4f6f9 9px, #f4f6f9 18px);
+}
+.txw-slot-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 6px 5px 10px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  user-select: none;
+}
+.txw-slot-title { font-size: 12px; font-weight: 600; color: #334155; }
+.txw-slot-sub {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #64748b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.txw-slot-close {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  color: #475569;
+  border-radius: 4px;
+}
+.txw-slot-close:hover { background: #e2e8f0; }
+.txw-slot-body { flex: 1; overflow: auto; padding: 10px; }

@@ -11,9 +11,13 @@ import { layoutGraph } from "./layout";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
 import { nodeDeltas, spineOf, levelInitial } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
-import { openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom } from "./state";
+import {
+  openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
+  pushStashAtom, stashAtom,
+} from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
 import { FloatingCard } from "./FloatingCard";
+import { Stash } from "./Stash";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -86,12 +90,22 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
   const openCard = useSetAtom(openCardAtom);
+  const pushStash = useSetAtom(pushStashAtom);
   const collapseAll = useSetAtom(collapseAllCardsAtom);
   const cards = useAtomValue(cardsAtom);
+  const stash = useAtomValue(stashAtom);
+  const hasStash = stash.length > 0;
 
-  // resolve a click target to its card kind and open (or re-select) it. A stale
-  // id (kind === null) is ignored — the structure changed under the click.
-  const open = useCallback((target: Target) => {
+  // clicking a node pins its data card into the stash (docked, comparable),
+  // never a floating popup. A stale id (kind === null) is ignored.
+  const pinNode = useCallback((target: Target) => {
+    const kind = targetToCardKind(graph, target);
+    if (kind) pushStash({ target, cardKind: kind });
+  }, [graph, pushStash]);
+
+  // clicking an edge opens its editor as a floating card (a transient, focused
+  // editing surface — distinct from the pinned reference cards).
+  const openEdge = useCallback((target: Target) => {
     const kind = targetToCardKind(graph, target);
     if (kind) openCard({ target, cardKind: kind });
   }, [graph, openCard]);
@@ -154,14 +168,14 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <button className="txw-close" onClick={onClose} aria-label="Close workbench">✕</button>
         )}
       </div>
-      <div className="txw-rfcanvas">
+      <div className={`txw-rfcanvas${hasStash ? " with-stash" : ""}`}>
         <ReactFlow
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-          onNodeClick={(_e, n) => open({ kind: "node", id: n.id })}
+          onNodeClick={(_e, n) => pinNode({ kind: "node", id: n.id })}
           onNodeDragStop={(_e, n) =>
             setNodePositions((prev) => applyNudge(prev, n.id, n.position.x, n.position.y))}
-          onEdgeClick={(_e, ed) => open({ kind: "edge", id: ed.id })}
+          onEdgeClick={(_e, ed) => openEdge({ kind: "edge", id: ed.id })}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           fitView proOptions={{ hideAttribution: true }}
         >
@@ -170,9 +184,10 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <Panel position="top-left"><GrainLegend spine={spineOf(graph)} /></Panel>
         </ReactFlow>
       </div>
-      <div className="txw-cards">
+      <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>
         {cards.map((c) => <FloatingCard key={c.id} card={c} />)}
       </div>
+      <Stash graph={graph} />
     </div>
   );
 }
