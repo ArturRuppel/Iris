@@ -1,13 +1,13 @@
 import { useEffect } from "react";
 
-export interface NodeMenu { x: number; y: number; stepIndex: number; label: string }
+export interface MenuItem { label: string; danger?: boolean; onClick: () => void; }
+export interface NodeMenu { x: number; y: number; items: MenuItem[]; }
 
-/* the right-click menu on a deletable pipeline node. A node is a pure projection
-   of one reduce step, so "Delete" removes that step (removeStepAtom) and the
-   linear steps array auto-heals — no edge rewiring. Distinct from a card's `×`,
-   which only closes an editor. Closes on outside-click or Escape. */
+/* The right-click menu on a graph node. Items are caller-supplied: a reduce step
+   offers Delete (removes that step; the linear steps array auto-heals); the
+   figure terminal offers Edit plot…/Edit test…. Closes on outside-click/Escape. */
 export function NodeContextMenu(
-  { menu, onDelete, onClose }: { menu: NodeMenu; onDelete: () => void; onClose: () => void },
+  { menu, onClose }: { menu: NodeMenu; onClose: () => void },
 ) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -19,9 +19,12 @@ export function NodeContextMenu(
     <>
       <div className="txw-ctxmenu-scrim" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div className="txw-ctxmenu" role="menu" style={{ left: menu.x, top: menu.y }}>
-        <button role="menuitem" className="danger" onClick={onDelete}>
-          Delete {menu.label.toLowerCase()}
-        </button>
+        {menu.items.map((it, i) => (
+          <button key={i} role="menuitem" className={it.danger ? "danger" : undefined}
+            onClick={() => { it.onClick(); onClose(); }}>
+            {it.label}
+          </button>
+        ))}
       </div>
     </>
   );

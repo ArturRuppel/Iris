@@ -109,10 +109,15 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const resize = useWorkbenchResize(overlayRef, stashRef);
 
   // clicking a node pins its data card into the stash (docked, comparable),
-  // never a floating popup. A stale id (kind === null) is ignored.
+  // never a floating popup. A stale id (kind === null) is ignored. A whole-node
+  // click on the figure terminal defaults to the plot facet (rather than leaving
+  // facet undefined, which resolves ambiguously in targetToCardKind).
   const pinNode = useCallback((target: Target) => {
-    const kind = targetToCardKind(graph, target);
-    if (kind) pushStash({ target, cardKind: kind });
+    const node = graph.nodes.find((n) => n.id === target.id);
+    const t: Target = node?.kind === "figure" && !target.facet
+      ? { ...target, facet: "plot" } : target;
+    const kind = targetToCardKind(graph, t);
+    if (kind) pushStash({ target: t, cardKind: kind });
   }, [graph, pushStash]);
 
   // clicking an edge opens its editor as a floating card (a transient, focused
@@ -137,9 +142,21 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   };
   const onNodeContextMenu = useCallback((e: ReactMouseEvent, n: Node) => {
     e.preventDefault();
-    const d = deletableStep(n);
-    setMenu(d ? { x: e.clientX, y: e.clientY, stepIndex: d.index, label: d.label } : null);
-  }, []);
+    const d = n.data as unknown as RFNodeData;
+    if (d.variant === "figure") {
+      setMenu({ x: e.clientX, y: e.clientY, items: [
+        { label: "Edit plot…", onClick: () =>
+          openCard({ target: { kind: "node", id: n.id, facet: "plot" }, cardKind: "geom-editor" }) },
+        { label: "Edit test…", onClick: () =>
+          openCard({ target: { kind: "node", id: n.id, facet: "stats" }, cardKind: "test-editor" }) },
+      ] });
+      return;
+    }
+    const del = deletableStep(n);
+    setMenu(del ? { x: e.clientX, y: e.clientY, items: [
+      { label: `Delete ${del.label.toLowerCase()}`, danger: true, onClick: () => removeStep(del.index) },
+    ] } : null);
+  }, [openCard, removeStep]);
 
   // undo/redo the spec (Cmd/Ctrl+Z, +Shift to redo / +Y); spec mutations only —
   // style + node positions are excluded at the source (see state.ts).
@@ -268,11 +285,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <Panel position="top-left"><GrainLegend spine={graph.spine} /></Panel>
         </ReactFlow>
         {menu && (
-          <NodeContextMenu
-            menu={menu}
-            onDelete={() => { removeStep(menu.stepIndex); setMenu(null); }}
-            onClose={() => setMenu(null)}
-          />
+          <NodeContextMenu menu={menu} onClose={() => setMenu(null)} />
         )}
       </div>
       <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>

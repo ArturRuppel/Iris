@@ -10,7 +10,7 @@ const graph: ExplorerGraph = {
   nodes: [
     { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
     { id: "step:0", kind: "table", phase: "reduce", label: "filtered", table: { via: "at_step", at_step: 0 } },
-    { id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } },
+    { id: "plot", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" } },
   ],
   edges: [
     { id: "e0", kind: "filter", label: "mask", fromId: "source", toId: "step:0" },
@@ -131,5 +131,19 @@ describe("WorkbenchCanvas", () => {
     const { nodes } = toRF(graph, { plot: { x: 30, y: 40 } });
     expect(nodes.find(n => n.id === "plot")!.position).toEqual({ x: 30, y: 40 });
     expect(nodes.find(n => n.id === "source")!.position).not.toEqual({ x: 30, y: 40 });
+  });
+
+  it("right-clicking the figure node offers Edit plot and Edit test", () => {
+    const { store, container } = mount();
+    const figureNode = container.querySelector('.react-flow__node[data-id="plot"]')!;
+    expect(figureNode).toBeTruthy();
+    fireEvent.contextMenu(figureNode);
+    expect(screen.getByRole("menuitem", { name: /Edit plot/i })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: /Edit test/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("menuitem", { name: /Edit test/i }));
+    const openCards = store.get(cardsAtom);
+    expect(openCards).toHaveLength(1);
+    expect(openCards[0]).toMatchObject({ cardKind: "test-editor" });
   });
 });
