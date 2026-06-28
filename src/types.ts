@@ -68,9 +68,9 @@ export interface PairwiseComparison {
   mean_diff?: number;
   effect?: { name: string; value: number };
 }
-/* the live geom vocabulary: histogram/density were folded into a single
-   `distribution` geom (see migrateDistLayers). The legacy names remain only so
-   an older .viz still type-checks while it is migrated on load. */
+/* the live geom vocabulary. histogram/density were folded into a single
+   `distribution` geom; the two legacy names remain only so the type still admits
+   any hand-written value without widening to string. */
 export type Geom =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "distribution" | "tile"
@@ -84,9 +84,8 @@ export type Geom =
    `hierarchy`, shared by every consumer. */
 /* `id` is a client-only stable key for React lists (reorderable layers); the
    engine ignores it. Optional so older .viz layers without one still parse.
-   `params` is a legacy field retained only for migration of older .viz files;
-   new code never sets it. Geom knobs live in style.overrides.geoms.<geom>. */
-export interface Layer { id?: string; geom: Geom; level: string; params?: Record<string, unknown> }
+   Geom knobs live in style.overrides.geoms.<geom>, never on the layer. */
+export interface Layer { id?: string; geom: Geom; level: string }
 
 /* How finer rows aggregate into a coarser grain — the set the engine's
    `materialize_levels` honors (hierarchy._AGG). This is the only aggregation

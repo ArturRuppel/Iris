@@ -44,11 +44,14 @@ ANALYSES = [
             "encodings": {"x": None, "y": {"column": "coord"},
                           "color": {"column": "state"},
                           "size": None, "shape": None},
-            "layers": [{"geom": "distribution",
-                        "params": {"dist_render": "potential",
-                                   "bin_method": "sinh", "bin_sharpness": 3.0,
-                                   "show_barrier": True}}],
-            "style": {"overrides": {"reference_value": 0.0}},
+            # geom knobs live in style.overrides.geoms.<geom> (where the compiler
+            # reads them via resolve_geom_style); the layer carries only geom+level.
+            "layers": [{"geom": "distribution"}],
+            "style": {"overrides": {"reference_value": 0.0,
+                                    "geoms": {"distribution": {
+                                        "dist_render": "potential",
+                                        "bin_method": "sinh", "bin_sharpness": 3.0,
+                                        "show_barrier": True}}}},
             "stats": {"alpha": 0.05},
         },
         "expected_stats": {

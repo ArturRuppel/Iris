@@ -544,35 +544,20 @@ export const loadTableAtom = atom(null, async (get, set,
   set(activePlottableIdAtom, first.id);
 });
 
-/* Hoist any layer-level `params` into style.overrides.geoms.<geom> (same as the
-   engine's specnorm._migrate_layer_params, so the FE and engine agree on where
-   geom knobs live). The engine still emits a `params` field on saved layers, so
-   this runs on every load. Mutates the style object in place; returns the cleaned
-   layers (with `params` stripped). */
-function migrateLayerParams(layers: Layer[], style: StyleOverrides): Layer[] {
-  const geoms: Record<string, Record<string, unknown>> = style.geoms ? { ...style.geoms } : {};
-  let migrated = false;
-  // hoist params from all layers
-  for (const l of layers) {
-    if (!l.params || Object.keys(l.params).length === 0) continue;
-    const dest = geoms[l.geom] = { ...(geoms[l.geom] ?? {}) };
-    for (const [k, v] of Object.entries(l.params))
-      dest[k] ??= v;
-    migrated = true;
-  }
-  if (migrated) style.geoms = geoms;
-  return layers.map(({ params: _p, ...rest }) => rest);
-}
-
 /* Inverse of buildSpec: reconstruct the editable Plottable from a saved analysis
    spec so a loaded .viz comes back fully editable, not just renderable. The spec
    carries everything the Plottable needs except previewLevel (a transient UI
-   preview state), which resets to raw. */
+   preview state), which resets to raw. Geom knobs live in style.overrides.geoms
+   (the canonical location the engine compiler reads), never on the layer. */
 export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   const s = spec.stats;
   const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
-  const layers = migrateLayerParams(spec.layers ?? [], style)
-    .map((l) => ({ ...l, id: l.id ?? nextLayerId() }));
+  // tolerate (and drop) a vestigial `params` key on a layer — no spec carries geom
+  // knobs there anymore; they ride in style.overrides.geoms.
+  const layers = (spec.layers ?? []).map((l) => {
+    const { params: _drop, ...rest } = l as Layer & { params?: unknown };
+    return { ...rest, id: rest.id ?? nextLayerId() };
+  });
   return {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",

@@ -37,7 +37,7 @@ function makeSpec(id: string, opts: {
     },
     facet: { row: null, col: null, share_x: true, share_y: true },
     hierarchy: { spine: [], fn: {} },
-    layers: opts.layers === 0 ? [] : [{ geom: "dot", params: {}, level: "" }],
+    layers: opts.layers === 0 ? [] : [{ geom: "dot", level: "" }],
     stats: {
       family: "group_comparison", test: "welch_t", override: null, alpha: 0.05,
     },
