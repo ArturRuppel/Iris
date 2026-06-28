@@ -9,6 +9,7 @@ import base64
 import copy
 import hashlib
 import json
+import math
 import os
 import sys
 import threading
@@ -390,6 +391,23 @@ def fast_json(payload: dict) -> JSONResponse:
     return JSONResponse(payload)
 
 
+def _json_safe(obj):
+    """Recursively replace non-finite floats (NaN, +/-inf) with None so the
+    payload survives strict JSON serialization. Degenerate inputs — a zero-
+    variance group, a single-unit correlation — legitimately yield NaN effect
+    sizes and CIs in stats.py, and FastAPI's json.dumps rejects those, 500-ing
+    the whole /analyze call. None is the honest "undefined here" value, matching
+    the isfinite guards already in stats.py. (np.float64 subclasses float, so
+    numpy scalars are covered too.)"""
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, dict):
+        return {k: _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(v) for v in obj]
+    return obj
+
+
 def _column_summary(df: pd.DataFrame, schema: dict) -> list[dict]:
     out = []
     for c in schema["columns"]:
@@ -511,7 +529,7 @@ def analyze(req: AnalyzeRequest):
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)
     return {"figure": {"svg": svg},
-            "stats": res, "stat_model": model, "issues": issues,
+            "stats": _json_safe(res), "stat_model": model, "issues": issues,
             "engine_snapshot": engine_snapshot()}
 
 

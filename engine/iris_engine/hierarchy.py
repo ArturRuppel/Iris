@@ -65,10 +65,18 @@ def _level_table(src: pd.DataFrame, schema: dict, grain: list[str],
               if c["type"] in ("categorical", "identifier")
               and c["name"] in src and c["name"] not in grain]
 
-    g = src.groupby(grain, observed=True, sort=False)
+    # dropna=False: a grain key may legitimately be missing (e.g. an all-NaN
+    # qualifier column). The pandas default would drop every such row, silently
+    # emptying the table — here a NaN key is its own group so no rows vanish.
+    g = src.groupby(grain, observed=True, sort=False, dropna=False)
     # a qualifier "carries" iff it is single-valued within every grain group;
-    # otherwise it is multi-valued at this grain and is dropped.
-    carried = [c for c in others if int(g[c].nunique(dropna=False).max() or 0) <= 1]
+    # otherwise it is multi-valued at this grain and is dropped. `.max()` is NaN
+    # only when there are no groups at all (empty src) — guard so int() can't
+    # choke on it (NaN is truthy, so `or 0` won't catch it).
+    def _peak(c) -> int:
+        m = g[c].nunique(dropna=False).max()
+        return 0 if pd.isna(m) else int(m)
+    carried = [c for c in others if _peak(c) <= 1]
 
     agg: dict[str, object] = {m: _AGG.get(agg_fn, "mean") for m in measures}
     agg["row_ids"] = _concat_ids
@@ -272,9 +280,12 @@ def pairing(df: pd.DataFrame, spine: list[str], qualifier: str | None,
         home_col = spine[home_idx]        # sub-identity the qualifier sits on
         sub = df[[*unit_cols, home_col, qualifier]].dropna(subset=[qualifier])
         # A (unit, sub-identity) "crosses" when that one home entity is seen under
-        # every level; a unit is paired-complete when it has ≥1 such entity.
+        # every level; a unit is paired-complete when it has ≥1 such entity. Each
+        # group's values are a subset of the global `qlevels`, so it carries all
+        # of them iff its distinct count hits len(qlevels) — a vectorized nunique,
+        # not a per-group python set (which was ~4s over hundreds of k groups).
         crosses = (sub.groupby([*unit_cols, home_col], observed=True)[qualifier]
-                      .agg(lambda s: qlevels.issubset(set(s))))
+                      .nunique() == len(qlevels))
         n_units = int(sub.groupby(unit_cols, observed=True).ngroups)
         n_complete = int(crosses[crosses].reset_index()
                          .groupby(unit_cols, observed=True).ngroups) if crosses.any() else 0

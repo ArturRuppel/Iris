@@ -374,3 +374,22 @@ def test_plan_non_prefix_grain():
         df, _schema(), [{"keep": ["rep"], "fn": "mean"}], [])
     assert set(grains) == {"", "rep"}
     assert len(grains["rep"][0]) == df["rep"].nunique()
+
+def test_all_nan_qualifier_in_grain_does_not_crash_or_drop_rows():
+    """An all-NaN qualifier driven into the grain (e.g. an empty `date` column
+    used to split) must not silently drop every row. pandas' default
+    groupby(dropna=True) would empty the table and then `.max()` over zero groups
+    returns NaN, which `int(...)` choked on (NaN is truthy, so `or 0` missed it).
+    With dropna=False the NaN is its own group: no rows vanish, no crash."""
+    df = _unpaired_df()
+    df["date"] = np.nan          # qualifier present but entirely missing
+    schema = {**_schema(), "columns": _schema()["columns"]
+              + [{"name": "date", "type": "categorical", "label": "Date"}]}
+    # split by the all-NaN column at every level
+    grains = hierarchy.materialize_plan(
+        df, schema, hierarchy.default_plan(SPINE, {}), ["date"])
+    # raw is untouched; every collapsed grain keeps all the underlying rows
+    raw = grains[""][0]
+    assert len(raw) == len(df)
+    total_ids = sum(len(ids) for ids in grains["subject"][0]["row_ids"])
+    assert total_ids == len(df)
