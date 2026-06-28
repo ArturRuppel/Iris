@@ -55,7 +55,7 @@ describe("WorkbenchCanvas", () => {
     expect(store.get(cardsAtom)).toHaveLength(0); // no floating popup
     const stash = store.get(stashAtom);
     expect(stash).toHaveLength(1);
-    expect(stash[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot" } });
+    expect(stash[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot", facet: "plot" } });
   });
 
   // React Flow does not render any `.react-flow__edge` DOM under jsdom (edges
@@ -142,8 +142,12 @@ describe("WorkbenchCanvas", () => {
     expect(screen.getByRole("menuitem", { name: /Edit test/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit test/i }));
-    const openCards = store.get(cardsAtom);
-    expect(openCards).toHaveLength(1);
-    expect(openCards[0]).toMatchObject({ cardKind: "test-editor" });
+    expect(store.get(cardsAtom)).toMatchObject([{ cardKind: "test-editor" }]);
+
+    // a fresh right-click → "Edit plot…" opens the geom editor.
+    fireEvent.contextMenu(figureNode);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Edit plot/i }));
+    expect(store.get(cardsAtom)).toContainEqual(
+      expect.objectContaining({ cardKind: "geom-editor" }));
   });
 });

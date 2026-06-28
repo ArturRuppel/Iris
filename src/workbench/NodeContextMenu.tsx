@@ -19,8 +19,8 @@ export function NodeContextMenu(
     <>
       <div className="txw-ctxmenu-scrim" onClick={onClose} onContextMenu={(e) => { e.preventDefault(); onClose(); }} />
       <div className="txw-ctxmenu" role="menu" style={{ left: menu.x, top: menu.y }}>
-        {menu.items.map((it, i) => (
-          <button key={i} role="menuitem" className={it.danger ? "danger" : undefined}
+        {menu.items.map((it) => (
+          <button key={it.label} role="menuitem" className={it.danger ? "danger" : undefined}
             onClick={() => { it.onClick(); onClose(); }}>
             {it.label}
           </button>
