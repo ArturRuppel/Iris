@@ -9,7 +9,7 @@ import { CARD_BODIES, CARD_TITLE } from "./cardRegistry";
 
 /* one pinned data card: a header (which node + unpin) over the registry body.
    Pointer-down anywhere selects its target so the canvas highlights the node. */
-function StashCard({ entry, label }: { entry: StashEntry; label: string }) {
+function StashCard({ entry, label, slot }: { entry: StashEntry; label: string; slot: number }) {
   const pop = useSetAtom(popStashAtom);
   const select = useSetAtom(selectedTargetAtom);
   const selected = useAtomValue(selectedTargetAtom);
@@ -19,8 +19,9 @@ function StashCard({ entry, label }: { entry: StashEntry; label: string }) {
 
   return (
     <div className={`txw-slot${isSel ? " sel" : ""}`} role="group" aria-label={`${title}: ${label}`}
-         onPointerDown={() => select(entry.target)}>
+         data-slot={slot} onPointerDown={() => select(entry.target)}>
       <div className="txw-slot-bar">
+        <span className="txw-slot-num" aria-hidden>{slot}</span>
         <span className="txw-slot-title">{title}</span>
         <span className="txw-slot-sub" title={label}>{label}</span>
         <button className="txw-slot-close" aria-label="Unpin card"
@@ -51,7 +52,7 @@ export const Stash = forwardRef<HTMLDivElement, {
   return (
     <div className="txw-stash" role="region" aria-label="Pinned cards" ref={ref}
          style={{ gridTemplateColumns: gridCols(cols) }}>
-      {stash.map((e) => <StashCard key={e.id} entry={e} label={labelOf(e)} />)}
+      {stash.map((e, i) => <StashCard key={e.id} entry={e} label={labelOf(e)} slot={i + 1} />)}
       {Array.from({ length: ghosts }, (_, i) => (
         <div key={`ghost-${i}`} className="txw-slot ghost" aria-hidden />
       ))}

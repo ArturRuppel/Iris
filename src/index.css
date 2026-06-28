@@ -1037,6 +1037,47 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 }
 .txw-rs-h:hover, .txw-rs-v:hover { background: #6366f1; opacity: .55; }
 .txw-rs-corner:hover { background: #6366f1; opacity: 1; }
+/* ---- stash ↔ graph association: a numbered, colour-coded disc on each pinned
+   node (top-left) and on its stash card, so slot 1/2/3 read as the same thing in
+   both views. The colour is keyed on data-slot and shared via --slot-color. */
+[data-slot="1"] { --slot-color: #6366f1; }   /* indigo */
+[data-slot="2"] { --slot-color: #0d9488; }   /* teal   */
+[data-slot="3"] { --slot-color: #e11d48; }   /* rose   */
+
+.txw-rfnode { position: relative; }
+.txw-rfnode.pinned .txw-node {
+  box-shadow: 0 0 0 2px var(--slot-color, #6366f1), 0 1px 3px rgba(20, 30, 60, .06);
+}
+.txw-node-badge {
+  position: absolute;
+  top: -7px;
+  left: -7px;
+  z-index: 4;
+  width: 19px;
+  height: 19px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 11px/1 system-ui;
+  color: #fff;
+  background: var(--slot-color, #6366f1);
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgba(20, 30, 60, .35);
+  pointer-events: none;
+}
+.txw-slot-num {
+  flex: none;
+  align-self: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 700 11px/1 system-ui;
+  color: #fff;
+  background: var(--slot-color, #6366f1);
+}
+
 .txw-slot.sel { border-color: #6366f1; box-shadow: 0 0 0 1px #6366f1; }
 .txw-slot.ghost {
   border-style: dashed;

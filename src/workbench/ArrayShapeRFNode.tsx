@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Handle, Position } from "@xyflow/react";
-import { useSetAtom } from "jotai";
+import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type NodeVariant } from "../components/ArrayShapeNode";
 import { cannedExample } from "../explorer/cannedExamples";
 import type { EdgeKind, ExplorerNode } from "../explorer/graph";
 import { insertStepAtom } from "../state";
-import { openCardAtom } from "./state";
+import { openCardAtom, stashAtom } from "./state";
 import { EDGE_CARD } from "./cardRegistry";
 import { EDGE_TYPE } from "./edgeMeta";
 import type { NodeDelta } from "./nodeDelta";
@@ -84,6 +84,13 @@ export function ArrayShapeRFNode(
   const [menuOpen, setMenuOpen] = useState(false);
   const canAdd = !!options && options.length > 0;
 
+  // if this node is pinned in the stash, its 1-based slot number badges the
+  // top-left corner — the matching numbered disc on the stash card ties the two
+  // views together.
+  const stash = useAtomValue(stashAtom);
+  const slot = stash.findIndex((e) => e.target.kind === "node" && e.target.id === id);
+  const slotNum = slot >= 0 ? slot + 1 : null;
+
   // clicking the detail line opens the editor for the step that produced this
   // node (the same card a click on its incoming edge opens).
   const onEdit = inEdge
@@ -98,7 +105,9 @@ export function ArrayShapeRFNode(
   };
 
   return (
-    <div className="txw-rfnode">
+    <div className={`txw-rfnode${slotNum ? " pinned" : ""}`}
+         data-slot={slotNum ?? undefined}>
+      {slotNum && <div className="txw-node-badge" aria-hidden>{slotNum}</div>}
       <Handle
         id="in" type="target" position={Position.Left}
         className={missing ? "txw-handle-missing" : undefined}
