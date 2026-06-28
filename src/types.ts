@@ -519,58 +519,12 @@ export interface AnalyzeResponse {
   engine_snapshot: Record<string, string>;
 }
 
-/* Upgrade a serialized analysis to spec_version 2.1. Legacy reduce shapes become
-   the ordered steps[] pipeline (filter/drop only — aggregation moved to the
-   data hierarchy); legacy mappings become encodings; legacy {mark, options|stat}
-   layers become {geom, params}. Lossless: the engine does the same normalization
-   server-side. */
-/* spec_versions already on the modern encodings/layers shape — returned as-is
-   rather than rebuilt from the legacy `mappings` form. 2.1 only drops optional
-   derived stats fields from 2.0, so both are structurally modern. */
-const MODERN_SPEC_VERSIONS = new Set(["2.0", "2.1"]);
+/* Upgrade a serialized analysis spec to the current shape. Every .iris the engine
+   emits (and reads) is already spec_version 2.1 — the engine refuses older files —
+   so this is an identity pass today, kept as the seam where a future spec
+   migration would hook in. */
 export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {
-  if (MODERN_SPEC_VERSIONS.has((an as { spec_version?: string }).spec_version ?? "")) {
-    return an as unknown as AnalysisSpec;
-  }
-  const base = an as Record<string, unknown>;
-
-  /* --- reduce: legacy {filter} -> steps[] --- */
-  const steps: ReduceStep[] = [];
-  const r = base.reduce as
-    | { filter?: FilterCond[]; steps?: ReduceStep[] }
-    | undefined;
-  let reduce: ReduceSpec;
-  if (r?.steps) reduce = { steps: r.steps };
-  else {
-    if (r?.filter && r.filter.length) steps.push({ kind: "filter", conditions: r.filter });
-    reduce = { steps };
-  }
-
-  /* --- mappings -> encodings --- */
-  const m = (base.mappings ?? {}) as Record<string, { column: string } | null>;
-  const encodings = {
-    x: m.x ?? null, y: m.y ?? null, color: m.color ?? null,
-    size: null, shape: null,
-  };
-
-  /* --- {mark, options|stat} -> {geom, params} --- */
-  const legacyLayers = (base.layers ?? []) as
-    { mark: Geom; options?: Record<string, unknown>; stat?: unknown }[];
-  const layers: Layer[] = legacyLayers.map((l) => ({
-    geom: l.mark, params: { ...(l.options ?? {}) }, level: RAW_LEVEL,
-  }));
-
-  const st = (base.stats ?? {}) as AnalysisSpec["stats"];
-  const { mappings, ...rest } = base; // drop the legacy key, now folded into encodings
-  void mappings;
-  return {
-    ...rest,
-    spec_version: "2.1",
-    reduce, encodings, layers,
-    facet: { row: null, col: null, share_x: true, share_y: true },
-    hierarchy: { ...EMPTY_HIERARCHY },
-    stats: st,
-  } as AnalysisSpec;
+  return an as unknown as AnalysisSpec;
 }
 
 /* the engine build that produced a .iris — pins Iris's decision logic by commit

@@ -544,46 +544,14 @@ export const loadTableAtom = atom(null, async (get, set,
   set(activePlottableIdAtom, first.id);
 });
 
-/* Fold the retired histogram/density geoms of an older .viz into the unified
-   `distribution` geom (bars / smooth, or bars+overlay when both were present),
-   mirroring the engine's specnorm so a loaded document edits like a fresh one.
-   Idempotent for documents already on `distribution`. */
-export function migrateDistLayers(layers: Layer[]): Layer[] {
-  const legacy = (g: string) => g === "histogram" || g === "density";
-  if (!layers.some((l) => legacy(l.geom))) return layers;
-  const hist = layers.find((l) => l.geom === "histogram");
-  const dens = layers.find((l) => l.geom === "density");
-  const base = hist ?? dens!;
-  const merged: Layer = { geom: "distribution", level: base.level };
-  let placed = false;
-  const out: Layer[] = [];
-  for (const l of layers) {
-    if (!legacy(l.geom)) out.push(l);
-    else if (!placed) { out.push(merged); placed = true; }
-  }
-  return out;
-}
-
-/* Migrate any layer-level params into style.overrides.geoms (same as the
-   engine's specnorm._migrate_layer_params, so the FE and engine agree).
-   Also hoists legacy histogram/density dist_render into distribution overrides.
-   Mutates the style object in place; returns the cleaned layers. */
+/* Hoist any layer-level `params` into style.overrides.geoms.<geom> (same as the
+   engine's specnorm._migrate_layer_params, so the FE and engine agree on where
+   geom knobs live). The engine still emits a `params` field on saved layers, so
+   this runs on every load. Mutates the style object in place; returns the cleaned
+   layers (with `params` stripped). */
 function migrateLayerParams(layers: Layer[], style: StyleOverrides): Layer[] {
   const geoms: Record<string, Record<string, unknown>> = style.geoms ? { ...style.geoms } : {};
   let migrated = false;
-  // handle legacy dist layers (histogram/density → distribution knobs)
-  const hist = layers.find((l) => l.geom === "histogram");
-  const dens = layers.find((l) => l.geom === "density");
-  if (hist || dens) {
-    const dest = geoms.distribution = { ...(geoms.distribution ?? {}) };
-    const base = hist ?? dens!;
-    const params = base.params ?? {};
-    for (const [k, v] of Object.entries(params))
-      dest[k] ??= v;
-    if (hist && dens) { dest.dist_render ??= "bars"; dest.overlay_smooth ??= true; }
-    else dest.dist_render ??= hist ? "bars" : "smooth";
-    migrated = true;
-  }
   // hoist params from all layers
   for (const l of layers) {
     if (!l.params || Object.keys(l.params).length === 0) continue;
@@ -603,10 +571,8 @@ function migrateLayerParams(layers: Layer[], style: StyleOverrides): Layer[] {
 export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   const s = spec.stats;
   const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
-  const layers = migrateLayerParams(
-    migrateDistLayers(spec.layers ?? []),
-    style,
-  ).map((l) => ({ ...l, id: l.id ?? nextLayerId() }));
+  const layers = migrateLayerParams(spec.layers ?? [], style)
+    .map((l) => ({ ...l, id: l.id ?? nextLayerId() }));
   return {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",
@@ -632,11 +598,9 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     describeOnly: s?.describe_only ?? false,
     previewLevel: RAW_LEVEL,
     style,
-    /* a saved 2.1 join step REFERENCES its right pool table by id (right_table_id) —
-       adopt it straight into the internal rightTableId. A legacy 2.0 join instead
-       inlines its `right` rows and carries NO right_table_id, so rightTableId starts
-       "" and loadDocumentAtom migrates the inline right into the pool. Key every
-       step for React. */
+    /* a saved join step REFERENCES its right pool table by id (right_table_id),
+       adopted straight into the internal rightTableId; an absent id starts "" (an
+       unfilled or hand-edited join). Key every step for React. */
     reduce: { steps: (spec.reduce?.steps ?? []).map((s) =>
       s.kind === "join"
         ? { kind: "join" as const, on: s.on, how: s.how,
@@ -655,11 +619,10 @@ export interface LoadedDoc {
 }
 
 /* swap in a loaded .iris: like loadTableAtom but rebuilds the FULL table pool from
-   the doc's `tables[]` (Plan B), then restores the saved analyses (rebuilt as
-   editable plottables, each bound to its saved `table_id`) instead of starting
-   blank. A legacy 2.0 file returns ONE table + inline-right joins, which migrate
-   into the pool exactly as before. */
-export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
+   the doc's `tables[]`, then restores the saved analyses (rebuilt as editable
+   plottables, each bound to its saved `table_id` and joining by reference) instead
+   of starting blank. */
+export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   // Load REPLACES the workspace: clear the pool + materialized cache first so a
   // prior import/load leaves no orphan tables and no stale rows (spec §6.2 — one
   // in-memory shape after load). loadTableAtom accumulates; loadDocument does not.
@@ -673,8 +636,8 @@ export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
   // its saved name as its pool id (what each analysis's table_id references).
   const firstHierarchy = doc.analyses[0]?.hierarchy;
   for (const lt of doc.tables) {
-    // hierarchy is table-level: prefer the table's own (2.1 carries it), else — a
-    // legacy 2.0 table returns an empty hierarchy — fall back to the first saved
+    // hierarchy is table-level: prefer the table's own (a 2.1 table carries it),
+    // else (a table saved without an explicit spine) fall back to the first saved
     // spec's hierarchy, then to the identifier columns.
     const hierarchy: Hierarchy = lt.hierarchy && lt.hierarchy.spine?.length
       ? { spine: lt.hierarchy.spine, fn: lt.hierarchy.fn ?? {} }
@@ -701,65 +664,31 @@ export const loadDocumentAtom = atom(null, async (get, set, doc: LoadedDoc) => {
     set(activePlottableIdAtom, first.id);
     return;
   }
-  // Restore each analysis. A 2.1 join already carries its right_table_id (adopted
-  // by plottableFromSpec into rightTableId, pointing at a pool table seeded above)
-  // and needs NO migration. A legacy 2.0 join inlines its right rows (no
-  // right_table_id): walk the RAW spec steps, create a session per distinct right,
-  // append it to the pool, and point the join at the new pool id. Identical rights
-  // (same schema+rows) dedup to one pool entry across analyses.
-  const byContent = new Map<string, string>();           // content key -> pool id
-  const migrated: Plottable[] = [];
+  // Restore each analysis. A join carries its right_table_id (adopted by
+  // plottableFromSpec into rightTableId, pointing at a pool table seeded above),
+  // so analyses bind by reference — no row migration.
+  const restored: Plottable[] = [];
   for (const spec of doc.analyses) {
     const p = plottableFromSpec(spec);
-    // bind to the saved table_id when it names a real pool table; else (legacy 2.0
-    // with no table_id) bind to the first pool table. A non-empty table_id that is
-    // NOT in the pool is a dangling reference — bind to pool[0] so the doc still
-    // opens, but warn loudly (integrity via guidance, not a wall). An empty
-    // table_id is the normal legacy-2.0 case, not a dangling ref.
+    // bind to the saved table_id when it names a real pool table. A non-empty
+    // table_id that is NOT in the pool is a dangling reference — bind to pool[0]
+    // so the doc still opens, but warn loudly (integrity via guidance, not a wall).
     const pool = get(tablesAtom);
     let tableId = pool[0].id;
     if (p.tableId) {
       if (pool.some((t) => t.id === p.tableId)) tableId = p.tableId;
       else console.warn(`analysis "${p.name}" references unknown table "${p.tableId}"; binding to "${pool[0].id}"`);
     }
-    // a 2.1 join may reference a right table that isn't in the pool (a hand-edited
-    // or partial file): the live path degrades gracefully (the cache never holds
-    // it, so the join is dropped), but surface it so the missing right isn't silent.
+    // a join may reference a right table that isn't in the pool (a hand-edited or
+    // partial file): the live path degrades gracefully (the cache never holds it,
+    // so the join is dropped), but surface it so the missing right isn't silent.
     for (const s of p.reduce.steps)
       if (s.kind === "join" && s.rightTableId && !pool.some((t) => t.id === s.rightTableId))
         console.warn(`analysis "${p.name}" joins unknown table "${s.rightTableId}"; the join will be skipped until it is present`);
-    const rawSteps = spec.reduce?.steps ?? [];
-    // sequential (not Promise.all) so the pool grows deterministically and two
-    // identical rights within ONE analysis dedup to a single createSession too.
-    const steps: ReduceStep[] = [];
-    for (let j = 0; j < p.reduce.steps.length; j++) {
-      const step = p.reduce.steps[j];
-      const raw = rawSteps[j];
-      if (step.kind !== "join" || !raw || raw.kind !== "join"
-          || !raw.right || raw.right.schema.columns.length === 0) {
-        steps.push(step);
-        continue;
-      }
-      const right = raw.right;
-      const key = JSON.stringify({ schema: right.schema, rows: right.rows });
-      let poolId = byContent.get(key);
-      if (!poolId) {
-        const s = await engine.createSession({ schema: right.schema, rows: right.rows });
-        poolId = seedTableName(get(tablesAtom), undefined);
-        const rt: WorkspaceTable = {
-          id: poolId, name: poolId, schema: right.schema,
-          hierarchy: { spine: identifierCols(right.schema), fn: {} },
-          handle: { id: s.id, n: s.n, version: s.version, schema: s.schema, counts: s.counts },
-        };
-        set(tablesAtom, upsertTable(get(tablesAtom), rt));
-        byContent.set(key, poolId);
-      }
-      steps.push({ ...step, rightTableId: poolId });
-    }
-    migrated.push({ ...p, tableId, reduce: { ...p.reduce, steps } });
+    restored.push({ ...p, tableId });
   }
-  set(plottablesAtom, migrated);
-  set(activePlottableIdAtom, migrated[0].id);
+  set(plottablesAtom, restored);
+  set(activePlottableIdAtom, restored[0].id);
 });
 
 /* Pure builder: a plottable + its derived stats family + (optional) recommended

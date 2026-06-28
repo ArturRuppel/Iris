@@ -703,7 +703,7 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
   });
 });
 
-describe("loadDocumentAtom — full-pool rebuild (2.1) + legacy inline-right migration (2.0)", () => {
+describe("loadDocumentAtom — full-pool rebuild, joins bound by reference", () => {
   // one entry of the load response's tables[]; the session (id) holds every row.
   const lt = (name: string, hierarchy = { spine: [] as string[], fn: {} }) => ({
     name, id: `h_${name}`, schema: SCHEMA, hierarchy,
@@ -743,44 +743,6 @@ describe("loadDocumentAtom — full-pool rebuild (2.1) + legacy inline-right mig
     expect(store.get(plottablesAtom)[0].tableId).toBe("cells");   // bound to pool[0]
     expect(warn).toHaveBeenCalled();                         // the dangling ref is surfaced
     warn.mockRestore();
-  });
-
-  it("(legacy 2.0) seeds the single table, binds the analysis to it, and migrates inline join.right", async () => {
-    const store = createStore();
-    const createSession = vi.spyOn(engine, "createSession").mockResolvedValue(
-      { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
-    const right = { schema: { schema_version: "1.0", columns: [
-      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
-    // a 2.0 analysis: no table_id, the join carries its right INLINE.
-    const spec = { ...makeSpec("a", { xCol: "grp" }),
-      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } } as never;
-    await store.set(loadDocumentAtom, { analyses: [spec], tables: [lt("table_1")] } as never);
-    const pool = store.get(tablesAtom);
-    expect(pool.length).toBe(2);                                   // table_1 + the migrated right
-    expect(pool[0].id).toBe("table_1");
-    const p = store.get(plottablesAtom)[0];
-    expect(p.tableId).toBe("table_1");                             // bound to the single loaded table
-    const join = p.reduce.steps[0];
-    expect(join.kind === "join" && join.rightTableId).toBe(pool[1].id);
-    expect(createSession).toHaveBeenCalledTimes(1);
-  });
-
-  it("(legacy 2.0) dedups two analyses that share an identical inline right into one pool entry", async () => {
-    const store = createStore();
-    vi.spyOn(engine, "createSession").mockResolvedValue(
-      { id: "h_right", n: 1, version: 0, schema: SCHEMA, counts: { total: 1 } } as never);
-    const right = { schema: { schema_version: "1.0", columns: [
-      { name: "k", type: "identifier", label: "K" }] }, rows: [{ id: "1", k: "a" }] };
-    const mk = (id: string) => ({ ...makeSpec(id, { xCol: "grp" }),
-      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right }] } }) as never;
-    await store.set(loadDocumentAtom, { analyses: [mk("a"), mk("b")], tables: [lt("table_1")] } as never);
-    const pool = store.get(tablesAtom);
-    expect(pool.length).toBe(2);                                   // table_1 + ONE shared right (deduped)
-    const ids = store.get(plottablesAtom).map((p) => {
-      const s = p.reduce.steps[0]; return s.kind === "join" ? s.rightTableId : "";
-    });
-    expect(ids[0]).toBe(ids[1]);                                   // both analyses reference the same pool id
-    expect(ids[0]).toBe(pool[1].id);
   });
 
   it("REPLACES the workspace (no orphan tables / stale cache from a prior load)", async () => {
