@@ -110,6 +110,7 @@ describe("static card bodies — each renders its panel inside the classed wrapp
     expect(container.querySelector('[data-testid="stats-card"]')).toBeInTheDocument();
     expect(screen.getByText(/Methods text/i)).toBeInTheDocument();
     expect(screen.queryByText(/Describe only/i)).toBeNull();
+    expect(screen.queryByText(/significance brackets/i)).toBeNull();
   });
 
   it("test shows the picker, not the results readout", () => {
@@ -117,5 +118,6 @@ describe("static card bodies — each renders its panel inside the classed wrapp
     expect(container.querySelector('[data-testid="test-card"]')).toBeInTheDocument();
     expect(screen.getByText(/Describe only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Methods text/i)).toBeNull();
+    expect(screen.getByText(/significance brackets/i)).toBeInTheDocument();
   });
 });
