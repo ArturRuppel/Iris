@@ -3,7 +3,7 @@ import {
   closeCardAtom, moveCardAtom, resizeCardAtom, toggleCardCollapsedAtom,
   type Card,
 } from "./state";
-import { CARD_BODIES, CARD_TITLE } from "./cardRegistry";
+import { CARD } from "./cardRegistry";
 
 // Minimum card dimensions enforced by the resize clamp (mirrors index.css min-width).
 const MIN_W = 220;
@@ -52,8 +52,7 @@ export function FloatingCard({ card }: { card: Card }) {
     startDrag(e, { x: card.w, y: card.h },
       (w, h) => resize({ id: card.id, w: Math.max(MIN_W, w), h: Math.max(MIN_H, h) }));
 
-  const Body = CARD_BODIES[card.cardKind];
-  const title = CARD_TITLE[card.cardKind];
+  const { body: Body, title } = CARD[card.cardKind];
 
   return (
     <div

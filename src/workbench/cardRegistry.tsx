@@ -1,10 +1,10 @@
 import type { ExplorerGraph, EdgeKind } from "../explorer/graph";
-import { PlotCard } from "./cards/PlotCard";
-import { StatsCard } from "./cards/StatsCard";
-import { CollapseCard } from "./cards/CollapseCard";
-import { GeomCard } from "./cards/GeomCard";
+import { FigurePane } from "../components/FigurePane";
+import { StatsResults, TestPicker } from "../components/StatsPanel";
+import { CollapseRoutingPanel } from "../components/CollapseRoutingPanel";
+import { EncodingsCard } from "../components/EncodingsCard";
+import { LayerRail } from "../components/LayerRail";
 import { AnnotateCard } from "./cards/AnnotateCard";
-import { TestCard } from "./cards/TestCard";
 import { OpEditorCard } from "./cards/OpEditorCard";
 import { TableCard } from "./cards/TableCard";
 
@@ -44,21 +44,29 @@ export function targetToCardKind(graph: ExplorerGraph, target: Target): CardKind
    their own; the shell only hands them the target. */
 export interface CardBodyProps { target: Target; }
 
-export const CARD_BODIES: Record<CardKind, (p: CardBodyProps) => JSX.Element> = {
-  "table": TableCard,
-  "plot": PlotCard,
-  "stats": StatsCard,
-  "op-editor": OpEditorCard,
-  "collapse-editor": CollapseCard,
-  "geom-editor": GeomCard,
-  "test-editor": TestCard,
-  "annotate-editor": AnnotateCard,
-};
+/* Most editor/terminal cards are static: they ignore the target and render fixed
+   panels (which bind to the active analysis themselves) inside a classed wrapper.
+   Only TableCard / OpEditorCard / AnnotateCard read the target or atoms, so they
+   stay as their own components. */
+const staticBody = (className: string, testid: string, render: () => JSX.Element) =>
+  function StaticCardBody(_props: CardBodyProps) {
+    return <div className={className} data-testid={testid}>{render()}</div>;
+  };
 
-/* Human title for a card's bar, by kind. */
-export const CARD_TITLE: Record<CardKind, string> = {
-  "table": "Table", "plot": "Plot", "stats": "Stats",
-  "op-editor": "Edit step", "collapse-editor": "Collapse",
-  "geom-editor": "Geom & encoding", "test-editor": "Test",
-  "annotate-editor": "Annotate",
+/* One entry per card kind: its bar title + body component. */
+export interface CardSpec { title: string; body: (p: CardBodyProps) => JSX.Element; }
+export const CARD: Record<CardKind, CardSpec> = {
+  "table": { title: "Table", body: TableCard },
+  "plot": { title: "Plot",
+    body: staticBody("txw-card-plot", "plot-card", () => <FigurePane />) },
+  "stats": { title: "Stats",
+    body: staticBody("txw-card-stats", "stats-card", () => <StatsResults />) },
+  "op-editor": { title: "Edit step", body: OpEditorCard },
+  "collapse-editor": { title: "Collapse",
+    body: staticBody("txw-card-collapse", "collapse-card", () => <CollapseRoutingPanel />) },
+  "geom-editor": { title: "Geom & encoding",
+    body: staticBody("txw-card-geom", "geom-card", () => <><EncodingsCard /><LayerRail /></>) },
+  "test-editor": { title: "Test",
+    body: staticBody("txw-card-test", "test-card", () => <TestPicker />) },
+  "annotate-editor": { title: "Annotate", body: AnnotateCard },
 };

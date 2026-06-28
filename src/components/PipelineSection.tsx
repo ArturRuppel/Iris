@@ -8,13 +8,9 @@ import type {
   ColumnDef, ReduceStep, ReduceStepKind, Schema,
   DropStep, FilterStep,
 } from "../types";
+import { REDUCE_KIND_LABEL } from "../types";
 import { StepFilter, StepDrop } from "./StepCards";
 
-const KIND_LABEL: Record<ReduceStepKind, string> = {
-  drop: "Drop columns", filter: "Filter rows",
-  derive: "Derive column", recode: "Recode column", join: "Join table",
-  pivot: "Pivot column", grid_complete: "Complete grid",
-};
 const fmt = (n: number) => n.toLocaleString();
 
 /* one pipeline step, independently collapsible so a long pipeline stays
@@ -31,7 +27,7 @@ function StepItem({ step, cols, out, i, last, onMove, onRemove, onChange }: {
         <button className="card-toggle" title={open ? "Collapse" : "Expand"}
           onClick={() => setOpen((o) => !o)}>
           <span className="chevron">{open ? "▾" : "▸"}</span>
-          <span className="step-kind">{KIND_LABEL[step.kind]}</span>
+          <span className="step-kind">{REDUCE_KIND_LABEL[step.kind]}</span>
         </button>
         <span className="step-rows">{out == null ? "" : `→ ${fmt(out)} rows`}</span>
         <span className="step-actions">
@@ -132,7 +128,7 @@ export function PipelineSection() {
                     authorable here — see the deferred inline-editing follow-up. */}
                 {(["drop", "filter"] as ReduceStepKind[]).map((k) => (
                   <button key={k} onClick={() => { addStep(k); setAdding(false); }}>
-                    {KIND_LABEL[k]}
+                    {REDUCE_KIND_LABEL[k]}
                   </button>
                 ))}
                 <button className="cancel" onClick={() => setAdding(false)}>cancel</button>

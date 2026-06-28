@@ -967,46 +967,59 @@ export function makeStep(kind: ReduceStepKind): ReduceStep {
   }
 }
 
-export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) => {
-  const p = get(activePlottableAtom); if (!p) return;
-  set(activePlottableAtom,
-    { ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, makeStep(kind)] } });
-});
+/* the ~12 writers below all derive the next active plottable from the current one
+   under the same `get → guard → set` shape; updateActive is the functional sibling
+   of patchActive (which takes a flat patch). reorder swaps neighbours in place,
+   returning null when the move falls off either end so the writer no-ops. */
+type ActiveGet = (a: typeof activePlottableAtom) => Plottable | null;
+type ActiveSet = (a: typeof activePlottableAtom, v: Plottable) => void;
+const updateActive = (get: ActiveGet, set: ActiveSet, fn: (p: Plottable) => Plottable) => {
+  const p = get(activePlottableAtom);
+  if (!p) return;
+  const next = fn(p);
+  // a transform that returns the same reference (e.g. an out-of-bounds reorder) is
+  // a no-op; skip the write so it never churns plottablesAtom or re-renders.
+  if (next !== p) set(activePlottableAtom, next);
+};
+const reorder = <T>(arr: T[], index: number, dir: -1 | 1): T[] | null => {
+  const j = index + dir;
+  if (j < 0 || j >= arr.length) return null;
+  const out = [...arr];
+  [out[index], out[j]] = [out[j], out[index]];
+  return out;
+};
+
+export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) =>
+  updateActive(get, set, (p) =>
+    ({ ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, makeStep(kind)] } })));
 
 /* splice a blank step in immediately AFTER `afterIndex` (the source node's step
    index; Source = -1 → insert at 0). Append and insert are the same operation at
    different positions — a node's `+` adds after it, splicing if a downstream
    neighbour exists. */
 export const insertStepAtom = atom(null,
-  (get, set, arg: { afterIndex: number; kind: ReduceStepKind }) => {
-    const p = get(activePlottableAtom); if (!p) return;
-    const steps = [...p.reduce.steps];
-    steps.splice(arg.afterIndex + 1, 0, makeStep(arg.kind));
-    set(activePlottableAtom, { ...p, reduce: { ...p.reduce, steps } });
-  });
+  (get, set, arg: { afterIndex: number; kind: ReduceStepKind }) =>
+    updateActive(get, set, (p) => {
+      const steps = [...p.reduce.steps];
+      steps.splice(arg.afterIndex + 1, 0, makeStep(arg.kind));
+      return { ...p, reduce: { ...p.reduce, steps } };
+    }));
 
 export const updateStepAtom = atom(null,
-  (get, set, arg: { index: number; step: ReduceStep }) => {
-    const p = get(activePlottableAtom); if (!p) return;
-    set(activePlottableAtom, { ...p, reduce: { ...p.reduce, steps:
-      p.reduce.steps.map((s, i) => (i === arg.index ? arg.step : s)) } });
-  });
+  (get, set, arg: { index: number; step: ReduceStep }) =>
+    updateActive(get, set, (p) => ({ ...p, reduce: { ...p.reduce, steps:
+      p.reduce.steps.map((s, i) => (i === arg.index ? arg.step : s)) } })));
 
-export const removeStepAtom = atom(null, (get, set, index: number) => {
-  const p = get(activePlottableAtom); if (!p) return;
-  set(activePlottableAtom,
-    { ...p, reduce: { ...p.reduce, steps: p.reduce.steps.filter((_, i) => i !== index) } });
-});
+export const removeStepAtom = atom(null, (get, set, index: number) =>
+  updateActive(get, set, (p) =>
+    ({ ...p, reduce: { ...p.reduce, steps: p.reduce.steps.filter((_, i) => i !== index) } })));
 
 export const moveStepAtom = atom(null,
-  (get, set, arg: { index: number; dir: -1 | 1 }) => {
-    const p = get(activePlottableAtom); if (!p) return;
-    const steps = [...p.reduce.steps];
-    const j = arg.index + arg.dir;
-    if (j < 0 || j >= steps.length) return;
-    [steps[arg.index], steps[j]] = [steps[j], steps[arg.index]];
-    set(activePlottableAtom, { ...p, reduce: { ...p.reduce, steps } });
-  });
+  (get, set, arg: { index: number; dir: -1 | 1 }) =>
+    updateActive(get, set, (p) => {
+      const steps = reorder(p.reduce.steps, arg.index, arg.dir);
+      return steps ? { ...p, reduce: { ...p.reduce, steps } } : p;
+    }));
 
 /* ---- live /reduce preview ---- */
 
@@ -1035,14 +1048,12 @@ export const effectiveSchemaAtom = atom((get) => {
 
 /* ---- layer CRUD + reorder on the ACTIVE plottable (mirrors reduce steps) ---- */
 
-export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) => {
-  const p = get(activePlottableAtom); if (!p) return;
+export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) =>
   // a new layer draws the raw reduced rows by default; the user binds it to a
   // coarser level (one mark per grain) to build the superplot's bold marks.
   // Geom knobs live in style.overrides.geoms, not on the layer.
-  set(activePlottableAtom,
-    { ...p, layers: [...p.layers, { id: nextLayerId(), geom, level: RAW_LEVEL }] });
-});
+  updateActive(get, set, (p) =>
+    ({ ...p, layers: [...p.layers, { id: nextLayerId(), geom, level: RAW_LEVEL }] })));
 
 /* ---- table-level hierarchy: column roles + spine order (Data tab) ---- */
 
@@ -1081,10 +1092,8 @@ export const setColumnRoleAtom = atom(null,
 export const moveSpineAtom = atom(null,
   (get, set, arg: { index: number; dir: -1 | 1 }) => {
     const t = get(activeTableAtom); if (!t) return;
-    const spine = [...t.hierarchy.spine];
-    const j = arg.index + arg.dir;
-    if (j < 0 || j >= spine.length) return;
-    [spine[arg.index], spine[j]] = [spine[j], spine[arg.index]];
+    const spine = reorder(t.hierarchy.spine, arg.index, arg.dir);
+    if (!spine) return;
     set(tablesAtom, upsertTable(get(tablesAtom),
       { ...t, hierarchy: { ...t.hierarchy, spine } }));
   });
@@ -1116,14 +1125,8 @@ export const effectiveTestGrainAtom = atom<GrainKey>((get) => {
   // node, and a stale key would silently degrade to the wrong grain downstream.
   return p?.testGrain && planGrains(plan).includes(p.testGrain) ? p.testGrain : coarsest;
 });
-const patchActive = (
-  get: (a: typeof activePlottableAtom) => Plottable | null,
-  set: (a: typeof activePlottableAtom, v: Plottable) => void,
-  patch: Partial<Plottable>,
-) => {
-  const p = get(activePlottableAtom);
-  if (p) set(activePlottableAtom, { ...p, ...patch });
-};
+const patchActive = (get: ActiveGet, set: ActiveSet, patch: Partial<Plottable>) =>
+  updateActive(get, set, (p) => ({ ...p, ...patch }));
 export const setCollapsePlanAtom = atom(null, (get, set, next: CollapsePlan) =>
   patchActive(get, set, { collapse: next }));
 export const setTestGrainAtom = atom(null, (get, set, grain: GrainKey) =>
@@ -1140,24 +1143,16 @@ export const resetCollapseAtom = atom(null, (get, set) =>
 export const selectedNodeIdAtom = atom<string | null>(null);
 
 export const updateLayerAtom = atom(null,
-  (get, set, arg: { index: number; layer: Layer }) => {
-    const p = get(activePlottableAtom); if (!p) return;
-    set(activePlottableAtom, { ...p, layers:
-      p.layers.map((l, i) => (i === arg.index ? arg.layer : l)) });
-  });
+  (get, set, arg: { index: number; layer: Layer }) =>
+    updateActive(get, set, (p) => ({ ...p, layers:
+      p.layers.map((l, i) => (i === arg.index ? arg.layer : l)) })));
 
-export const removeLayerAtom = atom(null, (get, set, index: number) => {
-  const p = get(activePlottableAtom); if (!p) return;
-  set(activePlottableAtom,
-    { ...p, layers: p.layers.filter((_, i) => i !== index) });
-});
+export const removeLayerAtom = atom(null, (get, set, index: number) =>
+  updateActive(get, set, (p) => ({ ...p, layers: p.layers.filter((_, i) => i !== index) })));
 
 export const moveLayerAtom = atom(null,
-  (get, set, arg: { index: number; dir: -1 | 1 }) => {
-    const p = get(activePlottableAtom); if (!p) return;
-    const layers = [...p.layers];
-    const j = arg.index + arg.dir;
-    if (j < 0 || j >= layers.length) return;
-    [layers[arg.index], layers[j]] = [layers[j], layers[arg.index]];
-    set(activePlottableAtom, { ...p, layers });
-  });
+  (get, set, arg: { index: number; dir: -1 | 1 }) =>
+    updateActive(get, set, (p) => {
+      const layers = reorder(p.layers, arg.index, arg.dir);
+      return layers ? { ...p, layers } : p;
+    }));

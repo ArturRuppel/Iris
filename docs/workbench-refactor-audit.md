@@ -221,8 +221,15 @@ _(engine #1 · HIGH · M)_
    `startsWith`/regex id-parsing across `ArrayShapeRFNode`/`authoring`/`layout`/`nodeDelta`/
    `OpEditorCard`. `mergeGuards`/`authorDispatch` take the discriminant; grain legend renders
    synchronously (blank-grain-bar timing bug fixed). tsc + build clean, 330 tests pass.
-3. **Boilerplate consolidation** (Theme 3): card registry, keyed maps,
-   `updateActive`/`reorder` helpers.
+3. **Boilerplate consolidation** (Theme 3). ✅ **DONE 2026-06-28** — (a) deleted the 5 static
+   card components + their tests, replaced by a `staticBody` factory in `cardRegistry`; merged
+   `CARD_BODIES`+`CARD_TITLE` into one `CARD` map (the 5 deleted tests' kind→leaf wiring,
+   incl. the stats-vs-test anti-swap check, folded into `cardRegistry.test`). (b) Hoisted the
+   reduce vocabulary to one source `REDUCE_KIND_LABEL`/`REDUCE_KIND_ORDER` in `types.ts`,
+   consumed by `authoring` and `PipelineSection` (the third copy removed). (c) Added
+   `updateActive`/`reorder` in `state.ts` and routed the ~12 step/layer/spine writers through
+   them (`patchActive` now wraps `updateActive`). tsc + build clean, 328 tests pass; net
+   −163 lines.
 4. **The two bugs**: the `SessionStore`-8 eviction; then regenerate examples → delete the
    engine 2.0 reader.
 5. **Optional**: split `state.ts` into modules; rename `layoutResize.ts`; the `StatsResult`

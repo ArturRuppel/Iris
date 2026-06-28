@@ -5,7 +5,7 @@ import {
   stashAtom, popStashAtom, selectedTargetAtom, STASH_SLOTS, type StashEntry,
 } from "./state";
 import { gridCols } from "./WorkbenchResize";
-import { CARD_BODIES, CARD_TITLE } from "./cardRegistry";
+import { CARD } from "./cardRegistry";
 
 /* one pinned data card: a header (which node + unpin) over the registry body.
    Pointer-down anywhere selects its target so the canvas highlights the node. */
@@ -13,8 +13,7 @@ function StashCard({ entry, label, slot }: { entry: StashEntry; label: string; s
   const pop = useSetAtom(popStashAtom);
   const select = useSetAtom(selectedTargetAtom);
   const selected = useAtomValue(selectedTargetAtom);
-  const Body = CARD_BODIES[entry.cardKind];
-  const title = CARD_TITLE[entry.cardKind];
+  const { body: Body, title } = CARD[entry.cardKind];
   const isSel = selected?.kind === entry.target.kind && selected?.id === entry.target.id;
 
   return (

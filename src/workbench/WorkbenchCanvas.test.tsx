@@ -79,7 +79,7 @@ describe("WorkbenchCanvas", () => {
       x: 30, y: 40, w: 300, h: 200, collapsed: false,
     }]);
     render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
-    // the dialog's accessible name comes from CARD_TITLE[cardKind] ("Plot"),
+    // the dialog's accessible name comes from CARD[cardKind].title ("Plot"),
     // so this distinguishes the plot card from any other kind...
     expect(screen.getByRole("dialog", { name: /plot card/i })).toBeInTheDocument();
     // ...and the PlotCard body (not some other body) actually mounted.

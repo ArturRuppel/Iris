@@ -1,5 +1,6 @@
 import type { ExplorerNode } from "../explorer/graph";
 import type { ReduceStepKind } from "../types";
+import { REDUCE_KIND_LABEL, REDUCE_KIND_ORDER } from "../types";
 import type { Target, CardKind } from "./cardRegistry";
 
 /* What a node's `+` can produce. A `reduce` action splices a step (insertStepAtom);
@@ -12,15 +13,6 @@ export type AuthorAction =
   | { kind: "test" };
 
 export interface AuthorOption { label: string; action: AuthorAction }
-
-/* the reduce vocabulary, in menu order (mirrors TableCard's KIND_LABEL order). */
-const REDUCE_LABEL: Record<ReduceStepKind, string> = {
-  filter: "Filter rows", drop: "Drop columns", derive: "Derive column",
-  recode: "Recode column", join: "Join table", pivot: "Pivot column",
-  grid_complete: "Complete grid",
-};
-const REDUCE_ORDER: ReduceStepKind[] =
-  ["filter", "drop", "derive", "recode", "join", "pivot", "grid_complete"];
 
 const TERMINAL_OPTIONS: AuthorOption[] = [
   { label: "Collapse", action: { kind: "collapse" } },
@@ -43,8 +35,8 @@ export function affordances(node: ExplorerNode): AuthorOption[] {
   switch (phaseOf(node)) {
     case "reduce":
       return [
-        ...REDUCE_ORDER.map((step) => ({
-          label: REDUCE_LABEL[step], action: { kind: "reduce", step } as AuthorAction,
+        ...REDUCE_KIND_ORDER.map((step) => ({
+          label: REDUCE_KIND_LABEL[step], action: { kind: "reduce", step } as AuthorAction,
         })),
         ...TERMINAL_OPTIONS,
       ];

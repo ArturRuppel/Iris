@@ -273,6 +273,15 @@ export type ReduceStep =
   | PivotStep | GridCompleteStep;
 export type ReduceStepKind = ReduceStep["kind"];
 
+/* the reduce-step vocabulary — the single source for both the workbench authoring
+   menu and the pipeline step labels. Menu order is the key (insertion) order. */
+export const REDUCE_KIND_LABEL: Record<ReduceStepKind, string> = {
+  filter: "Filter rows", drop: "Drop columns", derive: "Derive column",
+  recode: "Recode column", join: "Join table", pivot: "Pivot column",
+  grid_complete: "Complete grid",
+};
+export const REDUCE_KIND_ORDER = Object.keys(REDUCE_KIND_LABEL) as ReduceStepKind[];
+
 // `steps` run on the raw table (pre-collapse); `post` (optional) runs on the
 // chosen test-grain table AFTER collapse — grain-dependent transforms a raw-grain
 // reduce cannot express (e.g. a derive over per-replicate sums). [] means no step.

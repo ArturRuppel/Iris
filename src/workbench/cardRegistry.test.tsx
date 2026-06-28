@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { targetToCardKind, CARD_BODIES, type CardKind } from "./cardRegistry";
+import { render, screen } from "@testing-library/react";
+import { Provider } from "jotai";
+import { targetToCardKind, CARD, type CardKind } from "./cardRegistry";
+import { seedStore } from "./cards/cardTestStore";
+import { setAnalysisByIdAtom } from "../state";
 import type { ExplorerGraph } from "../explorer/graph";
+import type { AnalyzeResponse } from "../types";
 
 const graph: ExplorerGraph = {
   nodes: [
@@ -39,20 +44,79 @@ describe("targetToCardKind", () => {
   });
 });
 
-describe("CARD_BODIES", () => {
-  const kinds: CardKind[] = ["table", "op-editor", "collapse-editor",
-    "geom-editor", "test-editor", "annotate-editor", "plot", "stats"];
+describe("CARD registry", () => {
+  const kinds: CardKind[] = ["table", "plot", "stats", "op-editor",
+    "collapse-editor", "geom-editor", "test-editor", "annotate-editor"];
 
-  it("has a body component for every card kind", () => {
-    for (const k of kinds) expect(CARD_BODIES[k]).toBeTypeOf("function");
+  it("has a non-empty title and a body component for every card kind", () => {
+    for (const k of kinds) {
+      expect(CARD[k].title).toBeTruthy();
+      expect(CARD[k].body).toBeTypeOf("function");
+    }
+  });
+});
+
+/* A partial AnalyzeResponse rich enough for the results (StatsResults) and the
+   picker (TestPicker) to render — only the fields those components read. */
+const fixture = {
+  stats: {
+    result: {
+      test: "welch_t", t: 2.5, df: 18.3, p: 0.022,
+      mean_diff: 1.4, mean_diff_ci: [0.2, 2.6],
+      effect: { name: "hedges_g", value: 0.8, ci: [0.1, 1.5] },
+    },
+    recommendation: { test: "welch_t", reason: "two independent numeric groups" },
+    checks: [], summaries: [], decision: null, alpha: 0.05,
+    methods_text: "Welch's t-test was used to compare the two groups.",
+  },
+  stat_model: {
+    design: "Two independent groups", issues: [],
+    family: "group_comparison", pairing: null, chosen_by: "inferred",
+  },
+} as unknown as AnalyzeResponse;
+
+/* render a card body straight from the registry; the static bodies ignore the
+   target, so any target works. withResult seeds an analysis for the terminals. */
+function renderBody(kind: CardKind, withResult = false) {
+  const { store, plottable } = seedStore();
+  if (withResult) store.set(setAnalysisByIdAtom, { id: plottable.id, res: fixture });
+  const Body = CARD[kind].body;
+  return render(<Provider store={store}><Body target={{ kind: "edge", id: "x" }} /></Provider>);
+}
+
+describe("static card bodies — each renders its panel inside the classed wrapper", () => {
+  it("plot mounts the FigurePane", () => {
+    const { container } = renderBody("plot");
+    expect(container.querySelector('[data-testid="plot-card"]')).toBeInTheDocument();
+    expect(container.querySelector(".figure-pane")).toBeInTheDocument();
   });
 
-  it("wires real (non-stub) bodies for every card kind", () => {
-    // every kind now has a real component — no stubs remain.
-    for (const kind of kinds) {
-      // the real components require app atoms; here we only assert identity, not
-      // a deep render — the body must NOT be a shared stub factory output.
-      expect(CARD_BODIES[kind].name).not.toBe("StubBody");
-    }
+  it("collapse mounts the routing panel", () => {
+    const { container } = renderBody("collapse-editor");
+    expect(container.querySelector('[data-testid="collapse-card"]')).toBeInTheDocument();
+    expect(screen.getByLabelText(/test reads at/i)).toBeInTheDocument();
+  });
+
+  it("geom mounts the encoding + layer editors", () => {
+    const { container } = renderBody("geom-editor");
+    const wrap = container.querySelector('[data-testid="geom-card"]');
+    expect(wrap).toBeInTheDocument();
+    expect(wrap!.children.length).toBeGreaterThan(0);
+  });
+
+  // the bug-prone wiring: stats and test share the StatsPanel module but must
+  // mount opposite halves — results readout vs. test picker.
+  it("stats shows the results readout, not the picker", () => {
+    const { container } = renderBody("stats", true);
+    expect(container.querySelector('[data-testid="stats-card"]')).toBeInTheDocument();
+    expect(screen.getByText(/Methods text/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Describe only/i)).toBeNull();
+  });
+
+  it("test shows the picker, not the results readout", () => {
+    const { container } = renderBody("test-editor", true);
+    expect(container.querySelector('[data-testid="test-card"]')).toBeInTheDocument();
+    expect(screen.getByText(/Describe only/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Methods text/i)).toBeNull();
   });
 });
