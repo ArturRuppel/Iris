@@ -46,7 +46,7 @@ const initial = (name: string): string => {
 
 /* a tiny monochrome glyph per node variant, painted in the variant's accent via
    currentColor. Inline (no icon dep), on a fixed 14×14 grid. */
-function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
+function NodeIcon({ variant }: { variant: NodeVariant | "plot" | "stats" }): ReactElement {
   const p = { width: 13, height: 13, viewBox: "0 0 14 14", fill: "none",
     stroke: "currentColor", strokeWidth: 1.4,
     strokeLinejoin: "round" as const, strokeLinecap: "round" as const };
@@ -57,6 +57,11 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
     case "grain":
       return (<svg {...p}><path d="M7 1.5 12.5 4 7 6.5 1.5 4Z" />
         <path d="M1.5 7 7 9.5 12.5 7" /><path d="M1.5 10 7 12.5 12.5 10" /></svg>);
+    case "plot":
+      return (<svg {...p}><path d="M1.5 12.5h11" />
+        <path d="M3.5 12.5V8M7 12.5V3.5M10.5 12.5V6.5" strokeWidth="1.8" /></svg>);
+    case "stats":
+      return (<svg {...p}><path d="M1.5 12Q4 12 7 3 10 12 12.5 12" /></svg>);
     default:
       return (<svg {...p}><rect x="1.5" y="1.5" width="11" height="11" rx="1.5" />
         <path d="M1.5 5.5h11M5.5 1.5v11" /></svg>);
@@ -71,7 +76,36 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
 export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   const { variant, kind, eyebrow, detail, spine, live, shed, values,
     newValues = [], rows, cols, example, definition, onEdit } = props;
-  const facts: string[] = []; // placeholder — replaced in Task 4 by sections rendering
+
+  if (variant === "figure" && props.sections) {
+    return (
+      <div className="txw-node figure">
+        <div className="txw-nbar" aria-hidden />
+        <div className="txw-nbody txw-figsections">
+          {props.sections.map((sec) => (
+            <button
+              key={sec.kind}
+              type="button"
+              className={`txw-figsec k-${sec.kind === "plot" ? "geom" : "test"}${sec.slotNum ? " pinned" : ""}`}
+              onClick={sec.onView ? (e) => { e.stopPropagation(); sec.onView!(); } : undefined}
+            >
+              {sec.slotNum && <span className="txw-node-badge" aria-hidden>{sec.slotNum}</span>}
+              <span className="txw-figsec-head">
+                <span className="txw-nicon" aria-hidden><NodeIcon variant={sec.kind} /></span>
+                <span className="txw-eyebrow-text">{sec.label}</span>
+              </span>
+              <span className="txw-facts" role="list" aria-label={`${sec.label} summary`}>
+                {sec.facts.map((f) => (
+                  <span key={f} className="txw-fact" role="listitem">{f}</span>
+                ))}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   // the example follows the cursor: we track its position so the popup can be
   // portalled to <body> (escaping React Flow's per-node stacking context) and
   // float just above the mouse, on top of the whole canvas.
@@ -147,15 +181,7 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
           </div>
         )}
 
-        {facts.length > 0 && (
-          <div className="txw-facts" role="list" aria-label="summary">
-            {facts.map((f) => (
-              <span key={f} className="txw-fact" role="listitem">{f}</span>
-            ))}
-          </div>
-        )}
-
-        {!hasGrain && !hasVals && facts.length === 0 && rows != null && cols != null && (
+        {!hasGrain && !hasVals && rows != null && cols != null && (
           <div className="txw-count">{rows}×{cols}</div>
         )}
       </div>

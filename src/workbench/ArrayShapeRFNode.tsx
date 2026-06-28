@@ -6,7 +6,7 @@ import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type Node
 import { cannedExample } from "../explorer/cannedExamples";
 import type { EdgeKind, ExplorerNode } from "../explorer/graph";
 import { insertStepAtom } from "../state";
-import { openCardAtom, stashAtom } from "./state";
+import { openCardAtom, pushStashAtom, stashAtom } from "./state";
 import { EDGE_CARD } from "./cardRegistry";
 import { EDGE_TYPE } from "./edgeMeta";
 import type { NodeDelta } from "./nodeDelta";
@@ -95,6 +95,7 @@ export function ArrayShapeRFNode(
   const { missing, options, inEdge, stepIndex, ...shape } = data;
   const insertStep = useSetAtom(insertStepAtom);
   const openCard = useSetAtom(openCardAtom);
+  const pushStash = useSetAtom(pushStashAtom);
   // the add menu is positioned in screen space and portalled to <body>, not
   // nested in this node: each React Flow node is its own stacking context, so a
   // menu drawn inside an upstream node would paint UNDER any node stacked over
@@ -115,6 +116,19 @@ export function ArrayShapeRFNode(
     ? () => openCard({ target: { kind: "edge", id: inEdge.id }, cardKind: EDGE_CARD[inEdge.kind] })
     : undefined;
 
+  const sections = shape.sections?.map((sec) => {
+    const slot = stash.findIndex(
+      (e) => e.target.kind === "node" && e.target.id === id && e.target.facet === sec.kind);
+    return {
+      ...sec,
+      slotNum: slot >= 0 ? slot + 1 : null,
+      onView: () => pushStash({
+        target: { kind: "node", id: id!, facet: sec.kind },
+        cardKind: sec.kind,
+      }),
+    };
+  });
+
   const pick = (action: AuthorAction) => {
     setMenuAt(null);
     const d = authorDispatch(stepIndex ?? -1, action);
@@ -131,7 +145,7 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
-      <ArrayShapeNode {...shape} onEdit={onEdit} />
+      <ArrayShapeNode {...shape} sections={sections} onEdit={onEdit} />
       <Handle
         id="out" type="source" position={Position.Right}
         className={canAdd ? "txw-handle-add" : undefined}

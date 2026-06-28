@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
+import { createStore, Provider } from "jotai";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
 import type { ExplorerNode, NodePhase } from "../explorer/graph";
+import { stashAtom } from "./state";
 
 /* derive a node's phase from its id the same way buildGraph does, so fixtures
    stay one-liners. */
@@ -128,5 +130,29 @@ describe("ArrayShapeRFNode", () => {
       </ReactFlowProvider>,
     );
     expect(container.querySelector(".txw-handle-add")).toBeNull();
+  });
+  it("a figure node renders Plot + Stats sections; clicking one pins its facet", () => {
+    const store = createStore();
+    const figure: ExplorerNode = {
+      id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" },
+      sections: [{ kind: "plot", facts: ["dots"] }, { kind: "stats", facts: ["MW"] }],
+    };
+    render(
+      <Provider store={store}>
+        <ReactFlowProvider>
+          <ArrayShapeRFNode id="figure" data={nodeShapeProps(figure)} />
+        </ReactFlowProvider>
+      </Provider>,
+    );
+    expect(screen.getByText("Plot")).toBeInTheDocument();
+    expect(screen.getByText("Stats")).toBeInTheDocument();
+
+    screen.getByRole("button", { name: /Plot summary/i }).click();
+    expect(store.get(stashAtom)).toEqual([
+      expect.objectContaining({ target: { kind: "node", id: "figure", facet: "plot" }, cardKind: "plot" }),
+    ]);
+
+    screen.getByRole("button", { name: /Stats summary/i }).click();
+    expect(store.get(stashAtom).map((e) => e.target.facet)).toEqual(["plot", "stats"]);
   });
 });

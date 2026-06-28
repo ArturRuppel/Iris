@@ -708,9 +708,9 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border:1px solid #e7eaf1; border-radius:12px; overflow:hidden;
   box-shadow:0 1px 3px rgba(20,30,60,.06); --accent:#64748b;
   display:flex; flex-direction:column; }
-/* a terminal has only an eyebrow + facts, so centre its short body in the height */
-.txw-node.plot .txw-nbody, .txw-node.stats .txw-nbody {
-  flex:1; display:flex; flex-direction:column; justify-content:center; }
+/* a terminal (figure) expands to fit its two sections; its nbody holds the sections directly */
+.txw-node.figure { height:auto; min-height:150px; }
+.txw-node.figure .txw-nbody { flex:1; display:flex; flex-direction:column; padding:0; }
 .txw-node.source { border-style:dashed; }
 .txw-node.k-source{--accent:#64748b} .txw-node.k-table{--accent:#64748b}
 .txw-node.k-derive{--accent:#1f9e57} .txw-node.k-join{--accent:#0e7aa6}
@@ -763,6 +763,20 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   padding:3px 8px; border-radius:6px; color:var(--accent);
   background:color-mix(in srgb, var(--accent) 11%, #fff);
   box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
+/* figure node: two clickable section buttons (plot + stats) stacked vertically */
+.txw-figsections { display:flex; flex-direction:column; gap:0; padding:0; }
+.txw-figsec {
+  display:flex; flex-direction:column; align-items:flex-start; gap:6px;
+  width:100%; padding:11px 13px; background:none; border:none; cursor:pointer;
+  text-align:left; font:inherit; color:inherit; position:relative;
+  --accent:#64748b;
+}
+.txw-figsec.k-geom { --accent:#0e8a8a; }
+.txw-figsec.k-test { --accent:#4f46e5; }
+.txw-figsec + .txw-figsec { border-top:1px dashed #d0d0d8; }
+.txw-figsec:hover { background:color-mix(in srgb, var(--accent) 7%, transparent); }
+.txw-figsec .txw-figsec-head { display:flex; align-items:center; gap:6px; color:var(--accent); }
+.txw-figsec.pinned { background:color-mix(in srgb, var(--accent) 12%, transparent); }
 /* eyebrow hover → before/after schematic; detail hover → one-line definition */
 /* the op example floats above the cursor, portalled to <body> so it paints on
    top of every canvas node regardless of React Flow's per-node stacking. */
