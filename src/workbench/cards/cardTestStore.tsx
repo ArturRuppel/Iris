@@ -3,16 +3,20 @@ import {
   tablesAtom, activeTableIdAtom, plottablesAtom, activePlottableIdAtom,
   registryAtom, makeDefaultPlottable,
 } from "../../state";
-import type { Schema, Registry } from "../../types";
+import type { ColumnDef, Schema, Registry } from "../../types";
 
 /* A minimal seeded store for card-body tests: a schema whose columns are the
    spine dims (identifiers) + one numeric measure, a hierarchy over that spine,
    a registry stub, and one active default plottable. Mirrors the helper in
    CollapseRoutingPanel.test.tsx. */
-export function seedStore(spine: string[] = ["experiment", "cell"]) {
+export function seedStore(
+  spine: string[] = ["experiment", "cell"],
+  extraColumns: ColumnDef[] = [],
+) {
   const store = createStore();
   const schema: Schema = { schema_version: "1.0", columns: [
     ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
+    ...extraColumns,
     { name: "val", type: "numeric" as const, label: "Value" },
   ] };
   // the three single-table globals now derive off the active analysis's pool
