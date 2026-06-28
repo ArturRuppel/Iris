@@ -1,13 +1,10 @@
 """`.iris` document format: a saved file stamps the engine identity into the
 manifest (so its computed results are reproducible) and keeps the library
 snapshot as a secondary record. The 2.1 layout stores one parquet per named
-table (de-duplicated multi-table workspace); 2.0 files (single inline table)
-still load via a legacy migration to a one-entry pool."""
+table; files older than 2.1 are rejected on load."""
 import io
 import json
 import zipfile
-
-import pandas as pd
 
 from iris_engine import document
 
@@ -30,23 +27,12 @@ def _manifest(data: bytes) -> dict:
         return json.loads(z.read("manifest.json"))
 
 
-def _legacy_2_0_bytes(schema: dict, rows: list[dict],
-                      analyses: list[dict]) -> bytes:
-    """Emit the OLD 2.0 layout directly so the legacy branch of load_document is
-    exercised: manifest (format_version 2.0), data/table.parquet, data/schema.json,
-    analyses/NN-id.json, provenance.json."""
-    table = io.BytesIO()
-    pd.DataFrame(rows).to_parquet(table, index=False, engine="pyarrow",
-                                  compression="zstd")
+def _manifest_only_bytes(format_version: str) -> bytes:
+    """A minimal `.iris` carrying just a manifest at the given format_version —
+    enough to exercise load_document's version gate."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("manifest.json", json.dumps({"format_version": "2.0"}))
-        z.writestr("data/table.parquet", table.getvalue(),
-                   compress_type=zipfile.ZIP_STORED)
-        z.writestr("data/schema.json", json.dumps(schema))
-        for i, an in enumerate(analyses, 1):
-            z.writestr(f"analyses/{i:02d}-{an.get('id', 'analysis')}.json",
-                       json.dumps(an))
+        z.writestr("manifest.json", json.dumps({"format_version": format_version}))
         z.writestr("provenance.json", json.dumps({}))
     return buf.getvalue()
 
@@ -120,10 +106,9 @@ def test_save_then_load_roundtrips_multiple_tables():
     assert doc["tables"]["annot"]["hierarchy"]["spine"] == []
 
 
-def test_load_migrates_legacy_2_0_single_table():
-    # Build a 2.0 file with the OLD layout, assert load returns a one-entry `tables`.
-    legacy = _legacy_2_0_bytes(S, [{"id": "1", "k": "a"}], [{"id": "an1"}])
-    doc = document.load_document(legacy)
-    assert len(doc["tables"]) == 1
-    name = next(iter(doc["tables"]))
-    assert doc["tables"][name]["rows"] == [{"id": "1", "k": "a"}]
+def test_load_rejects_a_pre_2_1_document():
+    # The 2.0 single-inline-table layout was retired; an old file is refused with
+    # a clear error rather than silently read as an empty pool.
+    import pytest
+    with pytest.raises(ValueError, match="predates the 2.1"):
+        document.load_document(_manifest_only_bytes("2.0"))
