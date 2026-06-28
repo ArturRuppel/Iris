@@ -43,16 +43,35 @@ export function nodeDeltas(graph: ExplorerGraph): Map<string, NodeDelta> {
   const inSpine = (names: string[]) => names.filter((n) => spine.includes(n));
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
+  /* The grain a node carries for the SHED diff — read from the collapse PLAN, not
+     from async /shape_counts axes. A `grain` node holds its plan-chosen dims;
+     every other node (source/reduce/join) carries the full spine. This is the
+     same structural rule mergeGuards uses, and unlike axes it survives the
+     leading-identity-grain prune: when that prune rewires the first collapse onto
+     the source, the source still reports the full spine here, so the first
+     collapse still sheds its level (e.g. the innermost `frame`). Reading the
+     predecessor's axes instead left that first collapse calm, because the source's
+     materialized axes can omit a level the plan still pools. */
+  const grainOf = (id: string): string[] => {
+    const n = byId.get(id);
+    if (!n) return [];
+    return n.phase === "grain" ? inSpine(n.dims ?? []) : spine;
+  };
+
   const out = new Map<string, NodeDelta>();
   for (const node of graph.nodes) {
     const edge = primaryIn(graph, node.id, byId);
-    const live = inSpine(axisNames(graph, node.id));
-    // a node with no axes of its own is a terminal (Plot/Stats): it consumes the
-    // table, it doesn't pool a level — so it sheds nothing and shows no grain bar.
-    const hasOwnGrain = (node.count?.axes?.length ?? 0) > 0;
-    const predAxes = edge ? inSpine(axisNames(graph, edge.fromId)) : [];
+    // live: the levels this node still carries. A grain node reads its plan dims
+    // (the materialized axes can keep reporting an already-pooled innermost level
+    // like `frame`, which would leave it filled instead of fading to 'gone'); any
+    // other node reads its axes, so a join's narrower side-input grain stays true.
+    const live = node.phase === "grain" ? grainOf(node.id) : inSpine(axisNames(graph, node.id));
+    // shed: only a grain step pools a spine level — diff its plan grain against
+    // its predecessor's grain (the full spine at the collapse-chain head).
+    const shed = node.phase === "grain" && edge
+      ? grainOf(edge.fromId).filter((d) => !grainOf(node.id).includes(d))
+      : [];
     const predVals = edge ? valueNames(graph, edge.fromId) : [];
-    const shed = hasOwnGrain ? predAxes.filter((n) => !live.includes(n)) : [];
     const newValues = edge
       ? valueNames(graph, node.id).filter((v) => !predVals.includes(v))
       : [];
