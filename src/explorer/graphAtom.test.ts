@@ -1,7 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { mergeGuards, annotateEnabled } from "./graphAtom";
-import type { Edge } from "./graph";
-import type { ShapeCountsGuards, StyleOverrides } from "../types";
+import { mergeGuards, annotateEnabled, pruneIdentityGrains } from "./graphAtom";
+import { buildGraph } from "./graph";
+import type { Edge, NodeCount } from "./graph";
+import { defaultPlan } from "../collapse";
+import { RAW_LEVEL } from "../types";
+import type { ShapeCountsGuards, StyleOverrides, Schema } from "../types";
 
 const NO_GUARDS: ShapeCountsGuards = {
   pseudoreplication: null, pairing_flip: null,
@@ -58,6 +61,44 @@ describe("mergeGuards: join_leaf_key", () => {
   it("no join_leaf_key entries -> no badge added", () => {
     const out = mergeGuards(joinEdges(), NO_GUARDS, []);
     expect(out.some((e) => e.guards?.some((g) => g.id === "join_leaf_key"))).toBe(false);
+  });
+});
+
+describe("pruneIdentityGrains", () => {
+  const SCHEMA = { schema_version: "1.0", columns: [
+    { name: "experiment", label: "Experiment", type: "identifier" },
+    { name: "cell", label: "Cell", type: "identifier" },
+    { name: "area", label: "Area", type: "numeric" },
+  ] } as unknown as Schema;
+  const SPINE = ["experiment", "cell"];
+  // source -> grain:experiment/cell (regroup) -> grain:experiment (real collapse).
+  const graph = () => buildGraph([], SPINE, defaultPlan(SPINE, {}),
+    [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+  const n = (rows: number): NodeCount => ({ rows, cols: 3 });
+
+  it("drops the leading regroup once its count equals the source, rewiring the chain", () => {
+    const g = graph();
+    const counts = { source: n(100), "grain:experiment/cell": n(100), "grain:experiment": n(10) };
+    const { nodes, edges } = pruneIdentityGrains(g.nodes, g.edges, counts);
+    expect(nodes.some((nd) => nd.id === "grain:experiment/cell")).toBe(false);
+    // the collapse into the next grain now originates at the source, not the gone node
+    expect(edges.some((e) => e.kind === "collapse" && e.fromId === "source" && e.toId === "grain:experiment")).toBe(true);
+    // no dangling edge points at the pruned node
+    expect(edges.some((e) => e.fromId === "grain:experiment/cell" || e.toId === "grain:experiment/cell")).toBe(false);
+  });
+
+  it("keeps a regroup that still merges rows (count below source — an explicit coarse collapse)", () => {
+    const g = graph();
+    const counts = { source: n(100), "grain:experiment/cell": n(40), "grain:experiment": n(10) };
+    const { nodes } = pruneIdentityGrains(g.nodes, g.edges, counts);
+    expect(nodes.some((nd) => nd.id === "grain:experiment/cell")).toBe(true);
+  });
+
+  it("is a no-op until the source count is known", () => {
+    const g = graph();
+    const { nodes, edges } = pruneIdentityGrains(g.nodes, g.edges, {});
+    expect(nodes).toBe(g.nodes);
+    expect(edges).toBe(g.edges);
   });
 });
 

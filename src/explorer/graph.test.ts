@@ -58,6 +58,12 @@ describe("buildGraph", () => {
       ?.guards?.some((gd) => gd.id === "flatten_info")).toBe(true);
   });
 
+  it("tags the leading full-spine grain as a regroup candidate; real collapses are not", () => {
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    expect(g.nodes.find((n) => n.id === "grain:experiment/cell")?.regroup).toBe(true);
+    expect(g.nodes.find((n) => n.id === "grain:experiment")?.regroup).toBe(false);
+  });
+
   it("reduce-step edges carry the step kind and a count label", () => {
     const steps: ReduceStep[] = [
       { kind: "filter", conditions: [{ column: "area", op: ">", value: 1 },

@@ -39,6 +39,12 @@ export interface ExplorerNode {
   /* the spine dims a `grain` node carries (its kept levels). Absent on non-grain
      nodes, which carry the full spine. */
   dims?: string[];
+  /* a `grain` node that drops NO spine dim — the prefix chain's leading raw ->
+     full-spine "regroup". A structural identity *candidate*: graphAtom prunes it
+     once counts confirm its row count matches the source (a true no-op). It is
+     KEPT when counts show it still merges rows — an explicit collapse over a
+     spine coarser than the source rows aggregates without dropping a spine dim. */
+  regroup?: boolean;
   /* the reduce-step index this node represents: the root source is -1, a reduce
      `step:i` is i. Absent on grain/post/join-input/terminal nodes. */
   stepIndex?: number;
@@ -233,7 +239,7 @@ export function buildGraph(
     const key = grainKey(kept);
     const id = `grain:${key}`;
     const removed = prevKeep.filter((d) => !kept.includes(d));
-    nodes.push({ id, kind: "table", phase: "grain", dims: kept,
+    nodes.push({ id, kind: "table", phase: "grain", dims: kept, regroup: removed.length === 0,
       label: labelForGrain(schema, kept), table: { via: "grain", grain: key } });
     edges.push({ id: `e:${cprev}->${id}`, kind: "collapse",
       label: collapseEdgeLabel(schema, step.fn, removed, kept),

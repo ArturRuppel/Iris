@@ -103,6 +103,42 @@ export function mergeGuards(edges: Edge[], guards: ShapeCountsGuards, nodes: Exp
   return out;
 }
 
+/* Drop `grain` nodes that are a true no-op: they drop no spine dim (node.regroup,
+   set structurally by buildGraph) AND their row count equals the source's, so the
+   collapsed table is identical to the source. This removes the default prefix
+   chain's leading full-spine grain — confusing in the editor, since it shows the
+   same rows as the source under a coarser-looking label.
+
+   Count-gated on purpose: a regroup whose count is BELOW the source still merges
+   rows (an explicit collapse over a spine coarser than the source — e.g. a sum to
+   the experiment grain) and is KEPT. Pure: returns rewired nodes/edges — edges
+   INTO a pruned node are dropped; edges OUT of one are rewired to its collapse
+   predecessor (itself possibly pruned, so resolved transitively in node order). */
+export function pruneIdentityGrains(
+  nodes: ExplorerNode[], edges: Edge[], counts: Record<string, NodeCount>,
+): { nodes: ExplorerNode[]; edges: Edge[] } {
+  const sourceId = nodes.find((n) => n.phase === "source")?.id;
+  const srcRows = sourceId ? counts[sourceId]?.rows : undefined;
+  if (srcRows == null) return { nodes, edges };
+  // prunedId -> the upstream node that replaces it (its collapse predecessor).
+  const replacement = new Map<string, string>();
+  for (const n of nodes) {
+    if (n.phase !== "grain" || !n.regroup) continue;
+    if (counts[n.id]?.rows !== srcRows) continue;     // still aggregates -> keep
+    const inEdge = edges.find((e) => e.kind === "collapse" && e.toId === n.id);
+    const from = inEdge ? (replacement.get(inEdge.fromId) ?? inEdge.fromId) : undefined;
+    if (from) replacement.set(n.id, from);
+  }
+  if (replacement.size === 0) return { nodes, edges };
+  const remap = (id: string): string => replacement.get(id) ?? id;
+  return {
+    nodes: nodes.filter((n) => !replacement.has(n.id)),
+    edges: edges
+      .filter((e) => !replacement.has(e.toId))
+      .map((e) => (replacement.has(e.fromId) ? { ...e, fromId: remap(e.fromId) } : e)),
+  };
+}
+
 export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
   const p = get(activePlottableAtom);
   if (!p) return null;
@@ -114,7 +150,12 @@ export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
   const counts = get(shapeCountsAtom);
   const guards = get(guardsAtom);
   let nodes = g.nodes, edges = g.edges;
-  if (counts) nodes = nodes.map((n) => (counts[n.id] ? { ...n, count: counts[n.id] } : n));
+  if (counts) {
+    nodes = nodes.map((n) => (counts[n.id] ? { ...n, count: counts[n.id] } : n));
+    // prune the leading identity grain once counts confirm it's a true no-op,
+    // before guards merge so verdicts land on the surviving collapse edges.
+    ({ nodes, edges } = pruneIdentityGrains(nodes, edges, counts));
+  }
   if (guards) edges = mergeGuards(edges, guards, nodes);
   return { ...g, nodes, edges };
 });
