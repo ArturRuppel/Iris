@@ -464,6 +464,7 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .layer-rail.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
 .layer-rail .rail-head { display: flex; align-items: center; justify-content: space-between; }
 .layer-rail .template-pick { font-size: 12px; }
+.layer-strip { display: flex; flex-direction: column; gap: 8px; }
 .layer-list { list-style: none; margin: 0; padding: 0; display: flex;
   flex-direction: column; gap: 6px; }
 .layer-card { border: 1px solid #e2e8f0; border-radius: 6px; padding: 8px; }
