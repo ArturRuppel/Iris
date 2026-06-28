@@ -5,6 +5,7 @@ import {
   openCardAtom, closeCardAtom, moveCardAtom, resizeCardAtom,
   toggleCardCollapsedAtom, collapseAllCardsAtom, clearWorkbenchAtom,
   stashAtom, pushStashAtom, popStashAtom, STASH_SLOTS,
+  workbenchLayoutAtom, DEFAULT_STASH_H,
 } from "./state";
 import type { Target } from "./cardRegistry";
 
@@ -58,16 +59,20 @@ describe("workbench state", () => {
     expect(s.get(cardsAtom).every((c) => c.collapsed)).toBe(true);
   });
 
-  it("clearWorkbench resets cards, stash, selection, and node positions", () => {
+  it("clearWorkbench resets cards, stash, selection, node positions, and layout", () => {
     const s = createStore();
     s.set(openCardAtom, { target: tNode("source"), cardKind: "table" as const });
     s.set(pushStashAtom, { target: tNode("plot"), cardKind: "plot" as const });
     s.set(nodePositionsAtom, { source: { x: 10, y: 20 } });
+    s.set(workbenchLayoutAtom, { stashH: 999, cols: [3, 1, 2] });
     s.set(clearWorkbenchAtom);
     expect(s.get(cardsAtom)).toHaveLength(0);
     expect(s.get(stashAtom)).toHaveLength(0);
     expect(s.get(selectedTargetAtom)).toBeNull();
     expect(s.get(nodePositionsAtom)).toEqual({});
+    expect(s.get(workbenchLayoutAtom)).toEqual({
+      stashH: DEFAULT_STASH_H, cols: Array(STASH_SLOTS).fill(1),
+    });
   });
 });
 

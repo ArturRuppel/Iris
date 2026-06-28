@@ -50,6 +50,23 @@ export const stashAtom = atom<StashEntry[]>([]);
    and on analysis switch. Keyed by node id. */
 export const nodePositionsAtom = atom<Record<string, { x: number; y: number }>>({});
 
+/* ---- workbench tiling layout: the 3 numbers that size the panes ----
+   The whole canvas+stash split is described by stashH (the horizontal boundary
+   between the DAG and the docked stash) and `cols` (STASH_SLOTS relative column
+   weights, rendered as grid `fr` units so the split stays proportional when the
+   window resizes). Mutated by Alt-drag and the divider/corner sliders; session-
+   only, like the stash itself. */
+export interface WorkbenchLayout {
+  stashH: number;
+  cols: number[];
+}
+export const DEFAULT_STASH_H = 270;
+const defaultLayout = (): WorkbenchLayout => ({
+  stashH: DEFAULT_STASH_H,
+  cols: Array(STASH_SLOTS).fill(1),
+});
+export const workbenchLayoutAtom = atom<WorkbenchLayout>(defaultLayout());
+
 /* ---- writer atoms ---- */
 
 /* Open (or re-select) a card for a target. Idempotent per target: if one is
@@ -129,4 +146,5 @@ export const clearWorkbenchAtom = atom(null, (_get, set) => {
   set(stashAtom, []);
   set(selectedTargetAtom, null);
   set(nodePositionsAtom, {});
+  set(workbenchLayoutAtom, defaultLayout());
 });

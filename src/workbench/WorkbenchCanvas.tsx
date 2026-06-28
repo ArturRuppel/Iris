@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
   useNodesState, useEdgesState,
@@ -13,11 +13,12 @@ import { nodeDeltas, spineOf, levelInitial } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
   openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
-  pushStashAtom, stashAtom,
+  pushStashAtom, stashAtom, workbenchLayoutAtom,
 } from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
 import { FloatingCard } from "./FloatingCard";
 import { Stash } from "./Stash";
+import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -96,6 +97,12 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const stash = useAtomValue(stashAtom);
   const hasStash = stash.length > 0;
 
+  // tiling-resize: stashH + column weights, driven by Alt-drag and the sliders.
+  const layout = useAtomValue(workbenchLayoutAtom);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const stashRef = useRef<HTMLDivElement>(null);
+  const resize = useWorkbenchResize(overlayRef, stashRef);
+
   // clicking a node pins its data card into the stash (docked, comparable),
   // never a floating popup. A stale id (kind === null) is ignored.
   const pinNode = useCallback((target: Target) => {
@@ -159,7 +166,10 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   }, [onClose]);
 
   return (
-    <div className="txw-overlay txw-embedded" role="dialog" aria-label="Transformation workbench">
+    <div className="txw-overlay txw-embedded" role="dialog" aria-label="Transformation workbench"
+         ref={overlayRef}
+         style={hasStash ? { "--stash-h": `${layout.stashH}px` } as CSSProperties : undefined}
+         onPointerDownCapture={resize.onOverlayPointerDownCapture}>
       <div className="txw-topbar">
         <h1 className="txw-title">⛁ Transformation workbench</h1>
         <button className="txw-tidy" onClick={tidy}>⤢ Tidy</button>
@@ -187,7 +197,13 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
       <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>
         {cards.map((c) => <FloatingCard key={c.id} card={c} />)}
       </div>
-      <Stash graph={graph} />
+      <Stash graph={graph} cols={layout.cols} ref={stashRef} />
+      {hasStash && (
+        <ResizeHandles
+          cols={layout.cols}
+          startH={resize.startH} startV={resize.startV} startCorner={resize.startCorner}
+        />
+      )}
     </div>
   );
 }

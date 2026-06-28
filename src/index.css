@@ -971,7 +971,8 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   position: absolute;
   inset: auto 0 0 0;
   height: var(--stash-h);
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;   /* overridden inline with the live weights */
   gap: 10px;
   padding: 10px;
   background: #fff;
@@ -980,8 +981,8 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   z-index: 6;
 }
 .txw-slot {
-  flex: 1 1 0;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   border: 1px solid #cbd5e1;
@@ -989,6 +990,53 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background: #fff;
   overflow: hidden;
 }
+
+/* ---- tiling resize: the slider layer over the stash boundaries ----
+   a transparent grid mirroring .txw-stash columns; only the handles take input.
+   .txw-rs-h = height (ns), .txw-rs-v = a column gap (ew), .txw-rs-corner = both
+   axes at once where they cross (the Hyprland-style two-axis grip). */
+.txw-stash-handles {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: var(--stash-h);
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  pointer-events: none;
+  z-index: 7;
+}
+.txw-stash-handles > * { pointer-events: auto; background: transparent; transition: background .12s; }
+.txw-rs-h {
+  grid-column: 1 / -1;
+  align-self: start;
+  height: 8px;
+  margin-top: -14px;                     /* straddle the canvas/stash boundary */
+  cursor: ns-resize;
+  border-radius: 4px;
+}
+.txw-rs-v {
+  grid-row: 1;
+  justify-self: end;
+  align-self: stretch;
+  width: 10px;
+  margin-right: -10px;                    /* center on the 10px column gap */
+  cursor: ew-resize;
+  border-radius: 5px;
+}
+.txw-rs-corner {
+  grid-row: 1;
+  justify-self: end;
+  align-self: start;
+  width: 16px;
+  height: 16px;
+  margin: -14px -13px 0 0;                /* sit on the boundary × gap crossing */
+  cursor: nwse-resize;
+  border-radius: 4px;
+  background: #cbd5e1;
+  opacity: .6;
+}
+.txw-rs-h:hover, .txw-rs-v:hover { background: #6366f1; opacity: .55; }
+.txw-rs-corner:hover { background: #6366f1; opacity: 1; }
 .txw-slot.sel { border-color: #6366f1; box-shadow: 0 0 0 1px #6366f1; }
 .txw-slot.ghost {
   border-style: dashed;
