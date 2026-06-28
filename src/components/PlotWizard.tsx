@@ -2,7 +2,7 @@ import { useAtomValue, useSetAtom } from "jotai";
 import { useState } from "react";
 import {
   activePlottableAtom, addLayerAtom, effectiveSchemaAtom, hierarchyAtom,
-  registryAtom, updateLayerAtom,
+  registryAtom, removeLayerAtom, updateLayerAtom,
 } from "../state";
 import { geomSatisfiableByColumns } from "../channels";
 import type { Geom } from "../types";
@@ -21,15 +21,36 @@ export function PlotWizard({ mode, onDone, onCancel }: {
   const hierarchy = useAtomValue(hierarchyAtom);
   const addLayer = useSetAtom(addLayerAtom);
   const updateLayer = useSetAtom(updateLayerAtom);
+  const removeLayer = useSetAtom(removeLayerAtom);
   const [step, setStep] = useState<WizardStep>(() => firstStep(mode));
+  /* the index of the layer THIS wizard session appended, so cancel can roll it
+     back. null = nothing appended yet (or Done kept it). The modal wizard is the
+     only thing mutating layers while open, so this index stays the last layer. */
+  const [addedIndex, setAddedIndex] = useState<number | null>(null);
 
   if (!registry || !active) return null;
   const columns = schema?.columns ?? [];
   const lastIndex = active.layers.length - 1;
 
   const pickGeom = (g: Geom) => {
+    // addLayer appends; the new layer's index is the pre-append length (captured
+    // from the current render's `active`, which still holds the old array).
+    setAddedIndex(active.layers.length);
     addLayer(g);
     setStep(nextStep(mode, "type"));
+  };
+
+  /* cancel rolls back the layer this session added (it is the last one, and
+     nothing else mutates layers while the modal is open), then hands off. */
+  const cancel = () => {
+    if (addedIndex !== null) removeLayer(addedIndex);
+    onCancel();
+  };
+
+  /* Done keeps the appended layer — clear the rollback marker first. */
+  const done = () => {
+    setAddedIndex(null);
+    onDone();
   };
 
   const xyMapped = !!active.mappings.x && !!active.mappings.y;
@@ -51,7 +72,7 @@ export function PlotWizard({ mode, onDone, onCancel }: {
                 </button>
               ))}
           </div>
-          <button className="cancel" onClick={onCancel}>cancel</button>
+          <button className="cancel" onClick={cancel}>cancel</button>
         </div>
       )}
 
@@ -60,8 +81,8 @@ export function PlotWizard({ mode, onDone, onCancel }: {
           <p className="wiz-head">Map your data</p>
           <EncodingsCard />
           <div className="wiz-actions">
-            <button className="cancel" onClick={onCancel}>cancel</button>
-            <button className="wiz-done" disabled={!xyMapped} onClick={onDone}>Done</button>
+            <button className="cancel" onClick={cancel}>cancel</button>
+            <button className="wiz-done" disabled={!xyMapped} onClick={done}>Done</button>
           </div>
         </div>
       )}
@@ -71,10 +92,12 @@ export function PlotWizard({ mode, onDone, onCancel }: {
           <p className="wiz-head">Choose the grain for this layer</p>
           <select
             value={active.layers[lastIndex]?.level ?? ""}
-            onChange={(e) =>
+            onChange={(e) => {
+              // grain is unreachable without an appended layer — make it explicit.
+              if (lastIndex < 0) return;
               updateLayer({ index: lastIndex,
-                layer: { ...active.layers[lastIndex], level: e.target.value } })
-            }
+                layer: { ...active.layers[lastIndex], level: e.target.value } });
+            }}
           >
             {levelOptions(hierarchy, schema).map((o) => (
               <option key={o.value} value={o.value}>{o.label}</option>
@@ -84,8 +107,8 @@ export function PlotWizard({ mode, onDone, onCancel }: {
             X = {active.mappings.x || "—"}, Y = {active.mappings.y || "—"} (inherited from the figure)
           </p>
           <div className="wiz-actions">
-            <button className="cancel" onClick={onCancel}>cancel</button>
-            <button className="wiz-done" onClick={onDone}>Done</button>
+            <button className="cancel" onClick={cancel}>cancel</button>
+            <button className="wiz-done" onClick={done}>Done</button>
           </div>
         </div>
       )}
