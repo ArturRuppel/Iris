@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { Provider } from "jotai";
 import { targetToCardKind, CARD, type CardKind } from "./cardRegistry";
 import { seedStore } from "./cards/cardTestStore";
-import { setAnalysisByIdAtom } from "../state";
+import { setAnalysisByIdAtom, activePlottableAtom } from "../state";
 import type { ExplorerGraph } from "../explorer/graph";
 import type { AnalyzeResponse } from "../types";
 
@@ -119,5 +119,18 @@ describe("static card bodies — each renders its panel inside the classed wrapp
     expect(screen.getByText(/Describe only/i)).toBeInTheDocument();
     expect(screen.queryByText(/Methods text/i)).toBeNull();
     expect(screen.getByText(/significance brackets/i)).toBeInTheDocument();
+  });
+
+  // restores the interaction coverage lost with AnnotateCard: the folded-in
+  // toggle must actually write style.show_significance on the active plottable.
+  it("toggling the significance checkbox writes style.show_significance", () => {
+    const { store, plottable } = seedStore();
+    store.set(setAnalysisByIdAtom, { id: plottable.id, res: fixture });
+    const Body = CARD["test-editor"].body;
+    render(<Provider store={store}><Body target={{ kind: "edge", id: "x" }} /></Provider>);
+    const box = screen.getByRole("checkbox", { name: /significance brackets/i });
+    expect(store.get(activePlottableAtom)?.style.show_significance).toBeFalsy();
+    fireEvent.click(box);
+    expect(store.get(activePlottableAtom)?.style.show_significance).toBe(true);
   });
 });

@@ -324,7 +324,7 @@ export function TestPicker() {
              retired annotate edge. Only meaningful when a real test runs. Binds
              the same style.show_significance flag the graph reads. */
           <label className="describe-toggle">
-            <input type="checkbox" checked={!!active?.style.show_significance}
+            <input type="checkbox" checked={active?.style.show_significance ?? false}
               onChange={(e) => active &&
                 setActive({ ...active, style: { ...active.style, show_significance: e.target.checked } })} />
             Draw significance brackets on the figure
