@@ -111,7 +111,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   // clicking a node pins its data card into the stash (docked, comparable),
   // never a floating popup. A stale id (kind === null) is ignored. A whole-node
   // click on the figure terminal defaults to the plot facet (rather than leaving
-  // facet undefined, which resolves ambiguously in targetToCardKind).
+  // facet undefined, which resolves implicitly in targetToCardKind).
   const pinNode = useCallback((target: Target) => {
     const node = graph.nodes.find((n) => n.id === target.id);
     const t: Target = node?.kind === "figure" && !target.facet
