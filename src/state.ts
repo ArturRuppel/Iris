@@ -297,8 +297,8 @@ export function makeDefaultPlottable(schema: Schema, tableId = ""): Plottable {
     override: null, reference: null, describeOnly: false,
     previewLevel: RAW_LEVEL,
     style: {},
-    /* a fresh reduce per plottable — never share the EMPTY_REDUCE singleton,
-       so an in-place mutation could never alias across plottables.
+    /* a fresh reduce per plottable — never share a singleton, so an in-place
+       mutation could never alias across plottables.
        Empty steps == the full table (today's default). */
     reduce: { steps: [] },
   };

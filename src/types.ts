@@ -68,13 +68,9 @@ export interface PairwiseComparison {
   mean_diff?: number;
   effect?: { name: string; value: number };
 }
-export type Mark =
-  | "dot" | "summary" | "box" | "violin" | "bar"
-  | "scatter" | "regression" | "histogram" | "density";
-
 /* the live geom vocabulary: histogram/density were folded into a single
-   `distribution` geom (see migrateDistLayers). The legacy names remain in `Mark`
-   only so an older .viz still type-checks while it is migrated on load. */
+   `distribution` geom (see migrateDistLayers). The legacy names remain only so
+   an older .viz still type-checks while it is migrated on load. */
 export type Geom =
   | "dot" | "summary" | "box" | "violin" | "bar"
   | "scatter" | "regression" | "distribution" | "tile"
@@ -281,7 +277,6 @@ export type ReduceStepKind = ReduceStep["kind"];
 // chosen test-grain table AFTER collapse — grain-dependent transforms a raw-grain
 // reduce cannot express (e.g. a derive over per-replicate sums). [] means no step.
 export interface ReduceSpec { steps: ReduceStep[]; post?: ReduceStep[] }
-export const EMPTY_REDUCE: ReduceSpec = { steps: [] };
 
 /* ---- /reduce preview payload (display-only; no figure/stats render) ---- */
 export interface ColumnSummary {

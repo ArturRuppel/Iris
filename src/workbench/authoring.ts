@@ -62,13 +62,6 @@ export function affordances(node: ExplorerNode): AuthorOption[] {
   }
 }
 
-/* during a drag from a node's `+`, which targets light up. v1: the only binary op
-   is `join`, so a drop is valid onto any *other* data table (terminals excluded by
-   kind). The open-circle fill path is handled separately on the canvas. */
-export function isValidDropTarget(sourceId: string, target: ExplorerNode): boolean {
-  return target.kind === "table" && target.id !== sourceId;
-}
-
 /* the step index a node's `+` inserts AFTER: the root `source` is -1 (insert at 0),
    a `step:i` node is i. Only reduce-phase nodes (source / step:i) are ever asked. */
 export function stepIndexOf(nodeId: string): number {

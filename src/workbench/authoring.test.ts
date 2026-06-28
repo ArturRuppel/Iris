@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { ExplorerNode } from "../explorer/graph";
-import { affordances, isValidDropTarget, stepIndexOf, authorDispatch } from "./authoring";
+import { affordances, stepIndexOf, authorDispatch } from "./authoring";
 
 const tableNode = (id: string): ExplorerNode =>
   ({ id, kind: "table", label: id, table: { via: "none" } });
@@ -46,19 +46,6 @@ describe("affordances — the phase-keyed add menu", () => {
 
   it("every option carries a non-empty label", () => {
     for (const o of affordances(tableNode("source"))) expect(o.label).toBeTruthy();
-  });
-});
-
-describe("isValidDropTarget — drag-to-node is the binary (join) case", () => {
-  it("accepts another data table", () => {
-    expect(isValidDropTarget("step:0", tableNode("step:1"))).toBe(true);
-  });
-  it("rejects itself", () => {
-    expect(isValidDropTarget("step:0", tableNode("step:0"))).toBe(false);
-  });
-  it("rejects terminals", () => {
-    expect(isValidDropTarget("step:0", term("plot", "plot"))).toBe(false);
-    expect(isValidDropTarget("step:0", term("stats", "stats"))).toBe(false);
   });
 });
 

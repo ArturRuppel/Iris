@@ -78,7 +78,7 @@ export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeDat
    handles (left = target, right = source). The left handle is hidden by default;
    an unfilled-input node shows it as an open "missing" circle. The right (source)
    handle is the authoring `+`: a node with fitting options shows it as a visible
-   `+` that opens the phase-keyed add menu (and is the drag source for join). */
+   `+` that opens the phase-keyed add menu. */
 export function ArrayShapeRFNode(
   { id, data }: { id?: string; selected?: boolean; data: RFNodeData },
 ) {
