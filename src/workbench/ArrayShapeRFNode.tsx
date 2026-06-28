@@ -13,8 +13,8 @@ import type { NodeDelta } from "./nodeDelta";
 import { affordances, authorDispatch, type AuthorAction, type AuthorOption } from "./authoring";
 import { AddStepMenu } from "./AddStepMenu";
 
-/* node -> variant, from the phase buildGraph stamped. Terminals get their own
-   glyph + accent by kind; the root source and a join input share the "source"
+/* node -> variant, from the phase buildGraph stamped. The terminal gets the
+   figure glyph + accent; the root source and a join input share the "source"
    glyph; a grain its own; reduce/post steps the plain table. removed/onKeys
    highlighting is deferred to a later phase, so they are not derived here. */
 function variantOf(node: ExplorerNode): NodeVariant {
@@ -46,6 +46,7 @@ const isSource = (node: ExplorerNode): boolean =>
 
 /* the step kind that produced this node — the accent + eyebrow key. */
 function accentKind(node: ExplorerNode, delta?: NodeDelta): string {
+  // no k-figure accent yet; the geom teal reads closest to the figure output
   if (node.kind === "figure") return "geom";
   if (isSource(node)) return "source";
   return delta?.inEdge?.kind ?? "table";
@@ -97,7 +98,7 @@ export function ArrayShapeRFNode(
   // the add menu is positioned in screen space and portalled to <body>, not
   // nested in this node: each React Flow node is its own stacking context, so a
   // menu drawn inside an upstream node would paint UNDER any node stacked over
-  // it (e.g. the source's menu hiding behind the Plot) and swallow the pick.
+  // it (e.g. the source's menu hiding behind the Figure) and swallow the pick.
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const canAdd = !!options && options.length > 0;
 

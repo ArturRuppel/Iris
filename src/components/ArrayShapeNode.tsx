@@ -78,7 +78,7 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   const [exAt, setExAt] = useState<{ x: number; y: number } | null>(null);
   const [showDef, setShowDef] = useState(false);
   // show the grain bar only when this node carries a grain of its own (a table) —
-  // terminals (Plot/Stats) have no live/shed levels and skip it.
+  // the figure terminal has no live/shed levels and skips it.
   const hasGrain = live.length > 0 || shed.length > 0;
   const hasVals = values.length > 0;
 
