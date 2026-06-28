@@ -34,6 +34,10 @@ export interface ExplorerNode {
   /* a required input this node doesn't yet have (an unfilled join right): rendered
      as an open "missing" circle prompting a drag to fill it. */
   missing?: boolean;
+  /* terminal (plot/stats) summary chips: the geom(s) a plot draws / the test a
+     stats node runs, plus a significance flag. These carry no table of their own,
+     so the facts give the node substance in place of a grain bar + value chips. */
+  facts?: string[];
 }
 
 export interface Edge {
@@ -219,8 +223,22 @@ export function buildGraph(
     prevKeep = kept;
   }
 
-  nodes.push({ id: PLOT_ID, kind: "plot", label: "Plot", table: { via: "none" } });
-  nodes.push({ id: STATS_ID, kind: "stats", label: "Stats", table: { via: "none" } });
+  // terminal facts: a plot's distinct geoms (first-seen order) and a stats node's
+  // test, plus a shared "significance" flag when the test is annotated back onto
+  // the figure. Derived here, where layers + stats are in hand, so the terminals
+  // carry their summary even when a geom edge can't be routed to a grain node.
+  const geomFacts: string[] = [];
+  for (const layer of layers) {
+    const g = geomLabel(layer.geom);
+    if (!geomFacts.includes(g)) geomFacts.push(g);
+  }
+  const testFact = stats?.describeOnly ? "describe"
+    : (stats?.test ? testLabel(stats.test) : "describe");
+  const annotated = !!(stats && !stats.describeOnly && stats.annotate);
+  nodes.push({ id: PLOT_ID, kind: "plot", label: "Plot", table: { via: "none" },
+    facts: [...geomFacts, ...(annotated ? ["significance"] : [])] });
+  nodes.push({ id: STATS_ID, kind: "stats", label: "Stats", table: { via: "none" },
+    facts: [testFact, ...(annotated ? ["brackets on plot"] : [])] });
 
   // one edge per grain the plot reads, labelled with the geom(s) at that grain
   // (distinct, in first-seen order, comma-joined). A plot is composable over any

@@ -690,9 +690,17 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 /* ── Workbench node: the "delta" card (eyebrow + detail + grain bar + values) ──
    Each node shows only what its step CHANGED. A per-kind --accent colours the top
    bar, eyebrow, shed grain segment, and new-value ring. */
-.txw-node { box-sizing:border-box; width:172px; background:var(--panel);
+/* every node is exactly the same fixed width AND height, so content (value chips,
+   the detail line, facts) can't expand one box past another — the DAG reads as an
+   even grid. 150px clears the tallest node across all analyses (grain bar + two
+   chip rows + a wrapped detail). Terminals fill the height with their facts. */
+.txw-node { box-sizing:border-box; width:172px; height:150px; background:var(--panel);
   border:1px solid #e7eaf1; border-radius:12px; overflow:hidden;
-  box-shadow:0 1px 3px rgba(20,30,60,.06); --accent:#64748b; }
+  box-shadow:0 1px 3px rgba(20,30,60,.06); --accent:#64748b;
+  display:flex; flex-direction:column; }
+/* a terminal has only an eyebrow + facts, so centre its short body in the height */
+.txw-node.plot .txw-nbody, .txw-node.stats .txw-nbody {
+  flex:1; display:flex; flex-direction:column; justify-content:center; }
 .txw-node.source { border-style:dashed; }
 .txw-node.k-source{--accent:#64748b} .txw-node.k-table{--accent:#64748b}
 .txw-node.k-derive{--accent:#1f9e57} .txw-node.k-join{--accent:#0e7aa6}
@@ -738,8 +746,18 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent); }
 .txw-vgrain { opacity:.7; font-weight:500; }
 .txw-count { font-size:12px; color:#64748b; font-variant-numeric:tabular-nums; }
+/* terminal facts: the geom(s)/test summarised as soft accent chips (the terminal
+   has no grain bar or value columns to show otherwise) */
+.txw-facts { display:flex; flex-wrap:wrap; gap:5px; margin-top:7px; }
+.txw-fact { display:inline-flex; align-items:center; font:600 10.5px/1 system-ui;
+  padding:3px 8px; border-radius:6px; color:var(--accent);
+  background:color-mix(in srgb, var(--accent) 11%, #fff);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
 /* eyebrow hover → before/after schematic; detail hover → one-line definition */
-.txw-pop { position:absolute; top:calc(100% + 7px); left:0; z-index:40; }
+/* the op example floats above the cursor, portalled to <body> so it paints on
+   top of every canvas node regardless of React Flow's per-node stacking. */
+.txw-pop { position:fixed; z-index:9999; transform:translate(-50%, -100%);
+  pointer-events:none; }
 .txw-pop .txw-hover { position:static; left:auto; top:auto; margin:0; }
 .txw-deftip { position:absolute; top:calc(100% + 6px); left:0; z-index:40;
   width:max-content; max-width:230px; white-space:normal;

@@ -51,15 +51,19 @@ function eyebrowText(node: ExplorerNode, delta?: NodeDelta): string {
 }
 
 /* an ExplorerNode (+ its computed delta) -> the RF node data. Pure + exported so
-   the mapping is unit-tested without React Flow. */
+   the mapping is unit-tested without React Flow. Terminals (plot/stats) show
+   their geom/test summary as `facts` chips (set on the node) instead of a grain
+   bar + value chips, and clear their detail line. */
 export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeData {
   const c = node.count;
+  const isTerminal = node.kind === "plot" || node.kind === "stats";
   const ex = delta?.inEdge ? cannedExample(delta.inEdge.kind) : null;
   return {
     variant: variantOf(node),
     kind: accentKind(node, delta),
     eyebrow: eyebrowText(node, delta),
-    detail: isSource(node.id) ? "" : (delta?.inEdge?.label ?? ""),
+    detail: (isSource(node.id) || isTerminal) ? "" : (delta?.inEdge?.label ?? ""),
+    facts: node.facts ?? [],
     spine: delta?.spine ?? [], live: delta?.live ?? [], shed: delta?.shed ?? [],
     values: c?.values ?? [], newValues: delta?.newValues ?? [],
     rows: c?.rows, cols: c?.cols,

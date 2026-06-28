@@ -1,4 +1,5 @@
 import { Fragment, useState, type ReactElement } from "react";
+import { createPortal } from "react-dom";
 import type { ValueDesc } from "../types";
 import type { CannedExample } from "../explorer/cannedExamples";
 import { OpHoverExample } from "./OpHoverExample";
@@ -21,6 +22,7 @@ export interface ArrayShapeNodeProps {
   cols?: number;
   example?: CannedExample | null;  // before/after schematic, shown hovering the eyebrow
   definition?: string;             // one-line definition, shown hovering the detail
+  facts?: string[];                // terminal (plot/stats) summary chips, in place of grain/values
   onEdit?: () => void;             // detail click → open this step's editor
 }
 
@@ -63,8 +65,11 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
    hovering the specifics shows the definition; clicking them opens the editor. */
 export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   const { variant, kind, eyebrow, detail, spine, live, shed, values,
-    newValues = [], rows, cols, example, definition, onEdit } = props;
-  const [showEx, setShowEx] = useState(false);
+    newValues = [], rows, cols, example, definition, facts = [], onEdit } = props;
+  // the example follows the cursor: we track its position so the popup can be
+  // portalled to <body> (escaping React Flow's per-node stacking context) and
+  // float just above the mouse, on top of the whole canvas.
+  const [exAt, setExAt] = useState<{ x: number; y: number } | null>(null);
   const [showDef, setShowDef] = useState(false);
   // show the grain bar only when this node carries a grain of its own (a table) —
   // terminals (Plot/Stats) have no live/shed levels and skip it.
@@ -77,13 +82,18 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
       <div className="txw-nbody">
         <div
           className="txw-eyebrow"
-          onMouseEnter={example ? () => setShowEx(true) : undefined}
-          onMouseLeave={example ? () => setShowEx(false) : undefined}
+          onMouseEnter={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
+          onMouseMove={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
+          onMouseLeave={example ? () => setExAt(null) : undefined}
         >
           <span className="txw-nicon" aria-hidden><NodeIcon variant={variant} /></span>
           <span className="txw-eyebrow-text">{eyebrow}</span>
-          {example && showEx && (
-            <div className="txw-pop" role="tooltip"><OpHoverExample example={example} /></div>
+          {example && exAt && createPortal(
+            <div className="txw-pop" role="tooltip"
+                 style={{ left: exAt.x, top: exAt.y - 12 }}>
+              <OpHoverExample example={example} />
+            </div>,
+            document.body,
           )}
         </div>
 
@@ -131,7 +141,15 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
           </div>
         )}
 
-        {!hasGrain && !hasVals && rows != null && cols != null && (
+        {facts.length > 0 && (
+          <div className="txw-facts" role="list" aria-label="summary">
+            {facts.map((f) => (
+              <span key={f} className="txw-fact" role="listitem">{f}</span>
+            ))}
+          </div>
+        )}
+
+        {!hasGrain && !hasVals && facts.length === 0 && rows != null && cols != null && (
           <div className="txw-count">{rows}×{cols}</div>
         )}
       </div>
