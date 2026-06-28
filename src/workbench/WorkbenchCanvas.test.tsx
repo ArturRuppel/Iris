@@ -150,4 +150,10 @@ describe("WorkbenchCanvas", () => {
     expect(store.get(cardsAtom)).toContainEqual(
       expect.objectContaining({ cardKind: "geom-editor" }));
   });
+
+  it("renders the hero-card row alongside the DAG band", () => {
+    const { container } = mount();
+    expect(screen.getByTestId("hero-row")).toBeInTheDocument();
+    expect(container.querySelectorAll(".react-flow__node").length).toBeGreaterThan(0);
+  });
 });

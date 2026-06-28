@@ -21,6 +21,7 @@ import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
 import { removeStepAtom, undoSpecAtom, redoSpecAtom } from "../state";
+import { HeroCards } from "./HeroCards";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -247,7 +248,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   }, [onClose]);
 
   return (
-    <div className="txw-overlay txw-embedded" role="dialog" aria-label="Transformation workbench"
+    <div className="txw-overlay txw-embedded txw-landing" role="dialog" aria-label="Transformation workbench"
          ref={overlayRef}
          style={hasStash ? { "--stash-h": `${layout.stashH}px` } as CSSProperties : undefined}
          onPointerDownCapture={resize.onOverlayPointerDownCapture}>
@@ -285,6 +286,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <NodeContextMenu menu={menu} onClose={() => setMenu(null)} />
         )}
       </div>
+      <HeroCards graph={graph} />
       <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>
         {cards.map((c) => <FloatingCard key={c.id} card={c} />)}
       </div>

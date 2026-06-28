@@ -864,6 +864,58 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 
 /* React Flow canvas inside the workbench overlay */
 .txw-rfcanvas { position: absolute; inset: 44px 0 0 0; }
+
+/* ---- landing layout: compact DAG band on top, hero cards below ---- */
+.txw-overlay.txw-landing { display: block; }
+.txw-landing .txw-rfcanvas {
+  inset: 44px 0 auto 0;
+  height: clamp(160px, 32%, 360px);
+  border-bottom: 1px solid #e2e8f0;
+}
+.txw-hero-row {
+  position: absolute;
+  inset: calc(44px + clamp(160px, 32%, 360px)) 0 0 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  padding: 10px;
+  overflow: hidden;
+}
+/* lift hero row when stash docks at the bottom (mirrors .txw-rfcanvas.with-stash) */
+.txw-rfcanvas.with-stash ~ .txw-hero-row { bottom: var(--stash-h); }
+.txw-hero-card {
+  display: flex; flex-direction: column;
+  min-height: 0; min-width: 0;
+  border: 1px solid #e2e8f0; border-radius: 8px;
+  background: #fff; overflow: hidden;
+}
+.txw-hero-bar {
+  flex: 0 0 auto; padding: 6px 10px;
+  font-size: 12px; font-weight: 600; color: #334155;
+  border-bottom: 1px solid #eef2f7; background: #f8fafc;
+}
+.txw-hero-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px; }
+.txw-card-disabled { opacity: 0.65; }
+.txw-card-disabled .txw-hero-body {
+  background-image: repeating-linear-gradient(
+    45deg, #f1f5f9 0, #f1f5f9 8px, #f8fafc 8px, #f8fafc 16px);
+}
+.txw-add-plot {
+  margin: auto; display: block;
+  padding: 10px 18px; font-size: 14px; font-weight: 600;
+  color: #fff; background: #3b6ef0; border: none; border-radius: 8px; cursor: pointer;
+}
+.txw-add-plot:hover { background: #2f5fd8; }
+.plot-wizard .wiz-gallery { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.plot-wizard .wiz-geom {
+  padding: 8px 14px; border: 1px solid #c3cee0; border-radius: 6px;
+  background: #f8fafc; cursor: pointer;
+}
+.plot-wizard .wiz-geom:hover { border-color: #3b6ef0; background: #eaf0ff; }
+.plot-wizard .wiz-head { font-size: 13px; font-weight: 600; color: #334155; margin: 0 0 4px; }
+.plot-wizard .wiz-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.plot-wizard .wiz-inherited { font-size: 11px; color: #64748b; margin: 6px 0 0; }
+
 .txw-undo { font-size: 12px; padding: 3px 8px; }
 .txw-undo:disabled { opacity: 0.4; cursor: default; }
 .txw-tidy { margin-left: auto; }
