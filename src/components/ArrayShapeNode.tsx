@@ -4,7 +4,15 @@ import type { ValueDesc } from "../types";
 import type { CannedExample } from "../explorer/cannedExamples";
 import { OpHoverExample } from "./OpHoverExample";
 
-export type NodeVariant = "source" | "table" | "grain" | "hub" | "plot" | "stats";
+export type NodeVariant = "source" | "table" | "grain" | "hub" | "figure";
+
+export interface FigureSection {
+  kind: "plot" | "stats";
+  label: string;          // "Plot" | "Stats"
+  facts: string[];        // geom chips / test chip
+  onView?: () => void;    // left-click → pin this facet's card (wired by the RF node in a later task)
+  slotNum?: number | null;// stash slot badge, when this facet is pinned (later task)
+}
 
 export interface ArrayShapeNodeProps {
   variant: NodeVariant;
@@ -22,7 +30,9 @@ export interface ArrayShapeNodeProps {
   cols?: number;
   example?: CannedExample | null;  // before/after schematic, shown hovering the eyebrow
   definition?: string;             // one-line definition, shown hovering the detail
-  facts?: string[];                // terminal (plot/stats) summary chips, in place of grain/values
+  /* terminal (figure) sections: plot + stats, each its own labeled, clickable
+     block. Present only on the figure variant. */
+  sections?: FigureSection[];
   onEdit?: () => void;             // detail click → open this step's editor
 }
 
@@ -47,11 +57,6 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
     case "grain":
       return (<svg {...p}><path d="M7 1.5 12.5 4 7 6.5 1.5 4Z" />
         <path d="M1.5 7 7 9.5 12.5 7" /><path d="M1.5 10 7 12.5 12.5 10" /></svg>);
-    case "plot":
-      return (<svg {...p}><path d="M1.5 12.5h11" />
-        <path d="M3.5 12.5V8M7 12.5V3.5M10.5 12.5V6.5" strokeWidth="1.8" /></svg>);
-    case "stats":
-      return (<svg {...p}><path d="M1.5 12Q4 12 7 3 10 12 12.5 12" /></svg>);
     default:
       return (<svg {...p}><rect x="1.5" y="1.5" width="11" height="11" rx="1.5" />
         <path d="M1.5 5.5h11M5.5 1.5v11" /></svg>);
@@ -65,7 +70,8 @@ function NodeIcon({ variant }: { variant: NodeVariant }): ReactElement {
    hovering the specifics shows the definition; clicking them opens the editor. */
 export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   const { variant, kind, eyebrow, detail, spine, live, shed, values,
-    newValues = [], rows, cols, example, definition, facts = [], onEdit } = props;
+    newValues = [], rows, cols, example, definition, onEdit } = props;
+  const facts: string[] = []; // placeholder — replaced in Task 4 by sections rendering
   // the example follows the cursor: we track its position so the popup can be
   // portalled to <body> (escaping React Flow's per-node stacking context) and
   // float just above the mouse, on top of the whole canvas.

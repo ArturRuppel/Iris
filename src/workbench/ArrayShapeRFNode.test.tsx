@@ -31,12 +31,21 @@ describe("nodeShapeProps", () => {
       inEdge: { id: "e:c", kind: "collapse" },
     });
   });
-  it("gives the source an eyebrow and no detail; terminals key off kind", () => {
-    const mk = (id: string, kind: "table" | "plot" | "stats"): ExplorerNode =>
-      ({ id, kind, phase: kind === "table" ? phaseOf(id) : "terminal", label: id, table: { via: "none" } });
-    expect(nodeShapeProps(mk("source", "table"))).toMatchObject({ eyebrow: "Source", detail: "" });
-    expect(nodeShapeProps(mk("plot", "plot"))).toMatchObject({ eyebrow: "Plot", kind: "geom" });
-    expect(nodeShapeProps(mk("stats", "stats"))).toMatchObject({ eyebrow: "Stats", kind: "test" });
+  it("gives the source an eyebrow and no detail; a figure carries two sections", () => {
+    const src: ExplorerNode =
+      { id: "source", kind: "table", phase: "source", label: "source", table: { via: "none" } };
+    expect(nodeShapeProps(src)).toMatchObject({ eyebrow: "Source", detail: "" });
+    const fig: ExplorerNode = {
+      id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" },
+      sections: [{ kind: "plot", facts: ["dots"] }, { kind: "stats", facts: ["MW"] }],
+    };
+    expect(nodeShapeProps(fig)).toMatchObject({
+      variant: "figure",
+      sections: [
+        { kind: "plot", label: "Plot", facts: ["dots"] },
+        { kind: "stats", label: "Stats", facts: ["MW"] },
+      ],
+    });
   });
   it("derives variant from id: source -> source, source:0 -> source, plain -> table", () => {
     const mk = (id: string): ExplorerNode => ({ id, kind: "table", phase: phaseOf(id), label: id, table: { via: "none" } });
@@ -110,8 +119,10 @@ describe("ArrayShapeRFNode", () => {
     const { container } = render(
       <ReactFlowProvider>
         <ArrayShapeRFNode
-          id="plot"
-          data={nodeShapeProps({ id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } })}
+          id="figure"
+          data={nodeShapeProps({ id: "figure", kind: "figure", phase: "terminal", label: "Figure",
+            table: { via: "none" },
+            sections: [{ kind: "plot", facts: ["dots"] }, { kind: "stats", facts: ["MW"] }] })}
           selected={false}
         />
       </ReactFlowProvider>,

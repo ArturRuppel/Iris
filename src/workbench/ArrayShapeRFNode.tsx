@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Handle, Position } from "@xyflow/react";
 import { useSetAtom, useAtomValue } from "jotai";
-import { ArrayShapeNode, type ArrayShapeNodeProps, type NodeVariant } from "../components/ArrayShapeNode";
+import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
 import { cannedExample } from "../explorer/cannedExamples";
 import type { EdgeKind, ExplorerNode } from "../explorer/graph";
 import { insertStepAtom } from "../state";
@@ -19,7 +19,7 @@ import { AddStepMenu } from "./AddStepMenu";
    highlighting is deferred to a later phase, so they are not derived here. */
 function variantOf(node: ExplorerNode): NodeVariant {
   switch (node.phase) {
-    case "terminal": return node.kind === "plot" ? "plot" : "stats";
+    case "terminal": return "figure";
     case "source": case "join-input": return "source";
     case "grain": return "grain";
     default: return "table";   // reduce / post
@@ -46,32 +46,32 @@ const isSource = (node: ExplorerNode): boolean =>
 
 /* the step kind that produced this node — the accent + eyebrow key. */
 function accentKind(node: ExplorerNode, delta?: NodeDelta): string {
-  if (node.kind === "plot") return "geom";
-  if (node.kind === "stats") return "test";
+  if (node.kind === "figure") return "geom";
   if (isSource(node)) return "source";
   return delta?.inEdge?.kind ?? "table";
 }
 function eyebrowText(node: ExplorerNode, delta?: NodeDelta): string {
-  if (node.kind === "plot") return "Plot";
-  if (node.kind === "stats") return "Stats";
+  if (node.kind === "figure") return "Figure";
   if (isSource(node)) return "Source";
   return delta?.inEdge ? (EDGE_TYPE[delta.inEdge.kind] ?? "Step") : node.label;
 }
 
 /* an ExplorerNode (+ its computed delta) -> the RF node data. Pure + exported so
-   the mapping is unit-tested without React Flow. Terminals (plot/stats) show
-   their geom/test summary as `facts` chips (set on the node) instead of a grain
-   bar + value chips, and clear their detail line. */
+   the mapping is unit-tested without React Flow. The terminal (figure) carries
+   two named sections (plot + stats) with their geom/test chips, and clears its
+   detail line. */
 export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeData {
   const c = node.count;
-  const isTerminal = node.kind === "plot" || node.kind === "stats";
+  const isTerminal = node.kind === "figure";
   const ex = delta?.inEdge ? cannedExample(delta.inEdge.kind) : null;
   return {
     variant: variantOf(node),
     kind: accentKind(node, delta),
     eyebrow: eyebrowText(node, delta),
     detail: (isSource(node) || isTerminal) ? "" : (delta?.inEdge?.label ?? ""),
-    facts: node.facts ?? [],
+    sections: node.sections?.map((s): FigureSection => ({
+      kind: s.kind, label: s.kind === "plot" ? "Plot" : "Stats", facts: s.facts,
+    })),
     spine: delta?.spine ?? [], live: delta?.live ?? [], shed: delta?.shed ?? [],
     values: c?.values ?? [], newValues: delta?.newValues ?? [],
     rows: c?.rows, cols: c?.cols,
@@ -130,13 +130,6 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
-      {/* the stats->plot annotate back-edge links two terminals stacked in the
-          same column. Both endpoints sit on the RIGHT (Stats' out handle ->
-          Plot's annotate-in) so it bows into the open gutter beside them rather
-          than looping across the canvas (left target) or hiding in the seam
-          (top/bottom, where ROW_GAP leaves no room). */}
-      <Handle id="annotate-in" type="target" position={Position.Right}
-        style={{ opacity: 0 }} />
       <ArrayShapeNode {...shape} onEdit={onEdit} />
       <Handle
         id="out" type="source" position={Position.Right}
