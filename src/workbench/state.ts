@@ -14,6 +14,8 @@ export interface Card {
   collapsed: boolean;
 }
 
+/* card id format: "node:{id}" | "node:{id}:{facet}" | "edge:{id}" — the facet
+   suffix gives the two figure facets distinct cards. */
 const cardId = (t: Target): string => `${t.kind}:${t.id}${t.facet ? `:${t.facet}` : ""}`;
 
 const DEFAULT_W = 360;

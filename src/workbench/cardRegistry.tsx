@@ -17,7 +17,7 @@ export type CardKind =
    `facet` picks which half (plot vs stats) the click addresses. */
 export interface Target { kind: "node" | "edge"; id: string; facet?: "plot" | "stats"; }
 
-/* reduce-step edges all share the one op-editor; collapse/geom/test/annotate
+/* reduce-step edges all share the one op-editor; collapse/geom/test
    each have their own editor. */
 export const EDGE_CARD: Record<EdgeKind, CardKind> = {
   filter: "op-editor", drop: "op-editor", derive: "op-editor",
@@ -46,7 +46,7 @@ export interface CardBodyProps { target: Target; }
 
 /* Most editor/terminal cards are static: they ignore the target and render fixed
    panels (which bind to the active analysis themselves) inside a classed wrapper.
-   Only TableCard / OpEditorCard / AnnotateCard read the target or atoms, so they
+   Only TableCard / OpEditorCard read the target or atoms, so they
    stay as their own components. */
 const staticBody = (className: string, testid: string, render: () => JSX.Element) =>
   function StaticCardBody(_props: CardBodyProps) {
