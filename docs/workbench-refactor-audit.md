@@ -230,7 +230,12 @@ _(engine #1 · HIGH · M)_
    `updateActive`/`reorder` in `state.ts` and routed the ~12 step/layer/spine writers through
    them (`patchActive` now wraps `updateActive`). tsc + build clean, 328 tests pass; net
    −163 lines.
-4. **The two bugs**: the `SessionStore`-8 eviction; then regenerate examples → delete the
-   engine 2.0 reader.
+4. **The two bugs**: (a) ✅ **DONE 2026-06-28** — the `SessionStore`-8 silent eviction:
+   `SessionStore.ensure_capacity(n)` raises the LRU bound to fit a loaded document's table
+   cohort; `doc_load` reserves it before the create burst. Unit + end-to-end (10-table
+   roundtrip) regression tests; 515 engine tests pass. The save-side >8 cap (would 409) is a
+   separate documented limitation (rehydrate-from-rows) and remains. (b) ⏳ **PENDING** —
+   regenerate the 2.0 example gallery to 2.1 → confirm no `format_version: 2.0` remains →
+   delete the engine 2.0 reader → then the deferred frontend migration deletions (Theme 2).
 5. **Optional**: split `state.ts` into modules; rename `layoutResize.ts`; the `StatsResult`
    union.
