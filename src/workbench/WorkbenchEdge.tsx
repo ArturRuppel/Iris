@@ -1,17 +1,20 @@
-import { BaseEdge, getBezierPath, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, getBezierPath, type EdgeProps } from "@xyflow/react";
 import type { EdgeKind } from "../explorer/graph";
+import { COL_GAP } from "./layout";
 
 export interface WorkbenchEdgeData { kind: EdgeKind; label: string; back: boolean }
 
 /* The collapse chain is the literal data flow and keeps the inline corridor.
-   The fan-in families (geom -> the shared Plot, test -> Stats) get routed so
-   their labels never stack on the collapse labels. The lane follows the TARGET:
-   when Plot/Stats is stacked off the main row, the wire drops straight to that
-   row (no detour); only when the target sits ON the main row (so the edge would
-   otherwise run horizontally through the collapse corridor) do we lift the wire
-   into a top (geom) / bottom (test) lane. LANE_Y clears a tall table node (title
-   + Organised-by + Values); OFF_ROW is how far off-row counts as "its own row";
-   STUB is the short horizontal exit before the wire turns. */
+   The fan-in families (geom -> the shared Plot, test -> Stats) only need special
+   routing when their target is more than one column away — there the wire would
+   otherwise run horizontally through the collapse corridor and tunnel under the
+   nodes between source and target. A fan-in to the IMMEDIATELY adjacent column
+   (the common terminal case: last grain -> Stats, grain -> the Plot stacked just
+   off it) has nothing to clear, so it routes inline. For a far target the lane
+   follows the TARGET: off the main row, the wire drops straight to that row (no
+   detour); on the main row we lift it into a top (geom) / bottom (test) lane.
+   LANE_Y clears a tall table node (title + Organised-by + Values); OFF_ROW is how
+   far off-row counts as "its own row"; STUB is the short exit before the turn. */
 const LANE_Y = 150;
 const OFF_ROW = 90;
 const STUB = 16;
@@ -42,32 +45,44 @@ function laneRoute(
 }
 
 /* the lane Y a fan-in (geom/test) wire runs in, or null for a normal inline edge.
-   Pure + exported so the routing decision is unit-tested without React Flow. */
-export function laneOf(kind: EdgeKind | undefined, sourceY: number, targetY: number): number | null {
+   A fan-in whose target sits in the IMMEDIATELY adjacent column (e.g. the last
+   grain -> Stats, or a grain -> the Plot stacked just off it) has no collapse node
+   between source and target, so it routes inline with no detour — lifting it into a
+   lane would only add a pointless loop. The lane is reserved for the real hazard: a
+   target more than one column away, where collapse nodes would otherwise sit under
+   a same-row horizontal wire. Pure + exported so the decision is unit-tested. */
+export function laneOf(
+  kind: EdgeKind | undefined,
+  sourceX: number, sourceY: number, targetX: number, targetY: number,
+): number | null {
   if (kind !== "geom" && kind !== "test") return null;
-  if (Math.abs(targetY - sourceY) >= OFF_ROW) return targetY; // target on its own row
-  return sourceY + (kind === "geom" ? -LANE_Y : LANE_Y);       // on-row: lift to a lane
+  if (targetX - sourceX < COL_GAP) return null;               // adjacent column: route inline
+  if (Math.abs(targetY - sourceY) >= OFF_ROW) return targetY; // far + target on its own row
+  return sourceY + (kind === "geom" ? -LANE_Y : LANE_Y);       // far + on-row: lift to a lane
 }
 
-/* a graph edge: a pure orthogonal "blackbox" wire — the transformation it carries
-   is now named inside the TARGET node (eyebrow + detail), so the edge no longer
-   renders a label. A back-edge (annotate) keeps a curved bezier so the
-   stats->plot link reads as an overlay, not a flow step. geom/test fan-in edges
-   route through a top/bottom lane so the wire never crosses the inline collapse
-   row on its way to the shared Plot/Stats node. */
+/* a graph edge: a "blackbox" wire — the transformation it carries is now named
+   inside the TARGET node (eyebrow + detail), so the edge renders no label. An
+   inline edge is a gentle bezier: a flat horizontal line when its two nodes share
+   a row, easing into a smooth S when one is dragged off-row (a centered orthogonal
+   step would read as a detached squiggle in the gutter). A back-edge (annotate)
+   uses a deeper bezier so the stats->plot link reads as an overlay, not a flow
+   step. Only the geom/test fan-in lanes stay orthogonal: their long top/bottom
+   detour around the collapse corridor wants crisp right angles, not a sagging
+   curve, to read as a deliberate bypass rather than a wandering wire. */
 export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
   // geom -> Plot, test -> Stats: pick the lane the TARGET is on so the wire never
   // detours. Off-row target -> route straight to its row; on-row target -> lift
   // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
-  const lane = laneOf(data?.kind, sourceY, targetY);
+  const lane = laneOf(data?.kind, sourceX, sourceY, targetX, targetY);
   const [path] = data?.back
     ? getBezierPath({ sourceX, sourceY, targetX, targetY, curvature: 0.6 })
     : lane != null
       ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
-      : getSmoothStepPath({ sourceX, sourceY, targetX, targetY,
-          sourcePosition, targetPosition, borderRadius: 8 });
+      : getBezierPath({ sourceX, sourceY, targetX, targetY,
+          sourcePosition, targetPosition });
   return (
     <BaseEdge id={id} path={path} className={`txw-rfedge ${data?.kind ?? ""}${data?.back ? " back" : ""}`} />
   );

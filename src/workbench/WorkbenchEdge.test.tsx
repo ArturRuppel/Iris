@@ -38,19 +38,26 @@ describe("WorkbenchEdge", () => {
   });
 });
 
+// X spans: FAR puts the target more than one column away (lane territory); ADJ
+// puts it in the immediately adjacent column (route inline, no detour).
+const FAR = 400, ADJ = 74;
 describe("laneOf (fan-in routing)", () => {
-  it("lifts an on-row geom edge into a top lane (above source)", () => {
-    expect(laneOf("geom", 100, 100)!).toBeLessThan(100);
+  it("lifts a far on-row geom edge into a top lane (above source)", () => {
+    expect(laneOf("geom", 0, 100, FAR, 100)!).toBeLessThan(100);
   });
-  it("drops an on-row test edge into a bottom lane (below source)", () => {
-    expect(laneOf("test", 100, 100)!).toBeGreaterThan(100);
+  it("drops a far on-row test edge into a bottom lane (below source)", () => {
+    expect(laneOf("test", 0, 100, FAR, 100)!).toBeGreaterThan(100);
   });
-  it("routes straight to the target's row when it's stacked off-row (no detour)", () => {
-    expect(laneOf("geom", 0, 300)).toBe(300);
-    expect(laneOf("test", 0, 300)).toBe(300);
+  it("routes straight to the target's row when it's far and stacked off-row", () => {
+    expect(laneOf("geom", 0, 0, FAR, 300)).toBe(300);
+    expect(laneOf("test", 0, 0, FAR, 300)).toBe(300);
+  });
+  it("routes a fan-in to an ADJACENT column inline (no lane, no loop)", () => {
+    expect(laneOf("test", 0, 100, ADJ, 100)).toBeNull(); // last grain -> Stats next door
+    expect(laneOf("geom", 0, 0, ADJ, 150)).toBeNull();   // grain -> Plot stacked just off it
   });
   it("returns null for a normal inline edge (no lane)", () => {
-    expect(laneOf("collapse", 0, 0)).toBeNull();
-    expect(laneOf(undefined, 0, 0)).toBeNull();
+    expect(laneOf("collapse", 0, 0, FAR, 0)).toBeNull();
+    expect(laneOf(undefined, 0, 0, FAR, 0)).toBeNull();
   });
 });
