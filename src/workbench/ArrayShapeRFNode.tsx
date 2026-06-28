@@ -46,7 +46,8 @@ const isSource = (node: ExplorerNode): boolean =>
 
 /* the step kind that produced this node — the accent + eyebrow key. */
 function accentKind(node: ExplorerNode, delta?: NodeDelta): string {
-  // no k-figure accent yet; the geom teal reads closest to the figure output
+  // the figure variant early-returns in ArrayShapeNode before any k- accent is
+  // applied, so this is a nominal value; geom teal reads closest to the figure.
   if (node.kind === "figure") return "geom";
   if (isSource(node)) return "source";
   return delta?.inEdge?.kind ?? "table";

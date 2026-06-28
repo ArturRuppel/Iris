@@ -880,8 +880,6 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .react-flow__edge-path.txw-rfedge.collapse      { stroke:#7c3aed; }
 .react-flow__edge-path.txw-rfedge.geom          { stroke:#0e7490; }
 .react-flow__edge-path.txw-rfedge.test          { stroke:#4f46e5; }
-.react-flow__edge-path.txw-rfedge.annotate,
-.react-flow__edge-path.txw-rfedge.back { stroke:#db2777; stroke-dasharray:5 4; }
 
 /* tame React Flow's stock chrome to the app's tokens. */
 .react-flow__controls { border:1px solid var(--line); border-radius:8px;
