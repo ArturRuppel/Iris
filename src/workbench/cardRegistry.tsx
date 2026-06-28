@@ -3,7 +3,6 @@ import { FigurePane } from "../components/FigurePane";
 import { StatsResults, TestPicker } from "../components/StatsPanel";
 import { CollapseRoutingPanel } from "../components/CollapseRoutingPanel";
 import { LayerRail } from "../components/LayerRail";
-import { AnnotateCard } from "./cards/AnnotateCard";
 import { OpEditorCard } from "./cards/OpEditorCard";
 import { TableCard } from "./cards/TableCard";
 
@@ -12,10 +11,11 @@ import { TableCard } from "./cards/TableCard";
 export type CardKind =
   | "table" | "plot" | "stats"
   | "op-editor" | "collapse-editor" | "geom-editor"
-  | "test-editor" | "annotate-editor";
+  | "test-editor";
 
-/* A click target: a graph node or a graph edge, addressed by id. */
-export interface Target { kind: "node" | "edge"; id: string; }
+/* A click target: a graph node or edge, addressed by id. For the figure node a
+   `facet` picks which half (plot vs stats) the click addresses. */
+export interface Target { kind: "node" | "edge"; id: string; facet?: "plot" | "stats"; }
 
 /* reduce-step edges all share the one op-editor; collapse/geom/test/annotate
    each have their own editor. */
@@ -24,7 +24,7 @@ export const EDGE_CARD: Record<EdgeKind, CardKind> = {
   recode: "op-editor", join: "op-editor", pivot: "op-editor",
   grid_complete: "op-editor",
   collapse: "collapse-editor", geom: "geom-editor",
-  test: "test-editor", annotate: "annotate-editor",
+  test: "test-editor",
 };
 
 /* Resolve which card a click opens. Pure; null if the id is not in the graph
@@ -33,7 +33,8 @@ export function targetToCardKind(graph: ExplorerGraph, target: Target): CardKind
   if (target.kind === "node") {
     const node = graph.nodes.find((n) => n.id === target.id);
     if (!node) return null;
-    return node.kind === "plot" ? "plot" : node.kind === "stats" ? "stats" : "table";
+    if (node.kind === "figure") return target.facet === "stats" ? "stats" : "plot";
+    return "table";
   }
   const edge = graph.edges.find((e) => e.id === target.id);
   return edge ? EDGE_CARD[edge.kind] : null;
@@ -67,5 +68,4 @@ export const CARD: Record<CardKind, CardSpec> = {
     body: staticBody("txw-card-geom", "geom-card", () => <LayerRail />) },
   "test-editor": { title: "Test",
     body: staticBody("txw-card-test", "test-card", () => <TestPicker />) },
-  "annotate-editor": { title: "Annotate", body: AnnotateCard },
 };

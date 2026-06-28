@@ -10,24 +10,24 @@ import type { AnalyzeResponse } from "../types";
 const graph: ExplorerGraph = {
   nodes: [
     { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
-    { id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } },
-    { id: "stats", kind: "stats", phase: "terminal", label: "Stats", table: { via: "none" } },
+    { id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" },
+      sections: [{ kind: "plot", facts: ["dots"] }, { kind: "stats", facts: ["MW"] }] },
   ],
   edges: [
-    { id: "e0", kind: "filter", label: "mask", fromId: "source", toId: "plot" },
-    { id: "c0", kind: "collapse", label: "mean", fromId: "source", toId: "plot" },
-    { id: "g0", kind: "geom", label: "dots", fromId: "source", toId: "plot" },
-    { id: "t0", kind: "test", label: "MW", fromId: "source", toId: "stats" },
-    { id: "a0", kind: "annotate", label: "significance", fromId: "stats", toId: "plot" },
+    { id: "e0", kind: "filter", label: "mask", fromId: "source", toId: "figure" },
+    { id: "c0", kind: "collapse", label: "mean", fromId: "source", toId: "figure" },
+    { id: "g0", kind: "geom", label: "dots", fromId: "source", toId: "figure" },
+    { id: "t0", kind: "test", label: "MW", fromId: "source", toId: "figure" },
   ],
   spine: [],
 };
 
 describe("targetToCardKind", () => {
-  it("maps data/plot/stats nodes to their card kinds", () => {
+  it("maps a table node to table and the figure facets to plot/stats", () => {
     expect(targetToCardKind(graph, { kind: "node", id: "source" })).toBe("table");
-    expect(targetToCardKind(graph, { kind: "node", id: "plot" })).toBe("plot");
-    expect(targetToCardKind(graph, { kind: "node", id: "stats" })).toBe("stats");
+    expect(targetToCardKind(graph, { kind: "node", id: "figure", facet: "plot" })).toBe("plot");
+    expect(targetToCardKind(graph, { kind: "node", id: "figure", facet: "stats" })).toBe("stats");
+    expect(targetToCardKind(graph, { kind: "node", id: "figure" })).toBe("plot");
   });
 
   it("maps each edge kind to its editor card", () => {
@@ -35,7 +35,6 @@ describe("targetToCardKind", () => {
     expect(targetToCardKind(graph, { kind: "edge", id: "c0" })).toBe("collapse-editor");
     expect(targetToCardKind(graph, { kind: "edge", id: "g0" })).toBe("geom-editor");
     expect(targetToCardKind(graph, { kind: "edge", id: "t0" })).toBe("test-editor");
-    expect(targetToCardKind(graph, { kind: "edge", id: "a0" })).toBe("annotate-editor");
   });
 
   it("returns null for an id that is not in the graph", () => {
@@ -46,7 +45,7 @@ describe("targetToCardKind", () => {
 
 describe("CARD registry", () => {
   const kinds: CardKind[] = ["table", "plot", "stats", "op-editor",
-    "collapse-editor", "geom-editor", "test-editor", "annotate-editor"];
+    "collapse-editor", "geom-editor", "test-editor"];
 
   it("has a non-empty title and a body component for every card kind", () => {
     for (const k of kinds) {

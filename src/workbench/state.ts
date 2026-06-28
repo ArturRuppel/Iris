@@ -14,7 +14,7 @@ export interface Card {
   collapsed: boolean;
 }
 
-const cardId = (t: Target): string => `${t.kind}:${t.id}`;
+const cardId = (t: Target): string => `${t.kind}:${t.id}${t.facet ? `:${t.facet}` : ""}`;
 
 const DEFAULT_W = 360;
 const DEFAULT_H = 260;
