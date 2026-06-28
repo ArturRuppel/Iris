@@ -239,10 +239,16 @@ _(engine #1 · HIGH · M)_
    deleted (`load_document` refuses pre-2.1 with a clear error) → frontend migrations made
    unreachable by that removal deleted: `migrateSpec` legacy branch (→ identity), the
    `loadDocumentAtom` 2.0 inline-right join migration, `migrateDistLayers` + the
-   histogram/density arm of `migrateLayerParams`. **Still blocked:** `migrateLayerParams`'s
-   general param-hoist + `Layer.params` are load-bearing (the engine still emits `layer.params`,
-   e.g. potential-double-well) — deleting them needs an engine specnorm change to move geom
-   knobs to `style.overrides.geoms` server-side, a **new follow-up**. tsc + build clean; 326
-   frontend + 515 engine tests pass.
-5. **Optional**: split `state.ts` into modules; rename `layoutResize.ts`; the `StatsResult`
-   union.
+   histogram/density arm of `migrateLayerParams`. tsc + build clean; 326 frontend + 515 engine
+   tests pass.
+   **Follow-up now also DONE 2026-06-28:** `layer.params` fully retired. It wasn't engine-
+   generated — it was hand-authored on one gallery case (potential-double-well). Moved those
+   distribution knobs into `style.overrides.geoms` (where the compiler reads them), regenerated
+   only that one `.iris` (SVG byte-identical → render-equivalent), then deleted
+   `migrateLayerParams` and `Layer.params`. No spec carries non-empty layer params now.
+5. **Optional**: ✅ `layoutResize.ts`→`paneTiling.ts` renamed (2026-06-28); also fixed
+   `test_export_gallery` to write a tmp dir instead of mutating committed assets. **Not done
+   (deliberately deferred):** the `state.ts` module split (high churn across 38 importers,
+   pure-cosmetic now that the real coupling was cut in steps 1–4) and the `StatsResult`
+   discriminated union (low value, read-only type). Recommend leaving both unless they start
+   to bite.
