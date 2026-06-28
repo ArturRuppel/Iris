@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ColType } from "./channels";
 import {
+  categoryUsable,
   familyFor, familyForMappings, familyForMappingsRef, geomAddable, geomAxisColTypes,
   geomGateReason, isOfferable, offeredColumns, renderStatus,
 } from "./channels";
@@ -335,5 +336,41 @@ describe("geomAxisColTypes — geom→encoding narrowing", () => {
   it("an unmapped other axis (null) leaves every orientation open", () => {
     expect(new Set(geomAxisColTypes([REG_3C.geoms["box"]], "y", null)))
       .toEqual(new Set(["numeric", "categorical"]));
+  });
+});
+
+const reg: Registry = { point_cap: 5000, facet_cell_cap: 200, geoms: {} };
+
+describe("categoryUsable", () => {
+  it("rejects a categorical with one (or zero) levels", () => {
+    expect(categoryUsable({ name: "g", type: "categorical", label: "G", levels: ["only"] })).toBe(false);
+    expect(categoryUsable({ name: "g", type: "categorical", label: "G", levels: [] })).toBe(false);
+  });
+  it("accepts a categorical with two or more levels", () => {
+    expect(categoryUsable({ name: "g", type: "categorical", label: "G", levels: ["a", "b"] })).toBe(true);
+  });
+  it("stays permissive when levels are unknown", () => {
+    expect(categoryUsable({ name: "g", type: "categorical", label: "G" })).toBe(true);
+  });
+  it("ignores non-categoricals (numeric is never a single-value category)", () => {
+    expect(categoryUsable({ name: "v", type: "numeric", label: "V" })).toBe(true);
+  });
+});
+
+describe("offeredColumns hides single-value categoricals on grouping channels", () => {
+  const cols: ColumnDef[] = [
+    { name: "cond", type: "categorical", label: "Condition", levels: ["ctrl", "drug"] },
+    { name: "batch", type: "categorical", label: "Batch", levels: ["one"] }, // single value
+    { name: "val", type: "numeric", label: "Value" },
+  ];
+  it("color offers the multi-level category but not the single-value one", () => {
+    const { selectable } = offeredColumns(reg, "color", cols);
+    const names = selectable.map((c) => c.name);
+    expect(names).toContain("cond");
+    expect(names).not.toContain("batch");
+  });
+  it("x offers the multi-level category but not the single-value one", () => {
+    const { selectable } = offeredColumns(reg, "x", cols);
+    expect(selectable.map((c) => c.name)).not.toContain("batch");
   });
 });

@@ -261,6 +261,18 @@ export function geomAxisColTypes(
 const ID_AS_CATEGORICAL: ReadonlySet<Channel> =
   new Set(["color", "shape", "facet_row", "facet_col"]);
 
+/* A categorical column is only usable on a grouping channel if it has ≥2 distinct
+   levels — a single-value category groups nothing (a box with one x group, a color
+   with one swatch). The signal is `levels` (set when a column becomes a classifier);
+   when it is absent we cannot tell the cardinality, so we stay permissive and offer
+   the column (the engine/guards still catch a degenerate render). Non-categoricals
+   are never single-value categories, so they always pass. */
+export function categoryUsable(col: ColumnDef): boolean {
+  if (col.type !== "categorical") return true;
+  if (!col.levels) return true; // unknown cardinality → permissive
+  return col.levels.length >= 2;
+}
+
 /* the columns offerable on a channel, split into selectable (renderable) and
    disabled-with-reason (offerable but not drawn today). */
 export function offeredColumns(
@@ -276,6 +288,8 @@ export function offeredColumns(
       : c.type === "identifier" && ID_AS_CATEGORICAL.has(channel) ? "categorical"
       : null;
     if (!t) continue;
+    // a single-value categorical groups nothing — hide it entirely (design §4).
+    if (t === "categorical" && c.type === "categorical" && !categoryUsable(c)) continue;
     const st = renderStatus(reg, channel, t, activeGeoms);
     if (st === "ok") selectable.push(c);
     else if (st) disabled.push({ col: c, reason: st.reason });
