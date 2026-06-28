@@ -406,4 +406,25 @@ describe("geomSatisfiableByColumns", () => {
     expect(geomSatisfiableByColumns(scatterMeta, numericOnly, reg)).toBe(true);
     expect(geomSatisfiableByColumns(scatterMeta, withCategory, reg)).toBe(false);
   });
+
+  it("an h_orient geom exercises the swapped-orientation path", () => {
+    // The live wizard path: gallery geoms ship with h_orient, so this branch
+    // must run. A categorical+numeric data set satisfies it; numeric-only data
+    // (no usable categorical for either orientation) does not.
+    const hBoxMeta: GeomMeta = { ...boxMeta, h_orient: true } as GeomMeta;
+    expect(geomSatisfiableByColumns(hBoxMeta, withCategory, reg)).toBe(true);
+    expect(geomSatisfiableByColumns(hBoxMeta, numericOnly, reg)).toBe(false);
+  });
+
+  it("h_orient is decisive only when the swap covers a demand the vertical can't", () => {
+    // For a box (categorical x, numeric y) the swap demands the SAME type
+    // multiset, so it can't isolate the branch. A categorical/categorical geom
+    // can: vertical needs two categoricals, but the swap (numeric x, categorical
+    // y) needs one of each — so withCategory (1 cat + 1 num) is satisfiable ONLY
+    // through the h_orient swap, and the same geom without h_orient is not.
+    const catCatMeta: GeomMeta = { ...boxMeta, y_type: "categorical" } as GeomMeta;
+    const hCatCatMeta: GeomMeta = { ...catCatMeta, h_orient: true } as GeomMeta;
+    expect(geomSatisfiableByColumns(catCatMeta, withCategory, reg)).toBe(false);
+    expect(geomSatisfiableByColumns(hCatCatMeta, withCategory, reg)).toBe(true);
+  });
 });

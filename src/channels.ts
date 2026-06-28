@@ -216,20 +216,20 @@ export function geomAddable(
 
 /* Whether a geom could be drawn at all by SOME assignment of the available
    columns — used to gate the wizard's geom gallery. A geom is satisfiable when
-   each of its required axis types ("categorical"/"numeric") can be met by at
-   least one usable column: identifiers are excluded, and single-value
-   categoricals (via categoryUsable) are excluded. An axis whose requirement is
-   "none" needs nothing.
+   each axis type it requires ("categorical"/"numeric") is backed by ENOUGH
+   usable columns: one distinct column per axis that requires that type, so a
+   two-numeric geom like scatter needs two numeric columns (not one), while a box
+   needs one categorical and one numeric. Identifiers are excluded, and
+   single-value categoricals (via categoryUsable) are excluded. An axis whose
+   requirement is "none" needs nothing.
 
    The check is supply-vs-demand per type: each required type is tallied across
-   both axes, and the available column count for that type must reach the demand
-   (e.g. scatter requires 2 numeric columns because both X and Y must be
-   numeric; box requires 1 categorical + 1 numeric). h_orient geoms are also
-   satisfiable in the swapped orientation (numeric x, categorical y). */
+   both axes, and the available column count for that type must reach the demand.
+   h_orient geoms are also satisfiable in the swapped orientation (numeric x,
+   categorical y). */
 export function geomSatisfiableByColumns(
-  meta: GeomMeta, columns: ColumnDef[], reg: Registry | null,
+  meta: GeomMeta, columns: ColumnDef[], _reg: Registry | null,
 ): boolean {
-  void reg; // reserved for future per-channel offer filtering
   // Count usable columns per ColType (identifiers and single-value cats excluded)
   const avail: Record<ColType, number> = { categorical: 0, numeric: 0 };
   for (const c of columns) {
