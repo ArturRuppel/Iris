@@ -313,15 +313,81 @@ export const viewModeAtom = atom<"data" | "workbench" | "guide">("data");
    mounts so it scrolls straight to the relevant rules section. */
 export const guideAnchorAtom = atom<string | null>(null);
 
+/* ---- undo history (spec mutations only) ----
+   Every edit to the active plottable funnels through activePlottableAtom's write
+   (the reduce/layer/stats writers via updateActive; the encoding, stats-config
+   and style cards via setActive). We record an undo point there for SPEC changes
+   only — a style-only edit (a geom knob, colour, legend move: everything under
+   `p.style`) is high-frequency, reverts via the style pane, and would otherwise
+   bury structural changes under it. Node positions live in nodePositionsAtom, off
+   the plottable, so they are excluded for free. Snapshots are the prior plottable,
+   tagged by id; undo/redo restore by writing plottablesAtom DIRECTLY so they never
+   re-enter this capture. The stacks clear on a switch of active analysis. */
+const HISTORY_LIMIT = 50;
+export const specHistoryAtom = atom<Plottable[]>([]);
+export const specRedoAtom = atom<Plottable[]>([]);
+
+/* a change touching anything but `p.style` is a spec mutation. Both sides are
+   built by spreading the same prior plottable, so the key order is stable and a
+   style-blanked JSON compare is a reliable structural diff for this heuristic. */
+const specSignature = (p: Plottable): string => JSON.stringify({ ...p, style: null });
+
 export const activePlottableAtom = atom(
   (get): Plottable | null => {
     const id = get(activePlottableIdAtom);
     return get(plottablesAtom).find((p) => p.id === id) ?? null;
   },
   (get, set, next: Plottable) => {
+    const prev = get(plottablesAtom).find((p) => p.id === next.id);
+    if (prev && prev !== next && specSignature(prev) !== specSignature(next)) {
+      set(specHistoryAtom, [...get(specHistoryAtom).slice(-(HISTORY_LIMIT - 1)), prev]);
+      set(specRedoAtom, []);   // a fresh edit prunes the redo branch
+    }
     set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === next.id ? next : p)));
   },
 );
+
+/* restore the active plottable to its previous spec. Writes plottablesAtom
+   directly (bypassing the capture above) and moves the current state onto the
+   redo stack. canUndo/canRedo are the read halves, for the toolbar buttons. */
+/* restore the snapshot's SPEC but keep the CURRENT style — undo moves structure,
+   never styling, so a colour/legend tweak made after a step survives undoing the
+   step. (style is excluded from capture, so it has no undo timeline of its own.) */
+const restoreSpec = (target: Plottable, cur: Plottable | undefined): Plottable =>
+  cur ? { ...target, style: cur.style } : target;
+
+export const undoSpecAtom = atom(
+  (get) => get(specHistoryAtom).length > 0,
+  (get, set) => {
+    const hist = get(specHistoryAtom);
+    const prev = hist[hist.length - 1];
+    if (!prev) return;
+    const cur = get(plottablesAtom).find((p) => p.id === prev.id);
+    set(specHistoryAtom, hist.slice(0, -1));
+    if (cur) set(specRedoAtom, [...get(specRedoAtom), cur]);
+    const restored = restoreSpec(prev, cur);
+    set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === prev.id ? restored : p)));
+    set(activePlottableIdAtom, prev.id);
+  },
+);
+export const redoSpecAtom = atom(
+  (get) => get(specRedoAtom).length > 0,
+  (get, set) => {
+    const redo = get(specRedoAtom);
+    const target = redo[redo.length - 1];
+    if (!target) return;
+    const cur = get(plottablesAtom).find((p) => p.id === target.id);
+    set(specRedoAtom, redo.slice(0, -1));
+    if (cur) set(specHistoryAtom, [...get(specHistoryAtom), cur]);
+    const restored = restoreSpec(target, cur);
+    set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === target.id ? restored : p)));
+    set(activePlottableIdAtom, target.id);
+  },
+);
+export const clearSpecHistoryAtom = atom(null, (_get, set) => {
+  set(specHistoryAtom, []);
+  set(specRedoAtom, []);
+});
 
 /* the workspace pool: every loaded input table (design §4.1). Import accumulates
    into it; analyses reference entries by id. */

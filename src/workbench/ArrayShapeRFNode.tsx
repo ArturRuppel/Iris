@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Handle, Position } from "@xyflow/react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type NodeVariant } from "../components/ArrayShapeNode";
@@ -93,7 +94,11 @@ export function ArrayShapeRFNode(
   const { missing, options, inEdge, stepIndex, ...shape } = data;
   const insertStep = useSetAtom(insertStepAtom);
   const openCard = useSetAtom(openCardAtom);
-  const [menuOpen, setMenuOpen] = useState(false);
+  // the add menu is positioned in screen space and portalled to <body>, not
+  // nested in this node: each React Flow node is its own stacking context, so a
+  // menu drawn inside an upstream node would paint UNDER any node stacked over
+  // it (e.g. the source's menu hiding behind the Plot) and swallow the pick.
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const canAdd = !!options && options.length > 0;
 
   // if this node is pinned in the stash, its 1-based slot number badges the
@@ -110,7 +115,7 @@ export function ArrayShapeRFNode(
     : undefined;
 
   const pick = (action: AuthorAction) => {
-    setMenuOpen(false);
+    setMenuAt(null);
     const d = authorDispatch(stepIndex ?? -1, action);
     if (d.atom === "insertStep") insertStep(d.arg);
     else openCard(d.arg);
@@ -125,17 +130,34 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
+      {/* the stats->plot annotate back-edge links two terminals stacked in the
+          same column. Both endpoints sit on the RIGHT (Stats' out handle ->
+          Plot's annotate-in) so it bows into the open gutter beside them rather
+          than looping across the canvas (left target) or hiding in the seam
+          (top/bottom, where ROW_GAP leaves no room). */}
+      <Handle id="annotate-in" type="target" position={Position.Right}
+        style={{ opacity: 0 }} />
       <ArrayShapeNode {...shape} onEdit={onEdit} />
       <Handle
         id="out" type="source" position={Position.Right}
         className={canAdd ? "txw-handle-add" : undefined}
         style={canAdd ? undefined : { opacity: 0 }}
-        onClick={canAdd ? (e) => { e.stopPropagation(); setMenuOpen((o) => !o); } : undefined}
+        onClick={canAdd ? (e) => {
+          e.stopPropagation();
+          const r = (e.target as HTMLElement).getBoundingClientRect();
+          setMenuAt((cur) => (cur ? null : { x: r.right + 8, y: r.top }));
+        } : undefined}
       />
-      {menuOpen && options && (
-        <div className="txw-add-menu-anchor" onClick={(e) => e.stopPropagation()}>
-          <AddStepMenu options={options} onPick={pick} />
-        </div>
+      {menuAt && options && createPortal(
+        <>
+          <div className="txw-add-scrim" onClick={() => setMenuAt(null)}
+            onContextMenu={(e) => { e.preventDefault(); setMenuAt(null); }} />
+          <div className="txw-add-menu-float" style={{ left: menuAt.x, top: menuAt.y }}
+            onClick={(e) => e.stopPropagation()}>
+            <AddStepMenu options={options} onPick={pick} />
+          </div>
+        </>,
+        document.body,
       )}
     </div>
   );

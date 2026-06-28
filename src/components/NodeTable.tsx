@@ -7,6 +7,7 @@ import {
 import {
   activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
   materializedTablesAtom, materializedVersionKeyAtom, resolveEngineSteps,
+  effectivePlanAtom,
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
 import { engine, type Table, type ColumnDef } from "../types";
@@ -116,6 +117,11 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
   const axisNames = (node.count?.axes ?? []).map((a) => a.name);
   const active = useAtomValue(activePlottableAtom);
   const hierarchy = useAtomValue(hierarchyAtom);
+  // Use the EFFECTIVE plan (default prefix chain when the analysis carries no
+  // explicit collapse), matching the graph + /shape_counts. Reading active.collapse
+  // raw left a default-chain analysis with no plan, so every grain node's /reduce
+  // preview skipped the collapse and showed the raw rows.
+  const collapse = useAtomValue(effectivePlanAtom);
   const handle = useAtomValue(tableHandleAtom);
   const preview = useAtomValue(reducePreviewAtom);
   const materialized = useAtomValue(materializedTablesAtom);
@@ -139,7 +145,7 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
 
   const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const fetchKey = node.table.via !== "none"
-    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, active?.collapse, hierarchy, materializedKey])
+    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, collapse, hierarchy, materializedKey])
     : null;
 
   useEffect(() => {
@@ -159,7 +165,7 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
           : tbl.via === "level"
             ? await engine.reduce({ token: handle.id }, steps, hierarchy, tbl.level)
             : tbl.via === "grain"
-              ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, undefined, active.collapse, tbl.grain)
+              ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, undefined, collapse, tbl.grain)
               : null;
         if (!res) return;
         if (cancelled) return;

@@ -529,6 +529,14 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .encodings-card select { flex: 1; min-width: 0; font-size: 12px; }
 .encodings-card .enc-warn { flex-basis: 100%; padding-left: 62px;
   font-size: 11px; color: var(--warn); }
+.encodings-card .enc-drop { flex: 0 0 auto; font-size: 11px; color: var(--faint);
+  background: none; border: none; cursor: pointer; padding: 0 2px; }
+.enc-adder { display: flex; flex-direction: column; gap: 4px; }
+.enc-add-btn { font-size: 12px; color: #0e7490; background: none; border: none;
+  cursor: pointer; padding: 2px; text-align: left; }
+.enc-add-menu { display: flex; flex-wrap: wrap; gap: 4px; }
+.enc-add-menu button { font-size: 12px; }
+.enc-add-menu .cancel { color: var(--faint); }
 
 /* ---- independent-repetition (n) picker (item 10) ---- */
 .rep-key { display: flex; flex-direction: column; gap: 4px;
@@ -839,6 +847,8 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 
 /* React Flow canvas inside the workbench overlay */
 .txw-rfcanvas { position: absolute; inset: 44px 0 0 0; }
+.txw-undo { font-size: 12px; padding: 3px 8px; }
+.txw-undo:disabled { opacity: 0.4; cursor: default; }
 .txw-tidy { margin-left: auto; }
 .react-flow__attribution { display: none; }
 
@@ -896,14 +906,12 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   font-weight: 700;
 }
 
-/* the add menu popped at the + handle: a small list-of-buttons popover. */
-.txw-add-menu-anchor {
-  position: absolute;
-  left: 100%;
-  top: 50%;
-  z-index: 5;
-  margin-left: 8px;
-}
+/* the add menu popped at the + handle: a small list-of-buttons popover. It is
+   portalled to <body> and fixed-positioned at the handle's screen point, above
+   all nodes — a menu nested in the node would paint under any node stacked over
+   it. A full-viewport scrim catches the dismiss click. */
+.txw-add-scrim { position: fixed; inset: 0; z-index: 59; }
+.txw-add-menu-float { position: fixed; z-index: 60; }
 .txw-add-menu {
   display: flex;
   flex-direction: column;
@@ -973,6 +981,33 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
     linear-gradient(135deg, transparent 50%, #94a3b8 50%, #94a3b8 60%, transparent 60%);
 }
 .txw-card-stub { font-size: 12px; color: #64748b; }
+
+/* right-click delete menu on a pipeline node. A full-viewport scrim catches the
+   dismiss click; the menu floats at the pointer, above everything. */
+.txw-ctxmenu-scrim { position: fixed; inset: 0; z-index: 40; }
+.txw-ctxmenu {
+  position: fixed;
+  z-index: 41;
+  min-width: 120px;
+  padding: 4px;
+  background: #fff;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.18);
+}
+.txw-ctxmenu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  border: none;
+  background: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.txw-ctxmenu button.danger { color: #b91c1c; }
+.txw-ctxmenu button.danger:hover { background: #fef2f2; }
 
 /* cards float over the canvas; the layer itself is click-through so the DAG
    beneath stays interactive, while each card re-enables pointer events. */
@@ -1132,4 +1167,47 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border-radius: 4px;
 }
 .txw-slot-close:hover { background: #e2e8f0; }
+.txw-slot-max {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 2px 5px;
+  color: #475569;
+  border-radius: 4px;
+}
+.txw-slot-max:hover { background: #e2e8f0; }
 .txw-slot-body { flex: 1; overflow: auto; padding: 10px; }
+
+/* focus mode: the maximized tile filling the workbench below the topbar, over
+   the DAG + stash. Below the add/context menus (z 59/60) so those still pop. */
+.txw-focus {
+  position: absolute;
+  inset: 44px 0 0 0;
+  z-index: 36;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+}
+.txw-focus-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 7px 10px;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  user-select: none;
+}
+.txw-focus-exit {
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 4px 9px;
+  color: #334155;
+  border-radius: 5px;
+}
+.txw-focus-exit:hover { background: #f8fafc; }
+.txw-focus-body { flex: 1; overflow: auto; padding: 14px; }

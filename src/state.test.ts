@@ -16,6 +16,7 @@ import {
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
   addPlottableAtom, loadDocumentAtom,
+  undoSpecAtom, redoSpecAtom, specHistoryAtom, specRedoAtom, clearSpecHistoryAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
 import { EMPTY_HIERARCHY, engine } from "./types";
@@ -758,5 +759,71 @@ describe("loadDocumentAtom — full-pool rebuild, joins bound by reference", () 
     expect(pool.map((t) => t.id)).not.toContain("old");            // the orphan is gone
     expect(pool.length).toBe(1);                                   // just the loaded doc's table
     expect(store.get(materializedTablesAtom)).toEqual({});         // stale cache cleared
+  });
+});
+
+describe("undo history — spec mutations only", () => {
+  const seedActive = () => {
+    const store = createStore();
+    const p = makeDefaultPlottable(SCHEMA);
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, p.id);
+    return { store, p };
+  };
+
+  it("records a spec edit and undo restores it; redo reapplies", () => {
+    const { store, p } = seedActive();
+    store.set(addStepAtom, "filter");                       // a spec mutation
+    expect(store.get(activePlottableAtom)?.reduce.steps).toHaveLength(1);
+    expect(store.get(specHistoryAtom)).toHaveLength(1);
+
+    store.set(undoSpecAtom);
+    expect(store.get(activePlottableAtom)?.reduce.steps).toHaveLength(0);
+    expect(store.get(activePlottableAtom)?.id).toBe(p.id);
+    expect(store.get(specHistoryAtom)).toHaveLength(0);
+    expect(store.get(specRedoAtom)).toHaveLength(1);
+
+    store.set(redoSpecAtom);
+    expect(store.get(activePlottableAtom)?.reduce.steps).toHaveLength(1);
+    expect(store.get(specRedoAtom)).toHaveLength(0);
+  });
+
+  it("does NOT record a style-only edit", () => {
+    const { store } = seedActive();
+    const cur = store.get(activePlottableAtom)!;
+    store.set(activePlottableAtom, { ...cur, style: { overrides: { foo: 1 } } } as never);
+    expect(store.get(specHistoryAtom)).toHaveLength(0);   // style is excluded
+    // canUndo (the read half) is false
+    expect(store.get(undoSpecAtom)).toBe(false);
+  });
+
+  it("undo reverts the spec but KEEPS a style edit made afterwards", () => {
+    const { store } = seedActive();
+    store.set(addStepAtom, "filter");                       // spec edit (captured)
+    const afterStep = store.get(activePlottableAtom)!;
+    store.set(activePlottableAtom,                          // style edit (not captured)
+      { ...afterStep, style: { overrides: { color: "red" } } } as never);
+    store.set(undoSpecAtom);                                // undo the step
+    const now = store.get(activePlottableAtom)!;
+    expect(now.reduce.steps).toHaveLength(0);               // structure reverted
+    expect(now.style).toEqual({ overrides: { color: "red" } });  // styling preserved
+  });
+
+  it("a fresh spec edit prunes the redo branch", () => {
+    const { store } = seedActive();
+    store.set(addStepAtom, "filter");
+    store.set(undoSpecAtom);
+    expect(store.get(specRedoAtom)).toHaveLength(1);
+    store.set(addStepAtom, "drop");                        // new edit after undo
+    expect(store.get(specRedoAtom)).toHaveLength(0);       // redo branch dropped
+  });
+
+  it("clearSpecHistoryAtom empties both stacks (analysis switch)", () => {
+    const { store } = seedActive();
+    store.set(addStepAtom, "filter");
+    store.set(undoSpecAtom);
+    store.set(clearSpecHistoryAtom);
+    expect(store.get(specHistoryAtom)).toHaveLength(0);
+    expect(store.get(specRedoAtom)).toHaveLength(0);
   });
 });

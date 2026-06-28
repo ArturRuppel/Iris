@@ -1,4 +1,5 @@
 import { useAtomValue, useSetAtom } from "jotai";
+import { useState } from "react";
 import { activePlottableAtom, effectiveSchemaAtom, registryAtom } from "../state";
 import type { Channel } from "../channels";
 import { colType, geomAxisColTypes, offeredColumns, renderStatus } from "../channels";
@@ -31,9 +32,14 @@ function GroupedOptions({ cols }: { cols: ColumnDef[] }) {
    engine can render today. A column whose type is offerable but not renderable
    yet (e.g. a numeric color) appears disabled-with-reason instead of silently
    misrendering — the picker teaches the rule rather than hiding the option. */
-const ROWS: { key: Channel; label: string }[] = [
+/* X / Y are the positional channels — always present. The rest are optional
+   refinements: an unset one is a row of nothing, so they stay collapsed behind a
+   "+ encoding" adder (set ones still show) to keep the editor small. */
+const PRIMARY: { key: Channel; label: string }[] = [
   { key: "x", label: "X" },
   { key: "y", label: "Y" },
+];
+const OPTIONAL: { key: Channel; label: string }[] = [
   { key: "color", label: "Color" },
   { key: "size", label: "Size" },
   { key: "shape", label: "Shape" },
@@ -52,6 +58,10 @@ export function EncodingsCard() {
   const setActive = useSetAtom(activePlottableAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
   const registry = useAtomValue(registryAtom);
+  /* optional channels the user has surfaced via "+ encoding" but not yet mapped;
+     a mapped channel shows on its own, so this only tracks the empty ones. */
+  const [revealed, setRevealed] = useState<Set<Channel>>(() => new Set());
+  const [adding, setAdding] = useState(false);
   if (!active) return null;
 
   const mappings = active.mappings;
@@ -83,55 +93,96 @@ export function EncodingsCard() {
     }
   };
 
+  /* everything a row needs: current value, the columns it offers, a render-time
+     warning, and whether it can carry nothing at all (→ hide / not addable). */
+  const describe = (key: Channel) => {
+    const value = valueOf(key);
+    /* the column the *other* axis holds is excluded so X and Y can't collide */
+    const otherAxis = key === "x" ? mappings.y : key === "y" ? mappings.x : "";
+    let candidates = columns.filter((c) => c.name !== otherAxis);
+    /* geom-first narrowing: once geoms are chosen, X/Y offer only the column
+       types those geoms accept (the inverse of the add-menu gating). The
+       currently-mapped column is always kept so a mapping is never silently
+       dropped. No geoms → registry-wide offer (encoding-first, unchanged). */
+    if ((key === "x" || key === "y") && activeGeoms.length) {
+      /* the other axis's current type carries the joint orientation constraint:
+         once X is numeric, an h_orient geom can only be horizontal, so Y narrows
+         to categorical (and numeric/numeric — which would silently fall through
+         to a scatter — becomes unreachable). */
+      const otherType = colType(schema, key === "x" ? mappings.y : mappings.x);
+      const allowed = geomAxisColTypes(activeGeoms, key, otherType);
+      if (allowed.size) candidates = candidates.filter((c) => {
+        if (c.name === value) return true;
+        const ct = colType(schema, c.name);
+        return ct !== null && allowed.has(ct);
+      });
+    }
+    const offered = offeredColumns(registry, key, candidates, activeGeoms);
+    /* a still-mapped column whose type the engine can't render yet: surface the
+       reason inline (it also rides the amber warn-bar after render). */
+    const t = colType(schema, value);
+    const status = t ? renderStatus(registry, key, t, activeGeoms) : null;
+    const reason = status && status !== "ok" ? status.reason : null;
+    const empty = offered.selectable.length === 0 && offered.disabled.length === 0;
+    return { value, offered, reason, empty };
+  };
+
+  const renderRow = (key: Channel, label: string, onDismiss?: () => void) => {
+    const { value, offered, reason } = describe(key);
+    return (
+      <div className="enc-row" key={key}>
+        <span className="enc-label">{label}</span>
+        <select value={value} onChange={(e) => setValue(key, e.target.value)}>
+          <option value="">— none —</option>
+          <GroupedOptions cols={offered.selectable} />
+          {offered.disabled.map(({ col, reason }) => (
+            <option key={col.name} value={col.name} disabled>
+              {col.label} — {reason}
+            </option>
+          ))}
+        </select>
+        {reason && <span className="enc-warn" title={reason}>⚠ {reason}</span>}
+        {onDismiss && !value && (
+          <button className="icon enc-drop" title="Remove encoding"
+            onClick={onDismiss}>✕</button>
+        )}
+      </div>
+    );
+  };
+
+  /* an optional row shows once it's mapped or explicitly revealed; the adder
+     lists the rest that can actually carry a column (offering nothing → skip). */
+  const shownOptional = OPTIONAL.filter(({ key }) => !!valueOf(key) || revealed.has(key));
+  const addable = OPTIONAL.filter(
+    ({ key }) => !valueOf(key) && !revealed.has(key) && !describe(key).empty);
+  const reveal = (key: Channel) => {
+    setRevealed((s) => new Set(s).add(key));
+    setAdding(false);
+  };
+  const dismiss = (key: Channel) =>
+    setRevealed((s) => { const n = new Set(s); n.delete(key); return n; });
+
   return (
     <div className="encodings-card">
-      {ROWS.map(({ key, label }) => {
-        const value = valueOf(key);
-        /* the column the *other* axis holds is excluded so X and Y can't collide */
-        const otherAxis = key === "x" ? mappings.y : key === "y" ? mappings.x : "";
-        let candidates = columns.filter((c) => c.name !== otherAxis);
-        /* geom-first narrowing: once geoms are chosen, X/Y offer only the column
-           types those geoms accept (the inverse of the add-menu gating). The
-           currently-mapped column is always kept so a mapping is never silently
-           dropped. No geoms → registry-wide offer (encoding-first, unchanged). */
-        if ((key === "x" || key === "y") && activeGeoms.length) {
-          /* the other axis's current type carries the joint orientation
-             constraint: once X is numeric, an h_orient geom can only be
-             horizontal, so Y narrows to categorical (and numeric/numeric — which
-             would silently fall through to a scatter — becomes unreachable). */
-          const otherType = colType(schema, key === "x" ? mappings.y : mappings.x);
-          const allowed = geomAxisColTypes(activeGeoms, key, otherType);
-          if (allowed.size) candidates = candidates.filter((c) => {
-            if (c.name === value) return true;
-            const ct = colType(schema, c.name);
-            return ct !== null && allowed.has(ct);
-          });
-        }
-        const offered = offeredColumns(registry, key, candidates, activeGeoms);
-        /* nothing this channel can carry (and nothing stale mapped) → hide row */
-        if (offered.selectable.length === 0 && offered.disabled.length === 0
-            && !value) return null;
-        /* a still-mapped column whose type the engine can't render yet: surface
-           the reason inline (it also rides the amber warn-bar after render). */
-        const t = colType(schema, value);
-        const status = t ? renderStatus(registry, key, t, activeGeoms) : null;
-        const reason = status && status !== "ok" ? status.reason : null;
-        return (
-          <div className="enc-row" key={key}>
-            <span className="enc-label">{label}</span>
-            <select value={value} onChange={(e) => setValue(key, e.target.value)}>
-              <option value="">— none —</option>
-              <GroupedOptions cols={offered.selectable} />
-              {offered.disabled.map(({ col, reason }) => (
-                <option key={col.name} value={col.name} disabled>
-                  {col.label} — {reason}
-                </option>
-              ))}
-            </select>
-            {reason && <span className="enc-warn" title={reason}>⚠ {reason}</span>}
-          </div>
-        );
+      {PRIMARY.map(({ key, label }) => {
+        const { empty, value } = describe(key);
+        return empty && !value ? null : renderRow(key, label);
       })}
+      {shownOptional.map(({ key, label }) => renderRow(key, label, () => dismiss(key)))}
+      {addable.length > 0 && (
+        <div className="enc-adder">
+          {adding ? (
+            <div className="enc-add-menu">
+              {addable.map(({ key, label }) => (
+                <button key={key} onClick={() => reveal(key)}>{label}</button>
+              ))}
+              <button className="cancel" onClick={() => setAdding(false)}>cancel</button>
+            </div>
+          ) : (
+            <button className="enc-add-btn" onClick={() => setAdding(true)}>+ encoding</button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

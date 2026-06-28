@@ -303,11 +303,15 @@ export function buildGraph(
     label: stats?.describeOnly ? "describe" : (stats?.test ? testLabel(stats.test) : "describe"),
     fromId: testFromId, toId: STATS_ID });
 
-  // the stats result drawn back onto the figure as significance brackets: an edge
-  // because it CONSUMES the stats node's output (test -> comparisons -> brackets).
-  // Emitted only when a real test runs (not describe-only) and the analysis has
-  // significance annotation enabled. The plot node thereby gains a second input.
-  if (stats && !stats.describeOnly && stats.annotate) {
+  // the stats result drawn back onto the figure: a back-edge because the test
+  // CONSUMES data (filter -> Stats) and its result belongs to the figure it
+  // compares groups on (Stats -> Plot). A comparison test is ABOUT the plot, so
+  // the relationship shows whenever a real test runs (not describe-only) — the
+  // edge is structural, independent of whether brackets are currently drawn
+  // (style.show_significance, the `annotated` flag above). Clicking the edge
+  // opens the annotate editor to toggle those brackets. The plot gains a second
+  // input thereby.
+  if (stats && !stats.describeOnly && stats.test) {
     edges.push({ id: "a:annotate", kind: "annotate", label: "significance",
       fromId: STATS_ID, toId: PLOT_ID });
   }

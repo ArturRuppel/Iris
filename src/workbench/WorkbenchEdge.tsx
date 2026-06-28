@@ -78,7 +78,8 @@ export function WorkbenchEdge(props: EdgeProps) {
   // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
   const lane = laneOf(data?.kind, sourceX, sourceY, targetX, targetY);
   const [path] = data?.back
-    ? getBezierPath({ sourceX, sourceY, targetX, targetY, curvature: 0.6 })
+    ? getBezierPath({ sourceX, sourceY, targetX, targetY,
+        sourcePosition, targetPosition, curvature: 0.4 })
     : lane != null
       ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
       : getBezierPath({ sourceX, sourceY, targetX, targetY,

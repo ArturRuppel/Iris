@@ -49,7 +49,7 @@ export function OpEditorCard({ target }: CardBodyProps) {
   if (index == null || index >= active.reduce.steps.length) return stale;
 
   /* input columns at step `index` = the previous step's output schema (from the
-     live /reduce trace), or the master schema for the first step. (PipelineSection) */
+     live /reduce trace), or the master schema for the first step. */
   const cols: ColumnDef[] = index === 0
     ? schema.columns
     : (preview?.trace[index - 1]?.schema_out?.columns ?? schema.columns);

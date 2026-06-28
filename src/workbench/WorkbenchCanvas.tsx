@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
   useNodesState, useEdgesState,
@@ -8,17 +8,19 @@ import "@xyflow/react/dist/style.css";
 import { useSetAtom, useAtomValue } from "jotai";
 import type { ExplorerGraph } from "../explorer/graph";
 import { layoutGraph } from "./layout";
-import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
+import { ArrayShapeRFNode, nodeShapeProps, type RFNodeData } from "./ArrayShapeRFNode";
 import { nodeDeltas, levelInitial } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
   openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
-  pushStashAtom, stashAtom, workbenchLayoutAtom,
+  pushStashAtom, stashAtom, workbenchLayoutAtom, focusedStashIdAtom,
 } from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
 import { FloatingCard } from "./FloatingCard";
-import { Stash } from "./Stash";
+import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
+import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
+import { removeStepAtom, undoSpecAtom, redoSpecAtom } from "../state";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -52,9 +54,12 @@ export function toRF(
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
-      // bind to the named side handles so edges leave the right edge and enter
-      // the left edge (otherwise RF falls back to a default bottom/top handle).
-      sourceHandle: "out", targetHandle: "in",
+      // forward edges leave the right edge and enter the left edge; the stats->plot
+      // annotate back-edge keeps the right-side source but enters the plot's
+      // right-side "annotate-in" handle, so it bows in the gutter beside the two
+      // stacked terminals instead of looping across to the left side.
+      sourceHandle: "out",
+      targetHandle: e.back ? "annotate-in" : "in",
       data: { kind: e.kind, label: e.label, back: e.back },
     })),
   };
@@ -117,6 +122,68 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
     if (kind) openCard({ target, cardKind: kind });
   }, [graph, openCard]);
 
+  // deletion: a node is a projection of one reduce step, so removing it = drop
+  // that step (the linear steps array auto-heals, no edge rewiring). Only reduce
+  // steps are deletable — the source (stepIndex -1), grain/collapse and terminal
+  // nodes have no single step to drop, so they offer no delete. Reachable two
+  // ways: right-click (context menu) and Delete/Backspace on a selected node.
+  const removeStep = useSetAtom(removeStepAtom);
+  const [menu, setMenu] = useState<NodeMenu | null>(null);
+  const deletableStep = (n: Node): { index: number; label: string } | null => {
+    const d = n.data as unknown as RFNodeData;
+    return typeof d.stepIndex === "number" && d.stepIndex >= 0
+      ? { index: d.stepIndex, label: d.eyebrow ?? "step" }
+      : null;
+  };
+  const onNodeContextMenu = useCallback((e: ReactMouseEvent, n: Node) => {
+    e.preventDefault();
+    const d = deletableStep(n);
+    setMenu(d ? { x: e.clientX, y: e.clientY, stepIndex: d.index, label: d.label } : null);
+  }, []);
+
+  // undo/redo the spec (Cmd/Ctrl+Z, +Shift to redo / +Y); spec mutations only —
+  // style + node positions are excluded at the source (see state.ts).
+  const undo = useSetAtom(undoSpecAtom);
+  const redo = useSetAtom(redoSpecAtom);
+  const canUndo = useAtomValue(undoSpecAtom);
+  const canRedo = useAtomValue(redoSpecAtom);
+
+  const focusedStashId = useAtomValue(focusedStashIdAtom);
+  const setFocused = useSetAtom(focusedStashIdAtom);
+
+  // Keyboard: Delete/Backspace removes the selected node's step (React Flow's
+  // built-in delete is disabled via deleteKeyCode={null}, as it would splice the
+  // derived RF node array, not the spec); Cmd/Ctrl+Z undo. All suppressed while
+  // typing in a card, so the browser's native field editing/undo stays intact.
+  const nodesRef = useRef<Node[]>([]);
+  nodesRef.current = nodes;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Esc exits focus mode first — works even from a field inside the maximized
+      // tile (it's not a text-bearing key), and is swallowed so it doesn't also
+      // bubble to a workbench close.
+      if (e.key === "Escape" && focusedStashId) {
+        e.preventDefault(); e.stopPropagation(); setFocused(null); return;
+      }
+      const el = document.activeElement;
+      const typing = (el && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+        || (el instanceof HTMLElement && el.isContentEditable);
+      if (typing) return;
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault(); if (e.shiftKey) redo(); else undo(); return;
+      }
+      if (mod && (e.key === "y" || e.key === "Y")) { e.preventDefault(); redo(); return; }
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const sel = nodesRef.current.find((n) => n.selected);
+        const d = sel && deletableStep(sel);
+        if (d) { e.preventDefault(); removeStep(d.index); setMenu(null); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [removeStep, undo, redo, focusedStashId, setFocused]);
+
   // the structural identity of the graph: the SET of node + edge ids. Layout
   // (positions) is recomputed only when this changes — not on every
   // explorerGraphAtom recompute (those fire on each /shape_counts result and
@@ -172,6 +239,10 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
          onPointerDownCapture={resize.onOverlayPointerDownCapture}>
       <div className="txw-topbar">
         <h1 className="txw-title">⛁ Transformation workbench</h1>
+        <button className="txw-undo" onClick={() => undo()} disabled={!canUndo}
+          title="Undo (⌘Z)" aria-label="Undo">↶ Undo</button>
+        <button className="txw-undo" onClick={() => redo()} disabled={!canRedo}
+          title="Redo (⇧⌘Z)" aria-label="Redo">↷ Redo</button>
         <button className="txw-tidy" onClick={tidy}>⤢ Tidy</button>
         <button className="txw-collapse-all" onClick={collapseAll}>⊟ Collapse all</button>
         {onClose && (
@@ -183,16 +254,26 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onNodeClick={(_e, n) => pinNode({ kind: "node", id: n.id })}
+          onNodeContextMenu={onNodeContextMenu}
+          onPaneClick={() => setMenu(null)}
           onNodeDragStop={(_e, n) =>
             setNodePositions((prev) => applyNudge(prev, n.id, n.position.x, n.position.y))}
           onEdgeClick={(_e, ed) => openEdge({ kind: "edge", id: ed.id })}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
+          deleteKeyCode={null}
           fitView proOptions={{ hideAttribution: true }}
         >
           <Background gap={22} size={1} color="#d7dee7" />
           <Controls />
           <Panel position="top-left"><GrainLegend spine={graph.spine} /></Panel>
         </ReactFlow>
+        {menu && (
+          <NodeContextMenu
+            menu={menu}
+            onDelete={() => { removeStep(menu.stepIndex); setMenu(null); }}
+            onClose={() => setMenu(null)}
+          />
+        )}
       </div>
       <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>
         {cards.map((c) => <FloatingCard key={c.id} card={c} />)}
@@ -204,6 +285,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           startH={resize.startH} startV={resize.startV} startCorner={resize.startCorner}
         />
       )}
+      <StashFocus graph={graph} />
     </div>
   );
 }

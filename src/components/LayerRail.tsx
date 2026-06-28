@@ -9,7 +9,6 @@ import type { Geom, Layer, Registry } from "../types";
 import { levelOptions } from "../levels";
 import { LayerCard } from "./LayerCards";
 import { EncodingsCard } from "./EncodingsCard";
-import { PipelineSection } from "./PipelineSection";
 
 /* one geom layer, independently collapsible so a tall stack stays scannable.
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
@@ -164,8 +163,6 @@ export function LayerRail() {
           <button className="add-layer-btn" onClick={() => setAdding(true)}>+ Add layer</button>
         )}
       </div>
-
-      <PipelineSection />
     </div>
   );
 }

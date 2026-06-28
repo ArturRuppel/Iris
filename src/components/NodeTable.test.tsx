@@ -105,6 +105,35 @@ describe("NodeTable", () => {
     expect(args[5]).toEqual(collapse);   // collapse plan
     expect(args[6]).toBe("cell");        // grain key
   });
+
+  it("forwards the DEFAULT prefix chain when the analysis carries no explicit collapse", async () => {
+    // Regression: a default-chain analysis (no spec.collapse) still has grain
+    // nodes in the graph (built off effectivePlanAtom). NodeTable used to forward
+    // the raw active.collapse (undefined here), so the engine skipped the collapse
+    // and every grain preview showed the raw rows. It must forward the EFFECTIVE
+    // plan — defaultPlan(spine, fn) over the table spine ["cell"].
+    const { store, schema } = seed();   // plottable has no collapse plan
+    const result: ReducePreview = {
+      preview: { schema, rows: [{ id: "g0", cell: "c1", val: 7 }] },
+      n_total: 1, trace: [], summary: [],
+    };
+    const spy = vi.spyOn(engine, "reduce").mockResolvedValue(result);
+
+    const node: ExplorerNode = {
+      id: "grain:cell", kind: "table", phase: "grain", label: "per cell",
+      table: { via: "grain", grain: "cell" },
+    };
+    render(
+      <Provider store={store}>
+        <NodeTable node={node} />
+      </Provider>,
+    );
+
+    expect(await screen.findByText("7")).toBeInTheDocument();
+    const args = spy.mock.calls[0];
+    expect(args[5]).toEqual([{ keep: ["cell"], fn: "mean" }]);  // default chain, NOT undefined
+    expect(args[6]).toBe("cell");
+  });
 });
 
 describe("buildColumnDefs", () => {

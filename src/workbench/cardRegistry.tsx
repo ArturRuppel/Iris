@@ -2,7 +2,6 @@ import type { ExplorerGraph, EdgeKind } from "../explorer/graph";
 import { FigurePane } from "../components/FigurePane";
 import { StatsResults, TestPicker } from "../components/StatsPanel";
 import { CollapseRoutingPanel } from "../components/CollapseRoutingPanel";
-import { EncodingsCard } from "../components/EncodingsCard";
 import { LayerRail } from "../components/LayerRail";
 import { AnnotateCard } from "./cards/AnnotateCard";
 import { OpEditorCard } from "./cards/OpEditorCard";
@@ -65,7 +64,7 @@ export const CARD: Record<CardKind, CardSpec> = {
   "collapse-editor": { title: "Collapse",
     body: staticBody("txw-card-collapse", "collapse-card", () => <CollapseRoutingPanel />) },
   "geom-editor": { title: "Geom & encoding",
-    body: staticBody("txw-card-geom", "geom-card", () => <><EncodingsCard /><LayerRail /></>) },
+    body: staticBody("txw-card-geom", "geom-card", () => <LayerRail />) },
   "test-editor": { title: "Test",
     body: staticBody("txw-card-test", "test-card", () => <TestPicker />) },
   "annotate-editor": { title: "Annotate", body: AnnotateCard },

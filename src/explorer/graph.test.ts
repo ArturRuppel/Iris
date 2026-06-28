@@ -236,9 +236,18 @@ describe("buildGraph: annotate edge (stats -> plot)", () => {
     expect(a[0]).toMatchObject({ fromId: "stats", toId: "plot" });
   });
 
-  it("omits the annotate edge when annotation is disabled", () => {
+  it("still emits the edge when brackets are disabled — the relationship is structural", () => {
+    // a comparison test is ABOUT the plot; the Stats->Plot edge shows whether or
+    // not significance brackets are currently drawn (show_significance only gates
+    // the brackets, not the link). Clicking the edge is how you toggle them.
     const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
       { test: "mann_whitney", describeOnly: false, annotate: false });
+    expect(g.edges.some((e) => e.kind === "annotate")).toBe(true);
+  });
+
+  it("omits the annotate edge when no test is chosen", () => {
+    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
+      { test: null, describeOnly: false, annotate: true });
     expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
   });
 

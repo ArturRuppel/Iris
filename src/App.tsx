@@ -20,7 +20,7 @@ import {
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
   tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
-  resolveEngineSteps, saveTablesFor, tablesAtom,
+  resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { NodeShape } from "./types";
@@ -296,7 +296,10 @@ export default function App() {
      node id from a different analysis never drives the wrong data tab. */
   const setSelectedNode = useSetAtom(selectedNodeIdAtom);
   const clearWorkbench = useSetAtom(clearWorkbenchAtom);
-  useEffect(() => { setSelectedNode(null); clearWorkbench(); }, [activeId, setSelectedNode, clearWorkbench]);
+  const clearSpecHistory = useSetAtom(clearSpecHistoryAtom);
+  useEffect(() => {
+    setSelectedNode(null); clearWorkbench(); clearSpecHistory();
+  }, [activeId, setSelectedNode, clearWorkbench, clearSpecHistory]);
 
   /* background loop: a self-draining sequential queue that warms every OTHER
      plottable's cache so even a never-opened analysis is instant on first visit.

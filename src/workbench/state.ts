@@ -105,9 +105,16 @@ export const pushStashAtom = atom(
   },
 );
 
-/* Unpin one card from the stash by id. */
+/* Focus mode: a pinned tile maximized to fill the whole workbench, hiding the
+   DAG — for styling a plot, where you want the entire workspace (the docked stash
+   is clamped to leave the canvas room; this bypasses that). Holds the focused
+   stash entry id, or null. Reversible (Exit / Esc). */
+export const focusedStashIdAtom = atom<string | null>(null);
+
+/* Unpin one card from the stash by id. Clears focus if it was the focused tile. */
 export const popStashAtom = atom(null, (get, set, id: string) => {
   set(stashAtom, get(stashAtom).filter((e) => e.id !== id));
+  if (get(focusedStashIdAtom) === id) set(focusedStashIdAtom, null);
 });
 
 export const closeCardAtom = atom(null, (get, set, id: string) => {
@@ -147,4 +154,5 @@ export const clearWorkbenchAtom = atom(null, (_get, set) => {
   set(selectedTargetAtom, null);
   set(nodePositionsAtom, {});
   set(workbenchLayoutAtom, defaultLayout());
+  set(focusedStashIdAtom, null);
 });
