@@ -240,7 +240,7 @@ describe("buildGraph", () => {
       { kind: "plot", facts: ["dots"] },
       { kind: "stats", facts: ["Welch's t-test"] },
     ]);
-    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+    expect(g.edges.some((e) => (e.kind as string) === "annotate")).toBe(false);
   });
 
   it("annotated test marks the stats section, not a back-edge", () => {
@@ -249,7 +249,7 @@ describe("buildGraph", () => {
     const fig = g.nodes.find((n) => n.id === "figure")!;
     expect(fig.sections?.find((s) => s.kind === "stats")?.facts)
       .toEqual(["Welch's t-test", "on figure"]);
-    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+    expect(g.edges.some((e) => (e.kind as string) === "annotate")).toBe(false);
   });
 });
 

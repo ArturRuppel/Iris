@@ -12,13 +12,13 @@ describe("edgeIdToStepIndex", () => {
     nodes: [
       { id: "step:2", kind: "table", phase: "reduce", stepIndex: 2,
         label: "filtered", table: { via: "at_step", at_step: 2 } },
-      { id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } },
+      { id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" } },
     ],
     edges: [
       { id: "e:step:1->step:2", kind: "filter", label: "mask",
         fromId: "step:1", toId: "step:2" },
       { id: "g:plain", kind: "geom", label: "plotted",
-        fromId: "source", toId: "plot" },
+        fromId: "source", toId: "figure" },
     ],
     spine: [],
   };

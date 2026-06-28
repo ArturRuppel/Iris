@@ -12,12 +12,12 @@ export function DataTab() {
   /* the same graph the workbench canvas renders, so node ids line up exactly. */
   const graph = useAtomValue(explorerGraphAtom);
 
-  /* the selected node, falling back to the plot node (the final reduced table)
+  /* the selected node, falling back to the figure node (the final reduced table)
      when nothing is selected or the id is stale. */
   const node: ExplorerNode | null = useMemo(() => {
     if (!graph) return null;
     return graph.nodes.find((n) => n.id === selectedId)
-      ?? graph.nodes.find((n) => n.kind === "plot")
+      ?? graph.nodes.find((n) => n.kind === "figure")
       ?? null;
   }, [graph, selectedId]);
 

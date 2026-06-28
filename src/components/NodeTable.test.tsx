@@ -62,7 +62,7 @@ describe("NodeTable", () => {
       [plottable.id]: { preview: table, n_total: 1, trace: [], summary: [] },
     });
     const node: ExplorerNode = {
-      id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" },
+      id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" },
     };
     render(
       <Provider store={store}>
@@ -178,7 +178,7 @@ describe("NodeTable role bands (groupRoles)", () => {
       [plottable.id]: { preview: table, n_total: 1, trace: [], summary: [] },
     });
     const node: ExplorerNode = {
-      id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" },
+      id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" },
       count: { rows: 1, cols: 2,
         axes: [{ name: "cell", n_levels: 1, ragged: false }],
         values: [{ name: "val", type: "numeric", grain: null }] },

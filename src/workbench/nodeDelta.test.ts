@@ -23,7 +23,7 @@ const graph = (): ExplorerGraph => ({
       count: { rows: 6, cols: 4, axes: [ax("E"), ax("P"), ax("C")], values: [val("value")] } },
     { id: "c2", kind: "table", phase: "grain", dims: ["E", "P"], label: "per E×P", table: { via: "none" },
       count: { rows: 4, cols: 3, axes: [ax("E"), ax("P")], values: [val("value")] } },
-    { id: "stats", kind: "stats", phase: "terminal", label: "Stats", table: { via: "none" } },
+    { id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" } },
   ],
   edges: [
     { id: "e:d", kind: "derive", label: "value = v", fromId: "source", toId: "d" },
@@ -31,7 +31,7 @@ const graph = (): ExplorerGraph => ({
     { id: "e:j2", kind: "join", label: "on E,P", fromId: "src:0", toId: "j" },
     { id: "e:c1", kind: "collapse", label: "median over F", fromId: "j", toId: "c1" },
     { id: "e:c2", kind: "collapse", label: "median over C", fromId: "c1", toId: "c2" },
-    { id: "t:test", kind: "test", label: "paired t-test", fromId: "c2", toId: "stats" },
+    { id: "t:test", kind: "test", label: "paired t-test", fromId: "c2", toId: "figure" },
   ],
 });
 
@@ -56,7 +56,7 @@ describe("nodeDeltas", () => {
   });
 
   it("a terminal (no axes of its own) sheds nothing and stays grain-less", () => {
-    const s = nodeDeltas(graph()).get("stats")!;
+    const s = nodeDeltas(graph()).get("figure")!;
     expect(s.live).toEqual([]);
     expect(s.shed).toEqual([]); // does NOT 'shed' the levels it inherited
   });

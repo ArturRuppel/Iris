@@ -8,15 +8,17 @@ import type { ExplorerGraph } from "../explorer/graph";
 const graph: ExplorerGraph = {
   nodes: [
     { id: "source", kind: "table", phase: "source", label: "Raw cells", table: { via: "at_step", at_step: -1 } },
-    { id: "plot", kind: "plot", phase: "terminal", label: "Figure", table: { via: "none" } },
-    { id: "stats", kind: "stats", phase: "terminal", label: "t-test", table: { via: "none" } },
+    { id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" } },
   ],
   edges: [],
   spine: [],
 };
 
-const entry = (id: string, cardKind: StashEntry["cardKind"]): StashEntry =>
-  ({ id: `node:${id}`, target: { kind: "node", id }, cardKind });
+const entry = (id: string, cardKind: StashEntry["cardKind"], facet?: "plot" | "stats"): StashEntry => ({
+  id: facet ? `node:${id}:${facet}` : `node:${id}`,
+  target: facet ? { kind: "node", id, facet } : { kind: "node", id },
+  cardKind,
+});
 
 function mount(entries: StashEntry[]) {
   const store = createStore();
@@ -32,7 +34,7 @@ describe("Stash", () => {
   });
 
   it("shows a pinned card with the node's friendly label, plus ghost slots", () => {
-    const { container } = mount([entry("plot", "plot")]);
+    const { container } = mount([entry("figure", "plot", "plot")]);
     expect(screen.getByTestId("plot-card")).toBeInTheDocument();
     // the slot header shows the node's friendly label, not its raw id
     expect(container.querySelector(".txw-slot-sub")!.textContent).toBe("Figure");
@@ -43,22 +45,22 @@ describe("Stash", () => {
 
   it("no ghost slots once full", () => {
     const { container } = mount([
-      entry("source", "table"), entry("plot", "plot"), entry("stats", "stats"),
+      entry("source", "table"), entry("figure", "plot", "plot"), entry("figure", "stats", "stats"),
     ]);
     expect(container.querySelectorAll(".txw-slot")).toHaveLength(STASH_SLOTS);
     expect(container.querySelectorAll(".txw-slot.ghost")).toHaveLength(0);
   });
 
   it("unpin removes that card from the stash", () => {
-    const { store } = mount([entry("plot", "plot"), entry("stats", "stats")]);
+    const { store } = mount([entry("figure", "plot", "plot"), entry("source", "table")]);
     const plotSlot = screen.getByRole("group", { name: /Plot: Figure/i });
     fireEvent.click(within(plotSlot).getByRole("button", { name: /unpin/i }));
-    expect(store.get(stashAtom).map((e) => e.target.id)).toEqual(["stats"]);
+    expect(store.get(stashAtom).map((e) => e.target.id)).toEqual(["source"]);
   });
 
   it("pointer-down on a slot selects its target", () => {
-    const { store } = mount([entry("plot", "plot")]);
+    const { store } = mount([entry("figure", "plot", "plot")]);
     fireEvent.pointerDown(screen.getByRole("group", { name: /Plot: Figure/i }));
-    expect(store.get(selectedTargetAtom)).toEqual({ kind: "node", id: "plot" });
+    expect(store.get(selectedTargetAtom)).toEqual({ kind: "node", id: "figure", facet: "plot" });
   });
 });

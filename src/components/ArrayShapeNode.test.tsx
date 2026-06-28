@@ -85,7 +85,7 @@ describe("ArrayShapeNode", () => {
 
   it("falls back to rows×cols for a terminal with no grain or values", () => {
     render1({
-      variant: "plot", kind: "geom", eyebrow: "Plot", detail: "dots",
+      variant: "figure", kind: "geom", eyebrow: "Plot", detail: "dots",
       spine: [], live: [], shed: [], values: [], rows: 4, cols: 2,
     });
     expect(screen.getByText("4×2")).toBeInTheDocument();

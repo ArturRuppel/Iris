@@ -31,10 +31,10 @@ export const levelInitial = (name: string): string => {
   return (m ? m[0] : name[0] ?? "?").toUpperCase();
 };
 
-/* the primary incoming edge of a node: a forward (non-annotate) edge into it,
+/* the primary incoming edge of a node: a forward edge into it,
    preferring the main-chain input over a join's secondary (join-input) input. */
 function primaryIn(graph: ExplorerGraph, nodeId: string, byId: Map<string, ExplorerNode>) {
-  const incoming = graph.edges.filter((e) => e.toId === nodeId && e.kind !== "annotate");
+  const incoming = graph.edges.filter((e) => e.toId === nodeId);
   return incoming.find((e) => byId.get(e.fromId)?.phase !== "join-input") ?? incoming[0];
 }
 

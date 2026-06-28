@@ -5,5 +5,5 @@ import type { EdgeKind } from "../explorer/graph";
 export const EDGE_TYPE: Record<EdgeKind, string> = {
   filter: "Filter", drop: "Drop", derive: "Derive", recode: "Recode",
   join: "Join", pivot: "Pivot", grid_complete: "Complete",
-  collapse: "Collapse", geom: "Plot", test: "Test", annotate: "Annotate",
+  collapse: "Collapse", geom: "Plot", test: "Test",
 };

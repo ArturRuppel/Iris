@@ -12,8 +12,8 @@ const phaseOfId = (id: string): NodePhase =>
     : "reduce";   // step:i (and any plain reduce node)
 const tableNode = (id: string): ExplorerNode =>
   ({ id, kind: "table", phase: phaseOfId(id), label: id, table: { via: "none" } });
-const term = (id: string, kind: "plot" | "stats"): ExplorerNode =>
-  ({ id, kind, phase: "terminal", label: id, table: { via: "none" } });
+const term = (id: string): ExplorerNode =>
+  ({ id, kind: "figure", phase: "terminal", label: id, table: { via: "none" } });
 
 const actions = (n: ExplorerNode) => affordances(n).map((o) => o.action);
 
@@ -48,8 +48,7 @@ describe("affordances — the phase-keyed add menu", () => {
   });
 
   it("terminals offer nothing (sinks emit no forward edge)", () => {
-    expect(affordances(term("plot", "plot"))).toEqual([]);
-    expect(affordances(term("stats", "stats"))).toEqual([]);
+    expect(affordances(term("figure"))).toEqual([]);
   });
 
   it("every option carries a non-empty label", () => {
