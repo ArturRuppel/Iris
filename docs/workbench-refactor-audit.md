@@ -234,8 +234,15 @@ _(engine #1 · HIGH · M)_
    `SessionStore.ensure_capacity(n)` raises the LRU bound to fit a loaded document's table
    cohort; `doc_load` reserves it before the create burst. Unit + end-to-end (10-table
    roundtrip) regression tests; 515 engine tests pass. The save-side >8 cap (would 409) is a
-   separate documented limitation (rehydrate-from-rows) and remains. (b) ⏳ **PENDING** —
-   regenerate the 2.0 example gallery to 2.1 → confirm no `format_version: 2.0` remains →
-   delete the engine 2.0 reader → then the deferred frontend migration deletions (Theme 2).
+   separate documented limitation (rehydrate-from-rows) and remains. (b) ✅ **DONE
+   2026-06-28** — gallery regenerated to 2.1 (all 24 assets; verified) → engine 2.0 reader
+   deleted (`load_document` refuses pre-2.1 with a clear error) → frontend migrations made
+   unreachable by that removal deleted: `migrateSpec` legacy branch (→ identity), the
+   `loadDocumentAtom` 2.0 inline-right join migration, `migrateDistLayers` + the
+   histogram/density arm of `migrateLayerParams`. **Still blocked:** `migrateLayerParams`'s
+   general param-hoist + `Layer.params` are load-bearing (the engine still emits `layer.params`,
+   e.g. potential-double-well) — deleting them needs an engine specnorm change to move geom
+   knobs to `style.overrides.geoms` server-side, a **new follow-up**. tsc + build clean; 326
+   frontend + 515 engine tests pass.
 5. **Optional**: split `state.ts` into modules; rename `layoutResize.ts`; the `StatsResult`
    union.
