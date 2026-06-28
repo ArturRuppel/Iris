@@ -98,6 +98,20 @@ def test_rank_floor_blocks_mann_whitney_at_three_per_group():
     assert "0.100" in res["decision"]["assumption"]["reason"]
 
 
+def test_rank_floor_survives_large_non_normal_groups():
+    """Regression: C(n1+n2, n1) is an arbitrary-precision int that overflows when
+    converted to float for the 2/c floor — large non-normal groups crashed the
+    Mann–Whitney guard with OverflowError. The floor underflows to 0 (far below
+    any alpha), so the rank test stands and analyze must not 500."""
+    rng = np.random.default_rng(0)
+    n = 600
+    df = pd.DataFrame({
+        "g": ["A"] * n + ["B"] * n,
+        "y": np.concatenate([rng.exponential(1.0, n), rng.exponential(1.0, n)])})
+    res = stats.group_comparison(df, "g", "y", ["A", "B"])   # must not raise
+    assert res["recommendation"]["test"] == "mann_whitney"   # floor never fires
+
+
 def test_analyze_endpoint_svg_draws_marks_without_point_groups():
     # Item I: dots draw as plain vector marks; the payload carries no point_groups
     # and the SVG has no per-point gid/click structure (just <use> glyphs).

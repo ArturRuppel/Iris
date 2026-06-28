@@ -82,7 +82,11 @@ def _mann_whitney_min_p(n1: int, n2: int) -> float:
     """Smallest two-sided p for Mann–Whitney U: the two most extreme of the
     C(n1+n2, n1) equally likely rank splits."""
     c = comb(n1 + n2, n1)
-    return 2.0 / c if c else 1.0
+    if not c:
+        return 1.0
+    if c.bit_length() >= 1024:   # 2/c underflows float; far below any alpha anyway
+        return 0.0
+    return 2.0 / c
 
 
 def _spearman_min_p(n: int) -> float:
