@@ -2,12 +2,21 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
-import type { ExplorerNode } from "../explorer/graph";
+import type { ExplorerNode, NodePhase } from "../explorer/graph";
+
+/* derive a node's phase from its id the same way buildGraph does, so fixtures
+   stay one-liners. */
+const phaseOf = (id: string): NodePhase =>
+  id === "source" ? "source"
+  : id.startsWith("source:") ? "join-input"
+  : id.startsWith("grain:") ? "grain"
+  : id.startsWith("post:") ? "post"
+  : "reduce";
 
 describe("nodeShapeProps", () => {
   it("maps a step node + delta to eyebrow / detail / grain / values", () => {
     const node: ExplorerNode = {
-      id: "grain:exp", kind: "table", label: "per Experiment", table: { via: "grain", grain: "exp" },
+      id: "grain:exp", kind: "table", phase: "grain", label: "per Experiment", table: { via: "grain", grain: "exp" },
       count: { rows: 3, cols: 2, axes: [{ name: "experiment_id", n_levels: 3, ragged: false }],
         values: [{ name: "value", type: "numeric", grain: null }] },
     };
@@ -24,25 +33,25 @@ describe("nodeShapeProps", () => {
   });
   it("gives the source an eyebrow and no detail; terminals key off kind", () => {
     const mk = (id: string, kind: "table" | "plot" | "stats"): ExplorerNode =>
-      ({ id, kind, label: id, table: { via: "none" } });
+      ({ id, kind, phase: kind === "table" ? phaseOf(id) : "terminal", label: id, table: { via: "none" } });
     expect(nodeShapeProps(mk("source", "table"))).toMatchObject({ eyebrow: "Source", detail: "" });
     expect(nodeShapeProps(mk("plot", "plot"))).toMatchObject({ eyebrow: "Plot", kind: "geom" });
     expect(nodeShapeProps(mk("stats", "stats"))).toMatchObject({ eyebrow: "Stats", kind: "test" });
   });
   it("derives variant from id: source -> source, source:0 -> source, plain -> table", () => {
-    const mk = (id: string): ExplorerNode => ({ id, kind: "table", label: id, table: { via: "none" } });
+    const mk = (id: string): ExplorerNode => ({ id, kind: "table", phase: phaseOf(id), label: id, table: { via: "none" } });
     expect(nodeShapeProps(mk("source")).variant).toBe("source");
     expect(nodeShapeProps(mk("source:0")).variant).toBe("source");
     expect(nodeShapeProps(mk("step:1")).variant).toBe("table");
   });
   it("passes the node's missing flag through", () => {
     const mk = (id: string, missing?: boolean): ExplorerNode =>
-      ({ id, kind: "table", label: id, table: { via: "none" }, missing });
+      ({ id, kind: "table", phase: phaseOf(id), label: id, table: { via: "none" }, missing });
     expect(nodeShapeProps(mk("source:0", true)).missing).toBe(true);
     expect(nodeShapeProps(mk("source:0")).missing).toBeFalsy();
   });
   it("carries the node's phase-keyed + options (a step node gets reduce kinds)", () => {
-    const mk = (id: string): ExplorerNode => ({ id, kind: "table", label: id, table: { via: "none" } });
+    const mk = (id: string): ExplorerNode => ({ id, kind: "table", phase: phaseOf(id), label: id, table: { via: "none" } });
     expect(nodeShapeProps(mk("step:0")).options?.some((o) => o.action.kind === "reduce")).toBe(true);
     // a join-input node has no + menu.
     expect(nodeShapeProps(mk("source:0")).options).toEqual([]);
@@ -56,7 +65,7 @@ describe("ArrayShapeRFNode", () => {
         <ArrayShapeRFNode
           id="grain:cell"
           data={nodeShapeProps({
-            id: "grain:cell", kind: "table", label: "per Cell", table: { via: "grain", grain: "cell" },
+            id: "grain:cell", kind: "table", phase: "grain", label: "per Cell", table: { via: "grain", grain: "cell" },
             count: { rows: 3, cols: 2, axes: [], values: [] },
           })}
           selected={false}
@@ -71,7 +80,7 @@ describe("ArrayShapeRFNode", () => {
         <ArrayShapeRFNode
           id="source:0"
           data={nodeShapeProps({
-            id: "source:0", kind: "table", label: "drop a table here",
+            id: "source:0", kind: "table", phase: "join-input", label: "drop a table here",
             table: { via: "none" }, missing: true,
           })}
           selected={false}
@@ -85,7 +94,7 @@ describe("ArrayShapeRFNode", () => {
       <ReactFlowProvider>
         <ArrayShapeRFNode
           id="step:0"
-          data={nodeShapeProps({ id: "step:0", kind: "table", label: "filtered", table: { via: "none" } })}
+          data={nodeShapeProps({ id: "step:0", kind: "table", phase: "reduce", label: "filtered", table: { via: "none" } })}
           selected={false}
         />
       </ReactFlowProvider>,
@@ -102,7 +111,7 @@ describe("ArrayShapeRFNode", () => {
       <ReactFlowProvider>
         <ArrayShapeRFNode
           id="plot"
-          data={nodeShapeProps({ id: "plot", kind: "plot", label: "Plot", table: { via: "none" } })}
+          data={nodeShapeProps({ id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } })}
           selected={false}
         />
       </ReactFlowProvider>,

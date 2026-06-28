@@ -40,7 +40,7 @@ describe("NodeTable", () => {
   it("shows a loading state for a fetchable node with no table handle (no engine under jsdom)", () => {
     const { store } = seed({ handle: false });
     const node: ExplorerNode = {
-      id: "step:0", kind: "table", label: "filtered",
+      id: "step:0", kind: "table", phase: "reduce", label: "filtered",
       table: { via: "at_step", at_step: 0 },
     };
     render(
@@ -62,7 +62,7 @@ describe("NodeTable", () => {
       [plottable.id]: { preview: table, n_total: 1, trace: [], summary: [] },
     });
     const node: ExplorerNode = {
-      id: "plot", kind: "plot", label: "Plot", table: { via: "none" },
+      id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" },
     };
     render(
       <Provider store={store}>
@@ -87,7 +87,7 @@ describe("NodeTable", () => {
     const spy = vi.spyOn(engine, "reduce").mockResolvedValue(result);
 
     const node: ExplorerNode = {
-      id: "grain:cell", kind: "table", label: "per cell",
+      id: "grain:cell", kind: "table", phase: "grain", label: "per cell",
       table: { via: "grain", grain: "cell" },
     };
     render(
@@ -149,7 +149,7 @@ describe("NodeTable role bands (groupRoles)", () => {
       [plottable.id]: { preview: table, n_total: 1, trace: [], summary: [] },
     });
     const node: ExplorerNode = {
-      id: "plot", kind: "plot", label: "Plot", table: { via: "none" },
+      id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" },
       count: { rows: 1, cols: 2,
         axes: [{ name: "cell", n_levels: 1, ragged: false }],
         values: [{ name: "val", type: "numeric", grain: null }] },

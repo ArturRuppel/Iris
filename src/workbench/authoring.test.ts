@@ -1,11 +1,19 @@
 import { describe, it, expect } from "vitest";
-import type { ExplorerNode } from "../explorer/graph";
-import { affordances, stepIndexOf, authorDispatch } from "./authoring";
+import type { ExplorerNode, NodePhase } from "../explorer/graph";
+import { affordances, authorDispatch } from "./authoring";
 
+/* affordances/phaseOf read node.phase; derive it from the conventional id so the
+   fixtures stay readable as "the node with this id". */
+const phaseOfId = (id: string): NodePhase =>
+  id === "source" ? "source"
+    : id.startsWith("source:") ? "join-input"
+    : id.startsWith("grain:") ? "grain"
+    : id.startsWith("post:") ? "post"
+    : "reduce";   // step:i (and any plain reduce node)
 const tableNode = (id: string): ExplorerNode =>
-  ({ id, kind: "table", label: id, table: { via: "none" } });
+  ({ id, kind: "table", phase: phaseOfId(id), label: id, table: { via: "none" } });
 const term = (id: string, kind: "plot" | "stats"): ExplorerNode =>
-  ({ id, kind, label: id, table: { via: "none" } });
+  ({ id, kind, phase: "terminal", label: id, table: { via: "none" } });
 
 const actions = (n: ExplorerNode) => affordances(n).map((o) => o.action);
 
@@ -49,31 +57,21 @@ describe("affordances — the phase-keyed add menu", () => {
   });
 });
 
-describe("stepIndexOf — where a node's + inserts after", () => {
-  it("the root source is -1 (insert at 0)", () => {
-    expect(stepIndexOf("source")).toBe(-1);
-  });
-  it("a step:i node is i", () => {
-    expect(stepIndexOf("step:0")).toBe(0);
-    expect(stepIndexOf("step:3")).toBe(3);
-  });
-});
-
 describe("authorDispatch — a +-pick resolves to its atom call", () => {
-  it("a reduce action splices after this node's step index", () => {
-    expect(authorDispatch("step:1", { kind: "reduce", step: "derive" }))
+  it("a reduce action splices after the given step index", () => {
+    expect(authorDispatch(1, { kind: "reduce", step: "derive" }))
       .toEqual({ atom: "insertStep", arg: { afterIndex: 1, kind: "derive" } });
   });
-  it("a reduce action on the root source inserts at 0 (afterIndex -1)", () => {
-    expect(authorDispatch("source", { kind: "reduce", step: "filter" }))
+  it("a reduce action from the root source (index -1) inserts at 0", () => {
+    expect(authorDispatch(-1, { kind: "reduce", step: "filter" }))
       .toEqual({ atom: "insertStep", arg: { afterIndex: -1, kind: "filter" } });
   });
-  it("geom/collapse/test open their terminal editor card", () => {
-    expect(authorDispatch("step:0", { kind: "geom" }))
+  it("geom/collapse/test open their terminal editor card (index ignored)", () => {
+    expect(authorDispatch(0, { kind: "geom" }))
       .toMatchObject({ atom: "openCard", arg: { cardKind: "geom-editor" } });
-    expect(authorDispatch("grain:cell", { kind: "collapse" }))
+    expect(authorDispatch(0, { kind: "collapse" }))
       .toMatchObject({ atom: "openCard", arg: { cardKind: "collapse-editor" } });
-    expect(authorDispatch("step:0", { kind: "test" }))
+    expect(authorDispatch(0, { kind: "test" }))
       .toMatchObject({ atom: "openCard", arg: { cardKind: "test-editor" } });
   });
 });

@@ -9,7 +9,7 @@ import { useSetAtom, useAtomValue } from "jotai";
 import type { ExplorerGraph } from "../explorer/graph";
 import { layoutGraph } from "./layout";
 import { ArrayShapeRFNode, nodeShapeProps } from "./ArrayShapeRFNode";
-import { nodeDeltas, spineOf, levelInitial } from "./nodeDelta";
+import { nodeDeltas, levelInitial } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
   openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
@@ -191,7 +191,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
         >
           <Background gap={22} size={1} color="#d7dee7" />
           <Controls />
-          <Panel position="top-left"><GrainLegend spine={spineOf(graph)} /></Panel>
+          <Panel position="top-left"><GrainLegend spine={graph.spine} /></Panel>
         </ReactFlow>
       </div>
       <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>

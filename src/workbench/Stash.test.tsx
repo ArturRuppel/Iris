@@ -7,11 +7,12 @@ import type { ExplorerGraph } from "../explorer/graph";
 
 const graph: ExplorerGraph = {
   nodes: [
-    { id: "source", kind: "table", label: "Raw cells", table: { via: "at_step", at_step: -1 } },
-    { id: "plot", kind: "plot", label: "Figure", table: { via: "none" } },
-    { id: "stats", kind: "stats", label: "t-test", table: { via: "none" } },
+    { id: "source", kind: "table", phase: "source", label: "Raw cells", table: { via: "at_step", at_step: -1 } },
+    { id: "plot", kind: "plot", phase: "terminal", label: "Figure", table: { via: "none" } },
+    { id: "stats", kind: "stats", phase: "terminal", label: "t-test", table: { via: "none" } },
   ],
   edges: [],
+  spine: [],
 };
 
 const entry = (id: string, cardKind: StashEntry["cardKind"]): StashEntry =>

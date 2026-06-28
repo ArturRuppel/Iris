@@ -17,14 +17,15 @@ import { StepPivot } from "../../components/StepPivot";
 import { StepGridComplete } from "../../components/StepGridComplete";
 import type { CardBodyProps } from "../cardRegistry";
 
-/* The clicked reduce-step edge feeds a `step:<i>` node (see explorer/graph.ts).
-   Resolve that index from the edge id; null if the edge isn't a step edge (or
-   isn't in the graph) — a stale selection after a structural change. */
+/* The clicked reduce-step edge feeds a reduce-phase node carrying its step index
+   (see explorer/graph.ts). Resolve that index from the edge's target node; null
+   if the edge isn't a step edge (or isn't in the graph) — a stale selection after
+   a structural change. */
 export function edgeIdToStepIndex(graph: ExplorerGraph, edgeId: string): number | null {
   const edge = graph.edges.find((e) => e.id === edgeId);
   if (!edge) return null;
-  const m = /^step:(\d+)$/.exec(edge.toId);
-  return m ? Number(m[1]) : null;
+  const node = graph.nodes.find((n) => n.id === edge.toId);
+  return node?.phase === "reduce" ? node.stepIndex ?? null : null;
 }
 
 const stale = (

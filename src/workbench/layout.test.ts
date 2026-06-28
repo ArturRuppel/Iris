@@ -6,10 +6,10 @@ import type { ExplorerGraph } from "../explorer/graph";
    stats->plot annotate back-edge. Hand-built so the layout is isolated from buildGraph. */
 const forkGraph = (): ExplorerGraph => ({
   nodes: [
-    { id: "source", kind: "table", label: "Source", table: { via: "at_step", at_step: -1 } },
-    { id: "step:0", kind: "table", label: "filtered", table: { via: "at_step", at_step: 0 } },
-    { id: "plot", kind: "plot", label: "Plot", table: { via: "none" } },
-    { id: "stats", kind: "stats", label: "Stats", table: { via: "none" } },
+    { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
+    { id: "step:0", kind: "table", phase: "reduce", label: "filtered", table: { via: "at_step", at_step: 0 } },
+    { id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } },
+    { id: "stats", kind: "stats", phase: "terminal", label: "Stats", table: { via: "none" } },
   ],
   edges: [
     { id: "e0", kind: "filter", label: "mask", fromId: "source", toId: "step:0" },
@@ -17,6 +17,7 @@ const forkGraph = (): ExplorerGraph => ({
     { id: "t0", kind: "test", label: "MW", fromId: "step:0", toId: "stats" },
     { id: "a:annotate", kind: "annotate", label: "significance", fromId: "stats", toId: "plot" },
   ],
+  spine: [],
 });
 
 const at = (L: ReturnType<typeof layoutGraph>, id: string) => L.nodes.find((n) => n.id === id)!;
@@ -59,14 +60,15 @@ describe("layoutGraph", () => {
   it("places a join right-input just left of the join node, not at column 0", () => {
     const g: ExplorerGraph = {
       nodes: [
-        { id: "source", kind: "table", label: "Source", table: { via: "at_step", at_step: -1 } },
-        { id: "step:0", kind: "table", label: "joined", table: { via: "at_step", at_step: 0 } },
-        { id: "source:0", kind: "table", label: "right", table: { via: "none" } },
+        { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
+        { id: "step:0", kind: "table", phase: "reduce", label: "joined", table: { via: "at_step", at_step: 0 } },
+        { id: "source:0", kind: "table", phase: "join-input", label: "right", table: { via: "none" } },
       ],
       edges: [
         { id: "e0", kind: "join", label: "join", fromId: "source", toId: "step:0" },
         { id: "e1", kind: "join", label: "join", fromId: "source:0", toId: "step:0" },
       ],
+      spine: [],
     };
     const L = layoutGraph(g);
     expect(at(L, "step:0").x).toBe(COL_GAP);

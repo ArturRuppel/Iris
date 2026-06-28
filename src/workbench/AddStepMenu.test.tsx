@@ -4,7 +4,7 @@ import { AddStepMenu } from "./AddStepMenu";
 import { affordances } from "./authoring";
 import type { ExplorerNode } from "../explorer/graph";
 
-const stepNode: ExplorerNode = { id: "step:0", kind: "table", label: "step:0", table: { via: "none" } };
+const stepNode: ExplorerNode = { id: "step:0", kind: "table", phase: "reduce", label: "step:0", table: { via: "none" } };
 
 describe("AddStepMenu", () => {
   it("renders one button per option (all seven reduce kinds + terminals for a step node)", () => {

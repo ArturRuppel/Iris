@@ -9,20 +9,21 @@ const val = (name: string, type = "numeric"): ValueDesc => ({ name, type, grain:
 /* source(E,P,C,F; v) -> derive(+value) -> join(+class_label) ->
    collapse over F -> collapse over C, plus a stats terminal. */
 const graph = (): ExplorerGraph => ({
+  spine: ["E", "P", "C", "F"],
   nodes: [
-    { id: "source", kind: "table", label: "Source", table: { via: "at_step", at_step: -1 },
+    { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 },
       count: { rows: 9, cols: 5, axes: [ax("E"), ax("P"), ax("C"), ax("F")], values: [val("v")] } },
-    { id: "d", kind: "table", label: "Derived", table: { via: "at_step", at_step: 0 },
+    { id: "d", kind: "table", phase: "reduce", label: "Derived", table: { via: "at_step", at_step: 0 },
       count: { rows: 9, cols: 6, axes: [ax("E"), ax("P"), ax("C"), ax("F")], values: [val("v"), val("value")] } },
-    { id: "src:0", kind: "table", label: "T2", table: { via: "none" },
+    { id: "src:0", kind: "table", phase: "join-input", label: "T2", table: { via: "none" },
       count: { rows: 9, cols: 4, axes: [ax("E"), ax("P"), ax("C")], values: [val("class_label", "categorical")] } },
-    { id: "j", kind: "table", label: "Joined", table: { via: "at_step", at_step: 1 },
+    { id: "j", kind: "table", phase: "reduce", label: "Joined", table: { via: "at_step", at_step: 1 },
       count: { rows: 9, cols: 6, axes: [ax("E"), ax("P"), ax("C"), ax("F")], values: [val("value"), val("class_label", "categorical")] } },
-    { id: "c1", kind: "table", label: "per E×P×C", table: { via: "none" },
+    { id: "c1", kind: "table", phase: "grain", dims: ["E", "P", "C"], label: "per E×P×C", table: { via: "none" },
       count: { rows: 6, cols: 4, axes: [ax("E"), ax("P"), ax("C")], values: [val("value")] } },
-    { id: "c2", kind: "table", label: "per E×P", table: { via: "none" },
+    { id: "c2", kind: "table", phase: "grain", dims: ["E", "P"], label: "per E×P", table: { via: "none" },
       count: { rows: 4, cols: 3, axes: [ax("E"), ax("P")], values: [val("value")] } },
-    { id: "stats", kind: "stats", label: "Stats", table: { via: "none" } },
+    { id: "stats", kind: "stats", phase: "terminal", label: "Stats", table: { via: "none" } },
   ],
   edges: [
     { id: "e:d", kind: "derive", label: "value = v", fromId: "source", toId: "d" },
@@ -35,7 +36,7 @@ const graph = (): ExplorerGraph => ({
 });
 
 describe("nodeDeltas", () => {
-  it("derives the spine as the finest-grain axis list, in order", () => {
+  it("exposes the graph spine (the finest-grain axis order) on each node's delta", () => {
     const d = nodeDeltas(graph()).get("source")!;
     expect(d.spine).toEqual(["E", "P", "C", "F"]);
   });

@@ -3,7 +3,7 @@ import {
   activePlottableAtom, hierarchyAtom, effectiveSchemaAtom, analysisAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
 } from "../state";
-import { buildGraph, type ExplorerGraph, type StatsInput, type NodeCount, type Edge } from "./graph";
+import { buildGraph, type ExplorerGraph, type ExplorerNode, type StatsInput, type NodeCount, type Edge } from "./graph";
 import type { ShapeCountsGuards, GuardVerdict, StyleOverrides } from "../types";
 
 /* significance annotation is enabled per-analysis via the style override the
@@ -34,28 +34,22 @@ export const shapeCountsAtom = atom<Record<string, NodeCount> | null>(null);
    run). mergeGuards turns these into GuardVerdicts placed on the right edges. */
 export const guardsAtom = atom<ShapeCountsGuards | null>(null);
 
-/* dims a grain-keyed node carries. A `grain:<key>` node carries the key's dims;
-   the raw source/step node (no `grain:` prefix) is treated as carrying ALL dims,
-   so it is never matched as "excludes <dim>" but always "includes <dim>". */
-function dimsForNode(id: string): { dims: Set<string> | null } {
-  if (id.startsWith("grain:")) {
-    const key = id.slice("grain:".length);
-    return { dims: new Set(key ? key.split("/") : []) };
-  }
-  return { dims: null };   // raw: contains every dim
-}
-const nodeIncludes = (id: string, dim: string): boolean => {
-  const { dims } = dimsForNode(id);
-  return dims === null ? true : dims.has(dim);
-};
-const nodeExcludes = (id: string, dim: string): boolean => {
-  const { dims } = dimsForNode(id);
-  return dims === null ? false : !dims.has(dim);
-};
-
 /* Place the raw guard verdicts onto the edges they belong to. Pure: returns a
-   fresh edges array (and fresh edge objects where a verdict is appended). */
-export function mergeGuards(edges: Edge[], guards: ShapeCountsGuards): Edge[] {
+   fresh edges array (and fresh edge objects where a verdict is appended). The
+   nodes carry the grain dims (node.dims, set by buildGraph): a `grain` node holds
+   a subset; every other node carries the full spine, so it always "includes" and
+   never "excludes" a dim. */
+export function mergeGuards(edges: Edge[], guards: ShapeCountsGuards, nodes: ExplorerNode[]): Edge[] {
+  const dimsOf = new Map<string, Set<string> | null>(
+    nodes.map((n) => [n.id, n.phase === "grain" ? new Set(n.dims ?? []) : null]));
+  const nodeIncludes = (id: string, dim: string): boolean => {
+    const dims = dimsOf.get(id) ?? null;
+    return dims === null ? true : dims.has(dim);
+  };
+  const nodeExcludes = (id: string, dim: string): boolean => {
+    const dims = dimsOf.get(id) ?? null;
+    return dims === null ? false : !dims.has(dim);
+  };
   const out = edges.map((e) => ({ ...e, guards: e.guards ? [...e.guards] : e.guards }));
   const append = (e: Edge, v: GuardVerdict) => {
     e.guards = e.guards ? [...e.guards, v] : [v];
@@ -121,6 +115,6 @@ export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
   const guards = get(guardsAtom);
   let nodes = g.nodes, edges = g.edges;
   if (counts) nodes = nodes.map((n) => (counts[n.id] ? { ...n, count: counts[n.id] } : n));
-  if (guards) edges = mergeGuards(edges, guards);
+  if (guards) edges = mergeGuards(edges, guards, nodes);
   return { ...g, nodes, edges };
 });

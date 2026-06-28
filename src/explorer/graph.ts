@@ -7,6 +7,12 @@ import { grainKey, planGrains } from "../collapse";
    plot, test into stats). The view is a left->right line for the MVP but is
    modelled as typed nodes + edges so branching plugs into the same frame. */
 export type NodeKind = "table" | "plot" | "stats";
+/* a node's pipeline phase — the single discriminant consumers read instead of
+   parsing the id string. `source` is the root table; `reduce` a reduce step;
+   `join-input` a join's right (secondary) input; `grain` a collapsed grain;
+   `post` a post-collapse step; `terminal` the plot/stats outputs. */
+export type NodePhase =
+  | "source" | "reduce" | "join-input" | "grain" | "post" | "terminal";
 export type EdgeKind =
   | "filter" | "drop" | "derive" | "recode" | "join"
   | "pivot" | "grid_complete"
@@ -28,6 +34,14 @@ export interface NodeCount {
 export interface ExplorerNode {
   id: string;
   kind: NodeKind;
+  /* the pipeline phase, set once by buildGraph — read this, never the id prefix. */
+  phase: NodePhase;
+  /* the spine dims a `grain` node carries (its kept levels). Absent on non-grain
+     nodes, which carry the full spine. */
+  dims?: string[];
+  /* the reduce-step index this node represents: the root source is -1, a reduce
+     `step:i` is i. Absent on grain/post/join-input/terminal nodes. */
+  stepIndex?: number;
   label: string;
   table: NodeTable;
   count?: NodeCount;
@@ -53,6 +67,10 @@ export interface Edge {
 export interface ExplorerGraph {
   nodes: ExplorerNode[];
   edges: Edge[];
+  /* the full nesting (finest-grain axis order) every per-node grain bar is read
+     against — the hierarchy spine buildGraph was given, recorded so consumers
+     don't reverse-engineer it from async counts. */
+  spine: string[];
 }
 
 export interface StatsInput { test: string | null; describeOnly: boolean; annotate?: boolean }
@@ -175,14 +193,15 @@ export function buildGraph(
   post: ReduceStep[] = [],
 ): ExplorerGraph {
   const nodes: ExplorerNode[] = [
-    { id: SOURCE_ID, kind: "table", label: "Source", table: { via: "at_step", at_step: -1 } },
+    { id: SOURCE_ID, kind: "table", phase: "source", stepIndex: -1,
+      label: "Source", table: { via: "at_step", at_step: -1 } },
   ];
   const edges: Edge[] = [];
 
   let prev = SOURCE_ID;
   steps.forEach((step, i) => {
     const id = stepId(i);
-    nodes.push({ id, kind: "table",
+    nodes.push({ id, kind: "table", phase: "reduce", stepIndex: i,
       label: STEP_NODE_LABEL[step.kind] ?? step.kind,
       table: { via: "at_step", at_step: i } });
     if (step.kind === "join") {
@@ -192,7 +211,7 @@ export function buildGraph(
       const srcId = `source:${i}`;
       const filled = step.rightTableId.length > 0;
       const onLabel = step.on.join(", ");
-      nodes.push({ id: srcId, kind: "table",
+      nodes.push({ id: srcId, kind: "table", phase: "join-input",
         label: filled ? step.rightTableId : "drop a table here",
         table: { via: "none" }, missing: !filled });
       edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `on ${onLabel}`,
@@ -214,8 +233,8 @@ export function buildGraph(
     const key = grainKey(kept);
     const id = `grain:${key}`;
     const removed = prevKeep.filter((d) => !kept.includes(d));
-    nodes.push({ id, kind: "table", label: labelForGrain(schema, kept),
-      table: { via: "grain", grain: key } });
+    nodes.push({ id, kind: "table", phase: "grain", dims: kept,
+      label: labelForGrain(schema, kept), table: { via: "grain", grain: key } });
     edges.push({ id: `e:${cprev}->${id}`, kind: "collapse",
       label: collapseEdgeLabel(schema, step.fn, removed, kept),
       fromId: cprev, toId: id, guards: [flattenInfo(schema, step.fn, removed, kept)] });
@@ -235,9 +254,11 @@ export function buildGraph(
   const testFact = stats?.describeOnly ? "describe"
     : (stats?.test ? testLabel(stats.test) : "describe");
   const annotated = !!(stats && !stats.describeOnly && stats.annotate);
-  nodes.push({ id: PLOT_ID, kind: "plot", label: "Plot", table: { via: "none" },
+  nodes.push({ id: PLOT_ID, kind: "plot", phase: "terminal", label: "Plot",
+    table: { via: "none" },
     facts: [...geomFacts, ...(annotated ? ["significance"] : [])] });
-  nodes.push({ id: STATS_ID, kind: "stats", label: "Stats", table: { via: "none" },
+  nodes.push({ id: STATS_ID, kind: "stats", phase: "terminal", label: "Stats",
+    table: { via: "none" },
     facts: [testFact, ...(annotated ? ["brackets on plot"] : [])] });
 
   // one edge per grain the plot reads, labelled with the geom(s) at that grain
@@ -270,7 +291,7 @@ export function buildGraph(
     ? labelForGrain(schema, coarsest.split("/")) : "the raw grain";
   post.forEach((step, i) => {
     const id = `post:${i}`;
-    nodes.push({ id, kind: "table",
+    nodes.push({ id, kind: "table", phase: "post",
       label: STEP_NODE_LABEL[step.kind] ?? step.kind, table: { via: "none" } });
     const guards = step.kind === "derive"
       ? [postAggregateDerive(step.column, grainLabel)] : undefined;
@@ -291,5 +312,5 @@ export function buildGraph(
       fromId: STATS_ID, toId: PLOT_ID });
   }
 
-  return { nodes, edges };
+  return { nodes, edges, spine };
 }

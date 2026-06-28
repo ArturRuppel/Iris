@@ -1,4 +1,4 @@
-import type { EdgeKind, ExplorerGraph } from "../explorer/graph";
+import type { EdgeKind, ExplorerGraph, ExplorerNode } from "../explorer/graph";
 
 /* What each step CHANGED, relative to its predecessor — the data behind the
    redesigned node. The card shows only the delta, so consecutive cards stop
@@ -24,17 +24,6 @@ const axisNames = (g: ExplorerGraph, id: string): string[] =>
 const valueNames = (g: ExplorerGraph, id: string): string[] =>
   (g.nodes.find((n) => n.id === id)?.count?.values ?? []).map((v) => v.name);
 
-/* the spine = the finest grain = the node carrying the most axes; its axis order
-   defines the nesting order every per-node segment bar is read against. */
-export function spineOf(graph: ExplorerGraph): string[] {
-  let spine: string[] = [];
-  for (const n of graph.nodes) {
-    const ax = (n.count?.axes ?? []).map((a) => a.name);
-    if (ax.length > spine.length) spine = ax;
-  }
-  return spine;
-}
-
 /* one glyph per nesting level — the first letter, shared by the segment bar and
    the canvas legend that decodes it. */
 export const levelInitial = (name: string): string => {
@@ -43,19 +32,20 @@ export const levelInitial = (name: string): string => {
 };
 
 /* the primary incoming edge of a node: a forward (non-annotate) edge into it,
-   preferring the main-chain input over a join's secondary `source:` input. */
-function primaryIn(graph: ExplorerGraph, nodeId: string) {
+   preferring the main-chain input over a join's secondary (join-input) input. */
+function primaryIn(graph: ExplorerGraph, nodeId: string, byId: Map<string, ExplorerNode>) {
   const incoming = graph.edges.filter((e) => e.toId === nodeId && e.kind !== "annotate");
-  return incoming.find((e) => !e.fromId.startsWith("source:")) ?? incoming[0];
+  return incoming.find((e) => byId.get(e.fromId)?.phase !== "join-input") ?? incoming[0];
 }
 
 export function nodeDeltas(graph: ExplorerGraph): Map<string, NodeDelta> {
-  const spine = spineOf(graph);
+  const spine = graph.spine;
   const inSpine = (names: string[]) => names.filter((n) => spine.includes(n));
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
 
   const out = new Map<string, NodeDelta>();
   for (const node of graph.nodes) {
-    const edge = primaryIn(graph, node.id);
+    const edge = primaryIn(graph, node.id, byId);
     const live = inSpine(axisNames(graph, node.id));
     // a node with no axes of its own is a terminal (Plot/Stats): it consumes the
     // table, it doesn't pool a level — so it sheds nothing and shows no grain bar.

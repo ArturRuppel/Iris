@@ -23,7 +23,7 @@ describe("mergeGuards: join_leaf_key", () => {
         text: "Joining on cell alone, but cell isn't unique without experiment, position …",
       }],
     };
-    const out = mergeGuards(joinEdges(), guards);
+    const out = mergeGuards(joinEdges(), guards, []);
     const flagged = out.filter((e) => e.guards?.some((g) => g.id === "join_leaf_key"));
     expect(flagged).toHaveLength(1);
     expect(flagged[0].guards?.find((g) => g.id === "join_leaf_key"))
@@ -47,7 +47,7 @@ describe("mergeGuards: join_leaf_key", () => {
         text: "Joining on cell alone …",
       }],
     };
-    const out = mergeGuards(edges, guards);
+    const out = mergeGuards(edges, guards, []);
     const flagged = out.filter((e) => e.guards?.some((g) => g.id === "join_leaf_key"));
     expect(flagged.every((e) => e.toId === "step:1")).toBe(true);
     expect(flagged.length).toBeGreaterThanOrEqual(1);
@@ -56,7 +56,7 @@ describe("mergeGuards: join_leaf_key", () => {
   });
 
   it("no join_leaf_key entries -> no badge added", () => {
-    const out = mergeGuards(joinEdges(), NO_GUARDS);
+    const out = mergeGuards(joinEdges(), NO_GUARDS, []);
     expect(out.some((e) => e.guards?.some((g) => g.id === "join_leaf_key"))).toBe(false);
   });
 });

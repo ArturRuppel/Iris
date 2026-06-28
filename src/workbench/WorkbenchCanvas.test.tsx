@@ -8,14 +8,15 @@ import type { ExplorerGraph } from "../explorer/graph";
 
 const graph: ExplorerGraph = {
   nodes: [
-    { id: "source", kind: "table", label: "Source", table: { via: "at_step", at_step: -1 } },
-    { id: "step:0", kind: "table", label: "filtered", table: { via: "at_step", at_step: 0 } },
-    { id: "plot", kind: "plot", label: "Plot", table: { via: "none" } },
+    { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
+    { id: "step:0", kind: "table", phase: "reduce", label: "filtered", table: { via: "at_step", at_step: 0 } },
+    { id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } },
   ],
   edges: [
     { id: "e0", kind: "filter", label: "mask", fromId: "source", toId: "step:0" },
     { id: "g0", kind: "geom", label: "dots", fromId: "step:0", toId: "plot" },
   ],
+  spine: [],
 };
 
 function mount(g: ExplorerGraph = graph, onClose?: () => void) {
@@ -101,9 +102,10 @@ describe("WorkbenchCanvas", () => {
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
     const bigger: ExplorerGraph = {
       nodes: [...graph.nodes,
-        { id: "step:1", kind: "table", label: "derived", table: { via: "at_step", at_step: 1 } }],
+        { id: "step:1", kind: "table", phase: "reduce", label: "derived", table: { via: "at_step", at_step: 1 } }],
       edges: [...graph.edges,
         { id: "e1", kind: "derive", label: "x = 1", fromId: "step:0", toId: "step:1" }],
+      spine: [],
     };
     rerender(<Provider store={store}><WorkbenchCanvas graph={bigger} /></Provider>);
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(4);

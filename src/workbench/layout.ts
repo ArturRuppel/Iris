@@ -46,10 +46,10 @@ export function layoutGraph(graph: ExplorerGraph): GraphLayout {
     }
   }
 
-  // a join's right-input (`source:<i>`) is a forward root, so it lands at rank 0;
-  // pull it to just left of the join node it feeds instead.
+  // a join's right-input (the join-input phase) is a forward root, so it lands at
+  // rank 0; pull it to just left of the join node it feeds instead.
   for (const e of forward) {
-    if (e.fromId.startsWith("source:")) {
+    if (byId.get(e.fromId)?.phase === "join-input") {
       const jr = rank.get(e.toId);
       if (jr != null) rank.set(e.fromId, Math.max(0, jr - 1));
     }

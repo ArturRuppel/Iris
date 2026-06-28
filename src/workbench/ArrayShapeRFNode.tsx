@@ -12,16 +12,17 @@ import type { NodeDelta } from "./nodeDelta";
 import { affordances, authorDispatch, type AuthorAction, type AuthorOption } from "./authoring";
 import { AddStepMenu } from "./AddStepMenu";
 
-/* node -> variant. Terminals key off kind (plot/stats get their own glyph + accent);
-   data tables key off id (source / grain / plain table). removed/onKeys highlighting
-   is deferred to a later phase, so they are not derived here. */
+/* node -> variant, from the phase buildGraph stamped. Terminals get their own
+   glyph + accent by kind; the root source and a join input share the "source"
+   glyph; a grain its own; reduce/post steps the plain table. removed/onKeys
+   highlighting is deferred to a later phase, so they are not derived here. */
 function variantOf(node: ExplorerNode): NodeVariant {
-  if (node.kind === "plot") return "plot";
-  if (node.kind === "stats") return "stats";
-  const id = node.id;
-  if (id === "source" || id.startsWith("source:")) return "source";
-  if (id.startsWith("grain:")) return "grain";
-  return "table";
+  switch (node.phase) {
+    case "terminal": return node.kind === "plot" ? "plot" : "stats";
+    case "source": case "join-input": return "source";
+    case "grain": return "grain";
+    default: return "table";   // reduce / post
+  }
 }
 
 /* the RF node data: the presentational props plus a `missing` flag (an unfilled
@@ -32,21 +33,27 @@ export type RFNodeData = ArrayShapeNodeProps & {
   missing?: boolean;
   options?: AuthorOption[];
   inEdge?: { id: string; kind: EdgeKind };
+  /* the reduce-step index this node inserts after (source = -1); routed to
+     authorDispatch when a `+`-pick splices a step. */
+  stepIndex?: number;
 };
 
-const isSource = (id: string): boolean => id === "source" || id.startsWith("source:");
+/* the root source or a join's right input: both render as a source, with no
+   incoming-step detail line. */
+const isSource = (node: ExplorerNode): boolean =>
+  node.phase === "source" || node.phase === "join-input";
 
 /* the step kind that produced this node — the accent + eyebrow key. */
 function accentKind(node: ExplorerNode, delta?: NodeDelta): string {
   if (node.kind === "plot") return "geom";
   if (node.kind === "stats") return "test";
-  if (isSource(node.id)) return "source";
+  if (isSource(node)) return "source";
   return delta?.inEdge?.kind ?? "table";
 }
 function eyebrowText(node: ExplorerNode, delta?: NodeDelta): string {
   if (node.kind === "plot") return "Plot";
   if (node.kind === "stats") return "Stats";
-  if (isSource(node.id)) return "Source";
+  if (isSource(node)) return "Source";
   return delta?.inEdge ? (EDGE_TYPE[delta.inEdge.kind] ?? "Step") : node.label;
 }
 
@@ -62,7 +69,7 @@ export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeDat
     variant: variantOf(node),
     kind: accentKind(node, delta),
     eyebrow: eyebrowText(node, delta),
-    detail: (isSource(node.id) || isTerminal) ? "" : (delta?.inEdge?.label ?? ""),
+    detail: (isSource(node) || isTerminal) ? "" : (delta?.inEdge?.label ?? ""),
     facts: node.facts ?? [],
     spine: delta?.spine ?? [], live: delta?.live ?? [], shed: delta?.shed ?? [],
     values: c?.values ?? [], newValues: delta?.newValues ?? [],
@@ -71,6 +78,7 @@ export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeDat
     inEdge: delta?.inEdge ? { id: delta.inEdge.id, kind: delta.inEdge.kind } : undefined,
     missing: node.missing,
     options: affordances(node),
+    stepIndex: node.stepIndex,
   };
 }
 
@@ -82,7 +90,7 @@ export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeDat
 export function ArrayShapeRFNode(
   { id, data }: { id?: string; selected?: boolean; data: RFNodeData },
 ) {
-  const { missing, options, inEdge, ...shape } = data;
+  const { missing, options, inEdge, stepIndex, ...shape } = data;
   const insertStep = useSetAtom(insertStepAtom);
   const openCard = useSetAtom(openCardAtom);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -103,7 +111,7 @@ export function ArrayShapeRFNode(
 
   const pick = (action: AuthorAction) => {
     setMenuOpen(false);
-    const d = authorDispatch(id ?? "", action);
+    const d = authorDispatch(stepIndex ?? -1, action);
     if (d.atom === "insertStep") insertStep(d.arg);
     else openCard(d.arg);
   };

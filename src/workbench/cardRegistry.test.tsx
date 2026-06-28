@@ -4,9 +4,9 @@ import type { ExplorerGraph } from "../explorer/graph";
 
 const graph: ExplorerGraph = {
   nodes: [
-    { id: "source", kind: "table", label: "Source", table: { via: "at_step", at_step: -1 } },
-    { id: "plot", kind: "plot", label: "Plot", table: { via: "none" } },
-    { id: "stats", kind: "stats", label: "Stats", table: { via: "none" } },
+    { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
+    { id: "plot", kind: "plot", phase: "terminal", label: "Plot", table: { via: "none" } },
+    { id: "stats", kind: "stats", phase: "terminal", label: "Stats", table: { via: "none" } },
   ],
   edges: [
     { id: "e0", kind: "filter", label: "mask", fromId: "source", toId: "plot" },
@@ -15,6 +15,7 @@ const graph: ExplorerGraph = {
     { id: "t0", kind: "test", label: "MW", fromId: "source", toId: "stats" },
     { id: "a0", kind: "annotate", label: "significance", fromId: "stats", toId: "plot" },
   ],
+  spine: [],
 };
 
 describe("targetToCardKind", () => {
