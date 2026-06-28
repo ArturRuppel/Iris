@@ -2,7 +2,7 @@ import { BaseEdge, getBezierPath, type EdgeProps } from "@xyflow/react";
 import type { EdgeKind } from "../explorer/graph";
 import { COL_GAP } from "./layout";
 
-export interface WorkbenchEdgeData { kind: EdgeKind; label: string; back: boolean }
+export interface WorkbenchEdgeData { kind: EdgeKind; label: string }
 
 /* The collapse chain is the literal data flow and keeps the inline corridor.
    The fan-in families (geom -> the shared Plot, test -> Stats) only need special
@@ -65,11 +65,10 @@ export function laneOf(
    inside the TARGET node (eyebrow + detail), so the edge renders no label. An
    inline edge is a gentle bezier: a flat horizontal line when its two nodes share
    a row, easing into a smooth S when one is dragged off-row (a centered orthogonal
-   step would read as a detached squiggle in the gutter). A back-edge (annotate)
-   uses a deeper bezier so the stats->plot link reads as an overlay, not a flow
-   step. Only the geom/test fan-in lanes stay orthogonal: their long top/bottom
-   detour around the collapse corridor wants crisp right angles, not a sagging
-   curve, to read as a deliberate bypass rather than a wandering wire. */
+   step would read as a detached squiggle in the gutter). Only the geom/test fan-in
+   lanes stay orthogonal: their long top/bottom detour around the collapse corridor
+   wants crisp right angles, not a sagging curve, to read as a deliberate bypass
+   rather than a wandering wire. */
 export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
@@ -77,14 +76,11 @@ export function WorkbenchEdge(props: EdgeProps) {
   // detours. Off-row target -> route straight to its row; on-row target -> lift
   // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
   const lane = laneOf(data?.kind, sourceX, sourceY, targetX, targetY);
-  const [path] = data?.back
-    ? getBezierPath({ sourceX, sourceY, targetX, targetY,
-        sourcePosition, targetPosition, curvature: 0.4 })
-    : lane != null
-      ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
-      : getBezierPath({ sourceX, sourceY, targetX, targetY,
-          sourcePosition, targetPosition });
+  const [path] = lane != null
+    ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
+    : getBezierPath({ sourceX, sourceY, targetX, targetY,
+        sourcePosition, targetPosition });
   return (
-    <BaseEdge id={id} path={path} className={`txw-rfedge ${data?.kind ?? ""}${data?.back ? " back" : ""}`} />
+    <BaseEdge id={id} path={path} className={`txw-rfedge ${data?.kind ?? ""}`} />
   );
 }

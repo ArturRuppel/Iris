@@ -54,13 +54,10 @@ export function toRF(
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
-      // forward edges leave the right edge and enter the left edge; the stats->plot
-      // annotate back-edge keeps the right-side source but enters the plot's
-      // right-side "annotate-in" handle, so it bows in the gutter beside the two
-      // stacked terminals instead of looping across to the left side.
+      // forward edges leave the right edge and enter the left edge.
       sourceHandle: "out",
-      targetHandle: e.back ? "annotate-in" : "in",
-      data: { kind: e.kind, label: e.label, back: e.back },
+      targetHandle: "in",
+      data: { kind: e.kind, label: e.label },
     })),
   };
 }
@@ -214,7 +211,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   useEffect(() => {
     const rf = toRF(graph, nodePositions);
     if (structureKey !== lastStructure.current) {
-      // structure changed (step/grain/terminal/annotate added or removed):
+      // structure changed (step/grain/terminal added or removed):
       // full re-layout with fresh positions.
       lastStructure.current = structureKey;
       setNodes(rf.nodes);

@@ -31,7 +31,7 @@ const renderEdge = (data: Record<string, unknown>) =>
 
 describe("WorkbenchEdge", () => {
   it("draws a wire and carries the kind class, with no floating label", () => {
-    const { container } = renderEdge({ kind: "geom", label: "dots", back: false });
+    const { container } = renderEdge({ kind: "geom", label: "dots" });
     const path = container.querySelector(".react-flow__edge-path.txw-rfedge.geom");
     expect(path).not.toBeNull();
     expect(container.querySelector(".txw-rfedge-label")).toBeNull(); // label moved into the node

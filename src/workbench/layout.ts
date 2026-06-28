@@ -11,18 +11,13 @@ export const ROW_GAP = 150;
 export interface PositionedNode { id: string; x: number; y: number; node: ExplorerNode }
 export interface LayoutEdge {
   id: string; source: string; target: string;
-  kind: EdgeKind; label: string; guards?: Edge["guards"]; back: boolean;
+  kind: EdgeKind; label: string; guards?: Edge["guards"];
 }
 export interface GraphLayout { nodes: PositionedNode[]; edges: LayoutEdge[] }
 
-/* the only back-edge in the model: stats -> plot (significance annotation). It is
-   drawn but must not influence left->right ranking (it would otherwise push the
-   plot a column past the stats node, or, in general, create a cycle). */
-const isBack = (e: Edge): boolean => e.kind === "annotate";
-
 export function layoutGraph(graph: ExplorerGraph): GraphLayout {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const forward = graph.edges.filter((e) => !isBack(e) && byId.has(e.fromId) && byId.has(e.toId));
+  const forward = graph.edges.filter((e) => byId.has(e.fromId) && byId.has(e.toId));
 
   // longest-path rank over forward edges (Kahn relaxation). Roots start at 0.
   const indeg = new Map<string, number>();
@@ -71,7 +66,7 @@ export function layoutGraph(graph: ExplorerGraph): GraphLayout {
   }));
   const edges: LayoutEdge[] = graph.edges.map((e) => ({
     id: e.id, source: e.fromId, target: e.toId,
-    kind: e.kind, label: e.label, guards: e.guards, back: isBack(e),
+    kind: e.kind, label: e.label, guards: e.guards,
   }));
   return { nodes, edges };
 }
