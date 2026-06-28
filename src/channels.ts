@@ -214,6 +214,51 @@ export function geomAddable(
   return vertical || horizontal;
 }
 
+/* Whether a geom could be drawn at all by SOME assignment of the available
+   columns — used to gate the wizard's geom gallery. A geom is satisfiable when
+   each of its required axis types ("categorical"/"numeric") can be met by at
+   least one usable column: identifiers are excluded, and single-value
+   categoricals (via categoryUsable) are excluded. An axis whose requirement is
+   "none" needs nothing.
+
+   The check is supply-vs-demand per type: each required type is tallied across
+   both axes, and the available column count for that type must reach the demand
+   (e.g. scatter requires 2 numeric columns because both X and Y must be
+   numeric; box requires 1 categorical + 1 numeric). h_orient geoms are also
+   satisfiable in the swapped orientation (numeric x, categorical y). */
+export function geomSatisfiableByColumns(
+  meta: GeomMeta, columns: ColumnDef[], reg: Registry | null,
+): boolean {
+  void reg; // reserved for future per-channel offer filtering
+  // Count usable columns per ColType (identifiers and single-value cats excluded)
+  const avail: Record<ColType, number> = { categorical: 0, numeric: 0 };
+  for (const c of columns) {
+    const ct: ColType | null =
+      c.type === "numeric" || c.type === "bool" ? "numeric"
+      : c.type === "categorical" ? "categorical"
+      : null;
+    if (!ct) continue;
+    if (ct === "categorical" && !categoryUsable(c)) continue;
+    avail[ct]++;
+  }
+
+  // Is the given (x_type, y_type) pair satisfiable by the current supply?
+  const canSatisfy = (xReq: string, yReq: string): boolean => {
+    const demand: Record<ColType, number> = { categorical: 0, numeric: 0 };
+    for (const req of [xReq, yReq]) {
+      if (req === "none") continue;
+      if (req !== "categorical" && req !== "numeric") return false;
+      demand[req as ColType]++;
+    }
+    return avail.categorical >= demand.categorical && avail.numeric >= demand.numeric;
+  };
+
+  const vertical = canSatisfy(meta.x_type, meta.y_type);
+  if (!meta.h_orient) return vertical;
+  const horizontal = canSatisfy("numeric", "categorical");
+  return vertical || horizontal;
+}
+
 /* The column types an axis should offer once geoms are chosen — the geom→encoding
    narrowing. Union over the active geoms of the orientations they support; an
    h_orient geom adds the swapped orientation (vertical box = categorical x /

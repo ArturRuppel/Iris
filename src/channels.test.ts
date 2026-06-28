@@ -3,7 +3,7 @@ import type { ColType } from "./channels";
 import {
   categoryUsable,
   familyFor, familyForMappings, familyForMappingsRef, geomAddable, geomAxisColTypes,
-  geomGateReason, isOfferable, offeredColumns, renderStatus,
+  geomGateReason, geomSatisfiableByColumns, isOfferable, offeredColumns, renderStatus,
 } from "./channels";
 import type { ColumnDef, GeomMeta, Registry, Schema } from "./types";
 
@@ -372,5 +372,38 @@ describe("offeredColumns hides single-value categoricals on grouping channels", 
   it("x offers the multi-level category but not the single-value one", () => {
     const { selectable } = offeredColumns(reg, "x", cols);
     expect(selectable.map((c) => c.name)).not.toContain("batch");
+  });
+});
+
+const boxMeta: GeomMeta = {
+  label: "Box", family: "group_comparison", aggregates: true,
+  x_type: "categorical", y_type: "numeric", aes: ["color"],
+} as GeomMeta;
+const scatterMeta: GeomMeta = {
+  label: "Scatter", family: "correlation", aggregates: false,
+  x_type: "numeric", y_type: "numeric", aes: ["color", "size"],
+} as GeomMeta;
+
+describe("geomSatisfiableByColumns", () => {
+  const numericOnly: ColumnDef[] = [
+    { name: "x", type: "numeric", label: "X" },
+    { name: "y", type: "numeric", label: "Y" },
+  ];
+  const withCategory: ColumnDef[] = [
+    { name: "cond", type: "categorical", label: "Condition", levels: ["a", "b"] },
+    { name: "val", type: "numeric", label: "Value" },
+  ];
+  const singleValueCategory: ColumnDef[] = [
+    { name: "batch", type: "categorical", label: "Batch", levels: ["one"] },
+    { name: "val", type: "numeric", label: "Value" },
+  ];
+  it("box needs a usable categorical x and a numeric y", () => {
+    expect(geomSatisfiableByColumns(boxMeta, withCategory, reg)).toBe(true);
+    expect(geomSatisfiableByColumns(boxMeta, numericOnly, reg)).toBe(false);
+    expect(geomSatisfiableByColumns(boxMeta, singleValueCategory, reg)).toBe(false);
+  });
+  it("scatter needs two numerics, satisfied by numeric-only data", () => {
+    expect(geomSatisfiableByColumns(scatterMeta, numericOnly, reg)).toBe(true);
+    expect(geomSatisfiableByColumns(scatterMeta, withCategory, reg)).toBe(false);
   });
 });
