@@ -15,21 +15,21 @@ const SCHEMA: Schema = {
 
 const SPINE = ["experiment", "cell"];
 const PLAN = defaultPlan(SPINE, {});
-const edge = (g: ReturnType<typeof buildGraph>, from: string, to: string) =>
-  g.edges.find((e) => e.fromId === from && e.toId === to);
+const edge = (g: ReturnType<typeof buildGraph>, from: string, to: string, kind?: string) =>
+  g.edges.find((e) => e.fromId === from && e.toId === to && (!kind || e.kind === kind));
 
 describe("buildGraph", () => {
-  it("nodes are datatypes: source/step tables, collapse tables, plot, stats", () => {
+  it("nodes are datatypes: source/step tables, collapse tables, figure", () => {
     const steps: ReduceStep[] = [
       { kind: "filter", conditions: [] },
       { kind: "drop", columns: ["area"] },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(g.nodes.map((n) => n.id)).toEqual([
-      "source", "step:0", "step:1", "grain:experiment/cell", "grain:experiment", "plot", "stats",
+      "source", "step:0", "step:1", "grain:experiment/cell", "grain:experiment", "figure",
     ]);
     expect(g.nodes.map((n) => n.kind)).toEqual([
-      "table", "table", "table", "table", "table", "plot", "stats",
+      "table", "table", "table", "table", "table", "figure",
     ]);
   });
 
@@ -82,14 +82,13 @@ describe("buildGraph", () => {
     expect(byId["source"]).toEqual({ via: "at_step", at_step: -1 });
     expect(byId["step:0"]).toEqual({ via: "at_step", at_step: 0 });
     expect(byId["grain:experiment/cell"]).toEqual({ via: "grain", grain: "experiment/cell" });
-    expect(byId["plot"]).toEqual({ via: "none" });
-    expect(byId["stats"]).toEqual({ via: "none" });
+    expect(byId["figure"]).toEqual({ via: "none" });
   });
 
-  it("geom edge per layer into plot; raw reads the last reduce node", () => {
+  it("geom edge per layer into figure; raw reads the last reduce node", () => {
     const steps: ReduceStep[] = [{ kind: "drop", columns: ["area"] }];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "step:0", "plot")).toMatchObject({ kind: "geom", label: "dots" });
+    expect(edge(g, "step:0", "figure", "geom")).toMatchObject({ kind: "geom", label: "dots" });
   });
 
   it("SuperPlot: distinct grains/geoms draw distinct geom edges; dups collapse", () => {
@@ -101,8 +100,8 @@ describe("buildGraph", () => {
     const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toHaveLength(2);
-    expect(edge(g, "source", "plot")?.label).toBe("dots");
-    expect(edge(g, "grain:experiment", "plot")?.label).toBe("box");
+    expect(edge(g, "source", "figure", "geom")?.label).toBe("dots");
+    expect(edge(g, "grain:experiment", "figure", "geom")?.label).toBe("box");
   });
 
   it("two geoms at the same grain collapse to one comma-joined edge", () => {
@@ -122,23 +121,23 @@ describe("buildGraph", () => {
       [{ geom: "dot", level: "cell" }], SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toEqual([{ id: expect.any(String), kind: "geom",
-      label: "", fromId: "source", toId: "plot" }]);
+      label: "", fromId: "source", toId: "figure" }]);
   });
 
-  it("test edge runs at the coarsest layer-bound grain, into stats", () => {
+  it("test edge runs at the coarsest layer-bound grain, into figure", () => {
     const layers: Layer[] = [
       { geom: "dot", level: RAW_LEVEL },
       { geom: "box", level: "experiment" },
     ];
     const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, { test: "Welch's t-test", describeOnly: false });
-    expect(edge(g, "grain:experiment", "stats")).toMatchObject({
+    expect(edge(g, "grain:experiment", "figure", "test")).toMatchObject({
       kind: "test", label: "Welch's t-test" });
   });
 
   it("describe-only -> the test edge reads 'describe'", () => {
     const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
       { test: null, describeOnly: true });
-    expect(edge(g, "grain:experiment", "stats")).toMatchObject({ kind: "test", label: "describe" });
+    expect(edge(g, "grain:experiment", "figure", "test")).toMatchObject({ kind: "test", label: "describe" });
   });
 
   it("nodeIdForGrain: raw -> given raw node; a grain key -> its grain node", () => {
@@ -223,56 +222,34 @@ describe("buildGraph", () => {
     expect(pe?.guards?.[0]?.id).toBe("post_aggregate_derive");
     expect(pe?.guards?.[0]?.severity).toBe("caution");
     // the test edge now reads the post-phase output, not the bare grain
-    expect(edge(g, "post:0", "stats")?.kind).toBe("test");
+    expect(edge(g, "post:0", "figure", "test")?.kind).toBe("test");
   });
 
   it("no post phase: the test reads the coarsest grain directly", () => {
     const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
-    expect(edge(g, "grain:experiment", "stats")?.kind).toBe("test");
+    expect(edge(g, "grain:experiment", "figure", "test")?.kind).toBe("test");
     expect(g.nodes.some((n) => n.id.startsWith("post:"))).toBe(false);
   });
+
+  it("the single figure terminal carries a plot section and a stats section", () => {
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+      { test: "Welch's t-test", describeOnly: false });
+    const fig = g.nodes.find((n) => n.id === "figure")!;
+    expect(fig.kind).toBe("figure");
+    expect(fig.sections).toEqual([
+      { kind: "plot", facts: ["dots"] },
+      { kind: "stats", facts: ["Welch's t-test"] },
+    ]);
+    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+  });
+
+  it("annotated test marks the stats section, not a back-edge", () => {
+    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+      { test: "Welch's t-test", describeOnly: false, annotate: true });
+    const fig = g.nodes.find((n) => n.id === "figure")!;
+    expect(fig.sections?.find((s) => s.kind === "stats")?.facts)
+      .toEqual(["Welch's t-test", "on figure"]);
+    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
+  });
 });
 
-describe("buildGraph: annotate edge (stats -> plot)", () => {
-  it("emits an annotate edge when a test runs and annotation is enabled", () => {
-    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
-      { test: "mann_whitney", describeOnly: false, annotate: true });
-    const a = g.edges.filter((e) => e.kind === "annotate");
-    expect(a).toHaveLength(1);
-    expect(a[0]).toMatchObject({ fromId: "stats", toId: "plot" });
-  });
-
-  it("still emits the edge when brackets are disabled — the relationship is structural", () => {
-    // a comparison test is ABOUT the plot; the Stats->Plot edge shows whether or
-    // not significance brackets are currently drawn (show_significance only gates
-    // the brackets, not the link). Clicking the edge is how you toggle them.
-    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
-      { test: "mann_whitney", describeOnly: false, annotate: false });
-    expect(g.edges.some((e) => e.kind === "annotate")).toBe(true);
-  });
-
-  it("omits the annotate edge when no test is chosen", () => {
-    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
-      { test: null, describeOnly: false, annotate: true });
-    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
-  });
-
-  it("omits the annotate edge in describe-only mode (no test to bracket)", () => {
-    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
-      { test: null, describeOnly: true, annotate: true });
-    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
-  });
-
-  it("omits the annotate edge when stats input is null", () => {
-    const g = buildGraph([], SPINE, PLAN, [], SCHEMA, null);
-    expect(g.edges.some((e) => e.kind === "annotate")).toBe(false);
-  });
-
-  it("the plot node then has two inbound edges: geom and annotate", () => {
-    const g = buildGraph([], SPINE, PLAN, [], SCHEMA,
-      { test: "mann_whitney", describeOnly: false, annotate: true });
-    const intoPlot = g.edges.filter((e) => e.toId === "plot");
-    expect(intoPlot.some((e) => e.kind === "geom")).toBe(true);
-    expect(intoPlot.some((e) => e.kind === "annotate")).toBe(true);
-  });
-});

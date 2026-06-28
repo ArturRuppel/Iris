@@ -2,21 +2,21 @@ import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, V
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
 
-/* Nodes are DATA (a table at some grain, or a terminal plot/stats output);
-   edges are TRANSFORMATIONS (filter/drop/collapse between tables, geom into the
-   plot, test into stats). The view is a left->right line for the MVP but is
-   modelled as typed nodes + edges so branching plugs into the same frame. */
-export type NodeKind = "table" | "plot" | "stats";
+/* Nodes are DATA (a table at some grain, or a terminal figure output); edges
+   are TRANSFORMATIONS (filter/drop/collapse between tables, geom + test into the
+   figure). The view is a left->right line for the MVP but is modelled as typed
+   nodes + edges so branching plugs into the same frame. */
+export type NodeKind = "table" | "figure";
 /* a node's pipeline phase — the single discriminant consumers read instead of
    parsing the id string. `source` is the root table; `reduce` a reduce step;
    `join-input` a join's right (secondary) input; `grain` a collapsed grain;
-   `post` a post-collapse step; `terminal` the plot/stats outputs. */
+   `post` a post-collapse step; `terminal` the figure output. */
 export type NodePhase =
   | "source" | "reduce" | "join-input" | "grain" | "post" | "terminal";
 export type EdgeKind =
   | "filter" | "drop" | "derive" | "recode" | "join"
   | "pivot" | "grid_complete"
-  | "collapse" | "geom" | "test" | "annotate";
+  | "collapse" | "geom" | "test";
 
 export type NodeTable =
   | { via: "at_step"; at_step: number }
@@ -54,10 +54,10 @@ export interface ExplorerNode {
   /* a required input this node doesn't yet have (an unfilled join right): rendered
      as an open "missing" circle prompting a drag to fill it. */
   missing?: boolean;
-  /* terminal (plot/stats) summary chips: the geom(s) a plot draws / the test a
-     stats node runs, plus a significance flag. These carry no table of their own,
-     so the facts give the node substance in place of a grain bar + value chips. */
-  facts?: string[];
+  /* terminal (figure) sections: the plot's geom chips and the stats' test chip,
+     kept distinct so the node renders two labeled sections. Set only on the
+     terminal; absent elsewhere. */
+  sections?: { kind: "plot" | "stats"; facts: string[] }[];
 }
 
 export interface Edge {
@@ -82,8 +82,7 @@ export interface ExplorerGraph {
 export interface StatsInput { test: string | null; describeOnly: boolean; annotate?: boolean }
 
 const SOURCE_ID = "source";
-const PLOT_ID = "plot";
-const STATS_ID = "stats";
+const FIGURE_ID = "figure";
 const stepId = (i: number) => `step:${i}`;
 
 export function nodeIdForGrain(key: string, rawNodeId: string): string {
@@ -248,10 +247,10 @@ export function buildGraph(
     prevKeep = kept;
   }
 
-  // terminal facts: a plot's distinct geoms (first-seen order) and a stats node's
-  // test, plus a shared "significance" flag when the test is annotated back onto
-  // the figure. Derived here, where layers + stats are in hand, so the terminals
-  // carry their summary even when a geom edge can't be routed to a grain node.
+  // terminal facts: the plot's distinct geoms (first-seen order) and the stats'
+  // test, kept as two sections on ONE figure node. A `stats` "on figure" marker
+  // replaces the old Stats->Plot annotate back-edge when a real test is drawn
+  // onto the figure. Derived here, where layers + stats are in hand.
   const geomFacts: string[] = [];
   for (const layer of layers) {
     const g = geomLabel(layer.geom);
@@ -260,12 +259,12 @@ export function buildGraph(
   const testFact = stats?.describeOnly ? "describe"
     : (stats?.test ? testLabel(stats.test) : "describe");
   const annotated = !!(stats && !stats.describeOnly && stats.annotate);
-  nodes.push({ id: PLOT_ID, kind: "plot", phase: "terminal", label: "Plot",
+  nodes.push({ id: FIGURE_ID, kind: "figure", phase: "terminal", label: "Figure",
     table: { via: "none" },
-    facts: [...geomFacts, ...(annotated ? ["significance"] : [])] });
-  nodes.push({ id: STATS_ID, kind: "stats", phase: "terminal", label: "Stats",
-    table: { via: "none" },
-    facts: [testFact, ...(annotated ? ["brackets on plot"] : [])] });
+    sections: [
+      { kind: "plot", facts: geomFacts },
+      { kind: "stats", facts: [testFact, ...(annotated ? ["on figure"] : [])] },
+    ] });
 
   // one edge per grain the plot reads, labelled with the geom(s) at that grain
   // (distinct, in first-seen order, comma-joined). A plot is composable over any
@@ -281,10 +280,10 @@ export function buildGraph(
   }
   for (const [fromId, labels] of geomByNode) {
     edges.push({ id: `g:${fromId}`, kind: "geom", label: labels.join(", "),
-      fromId, toId: PLOT_ID });
+      fromId, toId: FIGURE_ID });
   }
   if (geomByNode.size === 0) {
-    edges.push({ id: "g:plain", kind: "geom", label: "", fromId: rawNodeId, toId: PLOT_ID });
+    edges.push({ id: "g:plain", kind: "geom", label: "", fromId: rawNodeId, toId: FIGURE_ID });
   }
 
   const grainsList = planGrains(plan);            // ["", ...keys]
@@ -306,21 +305,7 @@ export function buildGraph(
     testFromId = id;
   });
   edges.push({ id: "t:test", kind: "test",
-    label: stats?.describeOnly ? "describe" : (stats?.test ? testLabel(stats.test) : "describe"),
-    fromId: testFromId, toId: STATS_ID });
-
-  // the stats result drawn back onto the figure: a back-edge because the test
-  // CONSUMES data (filter -> Stats) and its result belongs to the figure it
-  // compares groups on (Stats -> Plot). A comparison test is ABOUT the plot, so
-  // the relationship shows whenever a real test runs (not describe-only) — the
-  // edge is structural, independent of whether brackets are currently drawn
-  // (style.show_significance, the `annotated` flag above). Clicking the edge
-  // opens the annotate editor to toggle those brackets. The plot gains a second
-  // input thereby.
-  if (stats && !stats.describeOnly && stats.test) {
-    edges.push({ id: "a:annotate", kind: "annotate", label: "significance",
-      fromId: STATS_ID, toId: PLOT_ID });
-  }
+    label: testFact, fromId: testFromId, toId: FIGURE_ID });
 
   return { nodes, edges, spine };
 }
