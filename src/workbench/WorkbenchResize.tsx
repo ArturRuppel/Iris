@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useRef, type RefObject, type PointerEvent as RPE } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { workbenchLayoutAtom, STASH_SLOTS } from "./state";
-import { clampStashH, resizeColumns, slotSplit, trackWidth, TOPBAR } from "./layoutResize";
+import { clampStashH, resizeColumns, slotSplit, trackWidth, TOPBAR } from "./paneTiling";
 
 /* the grid-template-columns string the stash and its handle layer share, so the
    sliders always sit exactly on the slot boundaries. */

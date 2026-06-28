@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   clampStashH, trackWidth, resizeColumns, slotSplit,
   MIN_STASH_H, MIN_CANVAS_H, PAD, GAP,
-} from "./layoutResize";
+} from "./paneTiling";
 
 describe("clampStashH", () => {
   it("passes a height that's within bounds", () => {
