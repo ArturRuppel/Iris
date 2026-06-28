@@ -215,9 +215,12 @@ _(engine #1 · HIGH · M)_
    `migrateLayerParams`, `Layer.params`, retired geoms, flat style keys, `migrateSpec` legacy
    branch, 2.0 inline-join loop) to step 4 — see the Theme-2 correction above; they are
    load-bearing for the stale 2.0 example gallery.
-2. **The structural-discriminant refactor** (Theme 1): stamp `phase`/`dims`/`spine`/
-   `stepIndex` at `buildGraph`; delete `spineOf` and the scattered id-string parsing.
-   Highest leverage; also fixes the blank-grain-bar timing issue.
+2. **The structural-discriminant refactor** (Theme 1). ✅ **DONE 2026-06-28** — stamped
+   `ExplorerNode.phase`/`dims`/`stepIndex` and `ExplorerGraph.spine` at `buildGraph`; deleted
+   `nodeDelta.spineOf`, `graphAtom.dimsForNode`, `authoring.stepIndexOf`, and the
+   `startsWith`/regex id-parsing across `ArrayShapeRFNode`/`authoring`/`layout`/`nodeDelta`/
+   `OpEditorCard`. `mergeGuards`/`authorDispatch` take the discriminant; grain legend renders
+   synchronously (blank-grain-bar timing bug fixed). tsc + build clean, 330 tests pass.
 3. **Boilerplate consolidation** (Theme 3): card registry, keyed maps,
    `updateActive`/`reorder` helpers.
 4. **The two bugs**: the `SessionStore`-8 eviction; then regenerate examples → delete the
