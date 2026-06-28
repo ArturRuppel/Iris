@@ -764,7 +764,7 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background:color-mix(in srgb, var(--accent) 11%, #fff);
   box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent); }
 /* figure node: two clickable section buttons (plot + stats) stacked vertically */
-.txw-figsections { display:flex; flex-direction:column; gap:0; padding:0; }
+.txw-figsections { display:flex; flex-direction:column; }
 .txw-figsec {
   display:flex; flex-direction:column; align-items:flex-start; gap:6px;
   width:100%; padding:11px 13px; background:none; border:none; cursor:pointer;

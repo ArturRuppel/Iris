@@ -10,8 +10,8 @@ export interface FigureSection {
   kind: "plot" | "stats";
   label: string;          // "Plot" | "Stats"
   facts: string[];        // geom chips / test chip
-  onView?: () => void;    // left-click → pin this facet's card (wired by the RF node in a later task)
-  slotNum?: number | null;// stash slot badge, when this facet is pinned (later task)
+  onView?: () => void;    // left-click → pin this facet's card
+  slotNum?: number | null;// stash slot badge when this facet is pinned
 }
 
 export interface ArrayShapeNodeProps {
@@ -87,6 +87,7 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
               key={sec.kind}
               type="button"
               className={`txw-figsec k-${sec.kind === "plot" ? "geom" : "test"}${sec.slotNum ? " pinned" : ""}`}
+              aria-label={`${sec.label} summary`}
               onClick={sec.onView ? (e) => { e.stopPropagation(); sec.onView!(); } : undefined}
             >
               {sec.slotNum && <span className="txw-node-badge" aria-hidden>{sec.slotNum}</span>}
@@ -94,7 +95,7 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
                 <span className="txw-nicon" aria-hidden><NodeIcon variant={sec.kind} /></span>
                 <span className="txw-eyebrow-text">{sec.label}</span>
               </span>
-              <span className="txw-facts" role="list" aria-label={`${sec.label} summary`}>
+              <span className="txw-facts" role="list">
                 {sec.facts.map((f) => (
                   <span key={f} className="txw-fact" role="listitem">{f}</span>
                 ))}

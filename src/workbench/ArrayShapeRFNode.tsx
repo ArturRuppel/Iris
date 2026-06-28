@@ -107,7 +107,7 @@ export function ArrayShapeRFNode(
   // top-left corner — the matching numbered disc on the stash card ties the two
   // views together.
   const stash = useAtomValue(stashAtom);
-  const slot = stash.findIndex((e) => e.target.kind === "node" && e.target.id === id);
+  const slot = stash.findIndex((e) => e.target.kind === "node" && e.target.id === id && !e.target.facet);
   const slotNum = slot >= 0 ? slot + 1 : null;
 
   // clicking the detail line opens the editor for the step that produced this
@@ -117,11 +117,11 @@ export function ArrayShapeRFNode(
     : undefined;
 
   const sections = shape.sections?.map((sec) => {
-    const slot = stash.findIndex(
+    const secSlot = stash.findIndex(
       (e) => e.target.kind === "node" && e.target.id === id && e.target.facet === sec.kind);
     return {
       ...sec,
-      slotNum: slot >= 0 ? slot + 1 : null,
+      slotNum: secSlot >= 0 ? secSlot + 1 : null,
       onView: () => pushStash({
         target: { kind: "node", id: id!, facet: sec.kind },
         cardKind: sec.kind,
