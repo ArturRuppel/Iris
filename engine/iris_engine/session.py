@@ -87,6 +87,19 @@ class SessionStore:
         self._maxlen = maxlen
         self._lock = threading.Lock()
 
+    def ensure_capacity(self, n: int) -> None:
+        """Raise the LRU bound so at least `n` freshly-created tables coexist.
+
+        A loaded multi-table document creates one session per table in a burst and
+        needs them ALL resident at once — the load response hands their ids back
+        and the frontend references them on the next analyze/save. Without this the
+        default bound silently evicts the earliest tables of a >maxlen document
+        before the load loop ends, handing back dead ids (data loss). Only grows
+        the bound (to the largest document loaded this process); never shrinks it,
+        so a smaller later load can't drop a still-referenced table."""
+        with self._lock:
+            self._maxlen = max(self._maxlen, n)
+
     def create(self, schema: dict, df: pd.DataFrame) -> str:
         tid = uuid.uuid4().hex
         with self._lock:

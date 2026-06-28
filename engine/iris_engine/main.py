@@ -757,6 +757,10 @@ def doc_load(req: LoadRequest):
         raise HTTPException(422, f"could not read document: {e}") from e
     # One live session per named table; each returns its first window. The
     # analyses/provenance carry their own table refs and ride back untouched.
+    # A document IS its full table set, so the store must hold them all at once —
+    # raise the LRU bound to fit before the create burst, else the earliest tables
+    # of a >maxlen document evict before this loop returns their (now dead) ids.
+    _SESSIONS.ensure_capacity(len(doc["tables"]))
     out = []
     for name, t in doc["tables"].items():
         tid = _SESSIONS.create(t["schema"], frame_from_table(t))

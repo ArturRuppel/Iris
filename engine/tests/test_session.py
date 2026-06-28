@@ -106,3 +106,24 @@ def test_untouched_table_still_evicts_under_pressure():
     b = store.create(SCHEMA, _df())   # pushes `cold` out (never touched)
     assert store.get(cold) is None
     assert store.get(a) is not None and store.get(b) is not None
+
+
+def test_ensure_capacity_keeps_a_loaded_document_cohort_resident():
+    # Regression: loading a >maxlen multi-table document creates one session per
+    # table in a burst; ALL must survive (the load hands their ids back). Without
+    # ensure_capacity the default bound evicts the earliest before the loop ends.
+    store = session.SessionStore()       # default maxlen=8
+    n = 11                               # a document with more tables than the cap
+    store.ensure_capacity(n)
+    ids = [store.create(SCHEMA, _df()) for _ in range(n)]
+    for tid in ids:
+        assert store.get(tid) is not None   # every table of the cohort survived
+
+
+def test_ensure_capacity_only_grows_the_bound():
+    # Never shrink: a smaller later load must not drop a still-referenced table.
+    store = session.SessionStore(maxlen=5)
+    store.ensure_capacity(2)             # below current -> no-op
+    ids = [store.create(SCHEMA, _df()) for _ in range(5)]
+    for tid in ids:
+        assert store.get(tid) is not None

@@ -174,6 +174,39 @@ def test_full_rows_persisted_not_just_the_load_window():
     assert tail["n"] == 250 and len(tail["rows"]) == 50
 
 
+def test_load_keeps_every_session_of_a_large_document_resident():
+    """Regression: a document with more tables than the session-store LRU bound
+    (default 8) must come back with EVERY table live — load raises the bound to
+    fit before creating the sessions. Before the fix the earliest tables evicted
+    before load returned, handing back dead ids (silent data loss on the next
+    analyze/save). Tables are saved inline so the >8 save-side cap (a separate,
+    documented limitation) doesn't gate this load-path assertion."""
+    n = 10  # > the default maxlen of 8
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "k", "type": "categorical", "label": "K"},
+        {"name": "val", "type": "numeric", "label": "Val"}]}
+    tables = [
+        {"name": f"t{i}", "hierarchy": {"spine": [], "fn": {}},
+         "table": {"schema": schema,
+                   "rows": [{"id": f"r{i}_{j}", "k": f"v{j}", "val": float(j)}
+                            for j in range(3)]}}
+        for i in range(n)
+    ]
+    save = client.post("/document/save", json={
+        "tables": tables, "analyses": [], "provenance": {}})
+    assert save.status_code == 200, save.text
+    load = client.post(
+        "/document/load", json={"data_base64": save.json()["data_base64"]})
+    assert load.status_code == 200, load.text
+    loaded = load.json()["tables"]
+    assert len(loaded) == n
+    # every returned id must be a LIVE session — a follow-up rows call proves it.
+    for t in loaded:
+        win = client.post(f"/table/{t['id']}/rows", json={"start": 0, "end": 5})
+        assert win.status_code == 200, f"{t['name']} session is dead: {win.text}"
+        assert win.json()["n"] == t["n"]
+
+
 def test_duplicate_table_name_in_save_is_rejected():
     save = client.post("/document/save", json={
         "tables": [
