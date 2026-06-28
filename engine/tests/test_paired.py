@@ -163,13 +163,21 @@ def test_partial_pairing_drops_incomplete_units():
     assert res["decision"]["structural"]["recommended"] == "paired"
 
 
-# ── guard: paired requested without structure ─────────────────────────────────
+# ── recoverable: paired requested without structure ───────────────────────────
 
-def test_paired_override_without_structure_errors():
+def test_paired_override_without_structure_is_recoverable():
+    """A paired test on unpaired data must not abort the render. The result carries
+    the error but stays `recoverable`, runs no test (result "none" → the figure
+    draws no brackets), and keeps the guided context so the picker can switch."""
     df = _paired_df()
     res = stats.group_comparison(df, "group", "y", ["A", "B"],
                                  pairing=None, override="paired_t")
-    assert "error" in res
+    assert "error" in res and res["recoverable"] is True
+    assert res["result"]["test"] == "none"                 # no test ran
+    # the independent recommendation + decision keep the picker actionable
+    assert res["recommendation"]["test"] in ("welch_t", "mann_whitney")
+    assert res["decision"]["structural"]["options"] == ["independent"]
+    assert res["summaries"]                                # per-group summaries kept
 
 
 # ── end-to-end: /analyze threads the spine-derived pairing into the test ───────
@@ -226,3 +234,17 @@ def test_endpoint_no_spine_is_independent():
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["stats"]["result"]["test"] in ("welch_t", "mann_whitney")
+
+
+def test_endpoint_paired_override_without_spine_renders_with_error():
+    """Fix A: a pinned paired test on unpaired data returns 200 with a figure and a
+    recoverable stats error — not a 422 that would blank the analysis and the
+    picker that is the only way to fix the bad choice."""
+    spec = _spec([])                                       # no spine → unpaired
+    spec["stats"]["override"] = "paired_t"
+    r = client.post("/analyze", json={"table": _table(), "spec": spec})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["figure"]["svg"]                           # the plot still drew
+    assert "no pairing structure" in body["stats"]["error"]
+    assert body["stats"]["result"]["test"] == "none"       # no brackets drawn

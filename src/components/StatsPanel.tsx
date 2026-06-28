@@ -201,6 +201,19 @@ export function StatsResults() {
   if (!analysis) return WAITING;
   const s = analysis.stats;
 
+  // The requested test couldn't run (e.g. paired on unpaired data): the figure
+  // still rendered, but there is no inferential result to read out. Explain it
+  // here; the test picker (right) is where the user switches to a valid test.
+  if (s.error) return (
+    <section className="pane stats-pane">
+      <div className="stats-body">
+        <h3>No test run</h3>
+        <p className="stat-error">{s.error}.</p>
+        <p className="reason">Pick an applicable test to run it.</p>
+      </div>
+    </section>
+  );
+
   return (
     <section className="pane stats-pane">
       <div className="stats-body">
@@ -274,6 +287,7 @@ export function TestPicker() {
         </button>
       </div>
       <div className="stats-body">
+        {s.error && <p className="stat-error">{s.error}. No test ran — choose one below.</p>}
         <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
         <p className="reason">{model.design}.</p>
         {(model.issues as { code?: string; message?: string }[])
@@ -325,7 +339,9 @@ export function TestPicker() {
              structural pairing), so it falls through to the chip row below. */
           <GuidedTestPicker
             decision={s.decision}
-            resolvedTest={s.result.test as TestName}
+            /* no test ran (recoverable error): preview where the recommended
+               answers land rather than the "none" placeholder. */
+            resolvedTest={(s.result.test === "none" ? rec.test : s.result.test) as TestName}
             onChange={(structural, assumption) =>
               setOverride(overrideFor(structural, assumption, rec.test))}
           />

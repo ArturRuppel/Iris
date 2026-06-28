@@ -343,10 +343,16 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
     unit_cols = (pairing or {}).get("unit_cols") or []
     paired_possible = bool(unit_cols) and verdict in ("paired", "partially_paired")
 
-    if override in _PAIRED_TESTS and not paired_possible:
-        return {"error": "a paired test was requested but the data has no pairing "
-                         "structure (no shared unit spans the two groups)",
-                "levels": found}
+    # A paired test was requested but the spine carries no pairing structure.
+    # Don't abort the render over it — that blanks the whole analysis, and with it
+    # the test picker, the one control that can fix the choice. Drop the override
+    # so the recommended INDEPENDENT analysis (its assumption checks, decision, and
+    # recommendation) is still computed to keep the picker live; below, before any
+    # test runs, return early with a recoverable error so the figure draws
+    # un-annotated and the panel explains the mismatch.
+    rejected_paired = override in _PAIRED_TESTS and not paired_possible
+    if rejected_paired:
+        override = None
 
     structural_rec = "paired" if paired_possible else "independent"
     structural_chosen = (("paired" if override in _PAIRED_TESTS else "independent")
@@ -433,6 +439,28 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             "chosen_by": "recommendation_accepted",
             "reason": assume_reason, "options": ["parametric", "robust"]},
     }
+
+    if rejected_paired:
+        # The requested paired test couldn't run, so report no inferential result
+        # (test "none" → the figure draws no brackets), but carry the full guided
+        # context so the picker stays live and one pick switches to a valid test.
+        summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
+                     for lv in found]
+        return {
+            "levels": found, "checks": checks,
+            "recommendation": {"test": recommended,
+                               "reason": f"{struct_reason}; {assume_reason}"},
+            "decision": decision, "chosen_by": "recommendation_accepted",
+            "result": {"test": "none",
+                       "effect": {"name": "none", "value": 0.0, "ci": None}},
+            "summaries": summaries, "alpha": alpha, "recoverable": True,
+            "error": ("a paired test was requested but the data has no pairing "
+                      "structure (no shared unit spans the two groups)"),
+            "methods_text": ("A paired comparison was requested, but the data has "
+                             "no pairing structure (no shared unit spans the two "
+                             "groups), so no test was run — pick an applicable "
+                             "test to run it."),
+        }
 
     nA, nB = len(a), len(b)
     pair_note = ""

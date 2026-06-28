@@ -294,7 +294,14 @@ def render(table: dict, spec: dict, *, memo=None):
                                       alpha=alpha, override=override)))
     else:
         raise RenderError("no statistical model — map X / Y to analyze")
-    if "error" in res:
+    # A *recoverable* stats error (a paired test on unpaired data) is not a render
+    # failure: the comparison figure is independent of the inferential result, so
+    # it draws fine without significance annotations, and the error rides through
+    # on the stats payload — keeping the analysis (and its test picker) live so the
+    # user can switch to a valid test. Every other stats error still aborts, as the
+    # scatter/tile builders index the (absent) result and the error isn't fixable
+    # from the picker anyway.
+    if "error" in res and not res.get("recoverable"):
         raise RenderError(res["error"])
     fig = compiler.build_figure(df, schema, spec, res, level_tables)
     return fig, res, df, schema, model, issues, level_tables

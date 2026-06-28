@@ -487,6 +487,10 @@ export interface StatsResult {
   }[];
   alpha: number;
   methods_text: string;
+  /* set when the requested test couldn't run but the figure still renders (e.g. a
+     paired test on unpaired data). The result carries test "none" (no brackets);
+     the panel surfaces this and keeps the picker live so the user can switch. */
+  error?: string;
 }
 export interface AxisDesc { name: string; n_levels: number; ragged: boolean }
 export interface ValueDesc { name: string; type: string; grain: string | null }

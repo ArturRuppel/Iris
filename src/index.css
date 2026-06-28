@@ -33,6 +33,8 @@ button.link { border: none; background: none; color: var(--dim);
 .error-bar.warn-bar { background: #fffbeb; color: #b45309; border-bottom-color: #fde68a; }
 .stat-notice { background: #fffbeb; color: #b45309; border: 1px solid #fde68a;
   border-radius: 6px; padding: 6px 8px; }
+.stat-error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca;
+  border-radius: 6px; padding: 6px 8px; margin: 0 0 8px; }
 
 main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 14px;
   min-height: 0; overflow: hidden; }
