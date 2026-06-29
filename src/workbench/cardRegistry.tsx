@@ -1,10 +1,11 @@
 import type { ExplorerGraph, EdgeKind } from "../explorer/graph";
-import { FigurePane } from "../components/FigurePane";
-import { StatsResults, TestPicker } from "../components/StatsPanel";
+import { TestPicker } from "../components/StatsPanel";
 import { CollapseRoutingPanel } from "../components/CollapseRoutingPanel";
 import { LayerRail } from "../components/LayerRail";
 import { OpEditorCard } from "./cards/OpEditorCard";
 import { TableCard } from "./cards/TableCard";
+import { PlotCard } from "./cards/PlotCard";
+import { StatsCard } from "./cards/StatsCard";
 
 /* One card kind per clickable thing (design §5). Node kinds map to the three
    display/table cards; edge kinds map to the five editor cards. */
@@ -57,10 +58,8 @@ const staticBody = (className: string, testid: string, render: () => JSX.Element
 export interface CardSpec { title: string; body: (p: CardBodyProps) => JSX.Element; }
 export const CARD: Record<CardKind, CardSpec> = {
   "table": { title: "Table", body: TableCard },
-  "plot": { title: "Plot",
-    body: staticBody("txw-card-plot", "plot-card", () => <FigurePane />) },
-  "stats": { title: "Stats",
-    body: staticBody("txw-card-stats", "stats-card", () => <StatsResults />) },
+  "plot": { title: "Plot", body: PlotCard },
+  "stats": { title: "Stats", body: StatsCard },
   "op-editor": { title: "Edit step", body: OpEditorCard },
   "collapse-editor": { title: "Collapse",
     body: staticBody("txw-card-collapse", "collapse-card", () => <CollapseRoutingPanel />) },
