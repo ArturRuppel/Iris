@@ -866,6 +866,7 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-rfcanvas { position: absolute; inset: 44px 0 0 0; }
 
 /* ---- landing layout: compact DAG band on top, hero cards below ---- */
+/* a no-op-but-explicit base: children are absolutely positioned, so block is fine. */
 .txw-overlay.txw-landing { display: block; }
 .txw-landing .txw-rfcanvas {
   inset: 44px 0 auto 0;
@@ -900,8 +901,16 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background-image: repeating-linear-gradient(
     45deg, #f1f5f9 0, #f1f5f9 8px, #f8fafc 8px, #f8fafc 16px);
 }
+/* center the empty/disabled states (CTA + stub) on BOTH axes without touching the
+   Table / populated-Plot / Stats-enabled bodies, which need top-aligned scroll. */
+.txw-hero-body:has(> .txw-add-plot),
+.txw-hero-body:has(> .txw-card-stub) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 .txw-add-plot {
-  margin: auto; display: block;
+  display: block;
   padding: 10px 18px; font-size: 14px; font-weight: 600;
   color: #fff; background: #3b6ef0; border: none; border-radius: 8px; cursor: pointer;
 }
