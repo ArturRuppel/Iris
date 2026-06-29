@@ -2,10 +2,12 @@ import { chromium } from "playwright";
 
 /* E2E: workbench landing → add first plot → add second layer.
    Imports a 2-group numeric CSV (group = categorical, value = numeric),
-   opens the Workbench, confirms the two hero cards start disabled, drives
-   the PlotWizard through "first" mode (type → map X/Y → Done), verifies
-   both hero cards unlock, then runs "addLayer" mode (type → grain → Done)
-   and confirms two layer-geom selects exist in the layer strip.
+   opens the Workbench, confirms the seeded default trio docks in the stash with
+   the plot slot showing the add-plot CTA and the stats slot its "add a plot
+   first" stub, drives the PlotWizard through "first" mode (type → map X/Y →
+   Done), verifies the plot slot populates (CTA gone, figure + layer strip) and
+   the stats stub clears, then runs "addLayer" mode (type → grain → Done) and
+   confirms two layer-geom selects exist in the layer strip.
    Needs the engine (8765) and the vite dev server (5173). */
 
 const csv = [
@@ -39,25 +41,20 @@ console.log("dataset imported");
 
 // ── navigate to Workbench ─────────────────────────────────────────────────────
 await page.click(".mode-toggle button:has-text('Workbench')");
-// The landing row appears once HeroCards mounts.
-await page.waitForSelector("[data-testid='hero-row']", { timeout: 15000 });
+// The structured trio now seeds the stash; the plot slot is the add-plot entry.
+await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
 console.log("workbench landed");
 
-// ── 1. assert landing state: Plot + Stats disabled, Table visible ──────────────
-const heroPlot = page.locator("[data-testid='hero-plot']");
-const heroStats = page.locator("[data-testid='hero-stats']");
+// ── 1. assert landing state: Plot slot shows the add-plot CTA, Stats slot its
+//       "add a plot first" stub, Table is populated ─────────────────────────────
+const addPlotCta = page.locator(".txw-add-plot");
+const statsStub = page.locator("[data-testid='stats-card'] .txw-card-stub");
 const tableCard = page.locator("[data-testid='table-card']");
 
-const plotClass = await heroPlot.getAttribute("class");
-if (!plotClass?.includes("txw-card-disabled"))
-  fail(`hero-plot should be disabled on landing, class was: ${plotClass}`);
-
-const statsClass = await heroStats.getAttribute("class");
-if (!statsClass?.includes("txw-card-disabled"))
-  fail(`hero-stats should be disabled on landing, class was: ${statsClass}`);
-
+await addPlotCta.waitFor({ state: "visible", timeout: 5000 });
+await statsStub.waitFor({ state: "visible", timeout: 5000 });
 await tableCard.waitFor({ state: "visible", timeout: 5000 });
-console.log("landing assertions ok: hero-plot and hero-stats disabled, table-card visible");
+console.log("landing assertions ok: plot CTA + stats stub shown, table-card visible");
 
 // ── 2. click "+ add plot" ─────────────────────────────────────────────────────
 await page.click(".txw-add-plot");
@@ -84,23 +81,15 @@ await page.click(".wiz-done");
 await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
 console.log("Done clicked — wizard closed");
 
-// ── 6. assert hero cards are now enabled ──────────────────────────────────────
-// Give the spec a moment to propagate.
-await page.waitForFunction(() => {
-  const el = document.querySelector("[data-testid='hero-plot']");
-  return el && !el.classList.contains("txw-card-disabled");
-}, { timeout: 10000 });
-
-const plotClassAfter = await heroPlot.getAttribute("class");
-if (plotClassAfter?.includes("txw-card-disabled"))
-  fail(`hero-plot should be enabled after add-plot, class: ${plotClassAfter}`);
-
-const statsClassAfter = await heroStats.getAttribute("class");
-if (statsClassAfter?.includes("txw-card-disabled"))
-  fail(`hero-stats should be enabled after add-plot, class: ${statsClassAfter}`);
-
+// ── 6. assert the plot slot populated and the stats stub cleared ──────────────
+// Give the spec a moment to propagate: the add-plot CTA detaches and the layer
+// strip mounts; the stats slot drops its stub once a plot is renderable.
+await page.waitForSelector(".txw-add-plot", { state: "detached", timeout: 10000 });
 await page.waitForSelector("[data-testid='layer-strip']", { timeout: 10000 });
-console.log("hero-plot and hero-stats enabled; layer-strip visible");
+await page.waitForFunction(() => {
+  return !document.querySelector("[data-testid='stats-card'] .txw-card-stub");
+}, { timeout: 10000 });
+console.log("plot slot populated; stats stub cleared; layer-strip visible");
 
 // ── 7. click "+ add layer" ───────────────────────────────────────────────────
 await page.click(".add-layer-btn");

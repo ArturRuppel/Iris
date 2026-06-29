@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { WorkbenchCanvas, applyNudge, toRF } from "./WorkbenchCanvas";
-import { cardsAtom, nodePositionsAtom, stashAtom } from "./state";
+import { cardsAtom, nodePositionsAtom, stashAtom, seedDefaultStashAtom } from "./state";
 import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
 
@@ -151,9 +151,16 @@ describe("WorkbenchCanvas", () => {
       expect.objectContaining({ cardKind: "geom-editor" }));
   });
 
-  it("renders the hero-card row alongside the DAG band", () => {
-    const { container } = mount();
-    expect(screen.getByTestId("hero-row")).toBeInTheDocument();
+  it("renders the seeded default trio as stash slots alongside the DAG", () => {
+    const store = createStore();
+    store.set(seedDefaultStashAtom);
+    const { container } = render(
+      <Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
+    // the structured landing view is now the stash's default fill: the source
+    // table plus the figure's plot and stats, each docked as a slot.
+    expect(screen.getByTestId("table-card")).toBeInTheDocument();
+    expect(screen.getByTestId("plot-card")).toBeInTheDocument();
+    expect(screen.getByTestId("stats-card")).toBeInTheDocument();
     expect(container.querySelectorAll(".react-flow__node").length).toBeGreaterThan(0);
   });
 });

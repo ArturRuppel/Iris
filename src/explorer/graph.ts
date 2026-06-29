@@ -81,8 +81,8 @@ export interface ExplorerGraph {
 
 export interface StatsInput { test: string | null; describeOnly: boolean; annotate?: boolean }
 
-const SOURCE_ID = "source";
-const FIGURE_ID = "figure";
+export const SOURCE_ID = "source";
+export const FIGURE_ID = "figure";
 const stepId = (i: number) => `step:${i}`;
 
 export function nodeIdForGrain(key: string, rawNodeId: string): string {

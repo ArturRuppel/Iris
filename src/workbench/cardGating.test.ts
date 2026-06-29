@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { heroCardStates } from "./cardGating";
+import { dataCardStates } from "./cardGating";
 import type { AnalysisSpec, Schema } from "../types";
 
 const schema: Schema = { schema_version: "1.0", columns: [
@@ -15,23 +15,23 @@ const renderable: AnalysisSpec = {
   layers: [{ geom: "box", level: "" }],
 } as unknown as AnalysisSpec;
 
-describe("heroCardStates", () => {
+describe("dataCardStates", () => {
   it("Table is always enabled", () => {
-    expect(heroCardStates(null, schema).tableEnabled).toBe(true);
-    expect(heroCardStates(renderable, schema).tableEnabled).toBe(true);
+    expect(dataCardStates(null, schema).tableEnabled).toBe(true);
+    expect(dataCardStates(renderable, schema).tableEnabled).toBe(true);
   });
   it("Plot and Stats are disabled with no spec", () => {
-    const s = heroCardStates(null, schema);
+    const s = dataCardStates(null, schema);
     expect(s.plotEnabled).toBe(false);
     expect(s.statsEnabled).toBe(false);
   });
   it("Plot and Stats enable for a renderable spec", () => {
-    const s = heroCardStates(renderable, schema);
+    const s = dataCardStates(renderable, schema);
     expect(s.plotEnabled).toBe(true);
     expect(s.statsEnabled).toBe(true);
   });
   it("Plot disabled when the spec has no layers", () => {
     const noLayers = { ...renderable, layers: [] } as unknown as AnalysisSpec;
-    expect(heroCardStates(noLayers, schema).plotEnabled).toBe(false);
+    expect(dataCardStates(noLayers, schema).plotEnabled).toBe(false);
   });
 });

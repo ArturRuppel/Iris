@@ -3,7 +3,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { Provider } from "jotai";
 import { targetToCardKind, CARD, type CardKind } from "./cardRegistry";
 import { seedStore } from "./cards/cardTestStore";
-import { setAnalysisByIdAtom, activePlottableAtom } from "../state";
+import { setAnalysisByIdAtom, activePlottableAtom, registryAtom } from "../state";
+import type { Registry } from "../types";
 import type { ExplorerGraph } from "../explorer/graph";
 import type { AnalyzeResponse } from "../types";
 
@@ -74,18 +75,26 @@ const fixture = {
   },
 } as unknown as AnalyzeResponse;
 
-/* render a card body straight from the registry; the static bodies ignore the
-   target, so any target works. withResult seeds an analysis for the terminals. */
-function renderBody(kind: CardKind, withResult = false) {
+/* render a card body straight from the registry; the bodies ignore the target,
+   so any target works. withResult seeds an analysis for the terminals; renderable
+   maps X/Y + a layer so the gated plot/stats bodies show their panels rather than
+   the add-plot CTA / "add a plot first" stub. */
+function renderBody(kind: CardKind, withResult = false, renderable = false) {
   const { store, plottable } = seedStore();
+  const registry: Registry = { point_cap: 5000, facet_cell_cap: 200, geoms: {
+    box: { label: "Box", aggregates: true, x_type: "categorical", y_type: "numeric", aes: ["color"] } as never,
+  } };
+  store.set(registryAtom, registry);
+  if (renderable) store.set(activePlottableAtom,
+    { ...plottable, mappings: { x: "experiment", y: "val" }, layers: [{ id: "ly1", geom: "box", level: "" }] });
   if (withResult) store.set(setAnalysisByIdAtom, { id: plottable.id, res: fixture });
   const Body = CARD[kind].body;
   return render(<Provider store={store}><Body target={{ kind: "edge", id: "x" }} /></Provider>);
 }
 
-describe("static card bodies — each renders its panel inside the classed wrapper", () => {
-  it("plot mounts the FigurePane", () => {
-    const { container } = renderBody("plot");
+describe("card bodies — each renders its panel inside the classed wrapper", () => {
+  it("plot mounts the FigurePane when the spec is renderable", () => {
+    const { container } = renderBody("plot", false, true);
     expect(container.querySelector('[data-testid="plot-card"]')).toBeInTheDocument();
     expect(container.querySelector(".figure-pane")).toBeInTheDocument();
   });
@@ -103,14 +112,14 @@ describe("static card bodies — each renders its panel inside the classed wrapp
     expect(wrap!.children.length).toBeGreaterThan(0);
   });
 
-  // the bug-prone wiring: stats and test share the StatsPanel module but must
-  // mount opposite halves — results readout vs. test picker.
-  it("stats shows the results readout, not the picker", () => {
-    const { container } = renderBody("stats", true);
+  // the stats landing card shows BOTH halves of the StatsPanel module — the
+  // results readout plus the test picker (the test-editor card, by contrast,
+  // mounts only the picker; asserted below by the absence of the readout).
+  it("stats shows the results readout and the test picker", () => {
+    const { container } = renderBody("stats", true, true);
     expect(container.querySelector('[data-testid="stats-card"]')).toBeInTheDocument();
-    expect(screen.getByText(/Methods text/i)).toBeInTheDocument();
-    expect(screen.queryByText(/Describe only/i)).toBeNull();
-    expect(screen.queryByText(/significance brackets/i)).toBeNull();
+    expect(screen.getByText(/Methods text/i)).toBeInTheDocument();          // results readout
+    expect(screen.getByText(/significance brackets/i)).toBeInTheDocument(); // test picker
   });
 
   it("test shows the picker, not the results readout", () => {

@@ -4,7 +4,7 @@ import {
   selectedTargetAtom, cardsAtom, nodePositionsAtom,
   openCardAtom, closeCardAtom, moveCardAtom, resizeCardAtom,
   toggleCardCollapsedAtom, collapseAllCardsAtom, clearWorkbenchAtom,
-  stashAtom, pushStashAtom, popStashAtom, STASH_SLOTS,
+  stashAtom, pushStashAtom, popStashAtom, seedDefaultStashAtom, STASH_SLOTS,
   workbenchLayoutAtom, DEFAULT_STASH_H,
 } from "./state";
 import type { Target } from "./cardRegistry";
@@ -109,5 +109,25 @@ describe("pop stash", () => {
     s.set(pushStashAtom, { target: tNode("b"), cardKind: "table" as const });
     s.set(popStashAtom, s.get(stashAtom)[0].id);
     expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b"]);
+  });
+
+  it("seedDefaultStash fills the trio: source table, figure plot, figure stats", () => {
+    const s = createStore();
+    s.set(seedDefaultStashAtom);
+    expect(s.get(stashAtom)).toEqual([
+      { id: "node:source", target: { kind: "node", id: "source" }, cardKind: "table" },
+      { id: "node:figure:plot", target: { kind: "node", id: "figure", facet: "plot" }, cardKind: "plot" },
+      { id: "node:figure:stats", target: { kind: "node", id: "figure", facet: "stats" }, cardKind: "stats" },
+    ]);
+  });
+
+  it("the seeded trio is FIFO-overridable: a new pin evicts the oldest default", () => {
+    const s = createStore();
+    s.set(seedDefaultStashAtom);
+    s.set(pushStashAtom, { target: tNode("step:0"), cardKind: "table" as const });
+    // the source table (oldest) drops; plot, stats, and the new pin remain.
+    expect(s.get(stashAtom).map((e) => e.id)).toEqual([
+      "node:figure:plot", "node:figure:stats", "node:step:0",
+    ]);
   });
 });

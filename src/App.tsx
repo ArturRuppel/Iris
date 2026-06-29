@@ -9,7 +9,7 @@ import { PlottableSidebar } from "./components/PlottableSidebar";
 import { TableList } from "./components/TableList";
 import { Guide } from "./examples/Guide";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
-import { clearWorkbenchAtom } from "./workbench/state";
+import { clearWorkbenchAtom, seedDefaultStashAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
@@ -296,10 +296,14 @@ export default function App() {
      node id from a different analysis never drives the wrong data tab. */
   const setSelectedNode = useSetAtom(selectedNodeIdAtom);
   const clearWorkbench = useSetAtom(clearWorkbenchAtom);
+  const seedDefaultStash = useSetAtom(seedDefaultStashAtom);
   const clearSpecHistory = useSetAtom(clearSpecHistoryAtom);
   useEffect(() => {
-    setSelectedNode(null); clearWorkbench(); clearSpecHistory();
-  }, [activeId, setSelectedNode, clearWorkbench, clearSpecHistory]);
+    // clear, then re-seed the stash with the analysis's default table/plot/stats
+    // trio (the structured landing view, now expressed as the stash's default
+    // fill). Order matters: clearWorkbench empties the stash, seed refills it.
+    setSelectedNode(null); clearWorkbench(); seedDefaultStash(); clearSpecHistory();
+  }, [activeId, setSelectedNode, clearWorkbench, seedDefaultStash, clearSpecHistory]);
 
   /* background loop: a self-draining sequential queue that warms every OTHER
      plottable's cache so even a never-opened analysis is instant on first visit.

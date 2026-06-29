@@ -1,5 +1,6 @@
 import { atom } from "jotai";
 import type { CardKind, Target } from "./cardRegistry";
+import { SOURCE_ID, FIGURE_ID } from "../explorer/graph";
 
 export type { CardKind, Target } from "./cardRegistry";
 
@@ -106,6 +107,24 @@ export const pushStashAtom = atom(
     set(stashAtom, next.slice(-STASH_SLOTS));
   },
 );
+
+/* Seed the stash with the analysis's three canonical data cards — the source
+   table, the figure's plot, and the figure's stats — as ordinary stash entries
+   (numbered, graph-linked, FIFO-overridable). This is the structured landing
+   view, expressed as the stash's default fill rather than a separate fixed row:
+   selecting another node overrides a slot like any other pin. Called after
+   clearWorkbench on every analysis switch. The source/figure ids are stable
+   graph constants, so no graph lookup is needed. */
+export const seedDefaultStashAtom = atom(null, (_get, set) => {
+  const table: Target = { kind: "node", id: SOURCE_ID };
+  const plot: Target = { kind: "node", id: FIGURE_ID, facet: "plot" };
+  const stats: Target = { kind: "node", id: FIGURE_ID, facet: "stats" };
+  set(stashAtom, [
+    { id: cardId(table), target: table, cardKind: "table" },
+    { id: cardId(plot), target: plot, cardKind: "plot" },
+    { id: cardId(stats), target: stats, cardKind: "stats" },
+  ]);
+});
 
 /* Focus mode: a pinned tile maximized to fill the whole workbench, hiding the
    DAG — for styling a plot, where you want the entire workspace (the docked stash
