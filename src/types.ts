@@ -261,7 +261,7 @@ export interface PivotStep {
    adds `column` (categorical, `levels`) + `count_name` (numeric). */
 export interface GridCompleteStep {
   kind: "grid_complete"; by: string[]; column: string; levels: string[];
-  count: boolean; count_unique?: string | null; fill: number;
+  count_unique?: string | null; fill: number;
   count_name: string; _key?: string;
 }
 /* Reduction only filters/projects rows — it never aggregates. Coarsening to a
@@ -277,7 +277,7 @@ export type ReduceStepKind = ReduceStep["kind"];
 export const REDUCE_KIND_LABEL: Record<ReduceStepKind, string> = {
   filter: "Filter rows", drop: "Drop columns", derive: "Derive column",
   recode: "Recode column", join: "Join table", pivot: "Pivot column",
-  grid_complete: "Complete grid",
+  grid_complete: "Count grid",
 };
 export const REDUCE_KIND_ORDER = Object.keys(REDUCE_KIND_LABEL) as ReduceStepKind[];
 

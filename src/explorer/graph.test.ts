@@ -161,7 +161,7 @@ describe("buildGraph", () => {
       { kind: "pivot", index: ["cell"], column: "opp", values: "n",
         agg: "sum", fill: 0, names: { s: "same", o: "opp" } },
       { kind: "grid_complete", by: ["experiment"], column: "tt",
-        levels: ["a", "b"], count: true, fill: 0, count_name: "count" },
+        levels: ["a", "b"], fill: 0, count_name: "count" },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "opp → {same, opp}" });

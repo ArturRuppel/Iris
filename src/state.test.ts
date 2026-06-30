@@ -562,7 +562,7 @@ describe("makeStep — valid blanks for every reduce kind", () => {
       kind: "pivot", index: [], column: "", values: "", agg: "sum", fill: 0, names: {},
     });
     expect(makeStep("grid_complete")).toMatchObject({
-      kind: "grid_complete", by: [], column: "", levels: [], count: true,
+      kind: "grid_complete", by: [], column: "", levels: [],
       count_unique: null, fill: 0, count_name: "n",
     });
     // join starts with an empty rightTableId (the unfilled "missing input" reference)

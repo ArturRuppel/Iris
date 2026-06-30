@@ -934,7 +934,7 @@ export function makeStep(kind: ReduceStepKind): ReduceStep {
     case "pivot":
       return { _key, kind, index: [], column: "", values: "", agg: "sum", fill: 0, names: {} };
     case "grid_complete":
-      return { _key, kind, by: [], column: "", levels: [], count: true,
+      return { _key, kind, by: [], column: "", levels: [],
         count_unique: null, fill: 0, count_name: "n" };
     case "join":
       // starts with an empty rightTableId — the unfilled "missing input" state,

@@ -42,7 +42,7 @@ def frame():
 
 def grid(by, column, levels, count_unique=None):
     return {"kind": "grid_complete", "by": by, "column": column,
-            "levels": levels, "count": True, "count_unique": count_unique,
+            "levels": levels, "count_unique": count_unique,
             "fill": 0, "count_name": "count"}
 
 

@@ -4,6 +4,6 @@ import type { EdgeKind } from "../explorer/graph";
    Shared by the node (eyebrow) and anywhere else that names an edge kind. */
 export const EDGE_TYPE: Record<EdgeKind, string> = {
   filter: "Filter", drop: "Drop", derive: "Derive", recode: "Recode",
-  join: "Join", pivot: "Pivot", grid_complete: "Complete",
+  join: "Join", pivot: "Pivot", grid_complete: "Count",
   collapse: "Collapse", geom: "Plot", test: "Test",
 };

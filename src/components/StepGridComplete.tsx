@@ -1,6 +1,6 @@
 import type { ColumnDef, GridCompleteStep } from "../types";
 
-/* ---- Grid complete: fill in missing category combinations, optionally counting ---- */
+/* ---- Grid complete: fill in missing category combinations and count rows per combination ---- */
 export function StepGridComplete(
   { step, columns, onChange }:
   { step: GridCompleteStep; columns: ColumnDef[]; onChange: (s: GridCompleteStep) => void },
@@ -37,14 +37,6 @@ export function StepGridComplete(
           placeholder="a, b, c"
           onChange={(e) => onChange({ ...step,
             levels: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
-      </div>
-      <div className="filter-row">
-        <label>
-          <input type="checkbox" aria-label="count rows"
-            checked={step.count}
-            onChange={(e) => onChange({ ...step, count: e.target.checked })} />
-          count rows
-        </label>
       </div>
       <div className="filter-row">
         <span>count unique</span>

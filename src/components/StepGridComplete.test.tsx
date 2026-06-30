@@ -11,15 +11,8 @@ const cols: ColumnDef[] = [
 
 const step: GridCompleteStep = {
   kind: "grid_complete", by: ["cell"], column: "cond", levels: ["a", "b"],
-  count: true, count_unique: null, fill: 0, count_name: "n",
+  count_unique: null, fill: 0, count_name: "n",
 };
-
-it("(a) toggles the count checkbox", () => {
-  const spy = vi.fn();
-  render(<StepGridComplete step={step} columns={cols} onChange={spy} />);
-  fireEvent.click(screen.getByLabelText(/count rows/i));
-  expect(spy).toHaveBeenCalledWith({ ...step, count: false });
-});
 
 it("(b) edits the count_name input", () => {
   const spy = vi.fn();

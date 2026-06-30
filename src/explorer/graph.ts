@@ -122,7 +122,7 @@ function levelGrainNode(level: string, plan: CollapsePlan, rawNodeId: string): s
 const STEP_NODE_LABEL: Record<string, string> = {
   filter: "filtered", drop: "dropped", derive: "derived",
   recode: "recoded", join: "joined",
-  pivot: "pivoted", grid_complete: "gridded",
+  pivot: "pivoted", grid_complete: "counted",
 };
 
 const condText = (c: { column: string; op: string; value?: unknown; bound?: string },
