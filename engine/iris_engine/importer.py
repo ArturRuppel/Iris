@@ -43,17 +43,52 @@ def _decode(data: bytes) -> tuple[str, str]:
     return data.decode("latin-1", errors="replace"), "latin-1"
 
 
+def _classify_decimal(tok: str) -> str | None:
+    """Which separator is the decimal point in one numeric-looking token, or
+    None when the token gives no evidence. When both separators appear the last
+    one is the decimal (`1,234.56` → `.`; `1.234,56` → `,`). A lone separator is
+    the decimal *unless* it groups exactly three trailing digits (`1,234`), which
+    could be a thousands separator and so casts no vote. A separator repeated in
+    one token is a thousands grouping, not a decimal."""
+    has_dot, has_comma = "." in tok, "," in tok
+    if has_dot and has_comma:
+        return "." if tok.rfind(".") > tok.rfind(",") else ","
+    sep = "." if has_dot else "," if has_comma else None
+    if sep is None or tok.count(sep) > 1:
+        return None
+    frac = tok.rsplit(sep, 1)[1]
+    return None if len(frac) == 3 and frac.isdigit() else sep
+
+
+def _infer_decimal(sample: str, delimiter: str) -> str:
+    """Decide the decimal separator from the numeric cells themselves, not from
+    a substring match anywhere in the file. A comma is the decimal only when it
+    isn't the field separator *and* whole numeric cells vote for it — so a stray
+    `3,4` in a free-text column (or a `1,234` thousands separator) no longer
+    flips every US-formatted number to European. Ambiguous or empty → point."""
+    if delimiter == ",":  # comma is the field separator; it can't be the decimal
+        return "."
+    votes = {".": 0, ",": 0}
+    for line in sample.splitlines():
+        for cell in line.split(delimiter):
+            tok = cell.strip()
+            # only wholly numeric cells vote — free text with an incidental comma
+            # (and internal-dash dates, sci-notation) are ignored, not sniffed.
+            if not re.fullmatch(r"[+-]?[\d.,]+", tok) or not any(c.isdigit() for c in tok):
+                continue
+            d = _classify_decimal(tok)
+            if d:
+                votes[d] += 1
+    return "," if votes[","] > votes["."] else "."
+
+
 def _sniff(text: str) -> dict:
     sample = text[:64_000]
     try:
         delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t|").delimiter
     except csv.Error:
         delimiter = ","
-    # decimal commas only make sense when the comma isn't the field separator
-    decimal = ","
-    if delimiter == "," or not re.search(r"\d,\d", sample):
-        decimal = "."
-    return {"delimiter": delimiter, "decimal": decimal}
+    return {"delimiter": delimiter, "decimal": _infer_decimal(sample, delimiter)}
 
 
 def _sanitize_names(labels: list[str]) -> list[str]:

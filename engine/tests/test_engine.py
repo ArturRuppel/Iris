@@ -575,6 +575,31 @@ def test_import_preview_sniffs_european_csv():
     assert body["rows"][0]["response"] == pytest.approx(82.3)
 
 
+def test_decimal_sniff_is_content_aware():
+    from iris_engine import importer
+
+    # a comma is never the decimal when it's the field separator
+    assert importer._sniff("a,b\n1.5,2.5\n")["decimal"] == "."
+    # US thousands + decimals in a tab file: '.' wins, comma is NOT the decimal
+    assert importer._sniff("x\ty\n1,234.56\t10\n999.5\t20\n")["decimal"] == "."
+    # a stray comma in a free-text cell must not flip clean US numbers
+    assert importer._sniff("note\tvalue\nok\t0.5\ncells 3,4 apart\t1.5\n")["decimal"] == "."
+    # genuine European (comma decimals, one trailing digit) is still detected
+    assert importer._sniff("Subject;Dose\nS01;1,5\nS02;2,0\n")["decimal"] == ","
+
+
+def test_decimal_sniff_free_text_comma_does_not_corrupt_numbers():
+    # regression: one incidental '3,4' in a text column used to sniff decimal=','
+    # and silently multiply every numeric value by 10 (0.5 -> 5.0).
+    csv = b"note\tvalue\nok\t0.5\ncells 3,4 um apart\t1.5\nok\t2.5\n"
+    body = client.post("/import/preview", json={
+        "filename": "data.tsv", "data_base64": _b64(csv)}).json()
+    assert body["options"]["decimal"] == "."
+    value = {c["name"]: c for c in body["columns"]}["value"]
+    assert value["type"] == "numeric" and value["n_unparsed"] == 0
+    assert [r["value"] for r in body["rows"]] == pytest.approx([0.5, 1.5, 2.5])
+
+
 def test_import_headers_first_then_full(monkeypatch):
     # headers pass: columns + a provisional type guess, no full-data stats/rows
     from iris_engine import importer
