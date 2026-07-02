@@ -51,8 +51,10 @@ The comment claims "a schema change re-uploads the table, so the engine sees the
 
 **Fix:** re-create the session (or add a schema-patch endpoint) on role change.
 
-### 1.4 Pipeline-cache hits skip `guards.evaluate` — same spec renders differently (or 500s) depending on cache state
-`engine/iris_engine/main.py:440-445` — verified in code; reproduced by review agent against a live engine.
+### 1.4 Pipeline-cache hits skip `guards.evaluate` — same spec renders differently (or 500s) depending on cache state — ✅ FIXED (2026-07-02)
+`engine/iris_engine/main.py:440-445` — verified in code; **reproduced by execution.**
+
+> **Resolved:** the pipeline-cache hit path in `_run` now calls `guards.drop_unrenderable_channels(schema, spec)` (using the cached reduced schema) before `build_figure`, re-applying the exact spec mutation the miss path performs inside `render()`. The drop is deterministic in `(schema, encodings)`, both of which are part of the cache key (only `style`/`stat_model`/`engine_snapshot` are stripped), so the hit path now produces byte-identical channel handling to the miss path. Reproduction (`size` mapped to a categorical column, then a font-only re-render) went from miss=200+warning / hit=**500** to both 200 + `channel_unrenderable`. Regression test added (`test_pipeline_cache_hit_still_drops_unrenderable_channels`); full engine suite green (501 passed).
 
 The cache key strips only `style`, but guards mutate the spec in place (`drop_unrenderable_channels`, `guards.py:49-67`). Miss path: `size` mapped to a categorical column → 200 + `channel_unrenderable` warning. Hit path (identical spec, only `font_pt` changed): the un-dropped channel reaches the compiler → **500** (`to_numpy(dtype=float)` on strings, `scales.py:179`). For `shape`=numeric the failure is silent instead: the hit path draws per-value markers the miss path suppressed — two different figures from one spec. Reachable via a saved spec or a column retyped after mapping — the exact scenarios the guard denylist exists for (`guards.py:26-28`).
 
@@ -200,5 +202,5 @@ Findings:
 
 1. ~~**§1.1 importer decimal sniffing**~~ (✅ fixed) and ~~**§1.2 quantile-NaN filter**~~ (✅ fixed) — the two bugs that can silently change published numbers.
 2. ~~**§1.3 role-change schema drift**~~ (✅ fixed) — frontend and engine can disagree about which test ran.
-3. **§1.4 cache-hit guard skip** and **§1.5 ungrouped location** — user-visible breakage on supported paths.
+3. ~~**§1.4 cache-hit guard skip**~~ (✅ fixed) and **§1.5 ungrouped location** — user-visible breakage on supported paths.
 4. §2 items, then the dead-code sweep (§5) — most of it is mechanical deletion with test cover already green.

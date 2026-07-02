@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import (compiler, document, geoms, hierarchy, importer,
+from . import (compiler, document, geoms, guards, hierarchy, importer,
                reduce as reduce_mod, render as render_mod, session as session_mod,
                shape as shape_mod, specnorm, style as style_mod)
 from .render import _load_frame, frame_from_table
@@ -448,6 +448,17 @@ def _run(table, spec: dict, data_id: str | None = None):
     if cached is not None:
         df, schema, model, res, issues, level_tables = cached
         spec["stat_model"] = model
+        # guards.evaluate mutates the spec in place — drop_unrenderable_channels
+        # nulls out any aesthetic channel the compiler can't draw (e.g. size on a
+        # categorical column) — and on a cache MISS that happens inside render()
+        # before build_figure. The pipeline cache stores the pipeline OUTPUT, not
+        # the mutated spec, and its key is style-independent, so a style-only
+        # re-render arrives here with the channel still mapped. Re-apply the same
+        # deterministic drop (schema + encodings are both in the cache key, so it
+        # yields exactly what the miss path produced) — otherwise the un-dropped
+        # channel reaches the compiler and 500s, or silently draws a different
+        # figure than the miss path did (§1.4).
+        guards.drop_unrenderable_channels(schema, spec)
         fig = compiler.build_figure(df, schema, spec, res, level_tables)
         return fig, res, df, schema, model, issues
     table = table() if callable(table) else table

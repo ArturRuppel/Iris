@@ -169,6 +169,46 @@ def test_schema_patch_endpoint_rejects_unknown_column():
     assert r.status_code == 422
 
 
+def _modern_spec_size_on_categorical(font_pt):
+    # A modern-shape spec that maps `size` to a categorical column — an
+    # UNRENDERABLE pairing the guards drop before render. Only `style.font_pt`
+    # varies, so two of these share a (style-independent) pipeline-cache key.
+    return {
+        "spec_version": "2.0", "id": "an_test", "title": "t",
+        "encodings": {
+            "x": {"column": "treatment"}, "y": {"column": "response"},
+            "color": None, "size": {"column": "treatment"}, "shape": None},
+        "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
+        "hierarchy": {"spine": [], "fn": {}},
+        "layers": [{"geom": "dot", "level": ""}],
+        "stats": {"family": "group_comparison", "test": "welch_t", "alpha": 0.05},
+        "style": {"preset": "demo_default", "overrides": {"font_pt": font_pt}},
+        "engine_snapshot": {},
+    }
+
+
+def test_pipeline_cache_hit_still_drops_unrenderable_channels():
+    # §1.4: guards.evaluate mutates the spec (drops an unrenderable channel) before
+    # the compiler runs. On a cache MISS that happens inside render(); the pipeline
+    # cache stores the OUTPUT, not the mutated spec, and its key ignores style. So a
+    # style-only re-render (same key, hit path) used to reach the compiler with the
+    # channel still mapped -> 500 (to_numpy(float) on categorical strings). Both the
+    # miss and the hit must return the same 200 + channel_unrenderable warning.
+    created = client.post("/table/create", json={"table": make_table()})
+    tid = created.json()["id"]
+
+    miss = client.post("/analyze", json={
+        "table_token": tid, "spec": _modern_spec_size_on_categorical(10)})
+    assert miss.status_code == 200
+    miss_codes = [i["code"] for i in miss.json()["issues"]]
+    assert "channel_unrenderable" in miss_codes
+
+    hit = client.post("/analyze", json={          # identical but for font size
+        "table_token": tid, "spec": _modern_spec_size_on_categorical(14)})
+    assert hit.status_code == 200                  # was 500 before the fix
+    assert [i["code"] for i in hit.json()["issues"]] == miss_codes
+
+
 def test_filter_on_flag_drops_rows():
     # The replacement for the removed exclusion mechanism: flag rows in a bool
     # column and drop them with a normal filter reduce step.
