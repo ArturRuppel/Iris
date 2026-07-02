@@ -150,3 +150,36 @@ def test_cache_disabled_without_data_identity(monkeypatch):
         assert r.status_code == 200, r.text
 
     assert calls["n"] == 2
+
+
+def test_caches_survive_concurrent_hammering():
+    """uvicorn serves sync endpoints from a threadpool: concurrent eviction +
+    move_to_end on the unlocked OrderedDicts used to interleave into KeyError
+    (and drift the pipeline byte accounting). Hammer every cache family from
+    many threads and assert nothing raises and the bounds hold."""
+    import threading
+
+    errors = []
+
+    def hammer(i):
+        try:
+            for j in range(200):
+                k = f"key-{(i * 7 + j) % (main._STATS_CACHE_MAX + 8)}"
+                main._memo_stats(k, lambda: {"result": {"n": j}})
+                main._pipeline_put(k, ({"frame": None},), {})
+                main._pipeline_get(k)
+                main._lru_put(main._IMPORT_BYTES, main._IMPORT_BYTES_ORDER,
+                              k, b"x", main._IMPORT_CACHE_MAX)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=hammer, args=(i,)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors
+    assert len(main._STATS_CACHE) <= main._STATS_CACHE_MAX
+    assert len(main._IMPORT_BYTES) <= main._IMPORT_CACHE_MAX
+    # accounting must match the surviving entries exactly (no drift)
+    assert main._PIPELINE_CACHE_BYTES == sum(b for _, b in main._PIPELINE_CACHE.values())
