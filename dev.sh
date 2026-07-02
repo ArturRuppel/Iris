@@ -12,6 +12,9 @@ cd "$(dirname "$0")"
 
 ENGINE_PORT="${ENGINE_PORT:-8765}"
 export ENGINE_PORT
+# The browser client only reads VITE_-prefixed vars (types.ts: VITE_ENGINE_PORT),
+# so mirror the port there or a non-default ENGINE_PORT splits the two halves.
+export VITE_ENGINE_PORT="${ENGINE_PORT}"
 
 # Stop any stale engine from a prior run before we start a new one. Primary
 # method is by module name (`iris_engine.main` is unique to this app) — portable
