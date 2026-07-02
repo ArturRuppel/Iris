@@ -94,11 +94,52 @@ describe("pruneIdentityGrains", () => {
     expect(nodes.some((nd) => nd.id === "grain:experiment/cell")).toBe(true);
   });
 
-  it("is a no-op until the source count is known", () => {
+  it("is a no-op until counts are known", () => {
     const g = graph();
     const { nodes, edges } = pruneIdentityGrains(g.nodes, g.edges, {});
     expect(nodes).toBe(g.nodes);
     expect(edges).toBe(g.edges);
+  });
+
+  // §2 regression: compare each grain to its collapse PREDECESSOR, not the source.
+  it("prunes the leading regroup when a filter upstream lowered the row count", () => {
+    // source(100) -> step:0 filter(60) -> grain:experiment/cell(60) -> grain:experiment(10).
+    // The leading full-spine grain matches its filtered input (60 == 60) so it is a
+    // no-op and must be pruned — even though 60 != the source's 100. Comparing to
+    // the source falsely KEPT it.
+    const g = buildGraph(
+      [{ kind: "filter", conditions: [] }], SPINE, defaultPlan(SPINE, {}),
+      [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const counts = {
+      source: n(100), "step:0": n(60),
+      "grain:experiment/cell": n(60), "grain:experiment": n(10),
+    };
+    const { nodes, edges } = pruneIdentityGrains(g.nodes, g.edges, counts);
+    expect(nodes.some((nd) => nd.id === "grain:experiment/cell")).toBe(false);
+    // the real collapse now originates at the filter node the pruned grain fed from
+    expect(edges.some((e) => e.kind === "collapse"
+      && e.fromId === "step:0" && e.toId === "grain:experiment")).toBe(true);
+  });
+
+  it("keeps a grid_complete-style regroup that restores the source count but densifies its input", () => {
+    // source(100) -> step:0 grid_complete(140) -> grain:experiment/cell(140) -> ...
+    // The grain matches its input (140 == 140) here, so it is still a no-op vs its
+    // predecessor and prunes; but a regroup whose count differs from its PREDECESSOR
+    // must be kept even when it equals the source. Model that directly: input 140,
+    // grain 100 (== source) -> kept, because 100 != 140.
+    const g = buildGraph(
+      [{ kind: "grid_complete", by: ["experiment"], column: "cell",
+         levels: [], fill: 0, count_name: "n" }],
+      SPINE, defaultPlan(SPINE, {}),
+      [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const counts = {
+      source: n(100), "step:0": n(140),
+      "grain:experiment/cell": n(100), "grain:experiment": n(10),
+    };
+    const { nodes } = pruneIdentityGrains(g.nodes, g.edges, counts);
+    // 100 (== source) would have been falsely pruned by the old source comparison;
+    // against its 140-row predecessor it genuinely aggregates, so it is kept.
+    expect(nodes.some((nd) => nd.id === "grain:experiment/cell")).toBe(true);
   });
 });
 

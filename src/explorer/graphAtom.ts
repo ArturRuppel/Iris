@@ -104,30 +104,34 @@ export function mergeGuards(edges: Edge[], guards: ShapeCountsGuards, nodes: Exp
 }
 
 /* Drop `grain` nodes that are a true no-op: they drop no spine dim (node.regroup,
-   set structurally by buildGraph) AND their row count equals the source's, so the
-   collapsed table is identical to the source. This removes the default prefix
-   chain's leading full-spine grain — confusing in the editor, since it shows the
-   same rows as the source under a coarser-looking label.
+   set structurally by buildGraph) AND their row count equals their collapse
+   PREDECESSOR's, so the collapsed table is identical to the table feeding it. This
+   removes the default prefix chain's leading full-spine grain — confusing in the
+   editor, since it shows the same rows as its input under a coarser-looking label.
 
-   Count-gated on purpose: a regroup whose count is BELOW the source still merges
-   rows (an explicit collapse over a spine coarser than the source — e.g. a sum to
-   the experiment grain) and is KEPT. Pure: returns rewired nodes/edges — edges
-   INTO a pruned node are dropped; edges OUT of one are rewired to its collapse
+   Count-gated against the immediate predecessor, NOT the source: a regroup whose
+   count is below its input still merges rows and is KEPT. Comparing to the source
+   was wrong both ways — a row-changing step upstream (e.g. a filter) left the
+   leading full-spine grain with fewer rows than the source, so it was falsely
+   KEPT; and a `grid_complete` that restored the source count was falsely PRUNED
+   though it genuinely densifies. Pure: returns rewired nodes/edges — edges INTO a
+   pruned node are dropped; edges OUT of one are rewired to its collapse
    predecessor (itself possibly pruned, so resolved transitively in node order). */
 export function pruneIdentityGrains(
   nodes: ExplorerNode[], edges: Edge[], counts: Record<string, NodeCount>,
 ): { nodes: ExplorerNode[]; edges: Edge[] } {
-  const sourceId = nodes.find((n) => n.phase === "source")?.id;
-  const srcRows = sourceId ? counts[sourceId]?.rows : undefined;
-  if (srcRows == null) return { nodes, edges };
   // prunedId -> the upstream node that replaces it (its collapse predecessor).
   const replacement = new Map<string, string>();
   for (const n of nodes) {
     if (n.phase !== "grain" || !n.regroup) continue;
-    if (counts[n.id]?.rows !== srcRows) continue;     // still aggregates -> keep
     const inEdge = edges.find((e) => e.kind === "collapse" && e.toId === n.id);
-    const from = inEdge ? (replacement.get(inEdge.fromId) ?? inEdge.fromId) : undefined;
-    if (from) replacement.set(n.id, from);
+    if (!inEdge) continue;
+    const myRows = counts[n.id]?.rows;
+    const predRows = counts[inEdge.fromId]?.rows;
+    if (myRows == null || predRows == null) continue; // counts unknown -> keep
+    if (myRows !== predRows) continue;                // still aggregates -> keep
+    const from = replacement.get(inEdge.fromId) ?? inEdge.fromId;
+    replacement.set(n.id, from);
   }
   if (replacement.size === 0) return { nodes, edges };
   const remap = (id: string): string => replacement.get(id) ?? id;
