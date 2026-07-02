@@ -107,6 +107,82 @@ describe("location (vs-reference) family round-trips through save/load", () => {
   });
 });
 
+describe("rate (count-regression) family round-trips through save/load", () => {
+  // a saved rate doc: categorical x (group), numeric y (count), stats.family =
+  // rate carrying the exposure column and the count model.
+  const rateSpec = (): AnalysisSpec => ({
+    ...makeSpec("r", { xCol: "grp" }),
+    stats: {
+      family: "rate", test: "welch_t", override: null,
+      exposure: "hours", model: "nb", alpha: 0.05,
+    },
+  });
+
+  it("plottableFromSpec restores the rate opt-in (exposure + model)", () => {
+    const p = plottableFromSpec(rateSpec());
+    expect(p.rate).toEqual({ exposure: "hours", model: "nb" });
+    // an ordinary group comparison must NOT acquire a rate opt-in
+    expect(plottableFromSpec(makeSpec("g", { xCol: "grp" })).rate).toBeNull();
+    // reference and rate are mutually exclusive — a rate doc has no reference
+    expect(p.reference).toBeNull();
+  });
+
+  it("plottableFromSpec defaults a rate doc with no exposure/model to blank + nb", () => {
+    const bare = rateSpec();
+    delete (bare.stats as { exposure?: string | null }).exposure;
+    delete (bare.stats as { model?: string }).model;
+    const p = plottableFromSpec(bare);
+    expect(p.rate).toEqual({ exposure: "", model: "nb" });
+  });
+
+  it("buildSpec re-emits family=rate with exposure + model", () => {
+    const p = {
+      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      rate: { exposure: "hours", model: "auto" as const },
+    };
+    const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {});
+    expect(spec.stats.family).toBe("rate");
+    expect(spec.stats.exposure).toBe("hours");
+    expect(spec.stats.model).toBe("auto");
+  });
+
+  it("buildSpec emits a null exposure when none is chosen (rate per row)", () => {
+    const p = {
+      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      rate: { exposure: "", model: "nb" as const },
+    };
+    const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {});
+    expect(spec.stats.exposure).toBeNull();
+    expect(spec.stats.model).toBe("nb");
+  });
+
+  it("a full save→load→save cycle preserves the rate family", () => {
+    const loaded = plottableFromSpec(rateSpec());
+    const resaved = buildSpec(loaded, "rate", undefined, {}, EMPTY_HIERARCHY, {});
+    expect(resaved.stats.family).toBe("rate");
+    expect(resaved.stats.exposure).toBe("hours");
+    expect(resaved.stats.model).toBe("nb");
+  });
+
+  it("duplicatePlottableAtom deep-copies the rate opt-in (no shared ref)", () => {
+    const store = createStore();
+    store.set(tablesAtom, [{
+      id: "t", name: "t", schema: SCHEMA, hierarchy: EMPTY_HIERARCHY,
+      handle: { id: "h", n: 1, version: 1, schema: SCHEMA, counts: {} as never },
+    }]);
+    const src = {
+      ...makeDefaultPlottable(SCHEMA, "t"), id: "src",
+      mappings: { x: "grp", y: "val" }, rate: { exposure: "hours", model: "nb" as const },
+    };
+    store.set(plottablesAtom, [src]);
+    store.set(activePlottableIdAtom, "src");
+    store.set(duplicatePlottableAtom, "src");
+    const copy = store.get(plottablesAtom).find((p) => p.id !== "src")!;
+    expect(copy.rate).toEqual({ exposure: "hours", model: "nb" });
+    expect(copy.rate).not.toBe(src.rate);   // deep-copied, not aliased
+  });
+});
+
 describe("post-collapse reduce phase (reduce.post) round-trips", () => {
   const postSpec = (): AnalysisSpec => ({
     ...makeSpec("pp"),

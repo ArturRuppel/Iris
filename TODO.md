@@ -5,7 +5,9 @@ history and `docs/superpowers/specs/` for the per-item write-ups. Already shippe
 the composable grammar of graphics, the data-hierarchy model, the guided test
 picker, the validation corpus, style-rationalization + loadable style sheets, the
 n/N annotation, pan/zoom, real `.iris` save/load (File System Access), the
-one-sample `location` and count `rate` families + their plot types, the rank-floor
+one-sample `location` and count `rate` families + their plot types (both now with
+app-side test-picker controls — the design/reference and exposure/model choices),
+the rank-floor
 recommendation guard, the transformation explorer (dataflow graph + un-forced
 nesting / editable collapse routing + never-blocking guards), the transformation
 workbench (the Analyses tab as a clickable DAG; every node/edge opens a session-only
@@ -62,13 +64,6 @@ self-contained per-cell assembly and reproduces the committed r/p (crowding_q
 −0.024/0.631). `per_cell_features` is now fully expressible as Iris steps.
 
 ## Open follow-ups
-
-### App-side test-picker controls for the `location` & `rate` families
-Both families ship engine-first: a `.iris` authored in JSON selects them today,
-but the GUI GuidedTestPicker has no control to choose the one-sample design +
-reference value (`location`), or the design + exposure/model (`rate`). Add those
-controls so the families are reachable without hand-editing the spec. Deferred
-per the N/Q design specs; the engine + render paths are done and tested.
 
 ### Identifier default vs time-on-X (product note — flag only, no change made)
 A column named `frame`/`time`/`timepoint` defaults to `type: identifier` and so

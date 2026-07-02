@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { combineGroupTest, overrideFor } from "./GuidedTestPicker";
+import { combineGroupTest, overrideFor, exposureColumns, RATE_MODELS } from "./GuidedTestPicker";
+import type { Schema } from "../types";
 
 /* The picker's job is to turn two answers into the engine's single `override`
    slot. The repo has no DOM test harness, so we exercise that mapping directly
@@ -29,5 +30,36 @@ describe("overrideFor — null when the pair equals the recommendation, else the
   it("nulls again when a changed pair lands back on the recommendation", () => {
     // recommendation is mann_whitney; independent × robust reproduces it
     expect(overrideFor("independent", "robust", "mann_whitney")).toBeNull();
+  });
+});
+
+describe("exposureColumns — offerable rate exposure offsets", () => {
+  const schema: Schema = { schema_version: "1.0", columns: [
+    { name: "grp", type: "categorical", label: "Group" },
+    { name: "count", type: "numeric", label: "Count" },
+    { name: "hours", type: "numeric", label: "Hours" },
+    { name: "flag", type: "bool", label: "Flag" },
+    { name: "id", type: "identifier", label: "ID" },
+  ] };
+
+  it("offers numeric columns other than the mapped count column", () => {
+    // count is on Y (the count column) → excluded; hours remains
+    expect(exposureColumns(schema, { x: "grp", y: "count" })).toEqual(["hours"]);
+  });
+  it("excludes bools and identifiers (an exposure must be a positive magnitude)", () => {
+    const cols = exposureColumns(schema, { x: "grp", y: "count" });
+    expect(cols).not.toContain("flag");
+    expect(cols).not.toContain("id");
+    expect(cols).not.toContain("grp");
+  });
+  it("excludes whichever axis holds the count in the horizontal orientation", () => {
+    // count on X (numeric x, categorical y) → still excluded
+    expect(exposureColumns(schema, { x: "count", y: "grp" })).toEqual(["hours"]);
+  });
+  it("returns [] when no schema is loaded yet", () => {
+    expect(exposureColumns(null, { x: "grp", y: "count" })).toEqual([]);
+  });
+  it("lists the three engine count models", () => {
+    expect(RATE_MODELS).toEqual(["nb", "poisson", "auto"]);
   });
 });
