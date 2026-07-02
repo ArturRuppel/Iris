@@ -7,21 +7,27 @@ what has already shipped, see the git history and `docs/superpowers/specs/`.
 ## Where we are
 
 **Tier 2 — the credible tool — is mostly complete.** The product loop works
-end-to-end on Linux: import a table, compose a figure from a composable grammar
-of geom layers, add a guided statistical test, restyle in millimetres, export a
-publication-grade PDF, and save a `.iris` document. The three load-bearing
-systems are built and tested:
+end-to-end on Linux: import one or more tables, reshape them into a tidy frame on
+the transformation workbench, compose a figure from a composable grammar of geom
+layers, add a guided statistical test, restyle in millimetres, export a
+publication-grade PDF, and save a `.iris` document. The four load-bearing systems
+are built and tested:
 
 - the **composable grammar of graphics** (ordered geom layers; color/size/shape
   encodings; facets; superplots; box/violin/bar/dot, scatter+regression, a
   unified distribution geom, contingency tiles, and a time-series family);
 - the **data-hierarchy** model (a table-level spine of nested identifier levels;
   each layer binds to a grain; pairing is *derived from the spine*, not
-  declared); and
+  declared);
 - the **guided test picker** (describe-by-default, opt-in tests chosen on a
   structural × assumption grid; two-group, multi-group omnibus→post-hoc,
   correlation, and independent contingency families, each effect-size-backed and
-  validated against scipy).
+  validated against scipy); and
+- the **transformation workbench** (each analysis as an interactive left→right
+  dataflow graph of clickable nodes and edges; a reshaping vocabulary of
+  join / pivot / grid_complete / derive / recode / filter / drop steps plus
+  spine-driven collapse and a post-collapse phase; and multi-table documents —
+  a pool of named input tables joined coarse→fine).
 
 What remains in Tier 2 is breadth, polish, optimization, and — the real gate —
 putting it in front of the researchers it's for.
@@ -60,7 +66,11 @@ putting it in front of the researchers it's for.
   pairing (not a declared `pair_by`).
 
 **Product & UX**
-- **Undo/redo** — immer patches over the Jotai store.
+- **Workbench authoring completeness** — the canvas *edits* every step kind and
+  *creates* the single-table ones; still open are wiring a join's right table on
+  the canvas (a pick/drop gesture, not just editing its keys), authoring the
+  post-collapse (`reduce.post`) phase, and GUI controls for the one-sample
+  `location` and count `rate` test families (both engine-first today).
 - **Methods-text / statistics-table export** — formatted for supplementary
   materials, generated from the spec and provenance log.
 - **Sparkline mini-distributions** and click-a-header descriptives in the table.
@@ -117,12 +127,6 @@ use rather than by engineering appetite:
   (`family: "model"`).
 - **Multi-panel figure composition** — a document-level figure object
   referencing analyses.
-- **Multi-table documents with joins** — resisted until real users demonstrate
-  the need; the one-table constraint is currently a feature.
-- **A data-manipulation layer** — column transforms and derived/aggregated
-  columns; approached carefully against the spine architecture (naïve reduction
-  across the nesting risks duplicating rows at the wrong grain), which is part of
-  why this likely wants multi-table support first.
 - **A Pyodide browser demo** for zero-install sharing — the spec/protocol keep
   the engine swappable, so this is expensive but not a rewrite. The hosting
   tiers (static gallery → Pyodide → backend) and the publication/handbook

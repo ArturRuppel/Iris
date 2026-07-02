@@ -1,9 +1,14 @@
 # Iris: a guided tour
 
-Iris turns a tidy table into a publication-grade figure **and** the right
-statistical test, and shows its reasoning at every step. This guide has four
-parts, each a different lens on the same set of worked examples:
+Iris turns tables into a publication-grade figure **and** the right statistical
+test, and shows its reasoning at every step. You build an analysis on the
+**[workbench](#the-workbench)**: an interactive graph of your data flowing, step
+by step, into a figure. This guide is organised around that one picture:
 
+- **[The grammar](#the-grammar)**: the small model everything is built from —
+  three kinds of data, and three kinds of transformation between them.
+- **[The workbench](#the-workbench)**: the canvas where you read and edit that
+  graph, hold several input tables, and reshape messy data into a tidy one.
 - **[Plot types](#plot-types)**: the grammar of marks, and what each one shows.
 - **[Data types](#data-types)**: what you measured, and the family of tests it
   selects.
@@ -11,38 +16,44 @@ parts, each a different lens on the same set of worked examples:
   logic, its thresholds, and its sources.
 - **[Experimental design and nesting](#experimental-design-and-nesting)**: what
   counts as *one observation*, and why it decides everything.
+- **[Reshaping real data](#reshaping-real-data)**: the shaping steps worked end
+  to end on messy, real inputs.
 
-Underneath all four parts is one small model. Iris knows three kinds of data (a
-tidy table, a plot, and a statistical result), and every operation is a
-transformation from one kind to another: **shaping** a table into another table,
-**drawing** a table into a plot, or **testing** a table into a stats result. The
-four parts above are different lenses on that one model; [the
-grammar](#the-grammar) sets it out in full, including which marks and which tests
-each kind of data supports.
+Underneath all of it is one small model. Iris knows three kinds of data (a tidy
+table, a plot, and a statistical result), and every operation is a transformation
+from one kind to another: **shaping** a table into another table, **drawing** a
+table into a plot, or **testing** a table into a stats result. The workbench
+draws that model literally — data as nodes, transformations as the edges between
+them — so the picture in this guide and the picture on your screen are the same.
+[The grammar](#the-grammar) sets it out in full, including which marks and which
+tests each kind of data supports.
 
 Every example is a real, citable dataset. Click **Open this example in Iris** to
 load it into the app and explore or adapt it; opened examples save as a *new*
 file, so the originals stay intact.
 
-Everything an example needs lives in a single **`.iris` file**: your data, the
-steps that shape it, the test you settled on, how the figure should look, and a
-note of where the data came from. One file can hold several analyses. What it
-deliberately does *not* store is the computed output: the numbers, the test
+Everything an example needs lives in a single **`.iris` file**: your tables, the
+steps that shape them, the test you settled on, how the figure should look, and a
+note of where the data came from. One file can hold several **input tables** and
+several analyses over them. What it deliberately does *not* store is the computed
+output: the numbers, the test
 results, the rendered figure. Iris works those out from your data and your
 choices every time the file is opened, so they can never drift out of step with
 the inputs. The file also records the exact version of Iris that made it, so
 opening it later reproduces the same figure and the same numbers. Save and open
-`.iris` files from the **File** tab; figures export on their own as SVG, PDF, or
-PNG.
+`.iris` files from the buttons in the header; figures export on their own as SVG,
+PDF, or PNG.
 
 You never have to think about any of this: open a file and Iris shows you the
 figure and the statistics. But the format is open, so the curious can read a file
 and recompute everything by hand, and it is scriptable, so a file can be written
 by a script instead of assembled in the app, then run without opening Iris at all
-to extract the statistics, render the figure, and (a feature still on the way)
-draw the diagram of how the data was transformed. A colleague can reproduce or
+to extract the statistics and render the figure. A colleague can reproduce or
 batch-process your analyses from the command line and get exactly what you would
-get by hand.
+get by hand. (Inside the app the diagram of how the data was transformed is
+always on screen — it *is* the [workbench](#the-workbench); rendering that diagram
+to a file from a script, the way the figure already exports, is the piece still
+on the way.)
 
 > **Recommendations are defaults, not verdicts.** For every figure that carries
 > an inferential result Iris makes a *recommendation* and
@@ -70,20 +81,23 @@ get by hand.
 
 Iris is built from one small grammar, and every feature is an instance of it.
 There are **three kinds of data** and **three kinds of transformation** between
-them. The four parts of this guide are different views of this one picture, and
-the in-app explorer draws any analysis directly as it: data as boxes,
-transformations as the arrows between them.
+them. The parts of this guide are different views of this one picture, and the
+[workbench](#the-workbench) draws any analysis directly as it: data as nodes,
+transformations as the edges between them.
 
 ## Three kinds of data
 
 | kind | what it is | where you see it |
 |---|---|---|
-| **table** | a tidy data frame: rows are observations, columns are variables | the Data tab |
-| **plot** | a figure: marks positioned on axes | the Figure section |
-| **stats** | a statistical result: a test, an effect size, and the numbers behind them | the Statistics section |
+| **table** | a tidy data frame: rows are observations, columns are variables | the Data tab, and every table node on the workbench |
+| **plot** | a figure: marks positioned on axes | the **Plot** half of the figure node |
+| **stats** | a statistical result: a test, an effect size, and the numbers behind them | the **Stats** half of the figure node |
 
 A whole analysis is just a table flowing through transformations until it becomes
-a plot and a stats result.
+a plot and a stats result. Because the plot and the stats read the *same* shaped
+table, the workbench draws them as two halves of a single **figure node**, not as
+two separate places — which is the structural reason they can never disagree
+about the data.
 
 ## Three kinds of transformation
 
@@ -92,14 +106,16 @@ flavors by what it connects:
 
 | flavor | input → output | the operations |
 |---|---|---|
-| **shape** | table → table | filter (drop rows), drop (remove columns), derive (compute a new column), recode (relabel categories), join (merge a second table), collapse (aggregate up to a coarser unit) |
+| **shape** | table → table | *row and column edits* — filter (drop rows), drop (remove columns), derive (compute a new column), recode (relabel categories); *restructuring* — pivot (unstack long rows into wide columns), grid_complete (fill the combinations that never occurred as real zeros), join (attach another table's columns on shared keys); and collapse (aggregate up to a coarser unit) |
 | **draw** | table → plot | a mark (box, dot, scatter, and so on) |
 | **test** | table → stats | a statistical test (or describe-only) |
 
 Shaping steps chain in order, each feeding the next. Drawing and testing are the
 terminal steps: they read the shaped table and produce the figure and the
 numbers. Because both read the *same* shaped table, the figure and the statistics
-can never disagree about what was analysed.
+can never disagree about what was analysed. The [workbench](#the-workbench) is
+where you assemble this chain; [reshaping real data](#reshaping-real-data) works
+the restructuring steps end to end on messy inputs.
 
 ## Column types: the subtypes of a table
 
@@ -159,6 +175,95 @@ you draw selects the family of tests. *Which* test within that family is the
 subject of [how Iris chooses the test](#how-iris-chooses-the-test); *what counts
 as one row* of the shaped table is the subject of [experimental design and
 nesting](#experimental-design-and-nesting).
+
+---
+
+# The workbench
+
+The **workbench** is where you build and read an analysis. Reach it with the
+**Workbench** button in the header; the other two views are **Data** (enter and
+type your tables, and declare their hierarchy) and **Guide** (this document). The
+workbench shows one analysis at a time as a graph that flows left to right: a
+source table on the left, each transformation as an edge, and a single **figure
+node** on the right.
+
+## Reading the graph
+
+Every node on the canvas is a **table** at some stage of shaping, and the last
+node is the **figure**. Each edge is a transformation, labelled with what it does
+("Filtered", "median over cell", "box"). Reading the graph left to right is
+reading the analysis in a sentence: *this table, filtered, collapsed to the
+replicate, drawn as a box plot and tested with Welch's t-test.*
+
+A table node shows, at a glance:
+
+- the **step that produced it** — an icon and a name across the top;
+- a **grain bar** — one glyph per level of your
+  [hierarchy](#the-unit-of-inference), each shown live, *shed* (pooled away by a
+  collapse), or gone, so you can see which unit this table now lives at. A
+  **Grain** legend in the corner spells the glyphs out in full;
+- **value chips** — the measured columns, coloured by type (numeric,
+  categorical, boolean), each carrying an `@`-grain marker when its value lives
+  at a coarser unit than the row.
+
+The **figure node** is split into a **Plot** half and a **Stats** half — the two
+terminal transformations, drawn on one node because they read the same shaped
+table. The Plot half lists the marks in the figure ("dots", "box", "mean ± SD");
+the Stats half names the test ("Welch's t-test", or "describe" when no test is
+attached) and shows whether its result is drawn on the figure as significance
+brackets.
+
+## Editing on the graph
+
+The graph *is* the document. There is nothing to lay out or save about it: node
+positions and which cards are open are yours for the session, and are never
+written into the `.iris` file.
+
+- **Click an edge** (or a table node's detail line) to open that transformation's
+  **editor** — a card where you set the filter conditions, the collapse grain,
+  the geom and its encodings, or the test.
+- **Click a node** to pin its **card** into the *stash*, a row of docked slots
+  under the canvas. The stash holds three cards side by side, so you can compare
+  a table before and after a step, or the plot against its stats; pinning a
+  fourth pushes out the oldest. Any slot can be maximised to fill the workbench.
+- Opening an analysis pre-seeds the stash with the three cards you reach for
+  most: the source **Table**, the **Plot**, and the **Stats**.
+- **Undo** and **Redo** in the toolbar step through spec edits; **Tidy** re-runs
+  the automatic layout; you can pan and zoom the canvas.
+
+Until an analysis has a plot, its Plot card shows a guided **+ add plot** button:
+it walks you through choosing a plot type (only the ones your columns can
+actually satisfy are offered) and mapping columns onto its channels. **+ add
+layer** draws another mark over the same axes.
+
+## Authoring steps
+
+Each node carries a **`+`** on its right edge. It opens a short menu of what can
+come next from that point: a shaping step (filter, drop, derive, recode, pivot,
+grid_complete, or a join to another table), a **collapse** to a coarser grain, or
+the **plot** and **test** terminals. Picking a shaping step splices a blank one
+into the pipeline and opens its editor; picking collapse, plot, or test opens the
+matching terminal editor. You build an analysis the same way you read it — left
+to right, one step at a time — and the graph re-draws after every edit.
+
+## Several input tables
+
+A `.iris` file holds a **pool of input tables**, not just one. Each file you
+import is added to the pool under a name taken from its filename (a second
+`cells.csv` becomes `cells_2`), and importing a new one never disturbs the tables
+already there. The **Data** tab lists them under **Tables**; click one to view
+and type its columns and declare its
+[hierarchy spine](#the-unit-of-inference), which every table carries on its own.
+
+An analysis is bound to one **main table** — the one whose rows it plots and
+tests. To bring a second table's columns alongside, it can **join** to another
+table in the pool: the join matches rows on one or more shared **key** columns
+and attaches the second table's columns to the main table's rows. The join is a
+*broadcast from coarse to fine* — a per-cell label spreads onto every frame of
+that cell, a per-plate value onto every well — so the second table must have one
+row per key (Iris rejects a join that would duplicate rows), and only an exact
+(inner) match is kept. [Reshaping real data](#reshaping-real-data) works a join
+through end to end.
 
 ---
 
@@ -692,12 +797,13 @@ figure.
 Everything so far assumed a tidy table: one row per observation, the columns you
 want to plot already present. Real experiments rarely arrive that way. A motility
 assay lands as one row per frame; a class label lives in a separate per-cell
-sheet; an event-rate denominator needs grid cells that never occurred to be
-counted as real zeros. Iris does this reshaping **inside the spec** — declarative
-reduce steps, not notebook code — so the figure stays reproducible and the
-transformation stays inspectable. The boundary is firm: Iris reshapes the pooled
-tidy table into a figure; producing that table from images or graphs stays
-upstream.
+sheet (a second table in the [pool](#several-input-tables)); an event-rate
+denominator needs grid cells that never occurred to be counted as real zeros.
+Iris does this reshaping **inside the spec** — the declarative shaping steps you
+add on the [workbench](#the-workbench), not notebook code — so the figure stays
+reproducible and the transformation stays inspectable. The boundary is firm: Iris
+reshapes the pooled tidy table into a figure; producing that table from images or
+graphs stays upstream.
 
 ## From per-frame rows to a SuperPlot
 
