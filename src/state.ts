@@ -7,7 +7,7 @@ import type {
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
-import { familyForMappingsRef } from "./channels";
+import { familyForMappingsRef, type RateOpts } from "./channels";
 import type { StyleSheet } from "./style/sheet";
 import { applyStyleSheet } from "./style/sheet";
 import { byId, upsertTable, seedTableName, type WorkspaceTable } from "./tables";
@@ -135,6 +135,11 @@ export const TEST_BY_FAMILY: Record<StatsFamily, TestName[]> = {
      contact-type fractions that sum to 1, where a between-group comparison is
      partly tautological (iris_engine/stats.location). */
   location: ["one_sample_t", "wilcoxon_signed"],
+  /* Count-rate (GLM) family: the choice is the count MODEL (nb/poisson/auto,
+     carried in stats.model via the plottable's rate opt-in), not a test
+     override — so no override tests round-trip, like timeseries. The engine
+     reports nb_glm / poisson_glm as the resolved test id. */
+  rate: [],
   correlation: ["pearson", "spearman"],
   descriptive: ["descriptive"],
   /* §5 independent contingency cell: chi-square (default) ↔ Fisher's exact (2×2).
@@ -176,6 +181,12 @@ export interface Plottable {
      ordinary type-derived family. This is the one family the column types can't
      imply, so it is stored, not derived (see channels.familyForMappingsRef). */
   reference: number | null;
+  /* count-rate opt-in: when non-null, a categorical-x/numeric-y plot is the
+     `rate` family — each group's counts fed to a Poisson/NB GLM with
+     log(exposure) as offset, estimate ± model CI. Like `reference`, this is a
+     design the column types can't imply, so it is stored, not derived. Mutually
+     exclusive with `reference` (the TestPicker enforces it). */
+  rate: RateOpts | null;
   describeOnly: boolean;    // user asked to render without a test
   /* which level the reduced-table preview shows ("" = raw reduced rows). The
      hierarchy itself is table-level (hierarchyAtom), shared by all analyses. */
@@ -294,7 +305,7 @@ export function makeDefaultPlottable(schema: Schema, tableId = ""): Plottable {
     color: "", size: "", shape: "",
     facetRow: "", facetCol: "", shareX: true, shareY: true,
     layers: [],
-    override: null, reference: null, describeOnly: false,
+    override: null, reference: null, rate: null, describeOnly: false,
     previewLevel: RAW_LEVEL,
     style: {},
     /* a fresh reduce per plottable — never share a singleton, so an in-place
@@ -666,6 +677,11 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     reference: s?.family === "location"
       ? (s?.reference ?? (style.reference_value as number | null | undefined) ?? 0)
       : null,
+    /* restore the count-rate opt-in the same way, so a saved `rate` doc
+       round-trips instead of re-deriving as a group comparison on open. */
+    rate: s?.family === "rate"
+      ? { exposure: s?.exposure ?? "", model: s?.model ?? "nb" }
+      : null,
     describeOnly: s?.describe_only ?? false,
     previewLevel: RAW_LEVEL,
     style,
@@ -821,6 +837,12 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       /* the vs-reference constant — engine reads it for the location family; null
          (omitted in effect) for every other family. */
       ...(reference != null ? { reference } : {}),
+      /* the rate family's inputs — exposure column (null = exposure 1) and the
+         count model. Only emitted when the family IS rate, mirroring reference. */
+      ...(family === "rate" ? {
+        exposure: p.rate?.exposure ? p.rate.exposure : null,
+        model: p.rate?.model ?? "nb",
+      } : {}),
       // describe-only is a decision; omit when false to keep specs clean.
       ...(p.describeOnly ? { describe_only: true } : {}),
       alpha: 0.05,
@@ -860,7 +882,7 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const schema = get(schemaAtom);
   const p = get(activePlottableAtom);
   if (!schema || !p) return null;
-  const family = familyForMappingsRef(p.mappings, get(effectiveSchemaAtom), p.reference);
+  const family = familyForMappingsRef(p.mappings, get(effectiveSchemaAtom), p.reference, p.rate);
   const tests = TEST_BY_FAMILY[family];
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
@@ -886,7 +908,7 @@ function buildAllSpecs(get: Getter,
   const previews = get(reducePreviewByIdAtom);
   return get(plottablesAtom).map((p) => {
     const eff = previews[p.id]?.preview.schema ?? schema;
-    const family = familyForMappingsRef(p.mappings, eff, p.reference);
+    const family = familyForMappingsRef(p.mappings, eff, p.reference, p.rate);
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
@@ -938,6 +960,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
     ...src, id: nextId(), name: `${src.name} copy`,
     tableId: src.tableId,
     mappings: { ...src.mappings },
+    rate: src.rate ? { ...src.rate } : null,
     layers,
     style,
     reduce: {

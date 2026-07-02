@@ -89,24 +89,41 @@ export function familyForMappings(
   return f === "none" ? "descriptive" : f;
 }
 
-/* As familyForMappings, but honoring an explicit vs-reference (one-sample) opt-in.
-   The column types alone cannot tell a *location* test (each group's values vs a
-   constant — chance/control/unity) from an ordinary group comparison: both are
-   categorical-x / numeric-y. So `location` is the one family that is not
-   type-derivable; the user pins it by setting a numeric `reference`, and only the
-   shapes that support it — a numeric readout grouped by a categorical x, or an
-   ungrouped single sample — flip to `location`. Any other mapping ignores the
-   reference and keeps its derived family. Mirrors the engine, where
-   `stats.family == "location"` overrides the otherwise-inferred group comparison
-   (iris_engine/statmodel.infer). */
+/* The count-rate (GLM) opt-in stored on the plottable: the exposure column the
+   counts are normalized by ("" = none, rate per row) and the count model. The
+   engine's default is "nb" (robust to overdispersion); "auto" fits Poisson and
+   refits NB when overdispersed. */
+export type RateModel = "nb" | "poisson" | "auto";
+export interface RateOpts { exposure: string; model: RateModel }
+
+/* As familyForMappings, but honoring the two explicit design opt-ins the column
+   types alone cannot imply — both mirror the engine, where a declared
+   `stats.family` overrides the otherwise-inferred one (iris_engine/statmodel.infer):
+
+   - vs-reference (one-sample): a non-null `reference` flips the shapes that
+     support it — a numeric readout grouped by a categorical x (either
+     orientation), or an ungrouped single numeric sample — to `location`.
+   - count rate: a non-null `rate` opt-in flips a grouped numeric readout to
+     `rate` (per-group count GLM with an exposure offset). The ungrouped shape is
+     NOT flipped — the engine renders a rate only with a grouping column.
+
+   When both are somehow set (a hand-edited state), `rate` wins on the grouped
+   shape — the UI keeps them mutually exclusive, so this is only a tiebreak.
+   Any other mapping ignores the opt-ins and keeps its derived family. The
+   "none" fallthrough (a stats-unreadable mapping, e.g. a mapped-but-vanished
+   column) is NOT upgraded: it stays the serialized "descriptive" fallback, so a
+   stored reference can't mislabel an unreadable spec as `location`
+   (CODE_REVIEW §4). */
 export function familyForMappingsRef(
   mappings: { x: string; y: string }, schema: Schema | null,
-  reference: number | null,
+  reference: number | null, rate: RateOpts | null = null,
 ): StatsFamily {
-  const base = familyForMappings(mappings, schema);
-  if (reference != null && (base === "group_comparison" || base === "descriptive"))
+  const { xType, yType } = axisTypes(mappings, schema);
+  const f = familyFor(xType, yType);
+  if (rate != null && f === "group_comparison") return "rate";
+  if (reference != null && (f === "group_comparison" || f === "descriptive"))
     return "location";
-  return base;
+  return f === "none" ? "descriptive" : f;
 }
 
 /* --- the offer rule (§4): a channel offers a column type iff some installed

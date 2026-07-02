@@ -488,6 +488,15 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .describe-toggle { display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: #475569; margin: 4px 0 8px; }
 
+/* count-rate design controls (exposure + model), shown when "Model counts as a
+   rate" is ticked. Indented under the toggle to read as its detail. */
+.rate-config { display: flex; flex-direction: column; gap: 6px;
+  margin: -4px 0 10px 22px; }
+.rate-row { display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; font-size: 12px; color: #475569; }
+.rate-row > span { display: inline-flex; align-items: center; gap: 4px; }
+.rate-row select { flex: 1 1 auto; min-width: 0; max-width: 60%; font-size: 12px; }
+
 /* ---- render status indicator + figure overlay ---- */
 .render-status { display: inline-flex; align-items: center; gap: 6px;
   font-size: 12px; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }

@@ -275,6 +275,40 @@ describe("familyForMappingsRef — vs-reference (location) opt-in", () => {
     expect(familyForMappingsRef({ x: "val", y: "val" }, SCHEMA, 0)).toBe("correlation");
     expect(familyForMappingsRef({ x: "grp", y: "grp" }, SCHEMA, 0)).toBe("contingency");
   });
+  it("CODE_REVIEW §4: a stored reference does NOT upgrade the 'none' fallback to location", () => {
+    // A mapping the stats engine can't read (a mapped-but-vanished X column, so
+    // xType is null AND a y is present but the pair is unreadable). The pre-fix
+    // bug turned this into "location" via the "descriptive" fallback string; it
+    // must stay "descriptive" (the serialized fallback), never "location".
+    const gone = { x: "missing_col", y: "val" };  // x not in schema → xType null
+    // with only Y readable this is a genuine descriptive → location is correct
+    expect(familyForMappingsRef(gone, SCHEMA, 0)).toBe("location");
+    // but a truly unreadable pair (both sides null) must not flip
+    expect(familyForMappingsRef({ x: "missing", y: "missing" }, SCHEMA, 0)).toBe("descriptive");
+    expect(familyForMappingsRef({ x: "missing", y: "missing" }, SCHEMA, null)).toBe("descriptive");
+  });
+});
+
+describe("familyForMappingsRef — count-rate opt-in", () => {
+  const RATE = { exposure: "", model: "nb" as const };
+  it("a rate opt-in flips the grouped numeric shape to rate", () => {
+    expect(familyForMappingsRef({ x: "grp", y: "val" }, SCHEMA, null, RATE)).toBe("rate");
+    // horizontal orientation (numeric x, categorical y) is a group comparison too
+    expect(familyForMappingsRef({ x: "val", y: "grp" }, SCHEMA, null, RATE)).toBe("rate");
+  });
+  it("does NOT flip the ungrouped shape (the engine needs a grouping column)", () => {
+    expect(familyForMappingsRef({ x: "", y: "val" }, SCHEMA, null, RATE)).toBe("descriptive");
+  });
+  it("is ignored for non-group-comparison shapes", () => {
+    expect(familyForMappingsRef({ x: "val", y: "val" }, SCHEMA, null, RATE)).toBe("correlation");
+    expect(familyForMappingsRef({ x: "grp", y: "grp" }, SCHEMA, null, RATE)).toBe("contingency");
+  });
+  it("rate wins over reference on the grouped shape (UI keeps them exclusive)", () => {
+    expect(familyForMappingsRef({ x: "grp", y: "val" }, SCHEMA, 0, RATE)).toBe("rate");
+  });
+  it("no opt-ins keeps the type-derived family", () => {
+    expect(familyForMappingsRef({ x: "grp", y: "val" }, SCHEMA, null, null)).toBe("group_comparison");
+  });
 });
 
 describe("geomAddable — geom-first entry (unmapped axis doesn't block)", () => {
