@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ColumnDef, GridCompleteStep } from "../types";
 
 /* ---- Grid complete: fill in missing category combinations and count rows per combination ---- */
@@ -5,6 +6,11 @@ export function StepGridComplete(
   { step, columns, onChange }:
   { step: GridCompleteStep; columns: ColumnDef[]; onChange: (s: GridCompleteStep) => void },
 ) {
+  /* the levels box keeps its own raw text: deriving the value from the parsed
+     list re-joins per keystroke, which normalizes a trailing comma away as
+     typed ("a", ",", "b" yielded "ab"). The step only ever sees the parsed,
+     empty-free list. */
+  const [levelsText, setLevelsText] = useState(step.levels.join(", "));
   const toggleBy = (name: string) => {
     const next = new Set(step.by);
     next.has(name) ? next.delete(name) : next.add(name);
@@ -33,10 +39,13 @@ export function StepGridComplete(
       <div className="filter-row">
         <span>levels</span>
         <input aria-label="levels"
-          value={step.levels.join(", ")}
+          value={levelsText}
           placeholder="a, b, c"
-          onChange={(e) => onChange({ ...step,
-            levels: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })} />
+          onChange={(e) => {
+            setLevelsText(e.target.value);
+            onChange({ ...step,
+              levels: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) });
+          }} />
       </div>
       <div className="filter-row">
         <span>count unique</span>

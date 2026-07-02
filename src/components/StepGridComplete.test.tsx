@@ -57,3 +57,15 @@ it("(f) toggling 'by' yields column order, not click order", () => {
   fireEvent.click(second.getByLabelText("cell"));
   expect(spy).toHaveBeenLastCalledWith({ ...withBatch, by: ["cell", "batch"] });
 });
+
+it("(g) typing a trailing comma is preserved in the box while the step stays clean", () => {
+  const spy = vi.fn();
+  render(<StepGridComplete step={step} columns={cols} onChange={spy} />);
+  const input = screen.getByLabelText(/levels/i) as HTMLInputElement;
+  // type "a," — the raw text must keep the comma so "b" can follow it
+  fireEvent.change(input, { target: { value: "a," } });
+  expect(input.value).toBe("a,");                       // not normalized to "a"
+  expect(spy).toHaveBeenLastCalledWith({ ...step, levels: ["a"] });
+  fireEvent.change(input, { target: { value: "a,b" } });
+  expect(spy).toHaveBeenLastCalledWith({ ...step, levels: ["a", "b"] });
+});
