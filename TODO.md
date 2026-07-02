@@ -87,23 +87,25 @@ from both the render path and the file. All adopt/serialize sites now preserve
 Authoring post steps from the UI (the real feature) remains a later sub-project;
 needs its own brainstorm → spec → plan before code.
 
-### GUI authoring parity — create the reduce-step kinds the engine already supports
-The workbench *edits* all seven reduce-step kinds (Phase 4b), but the GUI can only
-*create* two of them. `makeStep` (`src/state.ts`) constructs only `drop`/`filter`,
-and the add-step menus (`src/components/PipelineSection.tsx` and the menu in
-`src/workbench/cards/TableCard.tsx`) offer only those two. So the
-`derive`/`recode`/`join`/`pivot`/`grid_complete` editors shipped in 4b are dormant
-unless a step arrives from a loaded `.iris`. The create-side completion of 4b:
-- `makeStep` builds valid blank `derive`/`recode`/`pivot`/`grid_complete` steps and
-  the add-step menus offer them.
-- **`join` is the hard case** — it needs a right-table *source* picker (another
-  loaded table / file / session table), not a blank default; likely its own slice.
-- Settle where a new step lands in the DAG: append (today's `addStepAtom`) vs.
-  insert-at-position (click an edge → "insert step here"), which needs a new atom.
+### GUI authoring parity — reduce-step creation
+**Done (2026-07-02).** Most of this entry had already shipped and gone stale:
+`makeStep` builds valid blanks for all seven kinds, the on-canvas `+` menu offers
+them all (`workbench/authoring.ts` maps `REDUCE_KIND_ORDER`; the old
+`PipelineSection`/`TableCard` menus no longer exist), and placement is settled
+(`insertStepAtom` splices after the node whose `+` was clicked). The one real gap
+was **join**: a `+`-created join was stuck in the "missing input" state forever —
+`StepJoin` showed `rightTableId` read-only and nothing in the GUI could set it.
+Now the join editor card has a right-table picker over the loaded pool (the
+analysis's own main table excluded); picking a table prunes the join keys to the
+shared columns and seeds the shared identifier columns when none survive;
+non-shared key columns are disabled. Everything downstream (materialization,
+`runnableSteps` gating, save-by-reference) already worked. Remaining polish, not
+tracked as a gap: the drag-a-table-onto-the-open-circle canvas gesture as a
+second way to fill the input (see ROADMAP).
 
-This is one of three "engine can, GUI can't" authoring-parity gaps — the other two
-are already tracked: the `location`/`rate` test-picker controls (below) and
-post-step authoring (above). Needs brainstorm → spec → plan before code.
+Of the other two "engine can, GUI can't" parity gaps, the `location`/`rate`
+test-picker controls have since shipped too; post-step authoring (above) remains
+the one tracked gap.
 
 ### Transformation explorer — backend SVG render of the graph
 A standalone export that renders the data-transformation graph itself as SVG —

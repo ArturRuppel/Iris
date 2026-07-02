@@ -67,9 +67,11 @@ putting it in front of the researchers it's for.
 
 **Product & UX**
 - **Workbench authoring completeness** — the canvas *edits* every step kind and
-  *creates* the single-table ones; a join's right table is now wired on the
-  canvas (PR #6) and the one-sample `location` and count `rate` test families
-  have their GUI test-picker controls. Still open: authoring the post-collapse
+  *creates* all seven, including a join (its right table is picked from the pool
+  in the join editor, with keys gated to shared columns), and the one-sample
+  `location` and count `rate` test families now have their GUI test-picker
+  controls. Still open are the drag-a-table-onto-the-open-circle canvas gesture
+  as a second way to fill a join's right input, and authoring the post-collapse
   (`reduce.post`) phase.
 - **Methods-text / statistics-table export** — formatted for supplementary
   materials, generated from the spec and provenance log.
