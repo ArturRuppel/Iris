@@ -70,6 +70,52 @@ def test_edit_bool_flag_cell_persists():
     assert t.window(0, 1)[0]["flag"] is True
 
 
+def test_set_schema_retypes_in_place_and_bumps_version():
+    # The Data-tab role change: retype a column without touching the data. The
+    # bumped version invalidates result caches keyed on it.
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    retyped = {**SCHEMA, "columns": [
+        {**SCHEMA["columns"][0], "type": "identifier"},  # g: categorical -> identifier
+        SCHEMA["columns"][1],
+    ]}
+    t.set_schema(retyped)
+    assert t.version == 1
+    assert t.schema["columns"][0]["type"] == "identifier"
+    assert t.window(0, 2)[0]["g"] == "a"     # data untouched
+
+
+def test_set_schema_rejects_columns_absent_from_frame():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    bad = {**SCHEMA, "columns": SCHEMA["columns"] + [
+        {"name": "ghost", "type": "numeric", "label": "Ghost"}]}
+    with pytest.raises(KeyError):
+        t.set_schema(bad)
+    assert t.version == 0                     # rejected: no partial mutation
+
+
+def test_set_schema_fixes_test_inference_drift():
+    # §1.3: statmodel.infer reads the SESSION schema, so a column retyped only on
+    # the frontend leaves the engine inferring the wrong family. With g typed
+    # `identifier`, a g-on-X + y-on-Y spec matches no branch (family "none");
+    # after set_schema retypes g to categorical, it infers group_comparison.
+    from iris_engine import statmodel
+    ident_schema = {**SCHEMA, "columns": [
+        {**SCHEMA["columns"][0], "type": "identifier"},
+        SCHEMA["columns"][1]]}
+    store = session.SessionStore()
+    t = store.get(store.create(ident_schema, _df()))
+    enc = {"x": {"column": "g"}, "y": {"column": "y"}}
+
+    stale = statmodel.infer(enc, t.schema, None)
+    assert stale["family"] == "none"          # the drift the review documented
+
+    t.set_schema(SCHEMA)                       # g back to categorical
+    fixed = statmodel.infer(enc, t.schema, None)
+    assert fixed["family"] == "group_comparison"
+
+
 def test_distinct_levels_sorted_strings_capped():
     store = session.SessionStore()
     df = _df(6)

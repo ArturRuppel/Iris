@@ -25,8 +25,10 @@ output: 1.23456    9995.0  2.00075
 
 **Fix:** only infer `decimal=","` when comma-decimals are consistent with column contents (no cell mixes `.` and `,`; or numeric-looking cells match `^\d+(\.\d{3})*(,\d+)?$` for the comma-decimal hypothesis), and surface the inferred choice prominently in the import preview.
 
-### 1.2 Quantile filter bound drops every row when the column has a single NaN
+### 1.2 Quantile filter bound drops every row when the column has a single NaN — ✅ FIXED (2026-07-02)
 `engine/iris_engine/reduce.py:79` (`_eval_bound`) — **reproduced by execution.**
+
+> **Resolved:** the quantile branch now uses `np.nanpercentile` (raising `ReduceError` when the column is wholly non-finite), and `_eval_bound_scalar` rejects any bound that realizes to a non-finite value as a backstop for NaN-producing arithmetic. Regression tests added (`test_quantile_bound_ignores_nans`, `test_quantile_bound_all_missing_raises`); full engine suite green (524 passed).
 
 The expression-filter quantile uses `np.percentile`, not `np.nanpercentile`. With one NaN in the column, `quantile(v, 0.99)` evaluates to NaN, `v <= NaN` is uniformly False, and the filter silently keeps **0 rows**:
 
@@ -40,8 +42,10 @@ This is the documented §5 tail-clip use case applied to a measurement column, w
 
 **Fix:** `np.nanpercentile`, plus a guard that raises `ReduceError` when a realized bound is NaN.
 
-### 1.3 Changing a column's role in the Data tab never reaches the engine — stale schema drives the statistics
+### 1.3 Changing a column's role in the Data tab never reaches the engine — stale schema drives the statistics — ✅ FIXED (2026-07-02)
 `src/state.ts:1041-1069` (`setColumnRoleAtom`) — verified in code.
+
+> **Resolved:** added a schema-patch endpoint (`POST /table/{id}/schema` → `SessionTable.set_schema`, data untouched, `version` bumped). `setColumnRoleAtom` now pushes the retyped schema to the engine session and folds the engine's bumped version onto the handle, so the analyze cache invalidates and the next render re-infers against the new types. The stale "re-uploads the table" comment is gone. Regression tests added at three levels — `set_schema` unit + inference-drift (`test_session.py`), the `/analyze`→patch→`/analyze` round trip (`test_engine.py`), and the atom's engine call + version propagation (`state.test.ts`). Full suites green (529 engine, 362 frontend). Aside: the drift surfaces as a hard 422 for a mapped-but-mistyped X, not a silent wrong test — same root cause, more visible face.
 
 The comment claims "a schema change re-uploads the table, so the engine sees the new types" — false. `engine.createSession` is called only on import (`state.ts:583`), and `/analyze` sends only the session token (`App.tsx:174`), which the engine resolves to the schema captured at session creation (`main.py:296`). Re-typing `condition` from identifier to classifier and mapping it to X: the frontend derives `group_comparison`, but the engine's `statmodel.infer` (`statmodel.py:14,64,133-156`) still sees `identifier`, matches no branch, and silently returns the descriptive/no-test model. Frontend and engine can disagree about which test ran. E2E tests seed roles at import time, so the path is untested.
 
@@ -172,7 +176,7 @@ Findings:
 - **`guards.py:20` duplicates `stats.py:562`** — `MIN_LOCATION_N = 3` defined twice; the guard's warning threshold and the test's skip threshold can silently drift.
 - **`WorkbenchCanvas.tsx:91`** — `useMemo(() => toRF(...), [graph, nodePositions])` recomputes full layout on every graph tick/drag-stop for a value `useNodesState`/`useEdgesState` ignore after first render; use a lazy initializer.
 - **`main.py:637` vs `:646`** — `spine` and `present` are the identical expression computed twice, two statements apart.
-- **Stale comments that misstate behavior** — `AddStepMenu.tsx:6` ("reused on drop-to-empty-canvas" — no such consumer); `Stash.tsx:12` ("canvas highlights the node" — `selectedTargetAtom` has no canvas consumer); `state.ts:1044` ("a schema change re-uploads the table" — see §1.3); `types.ts:657` ("uploaded via /table" — see §5).
+- **Stale comments that misstate behavior** — `AddStepMenu.tsx:6` ("reused on drop-to-empty-canvas" — no such consumer); `Stash.tsx:12` ("canvas highlights the node" — `selectedTargetAtom` has no canvas consumer); ~~`state.ts:1044` ("a schema change re-uploads the table")~~ (✅ fixed with §1.3); `types.ts:657` ("uploaded via /table" — see §5).
 - **`statsGlossary.ts:240-241`** describes "the 95% CI of the mean" and IQR for the group summary, but StatsPanel renders only n/mean/SD — the engine even ships `ci95_half` (`types.ts:479`) that no component displays. Align the panel or the prose.
 
 ---
@@ -194,7 +198,7 @@ Findings:
 
 ## 9. Priorities
 
-1. ~~**§1.1 importer decimal sniffing**~~ (✅ fixed) and **§1.2 quantile-NaN filter** — the two bugs that can silently change published numbers.
-2. **§1.3 role-change schema drift** — frontend and engine can disagree about which test ran.
+1. ~~**§1.1 importer decimal sniffing**~~ (✅ fixed) and ~~**§1.2 quantile-NaN filter**~~ (✅ fixed) — the two bugs that can silently change published numbers.
+2. ~~**§1.3 role-change schema drift**~~ (✅ fixed) — frontend and engine can disagree about which test ran.
 3. **§1.4 cache-hit guard skip** and **§1.5 ungrouped location** — user-visible breakage on supported paths.
 4. §2 items, then the dead-code sweep (§5) — most of it is mechanical deletion with test cover already green.

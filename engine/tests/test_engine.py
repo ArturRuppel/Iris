@@ -129,6 +129,46 @@ def test_analyze_endpoint_svg_draws_marks_without_point_groups():
     assert re.search(r"<text[^>]*>\*\*\*</text>", svg)
 
 
+def test_schema_patch_endpoint_refixes_session_test_inference():
+    # §1.3 end-to-end: /analyze reads the SESSION schema, so retyping a grouping
+    # column on the frontend alone leaves the engine inferring the wrong test.
+    # POST /table/{id}/schema retypes the session in place; the next /analyze on
+    # the same token then infers the corrected family.
+    table = make_table()
+    ident_schema = {**document.SAMPLE_SCHEMA, "columns": [
+        {**c, "type": "identifier"} if c["name"] == "treatment" else c
+        for c in document.SAMPLE_SCHEMA["columns"]]}
+    table["schema"] = ident_schema
+
+    created = client.post("/table/create", json={"table": table})
+    tid = created.json()["id"]
+    v0 = created.json()["version"]
+
+    # With treatment typed `identifier`, x-vs-y matches no inference branch: the
+    # engine can't build a model and 422s — the user-visible face of the drift.
+    stale = client.post("/analyze", json={"table_token": tid, "spec": make_spec()})
+    assert stale.status_code == 422
+
+    cat_schema = {**document.SAMPLE_SCHEMA}   # treatment back to categorical
+    patched = client.post(f"/table/{tid}/schema", json={"table_schema": cat_schema})
+    assert patched.status_code == 200
+    assert patched.json()["version"] == v0 + 1
+
+    fixed = client.post("/analyze", json={"table_token": tid, "spec": make_spec()})
+    assert fixed.status_code == 200
+    assert fixed.json()["stat_model"]["family"] == "group_comparison"
+
+
+def test_schema_patch_endpoint_rejects_unknown_column():
+    created = client.post("/table/create", json={"table": make_table()})
+    tid = created.json()["id"]
+    bad = {**document.SAMPLE_SCHEMA, "columns": [
+        *document.SAMPLE_SCHEMA["columns"],
+        {"name": "ghost", "type": "numeric", "label": "Ghost"}]}
+    r = client.post(f"/table/{tid}/schema", json={"table_schema": bad})
+    assert r.status_code == 422
+
+
 def test_filter_on_flag_drops_rows():
     # The replacement for the removed exclusion mechanism: flag rows in a bool
     # column and drop them with a normal filter reduce step.

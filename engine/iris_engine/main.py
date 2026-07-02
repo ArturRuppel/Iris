@@ -140,6 +140,13 @@ class DistinctRequest(BaseModel):
     column: str
 
 
+class SchemaRequest(BaseModel):
+    # the full replacement column schema (types/labels/levels). Named
+    # `table_schema` because a field literally named `schema` shadows a BaseModel
+    # attribute in pydantic v2.
+    table_schema: dict
+
+
 PREVIEW_CAP = 500  # rows returned by /reduce; UI shows "showing N of total"
 
 # In-memory cache of recently-seen tables, keyed by a content hash. Bounds the
@@ -510,6 +517,18 @@ def table_edit(tid: str, req: EditRequest):
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
     return {"version": t.version, "counts": t.counts()}
+
+
+@app.post("/table/{tid}/schema")
+def table_schema(tid: str, req: SchemaRequest):
+    """Retype the session's columns in place (Data-tab role change) so the engine's
+    test inference sees the new types. Data-only invariant: no row changes."""
+    t = _session_or_409(tid)
+    try:
+        t.set_schema(req.table_schema)
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"version": t.version, "schema": t.schema, "counts": t.counts()}
 
 
 @app.post("/table/{tid}/distinct")

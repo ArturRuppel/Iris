@@ -459,12 +459,21 @@ describe("single-table globals derive off the active analysis's pool table", () 
     store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
     store.set(activeTableIdAtom, "cells");
     const annot0 = store.get(tablesAtom).find((t) => t.id === "annot")!;
+    // the retyped schema is pushed to the engine session; the bumped version
+    // flows onto the handle so the analyze cache invalidates and re-infers.
+    const setSchema = vi.spyOn(engine, "setSchema").mockImplementation(
+      async (_id, schema) => ({ version: 1, schema, counts: {} as never }));
     // grp -> identifier: not categorical, so no engine.distinct re-fetch.
     await store.set(setColumnRoleAtom, { name: "grp", role: "identifier" });
     const pool = store.get(tablesAtom);
     const cells = pool.find((t) => t.id === "cells")!;
     expect(cells.schema.columns.find((c) => c.name === "grp")?.type).toBe("identifier");
     expect(cells.hierarchy.spine).toEqual(["grp"]);
+    // the engine session got the retyped schema and the handle took its new version
+    expect(setSchema).toHaveBeenCalledWith("h_cells",
+      expect.objectContaining({ columns: expect.arrayContaining([
+        expect.objectContaining({ name: "grp", type: "identifier" })]) }));
+    expect(cells.handle.version).toBe(1);
     // the non-active table is referentially unchanged
     expect(pool.find((t) => t.id === "annot")).toBe(annot0);
   });

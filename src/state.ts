@@ -1040,11 +1040,15 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) =>
 /* Assign a column a role: "identifier" (a nesting/spine level) or "classifier"
    (a categorical qualifier). Changes the column TYPE on the master schema and
    reconciles the spine membership, so the hierarchy stays fully defined — every
-   non-numeric column is one or the other. A schema change re-uploads the table,
-   so the engine sees the new types on the next analyze/preview. */
+   non-numeric column is one or the other. The retyped schema is pushed to the
+   engine session (POST /table/{id}/schema): the engine's test inference reads the
+   session schema, so without this the engine keeps the old types and can disagree
+   with the frontend about which test ran. The version the engine bumps flows back
+   onto the handle, invalidating the analyze cache so the next render re-infers. */
 export const setColumnRoleAtom = atom(null,
   async (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
     const t = get(activeTableAtom); if (!t) return;
+    const tableId = t.id;
     const schema = t.schema;
     const handle = t.handle;
     const newType: "identifier" | "categorical" =
@@ -1064,8 +1068,17 @@ export const setColumnRoleAtom = atom(null,
     const nextHierarchy = {
       ...t.hierarchy, spine: reconcileSpine(t.hierarchy.spine, identifierCols(nextSchema)),
     };
+    // Retype the engine session in place (data untouched) so its inference sees
+    // the new types; the bumped version invalidates every result cache keyed on it.
+    const patched = handle ? await engine.setSchema(handle.id, nextSchema) : null;
+    const nextHandle: TableHandle | undefined = handle && patched
+      ? { ...handle, version: patched.version, schema: patched.schema }
+      : handle;
+    // Re-read by id after the awaits: a pool write in between (a cell edit, a
+    // second role toggle) must not be clobbered by this stale snapshot's handle.
+    const cur = byId(get(tablesAtom), tableId) ?? t;
     set(tablesAtom, upsertTable(get(tablesAtom),
-      { ...t, schema: nextSchema, hierarchy: nextHierarchy }));
+      { ...cur, schema: nextSchema, hierarchy: nextHierarchy, handle: nextHandle }));
   });
 
 /* reorder the spine (coarsest → finest). Table-level: shared by all analyses. */

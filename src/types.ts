@@ -688,6 +688,11 @@ export const engine = {
       { row_id: rowId, column, value }),
   distinct: (id: string, column: string) =>
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
+  /* retype the session's columns (Data-tab role change) so the engine's test
+     inference sees the new types — data is untouched, only the schema swaps */
+  setSchema: (id: string, schema: Schema) =>
+    post<{ version: number; schema: Schema; counts: TableCounts }>(
+      `/table/${id}/schema`, { table_schema: schema }),
   analyze: (t: TableRef, spec: AnalysisSpec) =>
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),
   /* steps are EngineReduceStep[]: every join must already have its right table

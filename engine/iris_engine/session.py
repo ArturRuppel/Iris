@@ -65,6 +65,21 @@ class SessionTable:
             self._df.at[pos, column] = value
             self.version += 1
 
+    def set_schema(self, schema: dict) -> None:
+        """Replace the column schema in place (types, labels, levels) without
+        touching the data — the Data tab retypes a column (identifier↔classifier)
+        and the engine must see the new type on the next analyze, or the frontend
+        and engine silently disagree about which test ran. A schema-only change:
+        the frame's values are unchanged, so no row is coerced or dropped. Bumps
+        `version` so every result cache keyed on it invalidates."""
+        with self._lock:
+            missing = [c["name"] for c in schema["columns"]
+                       if c["name"] not in self._df.columns]
+            if missing:
+                raise KeyError(f"schema columns not in table: {missing!r}")
+            self.schema = schema
+            self.version += 1
+
     def distinct(self, column: str) -> list[str]:
         with self._lock:
             if column not in self._df.columns:
