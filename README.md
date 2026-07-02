@@ -4,10 +4,11 @@
 
 Iris is a desktop application built around one idea — the *reactive triad*: a
 typed data table, a figure, and a statistical analysis, linked so that editing
-any one updates the others instantly and honestly. You map columns to a plot,
-optionally add a test, and Iris produces a matplotlib vector figure and a
-citable statistic from the *same* declarative spec, so the plot and the test can
-never disagree about the data.
+any one updates the others instantly and honestly. You build each analysis on an
+interactive graph — the **workbench** — where the input tables, the shaping
+steps, the figure, and the test are nodes you click to edit. Iris produces a
+matplotlib vector figure and a citable statistic from the *same* declarative
+spec, so the plot and the test can never disagree about the data.
 
 The audience is the colleague who knows what an ANOVA is but not how to write
 one — and whose p-values and figures will end up in a paper or thesis. The
@@ -58,12 +59,15 @@ not. That gap is the reason Iris is being built.
 ```
 
 The keystone artifact is the **declarative analysis spec**: grammar-of-graphics
-encodings, an ordered stack of geom layers, a data-`hierarchy` block, and a
-stats clause. It compiles to *both* the plot and the test. The engine ships as a
-pip-installable library (`iris-engine`) whose render/stats core needs no web
-framework; FastAPI is an optional extra used only by the GUI. Documents are
-`.iris` files — a ZIP of a Parquet table plus human-readable JSON (schema,
-analysis specs, provenance).
+encodings, an ordered stack of geom layers, a reduction pipeline of shaping steps
+(filter, drop, derive, recode, join, pivot, grid_complete) over a chosen main
+table, a data-`hierarchy` block, and a stats clause. It compiles to *both* the
+plot and the test. The engine ships as a pip-installable library (`iris-engine`)
+whose render/stats core needs no web framework; FastAPI is an optional extra used
+only by the GUI. Documents are `.iris` files — a ZIP holding one Parquet table
+per named input table (each with its own schema and hierarchy), plus
+human-readable JSON: the analysis specs, provenance, and an engine-identity
+manifest (format version 2.1).
 
 ## Quickstart (dev mode)
 
@@ -151,7 +155,7 @@ Notes learned the hard way:
 
 ## What is validated
 
-The engine carries a pytest suite (`engine/tests/`, 21 files) plus a per-family
+The engine carries a pytest suite (`engine/tests/`, 50+ files) plus a per-family
 **validation corpus** (`engine/validation/`) that asserts each statistical
 family against reference values recomputed independently against raw scipy:
 
@@ -173,11 +177,14 @@ recorded in every document's `engine_snapshot`.
 
 ```
 engine/iris_engine/
-  document.py     .iris ZIP format (Parquet table + JSON parts) + sample data
+  document.py     .iris ZIP format (multi-table: one Parquet + schema + hierarchy
+                  per named table) + engine-identity manifest + sample data
   importer.py     CSV/TSV/Excel import: locale sniffing, type inference, wide→long
   session.py      server-owned table behind a session handle (id/version/schema)
   hierarchy.py    the data "spine": nested identifier levels + per-layer grain
-  reduce.py       reduction pipeline (select + filter)
+  reduce.py       the shaping pipeline: filter/drop/derive/recode/join/pivot/
+                  grid_complete, plus the post-collapse (reduce.post) phase
+  shape.py        array-shape descriptor for a table (drives the workbench nodes)
   specnorm.py     spec normalization + migration from older shapes
   compiler.py     spec → matplotlib figure (layered geoms, mm sizing, vector SVG)
   geoms.py        geom registry (drives the layer rail and guard pass)
@@ -187,18 +194,23 @@ engine/iris_engine/
   statmodel.py    encodings → inferred, overridable stat model
   style.py        style registry + override resolution (screen == export)
   render.py       FastAPI-free render core (build a figure/stats from a spec)
+  build_info.py   engine version/commit identity stamped into every document
   main.py         optional FastAPI HTTP service
 
-engine/tests/         pytest suite
+engine/tests/         pytest suite (50+ files)
 engine/validation/    per-family reference corpus
 
 src/
-  state.ts            Jotai atoms, derived spec, analysis cache
+  state.ts            Jotai atoms, table pool, derived spec, analysis cache
   types.ts            spec schema types + protocol client
   channels.ts         encoding/geom compatibility logic
-  hierarchy / levels  data-spine UI helpers
-  components/         DataTable, FigurePane, StatsPanel, EncodingsCard,
-                      LayerRail, StylePane, ImportWizard, GuidedTestPicker, …
+  collapse.ts         collapse-plan helpers (the grain spine)
+  tables.ts / levels.ts   table-pool + data-spine UI helpers
+  explorer/           graph.ts — the analysis → dataflow-graph derivation
+  workbench/          WorkbenchCanvas + node/edge cards (the interactive DAG)
+  components/         TableList, HierarchyPanel, DataTable, FigurePane, StatsPanel,
+                      EncodingsCard, ImportWizard, GuidedTestPicker, …
+  style/              style-sheet UI helpers
 
 src-tauri/            desktop shell (spawns/reaps the engine sidecar)
 ```
@@ -206,9 +218,11 @@ src-tauri/            desktop shell (spawns/reaps the engine sidecar)
 ## Status & roadmap
 
 Tier 2 — the credible-tool milestone — is mostly complete: the composable
-grammar of graphics, the data-hierarchy model, and the guided test picker are
-built and tested; what remains is breadth, polish, optimization, and real-world
-use. See [ROADMAP.md](ROADMAP.md) for what's next.
+grammar of graphics, the data-hierarchy model, the guided test picker, the
+interactive transformation workbench, the reshaping vocabulary (join, pivot,
+grid_complete, derive, recode, filter), and multi-table documents are built and
+tested; what remains is breadth, polish, optimization, and real-world use. See
+[ROADMAP.md](ROADMAP.md) for what's next.
 
 ## License
 
