@@ -899,13 +899,28 @@ export const addPlottableAtom = atom(null, (get, set) => {
 export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const src = get(plottablesAtom).find((p) => p.id === id);
   if (!src) return;
+  /* layers get fresh ids, so StyleOverrides.layers (keyed by layer id) must be
+     re-keyed to follow them or the copy loses its per-layer styling. */
+  const layerIdMap = new Map<string, string>();
+  const layers = src.layers.map((l) => {
+    const nid = nextLayerId();
+    if (l.id) layerIdMap.set(l.id, nid);
+    return { id: nid, geom: l.geom, level: l.level };
+  });
+  const style = structuredClone(src.style);
+  if (style.layers) {
+    style.layers = Object.fromEntries(
+      Object.entries(style.layers).flatMap(([k, v]) => {
+        const nk = layerIdMap.get(k);
+        return nk ? [[nk, v] as const] : [];
+      }));
+  }
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     tableId: src.tableId,
     mappings: { ...src.mappings },
-    layers: src.layers.map((l) => ({ id: nextLayerId(), geom: l.geom,
-                                     level: l.level })),
-    style: structuredClone(src.style),
+    layers,
+    style,
     reduce: { steps: structuredClone(src.reduce.steps).map((s) => ({ ...s, _key: nextStepKey() })) },
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);

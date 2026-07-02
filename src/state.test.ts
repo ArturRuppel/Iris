@@ -15,7 +15,7 @@ import {
   tablesNeedingMaterialize,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
-  addPlottableAtom, loadDocumentAtom,
+  addPlottableAtom, duplicatePlottableAtom, loadDocumentAtom,
   undoSpecAtom, redoSpecAtom, specHistoryAtom, specRedoAtom, clearSpecHistoryAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
@@ -406,6 +406,22 @@ describe("table pool atoms", () => {
     // makeDefaultPlottable takes the seed id explicitly (pure); the writer passes the last pool id.
     expect(makeDefaultPlottable(SCHEMA, "annot").tableId).toBe("annot");
     expect(makeDefaultPlottable(SCHEMA).tableId).toBe("");   // no pool → empty, resolved later
+  });
+
+  it("duplicatePlottableAtom re-keys per-layer style overrides to the fresh layer ids", () => {
+    const store = createStore();
+    const p = makeDefaultPlottable(SCHEMA, "cells");
+    p.layers = [{ id: "ly_a", geom: "box" }, { id: "ly_b", geom: "dot" }];
+    p.style = { layers: { ly_a: { fill_alpha: 0.2 }, ly_b: { dot_size: 3 } } };
+    store.set(plottablesAtom, [p]);
+    store.set(duplicatePlottableAtom, p.id);
+    const copy = store.get(plottablesAtom)[1];
+    const [a, b] = copy.layers.map((l) => l.id!);
+    expect(a).not.toBe("ly_a");                       // fresh ids, as before
+    expect(copy.style.layers).toEqual({ [a]: { fill_alpha: 0.2 },
+                                        [b]: { dot_size: 3 } });
+    // the source is untouched
+    expect(p.style.layers).toEqual({ ly_a: { fill_alpha: 0.2 }, ly_b: { dot_size: 3 } });
   });
 });
 
