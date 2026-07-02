@@ -1,4 +1,5 @@
-import type { StatsDecision, TestName } from "../types";
+import type { Schema, StatsDecision, TestName } from "../types";
+import type { RateModel } from "../channels";
 import { InfoTip } from "./InfoTip";
 import type { GlossaryKey } from "./statsGlossary";
 
@@ -37,6 +38,32 @@ export function overrideFor(
 ): TestName | null {
   const test = combineGroupTest(structural, assumption);
   return test === recommendedTest ? null : test;
+}
+
+/* ---- count-rate (GLM) design controls — picker logic for the `rate` family ----
+   The design questions a rate plot asks are "counts per WHAT?" (the exposure
+   offset) and "which count model?"; both live on the plottable's `rate` opt-in
+   and reach the engine as stats.exposure / stats.model. */
+
+export const RATE_MODELS: RateModel[] = ["nb", "poisson", "auto"];
+export const RATE_MODEL_LABELS: Record<RateModel, string> = {
+  nb: "Negative binomial (robust to overdispersion)",
+  poisson: "Poisson",
+  auto: "Auto — Poisson unless overdispersed",
+};
+
+/* The columns offerable as a rate's exposure offset: numeric columns other than
+   the mapped count column itself (the numeric side of the mapping — either
+   orientation). Bools (0/1 event flags) and identifiers are excluded — an
+   exposure is a positive duration/area/size, and the engine rejects values ≤ 0. */
+export function exposureColumns(
+  schema: Schema | null, mappings: { x: string; y: string },
+): string[] {
+  if (!schema) return [];
+  return schema.columns
+    .filter((c) => c.type === "numeric")
+    .map((c) => c.name)
+    .filter((name) => name !== mappings.x && name !== mappings.y);
 }
 
 type Axis = "structural" | "assumption";

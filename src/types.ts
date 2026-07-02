@@ -49,7 +49,7 @@ export function tableFromColumnar(ct: ColumnarTable): Table {
   return { schema: ct.schema, rows };
 }
 
-export type StatsFamily = "group_comparison" | "location" | "correlation" | "descriptive" | "contingency" | "timeseries";
+export type StatsFamily = "group_comparison" | "location" | "rate" | "correlation" | "descriptive" | "contingency" | "timeseries";
 export type TestName =
   | "welch_t" | "mann_whitney" | "paired_t" | "wilcoxon"
   | "one_way_anova" | "kruskal"
@@ -72,7 +72,7 @@ export interface PairwiseComparison {
    `distribution` geom; the two legacy names remain only so the type still admits
    any hand-written value without widening to string. */
 export type Geom =
-  | "dot" | "summary" | "box" | "violin" | "bar"
+  | "dot" | "summary" | "box" | "violin" | "bar" | "pointrange"
   | "scatter" | "regression" | "distribution" | "tile"
   | "histogram" | "density";
 
@@ -192,6 +192,9 @@ export interface StatModel {
   /* the constant each group is tested against — present only for the `location`
      (vs-reference / one-sample) family, so the panel and the reference line agree. */
   reference?: number;
+  /* rate family only: the exposure (offset) column and the count model. */
+  exposure?: string | null;
+  model?: string;
   issues: unknown[];
 }
 
@@ -422,6 +425,13 @@ export interface AnalysisSpec {
        categorical-x / numeric-y plot is otherwise indistinguishable from an
        ordinary group comparison, so the opt-in must be carried in the spec. */
     reference?: number | null;
+    /* the `rate` (count-regression) family's inputs — the exposure column the
+       counts are offset by (null = exposure 1, rate per row) and the count model
+       ("nb" default | "poisson" | "auto"). Present only for family "rate", and
+       carried for the same reason as `reference`: a categorical-x / numeric-y
+       plot is otherwise indistinguishable from a group comparison. */
+    exposure?: string | null;
+    model?: "nb" | "poisson" | "auto";
     /* the user's describe-only decision — show summaries, run no inferential
        test. A decision, so it is stored (was carried in the removed `chosen_by`).
        Omitted when false. */
@@ -459,10 +469,15 @@ export interface StatsResult {
   recommendation: { test: string; reason: string };
   chosen_by: string;
   /* §5 guided picker: each question's recommendation + what was chosen. Present
-     for group comparisons; absent for the other families. */
+     for group comparisons; absent for the other families — EXCEPT the rate
+     family, whose `decision` instead records the chosen count model and the
+     global "does group matter" likelihood-ratio test. */
   decision?: {
-    structural: StatsDecision;
-    assumption: StatsDecision;
+    structural?: StatsDecision;
+    assumption?: StatsDecision;
+    /* rate family only */
+    model?: string;
+    global?: { test: string; stat: number | null; df: number | null; p: number | null };
   };
   result: {
     test: string; p?: number; t?: number; df?: number; U?: number; W?: number;
@@ -481,13 +496,20 @@ export interface StatsResult {
   };
   regression?: { slope: number; intercept: number };
   summaries: { group: string; n: number; mean: number; sd: number; ci95_half: number }[];
-  /* location family only: one entry per x-lane, each tested against the reference
-     (chance) — the per-lane p/stars the figure draws. Absent for other families. */
+  /* location + rate families only: one entry per x-lane. For `location` each
+     lane carries its own test-vs-reference (p/stars/center) — the per-lane
+     result the figure draws. For `rate` each lane carries the GLM rate estimate
+     with its model CI and the summed count/exposure. Absent for other families. */
   reference?: number;
   per_group?: {
-    level: string; test: string; p: number | null; stars: string; n: number;
-    center: number; center_ci?: [number, number] | null;
+    level: string; n: number;
+    /* location lanes */
+    test?: string; p?: number | null; stars?: string;
+    center?: number; center_ci?: [number, number] | null;
     effect?: { name: string; value: number };
+    /* rate lanes */
+    rate?: number; ci?: [number, number] | null;
+    count?: number; exposure?: number;
   }[];
   alpha: number;
   methods_text: string;

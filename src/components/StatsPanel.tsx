@@ -1,8 +1,12 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { activePlottableAtom, analysisAtom, guideAnchorAtom, viewModeAtom } from "../state";
+import { activePlottableAtom, analysisAtom, effectiveSchemaAtom, guideAnchorAtom, viewModeAtom } from "../state";
 import type { StatsResult, TestName } from "../types";
+import type { RateModel } from "../channels";
 import { InfoTip } from "./InfoTip";
-import { GuidedTestPicker, overrideFor } from "./GuidedTestPicker";
+import {
+  GuidedTestPicker, overrideFor,
+  RATE_MODELS, RATE_MODEL_LABELS, exposureColumns,
+} from "./GuidedTestPicker";
 import type { GlossaryKey } from "./statsGlossary";
 
 const fmtP = (p: number) => (p < 0.001 ? "< 0.001" : "= " + p.toFixed(3));
@@ -21,7 +25,15 @@ const TEST_LABELS: Record<string, string> = {
   descriptive: "Descriptive summary",
   chi_square: "Chi-square",
   fisher_exact: "Fisher's exact",
+  nb_glm: "Negative-binomial GLM",
+  poisson_glm: "Poisson GLM",
 };
+/* the rate family's resolved test ids — its result reads per-lane estimates, so
+   several render sites branch on this rather than on a single test name. */
+const isRateTest = (t: string) => t === "nb_glm" || t === "poisson_glm";
+/* rate estimates span orders of magnitude (events/h vs events/s), so fixed
+   decimals misrender; 3 significant digits reads right across scales. */
+const fmtRate = (v: number) => Number(v.toPrecision(3)).toString();
 const GROUP_TESTS: TestName[] = ["welch_t", "mann_whitney", "paired_t", "wilcoxon"];
 // >2 groups: the omnibus alternatives (parametric ANOVA vs robust Kruskal).
 const MULTI_TESTS: TestName[] = ["one_way_anova", "kruskal"];
@@ -144,6 +156,35 @@ function ResultRows({ s }: { s: StatsResult }) {
         </>
       );
     }
+    case "nb_glm":
+    case "poisson_glm": {
+      // rate family: the result is one GLM rate estimate per lane (with its
+      // model CI); the single top-level p is the global "does group matter"
+      // likelihood-ratio test, absent for a single group.
+      const lanes = s.per_group ?? [];
+      return (
+        <>
+          <dt>Model <InfoTip k="rate_model" /></dt>
+          <dd>{TEST_LABELS[r.test]}</dd>
+          {lanes.map((g) => (
+            <span key={g.level} style={{ display: "contents" }}>
+              <dt>{g.level}</dt>
+              <dd className="mono">
+                rate {fmtRate(g.rate ?? 0)}
+                {g.ci ? ` (95% CI ${fmtRate(g.ci[0])}, ${fmtRate(g.ci[1])})` : " (no model CI)"}
+                , n = {g.n}
+              </dd>
+            </span>
+          ))}
+          {r.p != null && (
+            <>
+              <dt>p (group effect, LR test) <InfoTip k="p_value" /></dt>
+              <dd className="mono strong">{fmtP(r.p)} {stars(r.p)}</dd>
+            </>
+          )}
+        </>
+      );
+    }
     case "pearson":
     case "spearman":
       return (
@@ -220,12 +261,14 @@ export function StatsResults() {
         <h3>Result <InfoTip k="significance_stars" /></h3>
         <dl>
           <ResultRows s={s} />
-          {s.result.test !== "descriptive" && s.summaries.length > 0 && (
+          {/* the rate family's summaries duplicate its per-lane estimates (mean =
+              rate, sd = 0), so the value-based summary block is skipped there */}
+          {s.result.test !== "descriptive" && !isRateTest(s.result.test) && s.summaries.length > 0 && (
             <>
               <dt className="pairwise-head">Per-group summary <InfoTip k="group_summary" /></dt><dd></dd>
             </>
           )}
-          {s.result.test !== "descriptive" && s.summaries.map((g) => (
+          {s.result.test !== "descriptive" && !isRateTest(s.result.test) && s.summaries.map((g) => (
             <span key={g.group} style={{ display: "contents" }}>
               <dt>{g.group}</dt>
               <dd className="mono">n = {g.n}, mean {g.mean.toFixed(1)} (SD {g.sd.toFixed(1)})</dd>
@@ -254,12 +297,26 @@ export function TestPicker() {
     active && setActive({ ...active, describeOnly: v });
   // vs-reference opt-in: null = test groups against each other; a number = test
   // each lane against that constant (the `location` family). Toggling on resets
-  // any group-comparison override so the location default (one-sample t) takes.
+  // any group-comparison override so the location default (one-sample t) takes,
+  // and clears the rate opt-in — the two designs are mutually exclusive.
   const setReference = (v: number | null) =>
-    active && setActive({ ...active, reference: v, override: null });
+    active && setActive({ ...active, reference: v, rate: null, override: null });
   // edit the constant while already in vs-reference mode — keeps any test pick.
   const setReferenceValue = (v: number) =>
     active && setActive({ ...active, reference: v });
+  // count-rate opt-in: toggling on flips the family to `rate` (count GLM with an
+  // exposure offset); clears the reference and any override for the same reason.
+  const setRateOn = (on: boolean) =>
+    active && setActive({
+      ...active,
+      rate: on ? { exposure: "", model: "nb" } : null,
+      reference: null, override: null,
+    });
+  const setRateExposure = (exposure: string) =>
+    active?.rate && setActive({ ...active, rate: { ...active.rate, exposure } });
+  const setRateModel = (model: RateModel) =>
+    active?.rate && setActive({ ...active, rate: { ...active.rate, model } });
+  const schema = useAtomValue(effectiveSchemaAtom);
   if (!analysis) return WAITING;
 
   const s = analysis.stats;
@@ -301,11 +358,15 @@ export function TestPicker() {
           Describe only — run no test
           <InfoTip k="describe_only" />
         </label>
-        {(model.family === "group_comparison" || model.family === "location") && (
-          /* Opt this grouped numeric plot into a vs-reference (one-sample) test —
-             each lane against a constant (chance/control/unity) instead of against
-             the other lanes. The one design the column types can't imply, so it is
-             an explicit toggle that round-trips via stats.reference. */
+        {(model.family === "group_comparison" || model.family === "location"
+          || model.family === "descriptive") && (
+          /* Opt this numeric plot into a vs-reference (one-sample) test — each
+             lane against a constant (chance/control/unity) instead of against
+             the other lanes. Offered for the ungrouped case too (only Y mapped
+             — the engine draws a single "all" lane), where the family reads
+             `descriptive` until the toggle flips it. A design the column types
+             can't imply, so it is an explicit toggle that round-trips via
+             stats.reference. */
           <label className="describe-toggle">
             <input type="checkbox" checked={active?.reference != null}
               onChange={(e) => setReference(e.target.checked ? 0 : null)} />
@@ -318,6 +379,44 @@ export function TestPicker() {
                 onChange={(e) => setReferenceValue(e.target.value === "" ? 0 : Number(e.target.value))} />
             )}
           </label>
+        )}
+        {(model.family === "group_comparison" || model.family === "rate") && (
+          /* Opt this grouped numeric plot into the count-rate family — per group,
+             a Poisson/NB GLM turns the counts into a rate (per exposure) with a
+             model CI. Grouped shapes only: the engine renders a rate only with a
+             grouping column. Also not type-derivable, so an explicit toggle that
+             round-trips via stats.exposure / stats.model. */
+          <>
+            <label className="describe-toggle">
+              <input type="checkbox" checked={active?.rate != null}
+                onChange={(e) => setRateOn(e.target.checked)} />
+              Model counts as a rate
+              <InfoTip k="rate_glm" />
+            </label>
+            {active?.rate != null && (
+              <div className="rate-config">
+                <label className="rate-row">
+                  <span>per <InfoTip k="exposure_offset" /></span>
+                  <select value={active.rate.exposure} aria-label="exposure column"
+                    onChange={(e) => setRateExposure(e.target.value)}>
+                    <option value="">(nothing — rate per row)</option>
+                    {exposureColumns(schema, active.mappings).map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="rate-row">
+                  <span>count model <InfoTip k="rate_model" /></span>
+                  <select value={active.rate.model} aria-label="count model"
+                    onChange={(e) => setRateModel(e.target.value as RateModel)}>
+                    {RATE_MODELS.map((m) => (
+                      <option key={m} value={m}>{RATE_MODEL_LABELS[m]}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+          </>
         )}
         {!active?.describeOnly && s.result.test !== "descriptive" && (
           /* significance brackets drawn onto the figure — folded in from the
@@ -348,9 +447,10 @@ export function TestPicker() {
           /* Two-group numeric family: the engine emits a per-question `decision`
              with both axes, so guide the user through the questions and derive the
              test. The location family emits only an `assumption` axis (no
-             structural pairing), so it falls through to the chip row below. */
+             structural pairing) and the rate family a model/global-LR record, so
+             both fall through to the chip row below. */
           <GuidedTestPicker
-            decision={s.decision}
+            decision={{ structural: s.decision.structural, assumption: s.decision.assumption }}
             /* no test ran (recoverable error): preview where the recommended
                answers land rather than the "none" placeholder. */
             resolvedTest={(s.result.test === "none" ? rec.test : s.result.test) as TestName}

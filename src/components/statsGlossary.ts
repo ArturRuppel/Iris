@@ -92,6 +92,22 @@ export const STATS_GLOSSARY = {
     assumes: "Independent replicates; no normality assumption. Needs ≥ 6 replicates to reach p = 0.05 (its floor is 2/2ⁿ), so it has zero power below that — the engine then falls back to the one-sample t (see Rank-floor guard).",
     read: "Small p → a consistent shift away from the reference. Report with the effect size.",
   },
+  rate_glm: {
+    term: "Model counts as a rate",
+    what: "Treats the numeric column as an event count per group and estimates a rate with a count regression (a generalised linear model), rather than averaging the counts as if they were continuous measurements. Each group gets a rate with a model-derived confidence interval; a single global test asks whether the groups' rates differ.",
+    assumes: "The values are non-negative counts (events per replicate). An exposure column (below) normalises for unequal observation windows.",
+    read: "Use it when the readout is a count of events — transitions, deaths, spikes — and the groups were observed for different amounts of time/area. A small global p means at least one group's rate differs.",
+  },
+  exposure_offset: {
+    term: "Exposure",
+    what: "The amount of observation each count was collected over — hours, area, or cell-count. The rate model divides each group's counts by its total exposure (technically, adds log(exposure) as a model offset), so groups watched for longer aren't mistaken for higher-rate.",
+    read: "Pick the column holding each row's observation window. Leave it as “nothing” only when every row covers the same exposure — then the rate is simply events per row. Values must be positive.",
+  },
+  rate_model: {
+    term: "Count model",
+    what: "Which count distribution the rate GLM assumes. Poisson is the baseline (variance equals the mean); negative binomial adds a dispersion term for counts that scatter more than Poisson allows (the common case for biological counts). “Auto” fits Poisson, checks for overdispersion, and switches to negative binomial if needed.",
+    read: "Negative binomial is the safe default — it reduces to Poisson when there is no extra dispersion. Pin Poisson only when you know the counts are Poisson; use Auto to let the data decide and state which was chosen.",
+  },
   one_way_anova: {
     term: "One-way ANOVA",
     what: "The omnibus test for comparing the means of three or more independent groups at once. Answers “do any of these groups differ?” before looking at individual pairs.",
