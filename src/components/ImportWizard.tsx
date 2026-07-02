@@ -126,11 +126,14 @@ export function ImportWizard() {
       <input ref={fileRef} type="file" hidden
         accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls"
         onChange={(e) => e.target.files?.[0] && void onPick(e.target.files[0])} />
-      {file && (preview || error) && (
+      {/* Open on a preview OR an error — a pick that fails before `file` is set
+          (e.g. the upload itself throws) still has an error to show; gating on
+          `file` too left "Import data…" looking inert on that first failure. */}
+      {(preview || error) && (
         <div className="modal-overlay" onClick={close}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-head">
-              <h2>Import {file.name}</h2>
+              <h2>Import {file?.name ?? "data"}</h2>
               {preview && <span className="provenance">
                 {preview.n_rows == null ? "counting rows…" : `${preview.n_rows} rows`}
                 {" · "}{preview.columns.length} columns
