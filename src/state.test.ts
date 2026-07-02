@@ -411,7 +411,8 @@ describe("table pool atoms", () => {
   it("duplicatePlottableAtom re-keys per-layer style overrides to the fresh layer ids", () => {
     const store = createStore();
     const p = makeDefaultPlottable(SCHEMA, "cells");
-    p.layers = [{ id: "ly_a", geom: "box" }, { id: "ly_b", geom: "dot" }];
+    p.layers = [{ id: "ly_a", geom: "box", level: "__raw__" },
+                { id: "ly_b", geom: "dot", level: "__raw__" }];
     p.style = { layers: { ly_a: { fill_alpha: 0.2 }, ly_b: { dot_size: 3 } } };
     store.set(plottablesAtom, [p]);
     store.set(duplicatePlottableAtom, p.id);

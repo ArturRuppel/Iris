@@ -167,24 +167,28 @@ export default function App() {
        debounce + request window never reads as "hung" or "crashed" */
     setStatus("running");
     /* capture the target plottable at dispatch so a late-resolving result lands
-       in the plottable it was computed for, not whichever is active on return */
+       in the plottable it was computed for, not whichever is active on return.
+       The GLOBAL status/error writes are different: they describe the plot on
+       screen, so a run superseded by a plottable switch or a newer edit must
+       not touch them — its failure would show as the new plot's "Render
+       failed". `stale` flips in the cleanup the moment the deps move on. */
     const targetId = spec.id;
+    let stale = false;
     timer.current = window.setTimeout(async () => {
       try {
         const res = await engine.analyze({ token: handle.id }, spec);
-        setAnalysisResult({ id: targetId, key, res }); setRenderError(null);
-        setStatus("ok");
+        setAnalysisResult({ id: targetId, key, res });
+        if (!stale) { setRenderError(null); setStatus("ok"); }
       } catch (e) {
         const m = e instanceof Error ? e.message : String(e);
         /* a config change invalidated the plot and the recompute failed: drop
            the now-stale figure/stats for this plottable so the error shows
            instead of a figure that no longer matches the config (item 11). */
         setAnalysisById({ id: targetId, res: null });
-        setRenderError(m);
-        setStatus("error");
+        if (!stale) { setRenderError(m); setStatus("error"); }
       }
     }, 200);
-    return () => window.clearTimeout(timer.current);
+    return () => { stale = true; window.clearTimeout(timer.current); };
     // analysisKeyById is intentionally NOT a dep: the active plottable's cached
     // key only ever changes via its own render here (the background loop skips it
     // and eviction never drops it), so the short-circuit's read is always current
@@ -214,15 +218,20 @@ export default function App() {
     // ships a rightTableId the engine can't resolve.
     const steps = resolveEngineSteps(active.reduce.steps, materialized);
     const level = active.previewLevel;
+    /* the preview itself is id-routed; the global engine error is not, so a
+       stale run must not write it over a newer run's state (mirrors the
+       analyze loop above). */
+    let stale = false;
     previewTimer.current = window.setTimeout(async () => {
       try {
         const preview = await engine.reduce({ token: handle.id }, steps, hierarchy, level);
-        setReducePreviewById({ id: targetId, preview }); setError(null);
+        setReducePreviewById({ id: targetId, preview });
+        if (!stale) setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
+        if (!stale) setError(e instanceof Error ? e.message : String(e));
       }
     }, 200);
-    return () => window.clearTimeout(previewTimer.current);
+    return () => { stale = true; window.clearTimeout(previewTimer.current); };
   }, [handle?.id, handle?.version, stepsKey, activeId]);
 
   /* per-node row×col counts for the transformation explorer, fetched in one shot
