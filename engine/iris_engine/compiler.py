@@ -742,7 +742,11 @@ def _cat_levels(df, schema, cat_col):
     but no value living in the data is silently dropped from the axis — e.g.
     relaxing a filter brings rows back and they must reappear as their own box.
     Replaces stats["levels"] now that the figure is stats-independent."""
-    if not cat_col or cat_col not in df.columns:
+    if cat_col is None:
+        # Ungrouped one-sample (location): there is no grouping column, so every
+        # row forms a single synthetic "all" lane (matched in _groups / show_n).
+        return ["all"]
+    if cat_col not in df.columns:
         return []
     sch = next((c for c in schema["columns"] if c["name"] == cat_col), None)
     present = set(df[cat_col].dropna().astype(str).unique())
@@ -828,19 +832,26 @@ def _groups(level_df, layout):
         rows = level_df[mask]
         return rows[rows[val_col].notna()] if has else rows
 
+    def _lane_mask(lv):
+        # Ungrouped one-sample (location): the lone "all" lane matches every row —
+        # there is no grouping column to filter on.
+        if cat_col is None:
+            return pd.Series(True, index=level_df.index)
+        return level_df[cat_col].astype(str) == lv
+
     groups = []
     if layout["dodged"]:
         color_col, clevels, slot = layout["color_col"], layout["clevels"], layout["slot"]
         for li, lv in enumerate(layout["levels"]):
             for cj, clv in enumerate(clevels):
-                rows = _rows_for((level_df[cat_col].astype(str) == lv)
+                rows = _rows_for(_lane_mask(lv)
                                  & (level_df[color_col].astype(str) == clv))
                 pos = li + (cj - (len(clevels) - 1) / 2) * slot
                 groups.append(_group(rows, lv, pos, layout["scales"].color_for(clv),
                                      layout))
     else:
         for li, lv in enumerate(layout["levels"]):
-            rows = _rows_for(level_df[cat_col].astype(str) == lv)
+            rows = _rows_for(_lane_mask(lv))
             groups.append(_group(rows, lv, li,
                                  _group_color(layout["style"], li), layout))
     return groups
@@ -1219,8 +1230,11 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         cell = _facet_cell_df(ldf, row_col, col_col, rlevel, clevel)
                         if val_col in cell.columns:
                             cell = cell[cell[val_col].notna()]
-                        count_dicts.append(
-                            cell[cat_col].astype(str).value_counts().to_dict())
+                        if cat_col is None:      # ungrouped location: one "all" lane
+                            count_dicts.append({"all": int(len(cell))})
+                        else:
+                            count_dicts.append(
+                                cell[cat_col].astype(str).value_counts().to_dict())
                     _draw_n_labels(ax, count_dicts, levels, h, style)
                 if faceted:
                     title = _facet_title(row_col, col_col, rlevel, clevel)

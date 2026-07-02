@@ -209,6 +209,54 @@ def test_pipeline_cache_hit_still_drops_unrenderable_channels():
     assert [i["code"] for i in hit.json()["issues"]] == miss_codes
 
 
+def _ungrouped_location_spec(describe_only=False):
+    # The frontend's "descriptive mapping (only Y) + a reference" case: a one-sample
+    # location test with NO grouping column (x=None).
+    stats = {"family": "location", "reference": 70.0, "alpha": 0.05}
+    if describe_only:
+        stats["describe_only"] = True
+    return {
+        "spec_version": "2.0", "id": "an_loc", "title": "loc",
+        "encodings": {"x": None, "y": {"column": "response"},
+                      "color": None, "size": None, "shape": None},
+        "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
+        "hierarchy": {"spine": [], "fn": {}},
+        "layers": [{"geom": "dot", "level": ""},
+                   {"geom": "summary", "level": ""}],
+        "stats": stats,
+        "style": {"preset": "demo_default", "overrides": {"show_n": True}},
+        "engine_snapshot": {},
+    }
+
+
+def test_ungrouped_location_renders():
+    # §1.5: the ungrouped one-sample location test used to 422 in render (cat_col
+    # None -> "grouping column None not found") and, once past that, KeyError in the
+    # compiler. It must now render as a single "all" lane with a real test result.
+    r = client.post("/analyze", json={"table": make_table(),
+                                      "spec": _ungrouped_location_spec()})
+    assert r.status_code == 200                       # was 422 before the fix
+    s = r.json()["stats"]
+    assert s["family"] == "location"
+    assert s["levels"] == ["all"]                     # single synthetic lane
+    per = {g["level"]: g for g in s["per_group"]}
+    assert "all" in per and per["all"]["test"] in ("one_sample_t", "wilcoxon_signed")
+    assert "svg" in r.json()["figure"]                # figure drew without crashing
+
+
+def test_ungrouped_location_describe_only_renders():
+    # The describe-only sub-path routes through describe_groups, which also assumed
+    # a grouping column (df[[None, y]] -> KeyError). It must summarize the lone
+    # "all" group instead.
+    r = client.post("/analyze", json={
+        "table": make_table(), "spec": _ungrouped_location_spec(describe_only=True)})
+    assert r.status_code == 200
+    s = r.json()["stats"]
+    assert s["chosen_by"] == "describe_only"
+    assert [g["group"] for g in s["summaries"]] == ["all"]
+    assert s["summaries"][0]["n"] == 40               # all rows, ungrouped
+
+
 def test_filter_on_flag_drops_rows():
     # The replacement for the removed exclusion mechanism: flag rows in a bool
     # column and drop them with a normal filter reduce step.

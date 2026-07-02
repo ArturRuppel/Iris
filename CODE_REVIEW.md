@@ -60,8 +60,10 @@ The cache key strips only `style`, but guards mutate the spec in place (`drop_un
 
 **Fix:** run the spec-mutating guards before the cache lookup, or store the mutated spec in the cached payload.
 
-### 1.5 The ungrouped one-sample ("location") analysis can never render
-`engine/iris_engine/render.py:135-137` — verified in code.
+### 1.5 The ungrouped one-sample ("location") analysis can never render — ✅ FIXED (2026-07-02)
+`engine/iris_engine/render.py:135-137` — **reproduced by execution.**
+
+> **Resolved:** the fix runs deeper than the schema guard. (1) `render.py` now lets `cat_col=None` through the group-family branch for `family == "location"` (a named-but-missing column is still an error), and guards the later `levels = cat_schema.get(...)` against a `None` schema. (2) The compiler assumed a grouping column throughout: `_cat_levels` now returns a single synthetic `["all"]` lane when `cat_col is None`, `_groups` matches every row for that lane, and the `show_n` path counts it as one `"all"` group. (3) `stats.describe_groups` mirrored `stats.location`'s missing `x=None` branch, so the describe-only sub-path (e.g. a faceted ungrouped location) no longer `KeyError`s on `df[[None, y]]`. Reproduction (only Y mapped + `reference=70`) went from **422** ("grouping column None not found") to a 200 that draws one lane, runs the one-sample test, and returns an SVG. Regression tests added (`test_ungrouped_location_renders`, `test_ungrouped_location_describe_only_renders`); full engine suite green (503 passed).
 
 `stats.location` (`stats.py:565`, `x: str | None`) and `statmodel.infer` (`statmodel.py:88-89`) both support a location test with no grouping column, and the frontend offers it (`channels.ts:97-108`: descriptive mapping + reference ⇒ `location`). But the shared group-family branch does `cat_schema = next(...)` on `cat_col=None` and raises `RenderError("grouping column None not found in schema")`. Every only-Y-plus-reference spec 422s. No test covers the ungrouped case.
 
@@ -202,5 +204,5 @@ Findings:
 
 1. ~~**§1.1 importer decimal sniffing**~~ (✅ fixed) and ~~**§1.2 quantile-NaN filter**~~ (✅ fixed) — the two bugs that can silently change published numbers.
 2. ~~**§1.3 role-change schema drift**~~ (✅ fixed) — frontend and engine can disagree about which test ran.
-3. ~~**§1.4 cache-hit guard skip**~~ (✅ fixed) and **§1.5 ungrouped location** — user-visible breakage on supported paths.
+3. ~~**§1.4 cache-hit guard skip**~~ (✅ fixed) and ~~**§1.5 ungrouped location**~~ (✅ fixed) — user-visible breakage on supported paths.
 4. §2 items, then the dead-code sweep (§5) — most of it is mechanical deletion with test cover already green.

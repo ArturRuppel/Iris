@@ -902,13 +902,22 @@ def describe_groups(df: pd.DataFrame, x: str, y: str, levels: list[str],
     """Per-group summaries for the comparison figure with NO inferential test —
     the 'describe only' path. Matches group_comparison's summaries shape so the
     figure (dots, box, bar, mean ± error) renders, but reports no p/effect."""
-    sub = df[[x, y]].dropna()
-    found = [lv for lv in levels if lv in set(sub[x])]
-    found += sorted(set(sub[x]) - set(levels))
-    summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
-                 for lv in found]
-    methods = (f"{y} was summarized by {x} across {len(found)} group(s); "
-               f"no statistical test was run (describe only).")
+    # x=None is the ungrouped one-sample (location) case: all rows form one "all"
+    # group, mirroring location()'s own x=None handling.
+    if x:
+        sub = df[[x, y]].dropna()
+        found = [lv for lv in levels if lv in set(sub[x])]
+        found += sorted(set(sub[x]) - set(levels))
+        summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
+                     for lv in found]
+        methods = (f"{y} was summarized by {x} across {len(found)} group(s); "
+                   f"no statistical test was run (describe only).")
+    else:
+        sub = df[[y]].dropna()
+        found = ["all"]
+        summaries = [_summary("all", sub[y].to_numpy(dtype=float))]
+        methods = (f"{y} was summarized ({int(len(sub))} observation(s)); "
+                   f"no statistical test was run (describe only).")
     return {
         "levels": found, "checks": [],
         "recommendation": {"test": "none", "reason": "describe only — no test was run"},

@@ -133,7 +133,12 @@ def render(table: dict, spec: dict, *, memo=None):
         else:
             cat_col, val_col = enc_x, enc_y   # vertical: x groups, y measures
         cat_schema = next((c for c in schema["columns"] if c["name"] == cat_col), None)
-        if cat_schema is None:
+        # The ungrouped one-sample location test (only Y mapped, tested against a
+        # reference) has no grouping column: stats.location handles cat_col=None as
+        # a single "all" group. Every other family in this shared branch needs a
+        # grouping column, and a column that was named but isn't in the schema is
+        # always an error.
+        if cat_schema is None and not (family == "location" and cat_col is None):
             raise RenderError(f"grouping column {cat_col!r} not found in schema")
         # Materialize one table per hierarchy level. The grain always retains the
         # columns this figure splits by (x grouping, colour, facets) so a coarse
@@ -203,7 +208,7 @@ def render(table: dict, spec: dict, *, memo=None):
                 grains[test_grain] = (stat_df, stat_schema)
         cat_schema = next((c for c in stat_schema["columns"] if c["name"] == cat_col),
                           cat_schema)
-        levels = cat_schema.get("levels", [])
+        levels = cat_schema.get("levels", []) if cat_schema else []
         if describe_only:
             # faceted / describe-only: no inferential test, for either family.
             res = memo(lambda: stats.describe_groups(
