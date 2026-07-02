@@ -83,7 +83,6 @@ putting it in front of the researchers it's for.
   reusable sheet and apply it across plots/files
   (`docs/superpowers/specs/2026-06-17-rationalize-plot-style-design.md`,
   `…-style-sheets-design.md`).
-- **Autosave / crash recovery** — continuous local snapshots beside the `.iris`.
 
 **Rigor & verification**
 - **Real-world testing.** Hand it to the colleagues it's for and treat their

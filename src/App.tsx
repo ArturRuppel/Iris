@@ -21,9 +21,10 @@ import {
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
   tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
   resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
+  autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
-import type { NodeShape } from "./types";
+import type { AutosaveStatus, NodeShape } from "./types";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
@@ -106,9 +107,102 @@ export default function App() {
     if (didInit.current) return;
     didInit.current = true;
     engine.waitForHealth()
-      .then((h) => { setSnapshot(h.engine_snapshot); setRegistry(h.registry); setStyleRegistry(h.style_registry ?? []); setEngineUp(true); })
+      .then((h) => {
+        setSnapshot(h.engine_snapshot); setRegistry(h.registry);
+        setStyleRegistry(h.style_registry ?? []); setEngineUp(true);
+        /* a populated autosave slot means a previous session ended with
+           unsaved work (explicit Save clears it) — surface the restore offer.
+           A failed status check is not worth blocking startup over. */
+        engine.autosaveStatus()
+          .then((s) => { if (s.exists) setRecovery(s); })
+          .catch(() => {});
+      })
       .catch(() => setEngineUp(false));
   }, []);
+
+  /* ---- autosave / crash recovery (design: docs/superpowers/specs/
+     2026-07-02-autosave-crash-recovery-design.md). The engine owns the on-disk
+     snapshot slot; this loop refreshes it while the semantic state key differs
+     from the baseline captured at load / explicit save — i.e. only while there
+     is real unsaved work. */
+  const pool = useAtomValue(tablesAtom);
+  const autosaveKey = useAtomValue(autosaveKeyAtom);
+  const [autosaveBaseline, setAutosaveBaseline] = useAtom(autosaveBaselineAtom);
+  const [recovery, setRecovery] = useState<AutosaveStatus | null>(null);
+  /* the offer only shows (and only blocks autosave) while the workspace is
+     still empty: if the user ignores it and imports/loads instead, the banner
+     yields and the new session's autosaves may overwrite the single slot. */
+  const recoveryPending = recovery !== null && pool.length === 0;
+  const autosaveTimer = useRef<number>();
+  const autosaveInFlight = useRef<Promise<unknown> | null>(null);
+  const pushAutosave = (keepalive: boolean) => {
+    const tables = saveTablesFor(store.get(plottablesAtom), store.get(tablesAtom));
+    // no referenced tables ⇒ nothing restorable (mirrors doSave's guard)
+    if (tables.length === 0) return Promise.resolve();
+    const p = engine.autosaveSnapshot(
+      tables,
+      store.get(allSaveSpecsAtom),
+      store.get(dataFingerprintAtom),
+      { keepalive },
+    ).catch((e) => console.warn("autosave failed:", e));
+    autosaveInFlight.current = p;
+    return p;
+  };
+  useEffect(() => {
+    if (engineUp !== true || recoveryPending) return;
+    if (autosaveKey === autosaveBaseline || pool.length === 0) return;
+    autosaveTimer.current = window.setTimeout(() => void pushAutosave(false), 1500);
+    return () => window.clearTimeout(autosaveTimer.current);
+  }, [autosaveKey, autosaveBaseline, engineUp, recoveryPending, pool.length === 0]);
+  /* the debounce loses the last ~1.5 s on an accidental tab close — flush on
+     pagehide / tab-hide with a keepalive request (the snapshot endpoint is
+     preflight-free, so it can complete during teardown). Registered once; the
+     ref keeps the guards reading live state. */
+  const autosaveFlushRef = useRef<() => void>(() => {});
+  autosaveFlushRef.current = () => {
+    if (engineUp !== true || recoveryPending) return;
+    if (autosaveKey === autosaveBaseline || pool.length === 0) return;
+    window.clearTimeout(autosaveTimer.current);
+    void pushAutosave(true);
+  };
+  useEffect(() => {
+    const flush = () => autosaveFlushRef.current();
+    const onVisibility = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+  /* an explicit Save supersedes the snapshot: cancel the pending debounce,
+     let an in-flight snapshot land (so the clear below can't lose the race),
+     rebaseline, then empty the slot. */
+  const markSaved = async () => {
+    window.clearTimeout(autosaveTimer.current);
+    await autosaveInFlight.current;
+    setAutosaveBaseline(store.get(autosaveKeyAtom));
+    await engine.autosaveClear().catch(() => {});
+  };
+  const doRestore = async () => {
+    try {
+      const doc = await engine.autosaveRestore();
+      await loadDocument({
+        manifest: doc.manifest,
+        analyses: doc.analyses.map(migrateSpec),
+        provenance: doc.provenance,
+        tables: doc.tables,
+        keepDirty: true,      // recovered work still has no explicit save
+      });
+      fileHandleRef.current = null;   // no bound file: next Save prompts
+      setViewMode(doc.analyses.length ? "workbench" : "data");
+    } catch (e) { surfaceUnlessAbort(e); }
+    setRecovery(null);
+  };
+  const doDiscard = () => {
+    setRecovery(null);
+    void engine.autosaveClear().catch(() => {});
+  };
 
   /* The X/Y pickers (now in the Encoding card) offer only the columns that
      SURVIVE the reduction; the post-reduction schema lives in effectiveSchemaAtom.
@@ -399,6 +493,7 @@ export default function App() {
   const downloadIris = async () => {
     const f = await saveDoc();
     downloadBase64("document.iris", f.data_base64);
+    await markSaved();
   };
   // Guard the shipped examples: overwriting one makes the Examples gallery
   // documentation no longer match the file it links to. True when the target is
@@ -426,6 +521,7 @@ export default function App() {
       if (clobbersExample(fh)) return;
       await writeIris(fh);
       fileHandleRef.current = { fh, tableId: docId };
+      await markSaved();
     } catch (e) { surfaceUnlessAbort(e); }
   };
   const doSaveAs = async () => {
@@ -437,6 +533,7 @@ export default function App() {
       if (clobbersExample(fh)) return;
       await writeIris(fh);
       fileHandleRef.current = { fh, tableId: docId };   // later Save writes back here
+      await markSaved();
     } catch (e) { surfaceUnlessAbort(e); }
   };
   const doLoad = async () => {
@@ -524,6 +621,18 @@ export default function App() {
           <button onClick={doSaveAs}>Save As…</button>
         </div>
       </header>
+      {recoveryPending && recovery && (
+        <div className="recovery-bar">
+          <span>
+            Unsaved work from a previous session
+            {recovery.written ? ` (${new Date(recovery.written).toLocaleString()})` : ""}
+            {" — "}{recovery.n_analyses} {recovery.n_analyses === 1 ? "analysis" : "analyses"}
+            {recovery.tables.length ? ` on ${recovery.tables.join(", ")}` : ""}. Restore it?
+          </span>
+          <button className="primary" onClick={doRestore}>Restore</button>
+          <button onClick={doDiscard}>Discard</button>
+        </div>
+      )}
       {error ? <div className="error-bar">{error}</div>
         : mappingError ? <div className="error-bar warn-bar">{mappingError}</div>
         : renderError ? <div className="error-bar">{renderError}</div>

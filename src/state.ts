@@ -1,5 +1,6 @@
-import { atom, type Getter } from "jotai";
+import { atom, type Getter, type Setter } from "jotai";
 import { atomWithStorage } from "jotai/utils";
+import { dataFingerprint, snapshotStateKey } from "./autosave";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableHandle, TestName, ReduceSpec,
@@ -707,13 +708,35 @@ export interface LoadedDoc {
   analyses: AnalysisSpec[];                 // already migrated to the current spec
   provenance?: Record<string, unknown> | null;
   tables: LoadedTable[];                    // the full pool the engine rebuilt
+  /* autosave: a restore-from-snapshot loads through this same atom but the
+     recovered work still has no explicit save — keep it counting as unsaved
+     (skip the baseline capture below) so autosaving resumes immediately. */
+  keepDirty?: boolean;
 }
+
+/* ---- autosave dirtiness (see autosave.ts for the key semantics) ----
+   The baseline is the state key at the last moment everything was persisted:
+   app start (empty workspace), a document load, an explicit Save. The autosave
+   loop in App runs only while the live key differs from it. */
+export const autosaveBaselineAtom = atom<string>(snapshotStateKey([], []));
+export const autosaveKeyAtom = atom((get) =>
+  snapshotStateKey(get(plottablesAtom), get(tablesAtom)));
+export const dataFingerprintAtom = atom((get) => dataFingerprint(get(tablesAtom)));
 
 /* swap in a loaded .iris: like loadTableAtom but rebuilds the FULL table pool from
    the doc's `tables[]`, then restores the saved analyses (rebuilt as editable
    plottables, each bound to its saved `table_id` and joining by reference) instead
    of starting blank. */
 export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
+  applyLoadedDoc(get, set, doc);
+  /* a freshly loaded document IS the persisted state — nothing to autosave
+     until the user edits. Captured after the body so every exit path (empty
+     doc, no analyses, full restore) rebaselines consistently. */
+  if (!doc.keepDirty)
+    set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom)));
+});
+
+function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
   // Load REPLACES the workspace: clear the pool + materialized cache first so a
   // prior import/load leaves no orphan tables and no stale rows (spec §6.2 — one
   // in-memory shape after load). loadTableAtom accumulates; loadDocument does not.
@@ -780,7 +803,7 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   }
   set(plottablesAtom, restored);
   set(activePlottableIdAtom, restored[0].id);
-});
+}
 
 /* Pure builder: a plottable + its derived stats family + (optional) recommended
    test + engine snapshot → an analysis spec. `family` is derived by the caller
