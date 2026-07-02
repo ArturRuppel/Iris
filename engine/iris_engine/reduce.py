@@ -76,7 +76,11 @@ def _eval_bound(node, df: pd.DataFrame):
             p = _eval_bound(node.args[1], df)
             if not isinstance(p, (int, float)):
                 raise ReduceError("filter bound: quantile p must be a constant")
-            return float(np.percentile(np.asarray(series, dtype=float), p * 100.0))
+            arr = np.asarray(series, dtype=float)
+            if not np.isfinite(arr).any():
+                raise ReduceError(
+                    "filter bound: quantile of an all-missing column is undefined")
+            return float(np.nanpercentile(arr, p * 100.0))
     raise ReduceError("filter bound: unsupported expression")
 
 
@@ -88,7 +92,10 @@ def _eval_bound_scalar(expr: str, df: pd.DataFrame) -> float:
     value = _eval_bound(tree, df)
     if hasattr(value, "__len__") or hasattr(value, "shape"):
         raise ReduceError(f"filter bound {expr!r} did not reduce to a scalar")
-    return float(value)
+    scalar = float(value)
+    if not np.isfinite(scalar):
+        raise ReduceError(f"filter bound {expr!r} realized to a non-finite value")
+    return scalar
 
 
 def _apply_filter(df: pd.DataFrame, schema: dict,

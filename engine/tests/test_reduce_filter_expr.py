@@ -66,6 +66,29 @@ def test_unsupported_bound_expr_raises():
             {"column": "value", "op": "<=", "bound": "median(value)"}]}])
 
 
+def test_quantile_bound_ignores_nans():
+    # a routine NaN in the measurement column must not collapse the filter to
+    # zero rows: np.percentile propagates NaN, np.nanpercentile does not.
+    df = frame()
+    df.loc[df["id"] == "r50", "value"] = np.nan
+    expected_bound = float(np.nanpercentile(np.abs(df["value"].to_numpy()), 99))
+    keep = df[np.abs(df["value"]) <= expected_bound]["id"].tolist()
+
+    out, _ = rd.apply_reduction(
+        df, SCHEMA, [{"kind": "filter", "conditions": [_cond_bound()]}])
+    assert out["id"].tolist() == keep
+    assert len(out) > 0  # the pre-fix bug kept 0 rows
+    assert "r100" not in out["id"].tolist()  # the outlier is still clipped
+
+
+def test_quantile_bound_all_missing_raises():
+    df = frame()
+    df["value"] = np.nan
+    with pytest.raises(rd.ReduceError):
+        rd.apply_reduction(
+            df, SCHEMA, [{"kind": "filter", "conditions": [_cond_bound()]}])
+
+
 def test_static_value_condition_unchanged():
     df = frame()
     out, _ = rd.apply_reduction(df, SCHEMA, [{"kind": "filter", "conditions": [
