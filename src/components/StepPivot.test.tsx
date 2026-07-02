@@ -13,7 +13,7 @@ const cols: ColumnDef[] = [
 
 const baseStep = (): PivotStep => ({
   kind: "pivot", index: ["cell"], column: "cond", values: "val",
-  agg: "sum", fill: 0, names: {},
+  agg: "sum", fill: 0, names: [],
 });
 
 it("(a) emits the next step when the pivot column changes", () => {
@@ -60,6 +60,15 @@ it("(d2) index toggles stay in column order regardless of click order", () => {
   fireEvent.click(screen.getByLabelText(/^cell$/i));
   step = spy.mock.calls[spy.mock.calls.length - 1][0];
   expect(step.index).toEqual(["cell", "batch"]);
+});
+
+it("(f) two blank relabel rows coexist — names is an array, not a collapsing dict (§2)", () => {
+  const spy = vi.fn();
+  const step: PivotStep = { ...baseStep(), names: [["", ""]] };
+  render(<StepPivot step={step} columns={cols} onChange={spy} />);
+  fireEvent.click(screen.getByRole("button", { name: /\+ relabel/i }));
+  expect(spy).toHaveBeenCalledWith(
+    expect.objectContaining({ names: [["", ""], ["", ""]] }));
 });
 
 it("(e) shows sum as static text, not an editable control", () => {

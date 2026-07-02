@@ -5,9 +5,11 @@ export function StepRecode(
   { step, columns, onChange }:
   { step: RecodeStep; columns: ColumnDef[]; onChange: (s: RecodeStep) => void },
 ) {
-  const entries = Object.entries(step.map);
-  const emit = (next: [string, string][]) =>
-    onChange({ ...step, map: Object.fromEntries(next) });
+  // `map` is an ordered [from,to] array (not a dict): two empty rows, or a `from`
+  // typed through a value that momentarily equals another row's, must not collapse
+  // or merge. The engine coerces it to a dict (drops empties, later-pair-wins).
+  const entries = step.map;
+  const emit = (next: [string, string][]) => onChange({ ...step, map: next });
   const setFrom = (i: number, from: string) =>
     emit(entries.map((e, j) => (j === i ? [from, e[1]] : e)));
   const setTo = (i: number, to: string) =>

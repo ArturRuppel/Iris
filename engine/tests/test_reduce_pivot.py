@@ -23,6 +23,18 @@ def piv(index, column, values, names):
             "values": values, "agg": "sum", "fill": 0, "names": names}
 
 
+def test_pivot_accepts_names_as_pairs_array():
+    # §2: the editor sends `names` as an ordered [from, to] array; the engine
+    # coerces it to a dict (empty-`from` rows dropped) just like recode's map.
+    out, _ = rd.apply_reduction(
+        frame(), SCHEMA,
+        [piv(["cell"], "opp", "n", [[0, "s"], [1, "o"], ["", ""]])])
+    by_cell = out.set_index("cell")
+    assert list(out.columns) >= ["cell"]
+    assert by_cell.loc["c1", "s"] == 7 and by_cell.loc["c1", "o"] == 5
+    assert by_cell.loc["c2", "o"] == 0
+
+
 def test_pivot_unstacks_opp_into_s_and_o_columns():
     out, schema = rd.apply_reduction(
         frame(), SCHEMA,

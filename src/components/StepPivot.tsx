@@ -11,9 +11,10 @@ export function StepPivot(
     next.has(name) ? next.delete(name) : next.add(name);
     onChange({ ...step, index: columns.map((c) => c.name).filter((n) => next.has(n)) });
   };
-  const entries = Object.entries(step.names);
-  const emitNames = (next: [string, string][]) =>
-    onChange({ ...step, names: Object.fromEntries(next) });
+  // `names` is an ordered [from,to] array (not a dict) for the same reason as
+  // RecodeStep.map: transient empty/duplicate `from` keys must survive editing.
+  const entries = step.names;
+  const emitNames = (next: [string, string][]) => onChange({ ...step, names: next });
   const setFrom = (i: number, from: string) =>
     emitNames(entries.map((e, j) => (j === i ? [from, e[1]] : e)));
   const setTo = (i: number, to: string) =>

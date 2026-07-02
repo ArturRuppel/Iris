@@ -147,7 +147,7 @@ function stepEdgeLabel(step: ReduceStep, schema: Schema | null): string {
     case "join":
       return `on ${step.on.join(", ")}`;
     case "pivot":
-      return `${labelForCol(schema, step.column)} → {${Object.values(step.names).join(", ")}}`;
+      return `${labelForCol(schema, step.column)} → {${step.names.map(([, to]) => to).join(", ")}}`;
     case "grid_complete":
       return `${step.by.map((c) => labelForCol(schema, c)).join(" × ")} × ` +
              `${labelForCol(schema, step.column)} · fill ${step.fill}`;

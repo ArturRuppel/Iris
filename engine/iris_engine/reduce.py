@@ -235,10 +235,29 @@ def _apply_derive(df: pd.DataFrame, schema: dict,
     return out, {**schema, "columns": new_cols}
 
 
+def _to_mapping(m) -> dict:
+    """Coerce a from→to relabel map to a dict. The editor stores it as an ordered
+    list of ``[from, to]`` pairs — an array tolerates the transient empty/duplicate
+    keys a dict would silently collapse (the §2 duplicate-key fix); a dict (older
+    specs, validation cases) is returned as-is. Empty/None `from` rows are dropped;
+    on a duplicate `from`, the later pair wins."""
+    if isinstance(m, dict):
+        return m
+    out: dict = {}
+    for pair in (m or []):
+        if not pair:
+            continue
+        frm = pair[0]
+        if frm is None or frm == "":
+            continue
+        out[frm] = pair[1] if len(pair) > 1 else ""
+    return out
+
+
 def _apply_recode(df: pd.DataFrame, schema: dict,
                   step: dict) -> tuple[pd.DataFrame, dict]:
     col = step.get("column")
-    mapping = step.get("map") or {}
+    mapping = _to_mapping(step.get("map"))
     if not col:
         raise ReduceError("recode needs a `column`")
     if col not in df:
@@ -321,7 +340,7 @@ def _apply_pivot(df: pd.DataFrame, schema: dict,
     values = step.get("values")
     agg = step.get("agg", "sum")
     fill = step.get("fill", 0)
-    names = step.get("names") or {}
+    names = _to_mapping(step.get("names"))
     if not index:
         raise ReduceError("pivot needs `index` key(s)")
     if not column:
@@ -483,7 +502,7 @@ def project_schema(schema: dict, steps: list[dict] | None) -> dict:
             consumed = {step.get("column"), step.get("values")}
             cols = [c for c in cols if c["name"] not in consumed]
             cols += [{"name": v, "type": "numeric", "label": v}
-                     for v in (step.get("names") or {}).values()]
+                     for v in _to_mapping(step.get("names")).values()]
         elif kind == "grid_complete":
             by = set(step.get("by") or [])
             column, count_name = step.get("column"), step.get("count_name", "count")

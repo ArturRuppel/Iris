@@ -235,8 +235,11 @@ export interface FilterStep { kind: "filter"; conditions: FilterCond[]; _key?: s
 /* derive a new (or overwritten) numeric column from a row-wise scalar expr
    over existing columns: "log(value)", "perimeter / sqrt(area)". Raw-grain. */
 export interface DeriveStep { kind: "derive"; column: string; expr: string; _key?: string }
-/* relabel a categorical column's values (level -> level); unmapped pass through. */
-export interface RecodeStep { kind: "recode"; column: string; map: Record<string, string>; _key?: string }
+/* relabel a categorical column's values (level -> level); unmapped pass through.
+   `map` is an ordered list of [from, to] pairs, NOT a dict: an array survives the
+   transient empty / duplicate `from` keys a dict silently collapses while editing
+   (the engine coerces it to a dict, dropping empties, later-pair-wins). */
+export interface RecodeStep { kind: "recode"; column: string; map: Array<[string, string]>; _key?: string }
 /* inner, spine-aligned, coarse->fine broadcast join. The right side is a pool
    table referenced by id; it is resolved to an inline table at the engine
    boundary (see state.resolveEngineSteps). */
@@ -251,10 +254,11 @@ export type EngineReduceStep = Exclude<ReduceStep, JoinStep> | EngineJoinStep;
 export interface EngineReduceSpec { steps: EngineReduceStep[]; post?: EngineReduceStep[] }
 /* unstack one categorical `column` (long -> wide): one numeric column per level,
    each cell an internal aggregate (sum) of `values` over the `index` keys, absent
-   combinations 0-filled. `names` maps each level to its new column name. */
+   combinations 0-filled. `names` maps each level to its new column name — an ordered
+   list of [from, to] pairs, like RecodeStep.map, for the same duplicate-key reason. */
 export interface PivotStep {
   kind: "pivot"; index: string[]; column: string; values: string;
-  agg: "sum"; fill: number; names: Record<string, string>; _key?: string;
+  agg: "sum"; fill: number; names: Array<[string, string]>; _key?: string;
 }
 /* cross-join observed `by` id tuples with a fixed `levels` list, left-join a
    per-cell count (optionally over distinct `count_unique`), fill absent = real 0;

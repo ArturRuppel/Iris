@@ -615,6 +615,13 @@ export const loadTableAtom = atom(null, async (get, set,
    carries everything the Plottable needs except previewLevel (a transient UI
    preview state), which resets to raw. Geom knobs live in style.overrides.geoms
    (the canonical location the engine compiler reads), never on the layer. */
+/* A recode/pivot relabel map is an ordered [from,to] array in memory (types.ts),
+   but older saved specs stored it as a dict. Accept either shape on load. */
+const toPairs = (
+  m: Array<[string, string]> | Record<string, string> | undefined,
+): Array<[string, string]> =>
+  Array.isArray(m) ? m : Object.entries(m ?? {});
+
 export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   const s = spec.stats;
   const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
@@ -652,11 +659,16 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     /* a saved join step REFERENCES its right pool table by id (right_table_id),
        adopted straight into the internal rightTableId; an absent id starts "" (an
        unfilled or hand-edited join). Key every step for React. */
-    reduce: { steps: (spec.reduce?.steps ?? []).map((s) =>
-      s.kind === "join"
-        ? { kind: "join" as const, on: s.on, how: s.how,
-            rightTableId: (s as { right_table_id?: string }).right_table_id ?? "", _key: nextStepKey() }
-        : { ...s, _key: nextStepKey() }) },
+    reduce: { steps: (spec.reduce?.steps ?? []).map((s) => {
+      if (s.kind === "join")
+        return { kind: "join" as const, on: s.on, how: s.how,
+          rightTableId: (s as { right_table_id?: string }).right_table_id ?? "", _key: nextStepKey() };
+      if (s.kind === "recode")
+        return { ...s, map: toPairs(s.map), _key: nextStepKey() };
+      if (s.kind === "pivot")
+        return { ...s, names: toPairs(s.names), _key: nextStepKey() };
+      return { ...s, _key: nextStepKey() };
+    }) },
     collapse: spec.collapse,
     testGrain: spec.test_grain,
   };
@@ -930,9 +942,9 @@ export function makeStep(kind: ReduceStepKind): ReduceStep {
     case "drop": return { _key, kind, columns: [] };
     case "filter": return { _key, kind, conditions: [] };
     case "derive": return { _key, kind, column: "", expr: "" };
-    case "recode": return { _key, kind, column: "", map: {} };
+    case "recode": return { _key, kind, column: "", map: [] };
     case "pivot":
-      return { _key, kind, index: [], column: "", values: "", agg: "sum", fill: 0, names: {} };
+      return { _key, kind, index: [], column: "", values: "", agg: "sum", fill: 0, names: [] };
     case "grid_complete":
       return { _key, kind, by: [], column: "", levels: [],
         count_unique: null, fill: 0, count_name: "n" };

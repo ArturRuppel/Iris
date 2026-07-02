@@ -566,9 +566,9 @@ describe("makeStep — valid blanks for every reduce kind", () => {
     expect(makeStep("drop")).toMatchObject({ kind: "drop", columns: [] });
     expect(makeStep("filter")).toMatchObject({ kind: "filter", conditions: [] });
     expect(makeStep("derive")).toMatchObject({ kind: "derive", column: "", expr: "" });
-    expect(makeStep("recode")).toMatchObject({ kind: "recode", column: "", map: {} });
+    expect(makeStep("recode")).toMatchObject({ kind: "recode", column: "", map: [] });
     expect(makeStep("pivot")).toMatchObject({
-      kind: "pivot", index: [], column: "", values: "", agg: "sum", fill: 0, names: {},
+      kind: "pivot", index: [], column: "", values: "", agg: "sum", fill: 0, names: [],
     });
     expect(makeStep("grid_complete")).toMatchObject({
       kind: "grid_complete", by: [], column: "", levels: [],

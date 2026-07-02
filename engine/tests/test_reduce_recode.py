@@ -51,6 +51,21 @@ def test_recode_empty_map_is_noop():
     assert col["levels"] == ["negative", "positive", "other"]
 
 
+def test_recode_accepts_pairs_array_dropping_empties_last_wins():
+    # §2: the editor sends `map` as an ordered [from, to] array (a dict would
+    # collapse the transient empty/duplicate keys). The engine coerces it —
+    # dropping empty-`from` rows, later pair wins on a duplicate.
+    out, _ = rd.apply_reduction(frame(), SCHEMA, [recode("class_label", [
+        ["negative", "STALE"], ["negative", "VimentinKO"],   # dup: later wins
+        ["positive", "NLS-mCherry"], ["", ""]])])            # empty from: dropped
+    assert out["class_label"].tolist() == ["VimentinKO", "NLS-mCherry", "other"]
+
+
+def test_recode_empty_pairs_array_is_noop():
+    out, _ = rd.apply_reduction(frame(), SCHEMA, [recode("class_label", [])])
+    assert out["class_label"].tolist() == ["negative", "positive", "other"]
+
+
 def test_recode_non_categorical_relabels_values_but_leaves_schema_untouched():
     out, schema = rd.apply_reduction(frame(), SCHEMA, [recode("value", {1.0: 99.0})])
     assert out["value"].tolist() == [99.0, 2.0, 3.0]

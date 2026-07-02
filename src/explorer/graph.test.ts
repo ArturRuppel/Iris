@@ -148,7 +148,7 @@ describe("buildGraph", () => {
   it("derive and recode are linear single-edge steps", () => {
     const steps: ReduceStep[] = [
       { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
-      { kind: "recode", column: "class_label", map: { negative: "VimentinKO" } },
+      { kind: "recode", column: "class_label", map: [["negative", "VimentinKO"]] },
     ];
     const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const kinds = g.edges.filter((e) => e.kind === "derive" || e.kind === "recode")
@@ -159,7 +159,7 @@ describe("buildGraph", () => {
   it("pivot and grid_complete are linear single-edge steps", () => {
     const steps: ReduceStep[] = [
       { kind: "pivot", index: ["cell"], column: "opp", values: "n",
-        agg: "sum", fill: 0, names: { s: "same", o: "opp" } },
+        agg: "sum", fill: 0, names: [["s", "same"], ["o", "opp"]] },
       { kind: "grid_complete", by: ["experiment"], column: "tt",
         levels: ["a", "b"], fill: 0, count_name: "count" },
     ];
