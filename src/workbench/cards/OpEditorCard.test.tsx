@@ -77,3 +77,23 @@ describe("OpEditorCard", () => {
       .toMatch(/no longer in the pipeline/i);
   });
 });
+
+describe("post-collapse edges", () => {
+  it("shows the honest not-editable-yet stub, not the stale-step notice", () => {
+    const { store, plottable } = seedStore();
+    store.set(activePlottableAtom, {
+      ...plottable,
+      reduce: { steps: [],
+                post: [{ kind: "derive", _key: "k9", column: "q", expr: "a/b" }] },
+    });
+    const graph = store.get(explorerGraphAtom)!;
+    const edge = graph.edges.find((e) => e.toId === "post:0")!;
+    render(
+      <Provider store={store}>
+        <OpEditorCard target={{ kind: "edge", id: edge.id }} />
+      </Provider>,
+    );
+    expect(screen.getByTestId("op-editor-card").textContent)
+      .toMatch(/post-aggregate steps aren’t editable here yet/i);
+  });
+});

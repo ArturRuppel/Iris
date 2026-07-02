@@ -15,7 +15,7 @@ import {
   tablesNeedingMaterialize,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
-  addPlottableAtom, loadDocumentAtom,
+  addPlottableAtom, duplicatePlottableAtom, loadDocumentAtom,
   undoSpecAtom, redoSpecAtom, specHistoryAtom, specRedoAtom, clearSpecHistoryAtom,
 } from "./state";
 import type { ReduceStep, Table } from "./types";
@@ -104,6 +104,44 @@ describe("location (vs-reference) family round-trips through save/load", () => {
     const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY, {});
     expect(resaved.stats.family).toBe("location");
     expect(resaved.stats.reference).toBe(0);
+  });
+});
+
+describe("post-collapse reduce phase (reduce.post) round-trips", () => {
+  const postSpec = (): AnalysisSpec => ({
+    ...makeSpec("pp"),
+    reduce: {
+      steps: [{ kind: "drop", columns: ["grp"] }],
+      post: [{ kind: "derive", column: "ratio", expr: "val / 2" }],
+    },
+  });
+
+  it("plottableFromSpec keeps the post phase (keyed like main steps)", () => {
+    const p = plottableFromSpec(postSpec());
+    expect(p.reduce.post).toHaveLength(1);
+    expect(p.reduce.post![0]).toMatchObject({ kind: "derive", column: "ratio" });
+    expect((p.reduce.post![0] as { _key?: string })._key).toBeTruthy();
+    // a spec without post stays post-free (no empty array noise)
+    expect(plottableFromSpec(makeSpec("np")).reduce.post).toBeUndefined();
+  });
+
+  it("buildSpec and specForSave re-emit the post phase without keys", () => {
+    const p = plottableFromSpec(postSpec());
+    for (const build of [buildSpec, specForSave]) {
+      const out = build(p, "descriptive", undefined, {}, EMPTY_HIERARCHY, {});
+      expect(out.reduce.post).toEqual([{ kind: "derive", column: "ratio", expr: "val / 2" }]);
+    }
+  });
+
+  it("editing a main step through the CRUD atoms leaves the post phase intact", () => {
+    const store = createStore();
+    const p = plottableFromSpec(postSpec());
+    store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    store.set(updateStepAtom, { index: 0, step: { kind: "drop", columns: ["val"] } });
+    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
+    store.set(removeStepAtom, 1);
+    const after = store.get(activePlottableAtom)!;
+    expect(after.reduce.post).toHaveLength(1);
   });
 });
 
@@ -406,6 +444,23 @@ describe("table pool atoms", () => {
     // makeDefaultPlottable takes the seed id explicitly (pure); the writer passes the last pool id.
     expect(makeDefaultPlottable(SCHEMA, "annot").tableId).toBe("annot");
     expect(makeDefaultPlottable(SCHEMA).tableId).toBe("");   // no pool → empty, resolved later
+  });
+
+  it("duplicatePlottableAtom re-keys per-layer style overrides to the fresh layer ids", () => {
+    const store = createStore();
+    const p = makeDefaultPlottable(SCHEMA, "cells");
+    p.layers = [{ id: "ly_a", geom: "box", level: "__raw__" },
+                { id: "ly_b", geom: "dot", level: "__raw__" }];
+    p.style = { layers: { ly_a: { fill_alpha: 0.2 }, ly_b: { dot_size: 3 } } };
+    store.set(plottablesAtom, [p]);
+    store.set(duplicatePlottableAtom, p.id);
+    const copy = store.get(plottablesAtom)[1];
+    const [a, b] = copy.layers.map((l) => l.id!);
+    expect(a).not.toBe("ly_a");                       // fresh ids, as before
+    expect(copy.style.layers).toEqual({ [a]: { fill_alpha: 0.2 },
+                                        [b]: { dot_size: 3 } });
+    // the source is untouched
+    expect(p.style.layers).toEqual({ ly_a: { fill_alpha: 0.2 }, ly_b: { dot_size: 3 } });
   });
 });
 

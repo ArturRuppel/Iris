@@ -78,23 +78,19 @@ use case (time on X is the whole point of the time-series geom family). Decision
 numeric/axis-mappable by default (or offer a one-click "use as axis" nudge like
 the 0/1→bool one) without losing their nesting-level role.
 
-### Transformation workbench — post-pipeline (`reduce.post`) edges not editable
-Inline edge editing shipped (the workbench above): every reduce-step edge opens its
-editor and persists through the step-CRUD atoms. Two pre-existing gaps remain, both
-only reachable when a loaded `.iris` already carries a post-collapse `reduce.post`
-phase — the UI can't author post steps yet, so normal sessions never hit them:
-1. **Wrong message.** Clicking a `post:<i>` edge resolves to no step
-   (`edgeIdToStepIndex` in `src/workbench/cards/OpEditorCard.tsx` matches only
-   `step:<i>`), so the card shows "this step is no longer in the pipeline" — false:
-   the step exists, it's just not editable here. Cheap honest fix: recognize
-   `post:<i>` and show "post-aggregate steps aren't editable here yet."
-2. **Silent drop (correctness bug, predates the workbench).** The step-CRUD atoms
-   (`updateStepAtom`/`addStepAtom`/`removeStepAtom`/`moveStepAtom` in `src/state.ts`)
-   rebuild `reduce` as `{ steps }`, discarding any `reduce.post`. Editing any normal
-   step on a loaded post-carrying analysis silently loses the post phase. Fix:
-   preserve `post` in those four writers.
-Authoring post steps from the UI (the real feature) is a later sub-project; needs
-its own brainstorm → spec → plan before code.
+### Transformation workbench — post-pipeline (`reduce.post`) steps not authorable
+**Both pre-existing gaps fixed (2026-07-02).** A clicked `post:<i>` edge now shows
+the honest "post-aggregate steps aren't editable here yet" stub, and the post
+phase round-trips end-to-end: the silent drop was wider than the step-CRUD atoms
+(those already spread `...p.reduce`) — `plottableFromSpec` dropped `post` at
+load, and `buildSpec`/`specForSave`/`duplicatePlottableAtom` rebuilt `reduce`
+as `{ steps }`, so opening a post-carrying `.iris` and re-saving lost the phase
+from both the render path and the file. All adopt/serialize sites now preserve
+`post` (shared `adoptStep` helper; regression tests in `state.test.ts` and
+`OpEditorCard.test.tsx`).
+
+Authoring post steps from the UI (the real feature) remains a later sub-project;
+needs its own brainstorm → spec → plan before code.
 
 ### GUI authoring parity — create the reduce-step kinds the engine already supports
 The workbench *edits* all seven reduce-step kinds (Phase 4b), but the GUI can only

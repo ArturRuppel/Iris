@@ -72,7 +72,8 @@ def test_stratified_composes_with_spine():
         rs = [sps.spearmanr(g.x, g.y).statistic for _, g in s.groupby("experiment_id")]
         z = np.arctanh(np.clip(rs, -0.999, 0.999))
         assert by[lv]["n"] == 3                   # replicate is the unit
-        assert by[lv]["r"] == pytest.approx(float(np.mean(rs)), rel=1e-6)
+        # the point estimate is back-transformed from Fisher-z, same scale as the CI
+        assert by[lv]["r"] == pytest.approx(float(np.tanh(np.mean(z))), rel=1e-6)
         assert by[lv]["p"] == pytest.approx(float(sps.ttest_1samp(z, 0).pvalue), rel=1e-6)
         assert np.sign(by[lv]["r"]) == sign
 

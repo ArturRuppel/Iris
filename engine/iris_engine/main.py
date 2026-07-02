@@ -168,6 +168,10 @@ _SESSIONS = session_mod.SessionStore()
 # spec with presentation/derived blocks stripped; a small LRU of result dicts.
 _STATS_CACHE: "OrderedDict[str, dict]" = OrderedDict()
 _STATS_CACHE_MAX = 64
+# Same threadpool hazard as _TABLE_CACHE: get+move_to_end and store+evict must
+# be atomic or concurrent requests can interleave an eviction with a move_to_end
+# on the evicted key (KeyError → 500). Compute stays outside the lock.
+_STATS_CACHE_LOCK = threading.Lock()
 # Blocks the stats dispatch in `_run` provably never reads: pure figure furniture
 # (`style`) and engine-derived outputs (`stat_model`, `engine_snapshot`). Stripping
 # is a denylist on purpose — everything else stays in the key, so a future
@@ -205,16 +209,21 @@ def _memo_stats(key: str | None, compute):
     way in and out so neither the cache nor a caller can mutate the other's dict."""
     if key is None:
         return compute()
-    hit = _STATS_CACHE.get(key)
+    with _STATS_CACHE_LOCK:
+        hit = _STATS_CACHE.get(key)
+        if hit is not None:
+            _STATS_CACHE.move_to_end(key)
+            hit = copy.deepcopy(hit)
     if hit is not None:
-        _STATS_CACHE.move_to_end(key)
-        return copy.deepcopy(hit)
+        return hit
     res = compute()
     if isinstance(res, dict) and "error" not in res:
-        _STATS_CACHE[key] = copy.deepcopy(res)
-        _STATS_CACHE.move_to_end(key)
-        while len(_STATS_CACHE) > _STATS_CACHE_MAX:
-            _STATS_CACHE.popitem(last=False)
+        stored = copy.deepcopy(res)
+        with _STATS_CACHE_LOCK:
+            _STATS_CACHE[key] = stored
+            _STATS_CACHE.move_to_end(key)
+            while len(_STATS_CACHE) > _STATS_CACHE_MAX:
+                _STATS_CACHE.popitem(last=False)
     return res
 
 
@@ -233,6 +242,9 @@ def _memo_stats(key: str | None, compute):
 _PIPELINE_CACHE: "OrderedDict[str, tuple[tuple, int]]" = OrderedDict()
 _PIPELINE_CACHE_BUDGET = 300 * 1024 * 1024   # ~300 MB, matching the frontend LRU
 _PIPELINE_CACHE_BYTES = 0
+# Guards the OrderedDict AND the byte counter — the counter is read-modify-write
+# in _pipeline_put, so unlocked concurrent puts drift the accounting.
+_PIPELINE_CACHE_LOCK = threading.Lock()
 
 
 def _frame_bytes(df) -> int:
@@ -245,11 +257,12 @@ def _frame_bytes(df) -> int:
 def _pipeline_get(key: str | None):
     if key is None:
         return None
-    hit = _PIPELINE_CACHE.get(key)
-    if hit is None:
-        return None
-    _PIPELINE_CACHE.move_to_end(key)
-    return hit[0]
+    with _PIPELINE_CACHE_LOCK:
+        hit = _PIPELINE_CACHE.get(key)
+        if hit is None:
+            return None
+        _PIPELINE_CACHE.move_to_end(key)
+        return hit[0]
 
 
 def _pipeline_put(key: str | None, payload: tuple, level_tables: dict) -> None:
@@ -259,15 +272,16 @@ def _pipeline_put(key: str | None, payload: tuple, level_tables: dict) -> None:
     nbytes = _frame_bytes(payload[0])           # the reduced frame
     for ldf, _schema in (level_tables or {}).values():
         nbytes += _frame_bytes(ldf)
-    old = _PIPELINE_CACHE.pop(key, None)
-    if old is not None:
-        _PIPELINE_CACHE_BYTES -= old[1]
-    _PIPELINE_CACHE[key] = (payload, nbytes)
-    _PIPELINE_CACHE_BYTES += nbytes
-    # evict oldest until under budget, but never the entry we just stored
-    while _PIPELINE_CACHE_BYTES > _PIPELINE_CACHE_BUDGET and len(_PIPELINE_CACHE) > 1:
-        _, (_old_payload, old_bytes) = _PIPELINE_CACHE.popitem(last=False)
-        _PIPELINE_CACHE_BYTES -= old_bytes
+    with _PIPELINE_CACHE_LOCK:
+        old = _PIPELINE_CACHE.pop(key, None)
+        if old is not None:
+            _PIPELINE_CACHE_BYTES -= old[1]
+        _PIPELINE_CACHE[key] = (payload, nbytes)
+        _PIPELINE_CACHE_BYTES += nbytes
+        # evict oldest until under budget, but never the entry we just stored
+        while _PIPELINE_CACHE_BYTES > _PIPELINE_CACHE_BUDGET and len(_PIPELINE_CACHE) > 1:
+            _, (_old_payload, old_bytes) = _PIPELINE_CACHE.popitem(last=False)
+            _PIPELINE_CACHE_BYTES -= old_bytes
 
 
 def _store_table(token: str, table: dict) -> str:
@@ -342,14 +356,18 @@ _IMPORT_BYTES_ORDER: list[str] = []
 _IMPORT_FRAMES: dict[str, tuple] = {}
 _IMPORT_FRAMES_ORDER: list[str] = []
 _IMPORT_CACHE_MAX = 4
+# One lock for both import stores (bytes + frames): same threadpool hazard as
+# _TABLE_CACHE — concurrent puts can interleave the append with the eviction pop.
+_IMPORT_CACHE_LOCK = threading.Lock()
 
 
 def _lru_put(store: dict, order: list, key, value, cap: int) -> None:
-    if key not in store:
-        store[key] = value
-        order.append(key)
-        while len(order) > cap:
-            store.pop(order.pop(0), None)
+    with _IMPORT_CACHE_LOCK:
+        if key not in store:
+            store[key] = value
+            order.append(key)
+            while len(order) > cap:
+                store.pop(order.pop(0), None)
 
 
 def _import_bytes_token(data: bytes) -> str:
@@ -362,26 +380,32 @@ def _resolve_import_bytes(token: str | None, b64: str | None) -> tuple[bytes, st
     if b64 is not None:
         data = base64.b64decode(b64)
         return data, _import_bytes_token(data)
-    if token and token in _IMPORT_BYTES:
-        return _IMPORT_BYTES[token], token
+    if token:
+        with _IMPORT_CACHE_LOCK:
+            data = _IMPORT_BYTES.get(token)
+        if data is not None:
+            return data, token
     raise HTTPException(409, "file not uploaded; resend file")
 
 
-def _import_frame(token: str, filename: str, options: dict,
+def _import_frame(data: bytes, token: str, filename: str, options: dict,
                   sample: bool = False) -> tuple:
     """Parse (and cache) the frame for these bytes + read options. Per-column
     `types` are excluded from the key — they don't affect the parse. `sample`
     parses only a head sample for the headers-first pass and is cached
-    separately (a sample and a full parse of the same inputs must not collide)."""
+    separately (a sample and a full parse of the same inputs must not collide).
+    Takes the resolved bytes rather than re-reading _IMPORT_BYTES[token], which
+    could be evicted between the resolve and the parse (a misleading KeyError)."""
     read_opts = {k: options.get(k) for k in
                  ("delimiter", "decimal", "header", "sheet", "reshape")}
     key = (token + filename + json.dumps(read_opts, sort_keys=True, default=str)
            + ("sample" if sample else "full"))
     key = hashlib.sha1(key.encode()).hexdigest()
-    hit = _IMPORT_FRAMES.get(key)
+    with _IMPORT_CACHE_LOCK:
+        hit = _IMPORT_FRAMES.get(key)
     if hit is None:
         reader = importer.read_header_frame if sample else importer.read_frame
-        hit = reader(_IMPORT_BYTES[token], filename, options)
+        hit = reader(data, filename, options)
         _lru_put(_IMPORT_FRAMES, _IMPORT_FRAMES_ORDER, key, hit, _IMPORT_CACHE_MAX)
     return hit
 
@@ -735,8 +759,8 @@ def import_headers(req: ImportPreviewRequest):
     columns (and a provisional type guess) immediately; the client then calls
     /import/preview for the full-data stats + preview rows."""
     try:
-        _, token = _resolve_import_bytes(req.file_token, req.data_base64)
-        df, resolved = _import_frame(token, req.filename, req.options, sample=True)
+        data, token = _resolve_import_bytes(req.file_token, req.data_base64)
+        df, resolved = _import_frame(data, token, req.filename, req.options, sample=True)
         return importer.preview_headers_from_frame(df, resolved, req.options)
     except HTTPException:
         raise
@@ -747,8 +771,8 @@ def import_headers(req: ImportPreviewRequest):
 @app.post("/import/preview")
 def import_preview(req: ImportPreviewRequest):
     try:
-        _, token = _resolve_import_bytes(req.file_token, req.data_base64)
-        df, resolved = _import_frame(token, req.filename, req.options)
+        data, token = _resolve_import_bytes(req.file_token, req.data_base64)
+        df, resolved = _import_frame(data, token, req.filename, req.options)
         return importer.preview_from_frame(df, resolved, req.options)
     except HTTPException:
         raise
@@ -759,8 +783,8 @@ def import_preview(req: ImportPreviewRequest):
 @app.post("/import/commit")
 def import_commit(req: ImportCommitRequest):
     try:
-        _, token = _resolve_import_bytes(req.file_token, req.data_base64)
-        df, resolved = _import_frame(token, req.filename, req.options)
+        data, token = _resolve_import_bytes(req.file_token, req.data_base64)
+        df, resolved = _import_frame(data, token, req.filename, req.options)
         table = importer.commit_from_frame(df, resolved, req.columns, columnar=True)
         # Cache the committed table and hand back its token so the client can
         # skip the immediate re-upload (/table) it would otherwise do to obtain

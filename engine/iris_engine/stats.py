@@ -989,7 +989,10 @@ def _per_unit_correlation(sub: pd.DataFrame, x: str, y: str, unit_cols: list[str
     rs = np.asarray(rs, dtype=float)
     z = np.arctanh(np.clip(rs, -0.999, 0.999))   # Fisher transform, then t vs 0
     tt = sps.ttest_1samp(z, 0.0)
-    r_bar = float(rs.mean())
+    # Point estimate and CI on the SAME scale: both are back-transformed from
+    # Fisher-z, so the estimate sits at the centre of its own interval. The raw
+    # arithmetic mean of r need not even lie inside the z-scale CI.
+    r_bar = float(np.tanh(z.mean()))
     ci_z = sps.t.interval(1 - alpha, len(z) - 1, loc=z.mean(),
                           scale=sps.sem(z)) if len(z) > 1 else (np.nan, np.nan)
     ci = [float(np.tanh(v)) for v in ci_z]
@@ -1310,7 +1313,11 @@ def descriptive(df: pd.DataFrame, y: str, alpha: float = 0.05) -> dict:
               "min": float(v.min()), "max": float(v.max()),
               "effect": _no_effect()}
 
-    center = (f"mean = {result['mean']:.2f} (SD {result['sd']:.2f})" if normal
+    # match the recommendation: below the normality-rule floor the check is
+    # underpowered, so the methods text reports median (IQR) even when Shapiro
+    # happens to pass.
+    center = (f"mean = {result['mean']:.2f} (SD {result['sd']:.2f})"
+              if normal and not small
               else f"median = {med:.2f} (IQR {q1:.2f}–{q3:.2f})")
     methods = f"{y} was summarized for n = {n} observations: {center}."
 
