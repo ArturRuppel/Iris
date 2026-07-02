@@ -28,9 +28,24 @@ export function edgeIdToStepIndex(graph: ExplorerGraph, edgeId: string): number 
   return node?.phase === "reduce" ? node.stepIndex ?? null : null;
 }
 
+/* a clicked edge may belong to the post-collapse phase, which this card can't
+   edit (only a loaded .iris carries one today) — the stub must say so honestly
+   rather than claim the step is gone. */
+export function edgeIsPostStep(graph: ExplorerGraph, edgeId: string): boolean {
+  const edge = graph.edges.find((e) => e.id === edgeId);
+  const node = edge && graph.nodes.find((n) => n.id === edge.toId);
+  return node?.phase === "post";
+}
+
 const stale = (
   <div className="txw-card-stub" data-testid="op-editor-card">
     This step is no longer in the pipeline.
+  </div>
+);
+
+const postStub = (
+  <div className="txw-card-stub" data-testid="op-editor-card">
+    Post-aggregate steps aren’t editable here yet.
   </div>
 );
 
@@ -45,6 +60,7 @@ export function OpEditorCard({ target }: CardBodyProps) {
   const updateStep = useSetAtom(updateStepAtom);
 
   if (!graph || !active || !schema) return stale;
+  if (edgeIsPostStep(graph, target.id)) return postStub;
   const index = edgeIdToStepIndex(graph, target.id);
   if (index == null || index >= active.reduce.steps.length) return stale;
 

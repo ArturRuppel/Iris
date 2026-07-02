@@ -622,6 +622,19 @@ const toPairs = (
 ): Array<[string, string]> =>
   Array.isArray(m) ? m : Object.entries(m ?? {});
 
+/* one saved step → the internal (keyed) shape; shared by the main and the
+   post-collapse phases so the two adoptions can't drift. */
+const adoptStep = (s: EngineReduceStep): ReduceStep => {
+  if (s.kind === "join")
+    return { kind: "join" as const, on: s.on, how: s.how,
+      rightTableId: (s as { right_table_id?: string }).right_table_id ?? "", _key: nextStepKey() };
+  if (s.kind === "recode")
+    return { ...s, map: toPairs(s.map), _key: nextStepKey() };
+  if (s.kind === "pivot")
+    return { ...s, names: toPairs(s.names), _key: nextStepKey() };
+  return { ...s, _key: nextStepKey() };
+};
+
 export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   const s = spec.stats;
   const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
@@ -658,17 +671,13 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     style,
     /* a saved join step REFERENCES its right pool table by id (right_table_id),
        adopted straight into the internal rightTableId; an absent id starts "" (an
-       unfilled or hand-edited join). Key every step for React. */
-    reduce: { steps: (spec.reduce?.steps ?? []).map((s) => {
-      if (s.kind === "join")
-        return { kind: "join" as const, on: s.on, how: s.how,
-          rightTableId: (s as { right_table_id?: string }).right_table_id ?? "", _key: nextStepKey() };
-      if (s.kind === "recode")
-        return { ...s, map: toPairs(s.map), _key: nextStepKey() };
-      if (s.kind === "pivot")
-        return { ...s, names: toPairs(s.names), _key: nextStepKey() };
-      return { ...s, _key: nextStepKey() };
-    }) },
+       unfilled or hand-edited join). Key every step for React. The post-collapse
+       phase (reduce.post) is adopted too — the UI can't author it yet, but a
+       loaded doc that carries one must round-trip, not silently lose it. */
+    reduce: {
+      steps: (spec.reduce?.steps ?? []).map(adoptStep),
+      ...(spec.reduce?.post?.length ? { post: spec.reduce.post.map(adoptStep) } : {}),
+    },
     collapse: spec.collapse,
     testGrain: spec.test_grain,
   };
@@ -780,7 +789,13 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     id: p.id,
     title: p.name,
     data: { filter: [] },
-    reduce: { steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey) },
+    reduce: {
+      steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey),
+      // the UI can't author post steps yet, but a loaded doc carrying them must
+      // keep running (and re-saving) them, not silently drop the phase.
+      ...(p.reduce.post?.length
+        ? { post: resolveEngineSteps(p.reduce.post, cache).map(stripStepKey) } : {}),
+    },
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -830,7 +845,11 @@ export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | u
   return {
     ...base,
     table_id: p.tableId,
-    reduce: { steps: resolveSaveSteps(p.reduce.steps).map(stripStepKey) },
+    reduce: {
+      steps: resolveSaveSteps(p.reduce.steps).map(stripStepKey),
+      ...(p.reduce.post?.length
+        ? { post: resolveSaveSteps(p.reduce.post).map(stripStepKey) } : {}),
+    },
   };
 }
 
@@ -921,7 +940,11 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
     mappings: { ...src.mappings },
     layers,
     style,
-    reduce: { steps: structuredClone(src.reduce.steps).map((s) => ({ ...s, _key: nextStepKey() })) },
+    reduce: {
+      steps: structuredClone(src.reduce.steps).map((s) => ({ ...s, _key: nextStepKey() })),
+      ...(src.reduce.post?.length
+        ? { post: structuredClone(src.reduce.post).map((s) => ({ ...s, _key: nextStepKey() })) } : {}),
+    },
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
   set(activePlottableIdAtom, copy.id);

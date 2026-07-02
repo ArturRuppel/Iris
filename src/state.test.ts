@@ -107,6 +107,44 @@ describe("location (vs-reference) family round-trips through save/load", () => {
   });
 });
 
+describe("post-collapse reduce phase (reduce.post) round-trips", () => {
+  const postSpec = (): AnalysisSpec => ({
+    ...makeSpec("pp"),
+    reduce: {
+      steps: [{ kind: "drop", columns: ["grp"] }],
+      post: [{ kind: "derive", column: "ratio", expr: "val / 2" }],
+    },
+  });
+
+  it("plottableFromSpec keeps the post phase (keyed like main steps)", () => {
+    const p = plottableFromSpec(postSpec());
+    expect(p.reduce.post).toHaveLength(1);
+    expect(p.reduce.post![0]).toMatchObject({ kind: "derive", column: "ratio" });
+    expect((p.reduce.post![0] as { _key?: string })._key).toBeTruthy();
+    // a spec without post stays post-free (no empty array noise)
+    expect(plottableFromSpec(makeSpec("np")).reduce.post).toBeUndefined();
+  });
+
+  it("buildSpec and specForSave re-emit the post phase without keys", () => {
+    const p = plottableFromSpec(postSpec());
+    for (const build of [buildSpec, specForSave]) {
+      const out = build(p, "descriptive", undefined, {}, EMPTY_HIERARCHY, {});
+      expect(out.reduce.post).toEqual([{ kind: "derive", column: "ratio", expr: "val / 2" }]);
+    }
+  });
+
+  it("editing a main step through the CRUD atoms leaves the post phase intact", () => {
+    const store = createStore();
+    const p = plottableFromSpec(postSpec());
+    store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    store.set(updateStepAtom, { index: 0, step: { kind: "drop", columns: ["val"] } });
+    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
+    store.set(removeStepAtom, 1);
+    const after = store.get(activePlottableAtom)!;
+    expect(after.reduce.post).toHaveLength(1);
+  });
+});
+
 describe("stats block stores decisions only (format redesign)", () => {
   const base = () => ({ ...makeDefaultPlottable(SCHEMA),
                         mappings: { x: "grp", y: "val" } });
