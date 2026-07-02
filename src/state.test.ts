@@ -712,10 +712,17 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
     expect(runnableSteps(dangling, cache).map((s) => s.kind)).toEqual([]);
   });
 
-  it("runnableSteps keeps a join once its right is materialized", () => {
+  it("runnableSteps keeps a join once its right is materialized and it has a key", () => {
     const steps: ReduceStep[] = [makeStep("filter"),
-      { ...makeStep("join"), rightTableId: "annot" } as ReduceStep];
+      { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep];
     expect(runnableSteps(steps, cache).map((s) => s.kind)).toEqual(["filter", "join"]);
+  });
+
+  it("runnableSteps drops a keyless join (right picked, no on keys yet)", () => {
+    // mid-authoring state: sending it would flash the engine's join-needs-keys
+    // error while the user is still picking keys in the editor.
+    const steps: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "annot" } as ReduceStep];
+    expect(runnableSteps(steps, cache)).toEqual([]);
   });
 
   it("resolveEngineSteps inlines a materialized right table", () => {

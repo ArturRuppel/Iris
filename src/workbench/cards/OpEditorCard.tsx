@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  activePlottableAtom, reducePreviewAtom, schemaAtom, updateStepAtom,
+  activePlottableAtom, reducePreviewAtom, schemaAtom, tablesAtom, updateStepAtom,
 } from "../../state";
 import { explorerGraphAtom } from "../../explorer/graphAtom";
 import type { ExplorerGraph } from "../../explorer/graph";
@@ -57,6 +57,7 @@ export function OpEditorCard({ target }: CardBodyProps) {
   const active = useAtomValue(activePlottableAtom);
   const preview = useAtomValue(reducePreviewAtom);
   const schema = useAtomValue(schemaAtom);
+  const tables = useAtomValue(tablesAtom);
   const updateStep = useSetAtom(updateStepAtom);
 
   if (!graph || !active || !schema) return stale;
@@ -87,9 +88,18 @@ export function OpEditorCard({ target }: CardBodyProps) {
     case "recode":
       editor = <StepRecode step={step as RecodeStep} columns={cols} onChange={onChange} />;
       break;
-    case "join":
-      editor = <StepJoin step={step as JoinStep} columns={cols} onChange={onChange} />;
+    case "join": {
+      // the right-table candidates: every OTHER pool table (joining the
+      // analysis's own main table back onto itself is engine-expressible but
+      // not a GUI-authorable shape — offering it would only invite confusion).
+      const rightPool = tables
+        .filter((t) => t.id !== active.tableId)
+        .map((t) => ({ id: t.id, name: t.name, schema: t.schema }));
+      editor = (
+        <StepJoin step={step as JoinStep} columns={cols} pool={rightPool} onChange={onChange} />
+      );
       break;
+    }
     case "pivot":
       editor = <StepPivot step={step as PivotStep} columns={cols} onChange={onChange} />;
       break;

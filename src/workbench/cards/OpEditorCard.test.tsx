@@ -3,7 +3,8 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { Provider } from "jotai";
 import { OpEditorCard, edgeIdToStepIndex } from "./OpEditorCard";
 import { seedStore } from "./cardTestStore";
-import { activePlottableAtom } from "../../state";
+import { activePlottableAtom, tablesAtom } from "../../state";
+import type { JoinStep, Schema } from "../../types";
 import { explorerGraphAtom } from "../../explorer/graphAtom";
 import type { ExplorerGraph } from "../../explorer/graph";
 
@@ -56,6 +57,40 @@ describe("OpEditorCard", () => {
     const step = store.get(activePlottableAtom)!.reduce.steps[0];
     expect(step.kind).toBe("filter");
     expect((step as { conditions: unknown[] }).conditions.length).toBe(1);
+  });
+
+  it("fills an unset join's right table from the pool picker and seeds shared keys", () => {
+    const { store, plottable } = seedStore();
+    // a second pool table sharing the "cell" identifier — the join candidate
+    // (the analysis's own main table is excluded from the picker).
+    const annotSchema: Schema = { schema_version: "1.0", columns: [
+      { name: "cell", type: "identifier", label: "cell" },
+      { name: "note", type: "categorical", label: "note" },
+    ] };
+    store.set(tablesAtom, [
+      ...store.get(tablesAtom),
+      { id: "annot", name: "annot", schema: annotSchema,
+        hierarchy: { spine: ["cell"], fn: {} },
+        handle: { id: "h_annot", n: 0, version: 0, schema: annotSchema, counts: {} as never } },
+    ]);
+    store.set(activePlottableAtom, {
+      ...plottable,
+      reduce: { steps: [{ kind: "join", _key: "k1", on: [], how: "inner", rightTableId: "" }] },
+    });
+    const graph = store.get(explorerGraphAtom)!;
+    const edge = graph.edges.find((e) => e.kind === "join")!;
+    render(
+      <Provider store={store}>
+        <OpEditorCard target={{ kind: "edge", id: edge.id }} />
+      </Provider>,
+    );
+    const select = screen.getByLabelText("right table") as HTMLSelectElement;
+    // the picker offers annot but not the analysis's own table
+    expect([...select.options].map((o) => o.value)).toEqual(["", "annot"]);
+    fireEvent.change(select, { target: { value: "annot" } });
+    const step = store.get(activePlottableAtom)!.reduce.steps[0] as JoinStep;
+    expect(step.rightTableId).toBe("annot");
+    expect(step.on).toEqual(["cell"]);
   });
 
   it("renders a stale-step notice when the index is gone", () => {

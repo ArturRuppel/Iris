@@ -238,12 +238,15 @@ export function tablesNeedingMaterialize(
     && (!cache[t.id] || cache[t.id].version !== t.handle.version));
 }
 
-/* a join is runnable once its right is materialized; unset/unmaterialized joins are
-   skipped (display degrades gracefully until the fetch lands). The spec keeps the
-   step so its editor card and the open "missing" circle persist; it just isn't sent
-   until filled. */
+/* a join is runnable once its right is materialized AND it has at least one key;
+   unset/unmaterialized/keyless joins are skipped (display degrades gracefully
+   until the fetch lands / a key is picked — a keyless join is still being
+   authored, and sending it would flash the engine's "join needs on keys" error
+   mid-edit). The spec keeps the step so its editor card and the open "missing"
+   circle persist; it just isn't sent until filled. */
 export function runnableSteps(steps: ReduceStep[], cache: RightCache): ReduceStep[] {
-  return steps.filter((s) => s.kind !== "join" || (!!s.rightTableId && !!cache[s.rightTableId]));
+  return steps.filter((s) => s.kind !== "join"
+    || (!!s.rightTableId && s.on.length > 0 && !!cache[s.rightTableId]));
 }
 
 /* map internal steps to engine-facing steps, inlining each runnable join's right
