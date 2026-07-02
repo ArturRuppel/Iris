@@ -77,6 +77,14 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   const { variant, kind, eyebrow, detail, spine, live, shed, values,
     newValues = [], rows, cols, example, definition, onEdit } = props;
 
+  // Hooks BEFORE the figure-variant early return: a node transitioning between
+  // the two branches under one React key must see the same hook order.
+  // the example follows the cursor: we track its position so the popup can be
+  // portalled to <body> (escaping React Flow's per-node stacking context) and
+  // float just above the mouse, on top of the whole canvas.
+  const [exAt, setExAt] = useState<{ x: number; y: number } | null>(null);
+  const [showDef, setShowDef] = useState(false);
+
   if (variant === "figure" && props.sections) {
     return (
       <div className="txw-node figure">
@@ -107,11 +115,6 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
     );
   }
 
-  // the example follows the cursor: we track its position so the popup can be
-  // portalled to <body> (escaping React Flow's per-node stacking context) and
-  // float just above the mouse, on top of the whole canvas.
-  const [exAt, setExAt] = useState<{ x: number; y: number } | null>(null);
-  const [showDef, setShowDef] = useState(false);
   // show the grain bar only when this node carries a grain of its own (a table) —
   // the figure terminal has no live/shed levels and skips it.
   const hasGrain = live.length > 0 || shed.length > 0;
