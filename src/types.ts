@@ -591,6 +591,15 @@ export interface LoadedDocument {
   tables: LoadedTable[];
 }
 
+/* the autosave slot's launch-time summary: what the recovery banner shows.
+   `exists` means unsaved work — an explicit Save clears the slot. */
+export interface AutosaveStatus {
+  exists: boolean;
+  written: string | null;    // ISO timestamp of the last snapshot
+  n_analyses: number;
+  tables: string[];
+}
+
 /* ---------------- import wizard ---------------- */
 
 export interface ReshapeOptions {
@@ -740,6 +749,28 @@ export const engine = {
   saveDocument: (tables: SaveTable[], analyses: AnalysisSpec[], provenance: unknown) =>
     post<{ filename: string; data_base64: string }>(
       "/document/save", { tables, analyses, provenance }),
+  /* ---- autosave / crash recovery: the engine owns an on-disk snapshot slot ---- */
+  autosaveStatus: () => get<AutosaveStatus>("/autosave/status"),
+  /* refresh the slot. Posted as text/plain — a CORS "simple request", no
+     preflight — so the page-close flush (keepalive: true) can reach the engine
+     while the page is being torn down. The payload is table REFERENCES + spec
+     JSON (never rows), so it also fits keepalive's 64 KB body cap. */
+  autosaveSnapshot: async (tables: SaveTable[], analyses: AnalysisSpec[],
+                           dataFingerprint: string, opts: { keepalive?: boolean } = {}) => {
+    const r = await fetch((await baseUrl) + "/autosave/snapshot", {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      keepalive: opts.keepalive,
+      body: JSON.stringify({ tables, analyses, provenance: {},
+        data_fingerprint: dataFingerprint }),
+    });
+    if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail ?? r.statusText);
+    return r.json() as Promise<{ ok: boolean; data_written: boolean }>;
+  },
+  /* the snapshot as a loaded document (sessions created), same shape as
+     /document/load — restore rides the normal loadDocumentAtom path */
+  autosaveRestore: () => post<LoadedDocument>("/autosave/restore", {}),
+  autosaveClear: () => post<{ ok: boolean }>("/autosave/clear", {}),
   /* read back a saved .viz; analyses come as raw specs (run through migrateSpec) */
   loadDocument: (dataBase64: string) =>
     post<LoadedDocument>("/document/load", { data_base64: dataBase64 }),

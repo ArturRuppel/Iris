@@ -16,12 +16,12 @@ import threading
 from collections import OrderedDict
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import (compiler, document, geoms, guards, hierarchy, importer,
+from . import (autosave, compiler, document, geoms, guards, hierarchy, importer,
                reduce as reduce_mod, render as render_mod, session as session_mod,
                shape as shape_mod, specnorm, style as style_mod)
 from .render import _load_frame, frame_from_table
@@ -71,6 +71,16 @@ class SaveRequest(BaseModel):
 
 class LoadRequest(BaseModel):
     data_base64: str
+
+
+class AutosaveRequest(BaseModel):
+    tables: list[SaveTable]
+    analyses: list[dict]
+    provenance: dict = {}
+    # the client's data identity: pool ids + session ids + versions. Equal
+    # fingerprints mean the table data is unchanged, so only the spec sidecar
+    # is rewritten (the .iris data tier is left alone).
+    data_fingerprint: str = ""
 
 
 class ReduceRequest(BaseModel):
@@ -801,13 +811,13 @@ def import_commit(req: ImportCommitRequest):
         raise HTTPException(422, f"could not import file: {e}") from e
 
 
-@app.post("/document/save")
-def doc_save(req: SaveRequest):
-    # Each requested table resolves to its FULL rows (never a preview window): a
-    # session yields a `frame` we serialize here; an inline request carries `rows`.
-    # Save is rare, so paying the frame->rows serialization here is fine.
+def _resolve_save_tables(save_tables: list[SaveTable]) -> dict:
+    """Each requested table resolves to its FULL rows (never a preview window):
+    a session yields a `frame` we serialize here; an inline request carries
+    `rows`. Save is rare, so paying the frame->rows serialization here is fine.
+    Shared by /document/save and the autosave data tier."""
     tables = {}
-    for st in req.tables:
+    for st in save_tables:
         if st.name in tables:
             raise HTTPException(
                 422, f"duplicate table name in save request: {st.name}")
@@ -815,23 +825,17 @@ def doc_save(req: SaveRequest):
         rows = t["rows"] if "rows" in t else session_mod.records(t["frame"])
         tables[st.name] = {"schema": t["schema"], "hierarchy": st.hierarchy,
                            "rows": rows}
-    data = document.save_document(tables, req.analyses, req.provenance,
-                                  engine_snapshot())
-    return {"filename": "document.iris",
-            "data_base64": base64.b64encode(data).decode()}
+    return tables
 
 
-@app.post("/document/load")
-def doc_load(req: LoadRequest):
-    try:
-        doc = document.load_document(base64.b64decode(req.data_base64))
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(422, f"could not read document: {e}") from e
-    # One live session per named table; each returns its first window. The
-    # analyses/provenance carry their own table refs and ride back untouched.
-    # A document IS its full table set, so the store must hold them all at once —
-    # raise the LRU bound to fit before the create burst, else the earliest tables
-    # of a >maxlen document evict before this loop returns their (now dead) ids.
+def _document_response(doc: dict) -> dict:
+    """Bring a loaded document dict live: one session per named table, each
+    returning its first window. The analyses/provenance carry their own table
+    refs and ride back untouched. A document IS its full table set, so the
+    store must hold them all at once — raise the LRU bound to fit before the
+    create burst, else the earliest tables of a >maxlen document evict before
+    this loop returns their (now dead) ids. Shared by /document/load and
+    /autosave/restore."""
     _SESSIONS.ensure_capacity(len(doc["tables"]))
     out = []
     for name, t in doc["tables"].items():
@@ -843,6 +847,77 @@ def doc_load(req: LoadRequest):
                     "rows": sess.window(0, 200)})  # first window only
     return {"manifest": doc["manifest"], "analyses": doc["analyses"],
             "provenance": doc["provenance"], "tables": out}
+
+
+@app.post("/document/save")
+def doc_save(req: SaveRequest):
+    data = document.save_document(_resolve_save_tables(req.tables),
+                                  req.analyses, req.provenance,
+                                  engine_snapshot())
+    return {"filename": "document.iris",
+            "data_base64": base64.b64encode(data).decode()}
+
+
+@app.post("/document/load")
+def doc_load(req: LoadRequest):
+    try:
+        doc = document.load_document(base64.b64decode(req.data_base64))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not read document: {e}") from e
+    return _document_response(doc)
+
+
+# ----- autosave / crash recovery (see iris_engine/autosave.py) -----
+
+
+@app.post("/autosave/snapshot")
+async def autosave_snapshot(request: Request):
+    # Parsed by hand instead of a Pydantic body so the page-close flush can
+    # POST as text/plain — a CORS "simple request" with no preflight to
+    # complete while the page is being torn down.
+    try:
+        req = AutosaveRequest(**json.loads(await request.body()))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"malformed autosave request: {e}") from e
+
+    def iris_bytes() -> bytes:
+        # Only reached when the data tier is stale — the common spec-only
+        # snapshot never touches the sessions.
+        return document.save_document(_resolve_save_tables(req.tables),
+                                      req.analyses, req.provenance,
+                                      engine_snapshot())
+
+    res = autosave.write_snapshot(
+        autosave.default_dir(),
+        analyses=req.analyses,
+        table_meta=[{"name": st.name, "hierarchy": st.hierarchy}
+                    for st in req.tables],
+        provenance=req.provenance,
+        fingerprint=req.data_fingerprint,
+        iris_bytes=iris_bytes)
+    return {"ok": True, **res}
+
+
+@app.get("/autosave/status")
+def autosave_status():
+    return autosave.status(autosave.default_dir())
+
+
+@app.post("/autosave/restore")
+def autosave_restore():
+    try:
+        doc = autosave.load_snapshot(autosave.default_dir())
+    except FileNotFoundError:
+        raise HTTPException(404, "no autosave snapshot") from None
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not read autosave snapshot: {e}") from e
+    return _document_response(doc)
+
+
+@app.post("/autosave/clear")
+def autosave_clear():
+    autosave.clear(autosave.default_dir())
+    return {"ok": True}
 
 
 def _exit_when_stdin_closes():

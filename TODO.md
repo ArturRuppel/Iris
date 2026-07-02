@@ -14,7 +14,11 @@ workbench (the Analyses tab as a clickable DAG; every node/edge opens a session-
 editor card — table/plot/stats + the seven reduce-step editors + collapse/geom/
 test/annotate), the `.iris` file
 format redesign (engine identity in the manifest, stored stats = decisions only,
-spec 2.1), and the COV2D absorption work below through Tier C + Part-2 §3/§5.
+spec 2.1), autosave / crash recovery (an engine-owned two-tier snapshot slot +
+a launch-time restore offer;
+`docs/superpowers/specs/2026-07-02-autosave-crash-recovery-design.md` — one
+slot per user by design, so two concurrent Iris windows share it, last writer
+wins), and the COV2D absorption work below through Tier C + Part-2 §3/§5.
 
 ## COV2D absorption
 
