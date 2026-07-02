@@ -1253,3 +1253,13 @@ def test_save_by_session_id_roundtrips():
                     "hierarchy": {"spine": [], "fn": {}}}],
         "analyses": [make_spec()], "provenance": {}}).json()
     assert saved["filename"] == "document.iris"
+
+
+def test_descriptive_small_n_methods_text_matches_recommendation():
+    """Below the normality-rule floor the recommendation says median (IQR) even
+    when Shapiro passes — the methods text must say the same, not mean (SD)."""
+    df = pd.DataFrame({"response": [4.8, 5.1, 4.9, 5.3, 5.0, 4.7, 5.2, 4.95]})
+    st = stats.descriptive(df, "response", alpha=0.05)
+    assert st["checks"][0]["ok"] and st["checks"][0]["p"] > 0.05   # Shapiro passes
+    assert "median (IQR) to be safe" in st["recommendation"]["reason"]
+    assert "median" in st["methods_text"] and "mean" not in st["methods_text"]

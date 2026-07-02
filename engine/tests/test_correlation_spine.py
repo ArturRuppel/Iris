@@ -43,7 +43,8 @@ def _expected_rep(df, method="spearman"):
     rs = np.array(rs)
     z = np.arctanh(np.clip(rs, -0.999, 0.999))
     p = float(sps.ttest_1samp(z, 0).pvalue)
-    return float(rs.mean()), p, len(rs)
+    # the point estimate is back-transformed from Fisher-z, same scale as the CI
+    return float(np.tanh(z.mean())), p, len(rs)
 
 
 def test_spine_correlation_matches_per_unit_aggregate():
@@ -121,3 +122,17 @@ def test_rank_floor_does_not_fire_for_spearman_at_five_pairs():
                        "y": [2.0, 4.0, 6.0, 8.0, 200.0]})
     res = stats.correlation(df, "x", "y")
     assert res["recommendation"]["test"] == "spearman"
+
+
+def test_spine_estimate_and_ci_share_the_fisher_z_scale():
+    """The point estimate is tanh(mean z) — the centre of the z-scale CI — not
+    the arithmetic mean of the per-unit r, which need not sit inside it."""
+    df = _nested_df()
+    res = stats.correlation(df, "x", "y", unit_cols=["experiment_id"],
+                            override="spearman")["result"]
+    per_unit = np.asarray(res["per_unit_r"])
+    z = np.arctanh(np.clip(per_unit, -0.999, 0.999))
+    assert res["r"] == pytest.approx(float(np.tanh(z.mean())), rel=1e-12)
+    assert res["effect"]["value"] == res["r"]
+    lo, hi = res["effect"]["ci"]
+    assert lo <= res["r"] <= hi

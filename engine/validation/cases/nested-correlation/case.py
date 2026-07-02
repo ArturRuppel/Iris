@@ -23,9 +23,13 @@ Independent recompute (raw scipy 1.16.3), x vs y:
 
     pooled, every cell (n=60)   Spearman rho = +0.788386, p = 7.58e-14
     per replicate rho           R1 -0.905263, R2 -0.884211, R3 -0.936842
-    replicate-level (n=3)        mean rho = -0.908772
+    replicate-level (n=3)        rho = tanh(mean arctanh(rho)) = -0.911388
         Fisher-z one-sample t on arctanh(rho) vs 0:  p = 0.003657
-        95% CI on mean rho       [-0.9592, -0.8127]
+        95% CI on rho            [-0.9592, -0.8127]
+
+The point estimate is back-transformed from the Fisher-z mean — the same scale
+the CI is computed on — so the estimate is the centre of its own interval (the
+raw arithmetic mean of rho, -0.908772, is not).
 
 The pooled and replicate-level coefficients have OPPOSITE signs — pooling cells is
 not just an inflated n, it points the wrong way. The spine (replicate) is the
@@ -51,7 +55,7 @@ ANALYSES = [
         "expected_stats": {
             "result.test": "spearman",
             "result.n": 3,                       # the replicate is the unit, not 60 cells
-            "result.r": (-0.908772, 1e-5),       # honest within-replicate association
+            "result.r": (-0.911388, 1e-5),       # honest within-replicate association
             "result.p": (0.003657, 1e-4),
             "result.unit.0": "replicate",
         },
