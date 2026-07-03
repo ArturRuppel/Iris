@@ -34,9 +34,6 @@ class SessionTable:
     def n(self) -> int:
         return len(self._df)
 
-    def frame(self) -> pd.DataFrame:
-        return self._df
-
     def snapshot(self) -> pd.DataFrame:
         """A consistent, caller-owned copy of the whole frame, taken under the
         lock so it can't tear against a concurrent edit. Compute reads

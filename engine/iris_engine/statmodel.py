@@ -38,7 +38,7 @@ def _is_timeseries(layers: list[dict] | None) -> bool:
 
 
 def infer(encodings: dict, schema: dict, override: str | None,
-          facet: dict | None = None, unit: list[str] | None = None,
+          facet: dict | None = None,
           layers: list[dict] | None = None,
           declared_family: str | None = None, reference: float = 0.0,
           exposure: str | None = None, model: str | None = None) -> dict:
@@ -48,16 +48,10 @@ def infer(encodings: dict, schema: dict, override: str | None,
     once either axis is faceted — multiple-comparisons correction is
     deferred, so describe-only is the only safe default.
 
-    `unit` is the declared independent-repetition key (Phase 5 / item 10):
-    the test counts these units, not raw rows, and a per-unit overlay layer can
-    draw them. It is echoed on the model (`unit`) and named in the design
-    sentence so the inference basis is explicit.
-
     `layers` are the spec's geom layers; a `line`/`trend` layer (registry family
     `timeseries`) breaks the numeric/numeric tie toward a time-series design
     rather than `correlation` — the geom's declared family is authoritative when
     column types alone are ambiguous."""
-    unit = unit or []
     x = _col(encodings, "x")
     y = _col(encodings, "y")
     color = _col(encodings, "color")
@@ -72,7 +66,7 @@ def infer(encodings: dict, schema: dict, override: str | None,
                 "factors": [{"column": x, "role": "time"},
                             {"column": y, "role": "response"}],
                 "test": None, "facet_handling": None,
-                "chosen_by": "describe_only", "unit": unit, "issues": []}
+                "chosen_by": "describe_only", "issues": []}
 
     # One-sample (vs-reference) location test — opt-in via an explicit
     # `stats.family == "location"`, like a geom's declared `timeseries` family,
@@ -93,17 +87,15 @@ def infer(encodings: dict, schema: dict, override: str | None,
         else:
             design = f"location of {value} vs reference {reference:g}"
             factors = [{"column": value, "role": "variable"}]
-        if unit and group:
-            design += f"; n counts independent units ({' × '.join(unit)})"
         faceted = bool((facet or {}).get("row") or (facet or {}).get("col"))
         if faceted:
             design += " — describe-only per facet (Phase 4 v1 runs no per-facet test)"
             return {"design": design, "family": "location", "factors": factors,
                     "test": None, "facet_handling": None, "reference": reference,
-                    "chosen_by": "describe_only", "unit": unit, "issues": []}
+                    "chosen_by": "describe_only", "issues": []}
         return {"design": design, "family": "location", "factors": factors,
                 "test": override, "facet_handling": None, "reference": reference,
-                "chosen_by": "inferred", "unit": unit, "issues": []}
+                "chosen_by": "inferred", "issues": []}
 
     # Rate / count-regression family — opt-in via an explicit `stats.family ==
     # "rate"`, like `location`. A categorical group on one axis, an integer count
@@ -128,7 +120,7 @@ def infer(encodings: dict, schema: dict, override: str | None,
                 "test": None if faceted else override,
                 "facet_handling": None,
                 "chosen_by": "describe_only" if faceted else "inferred",
-                "unit": unit, "issues": []}
+                "issues": []}
 
     if xk == "categorical" and yk == "numeric":
         family = "group_comparison"
@@ -166,13 +158,7 @@ def infer(encodings: dict, schema: dict, override: str | None,
         return {"design": "no statistical model — pick X / Y to analyze",
                 "family": "none", "factors": [], "test": None,
                 "facet_handling": None, "chosen_by": "describe_only",
-                "unit": unit, "issues": []}
-
-    # Phase 5: a declared independent unit makes n explicit — the test counts
-    # units (replicates averaged within each), and the figure can overlay one
-    # mark per unit. State it in the design so the inference basis is unmistakable.
-    if unit and family == "group_comparison":
-        design += f"; n counts independent units ({' × '.join(unit)})"
+                "issues": []}
 
     # Phase 2: a categorical color distinct from the grouping factor *could* be a
     # second factor. We surface it but do NOT run a two-way test (Tier-3 work).
@@ -196,10 +182,10 @@ def infer(encodings: dict, schema: dict, override: str | None,
         design += " — describe-only per facet (Phase 4 v1 runs no per-facet test)"
         return {"design": design, "family": family, "factors": factors,
                 "test": None, "facet_handling": None,
-                "chosen_by": "describe_only", "unit": unit, "issues": issues}
+                "chosen_by": "describe_only", "issues": issues}
 
     # `override` still pins the test; chosen_by is descriptive only and no longer
     # flags the pick as a deviation from the recommendation.
     return {"design": design, "family": family, "factors": factors,
             "test": override, "facet_handling": None,
-            "chosen_by": "inferred", "unit": unit, "issues": issues}
+            "chosen_by": "inferred", "issues": issues}

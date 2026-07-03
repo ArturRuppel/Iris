@@ -375,16 +375,6 @@ def preview_from_frame(df: pd.DataFrame, resolved: dict, options: dict) -> dict:
                                 limit=PREVIEW_ROWS)}
 
 
-def preview(data: bytes, filename: str, options: dict | None = None) -> dict:
-    """Sniff, infer, and return enough for the wizard to render a preview.
-
-    `options` carries user overrides on a re-preview (delimiter, decimal,
-    header, sheet, and per-column `types` as {name: type})."""
-    options = options or {}
-    df, resolved = read_frame(data, filename, options)
-    return preview_from_frame(df, resolved, options)
-
-
 def commit_from_frame(df: pd.DataFrame, resolved: dict,
                       columns: list[dict], columnar: bool = False) -> dict:
     """Produce the full table from an already-parsed frame (see `read_frame`).
@@ -411,10 +401,3 @@ def commit_from_frame(df: pd.DataFrame, resolved: dict,
         return {"schema": schema, "columns": _typed_columns(df, columns, decimal),
                 "n": len(df)}
     return {"schema": schema, "rows": _typed_rows(df, columns, decimal)}
-
-
-def commit(data: bytes, filename: str, options: dict,
-           columns: list[dict]) -> dict:
-    """Produce the full table (schema + rows) with user-confirmed types."""
-    df, resolved = read_frame(data, filename, options)
-    return commit_from_frame(df, resolved, columns)

@@ -706,7 +706,6 @@ export const engine = {
       }
     }
   },
-  sample: (): Promise<Table> => get<Table>("/sample"),
   /* seed the server-owned session from the table inline, or — for a freshly
      imported table the engine already cached — by its content token, so the
      whole table isn't shipped browser→engine again just to create the session */

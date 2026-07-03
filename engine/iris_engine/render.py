@@ -54,10 +54,6 @@ def _load_frame(table: dict) -> tuple[pd.DataFrame, dict]:
     return df, {**schema, "columns": norm_cols}
 
 
-def _prepare(table: dict, spec: dict) -> tuple[pd.DataFrame, dict]:
-    return _load_frame(table)
-
-
 def render(table: dict, spec: dict, *, memo=None):
     """Render `spec` over `table`, returning
     ``(fig, res, df, schema, model, issues, level_tables)``.
@@ -70,7 +66,7 @@ def render(table: dict, spec: dict, *, memo=None):
     """
     memo = memo if memo is not None else (lambda compute: compute())
     spec = specnorm.normalize(spec)
-    df, schema = _prepare(table, spec)
+    df, schema = _load_frame(table)
     reduce_block = spec.get("reduce") or {}
     steps = reduce_block.get("steps") or []
     try:

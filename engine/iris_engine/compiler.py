@@ -1944,15 +1944,12 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     return fig
 
 
-def figure_to_svg(fig, *, tight: bool = False) -> str:
-    """Export a rendered figure to an SVG string. `tight` requests
-    ``bbox_inches="tight"`` so artists placed outside the figure box (e.g. a
-    caption drawn just below the axes) are not clipped."""
+def figure_to_svg(fig) -> str:
+    """Export a rendered figure to an SVG string."""
     _finalize_deferred(fig)
     buf = io.StringIO()
-    save_kw = {"bbox_inches": "tight"} if tight else {}
     with plt.rc_context(_OUTPUT_RC):
-        fig.savefig(buf, format="svg", **save_kw)
+        fig.savefig(buf, format="svg")
     return buf.getvalue()
 
 
