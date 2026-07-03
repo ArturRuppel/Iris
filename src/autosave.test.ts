@@ -21,16 +21,15 @@ const table = (id = "t1", version = 0): WorkspaceTable => ({
 });
 
 const plottable = (over: Partial<Plottable> = {}): Plottable =>
-  ({ ...makeDefaultPlottable(SCHEMA, "t1"), id: "pt_fixed", ...over });
+  ({ ...makeDefaultPlottable("t1"), id: "pt_fixed", ...over });
 
 afterEach(() => vi.restoreAllMocks());
 
 describe("snapshotStateKey — the autosave dirtiness signature", () => {
-  it("ignores session-only state: previewLevel and step _key", () => {
+  it("ignores session-only state: step _key", () => {
     const step = { _key: "sk_1", kind: "drop" as const, columns: ["val"] };
-    const a = plottable({ previewLevel: "", reduce: { steps: [step] } });
+    const a = plottable({ reduce: { steps: [step] } });
     const b = plottable({
-      previewLevel: "grp",                                   // transient UI
       reduce: { steps: [{ ...step, _key: "sk_other" }] },    // React list key
     });
     expect(snapshotStateKey([a], [table()])).toBe(snapshotStateKey([b], [table()]));

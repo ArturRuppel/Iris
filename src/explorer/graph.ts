@@ -20,7 +20,6 @@ export type EdgeKind =
 
 export type NodeTable =
   | { via: "at_step"; at_step: number }
-  | { via: "level"; level: string }
   | { via: "grain"; grain: string }
   | { via: "none" };
 

@@ -1,11 +1,11 @@
-import type { Layer, Registry } from "../types";
+import type { Layer } from "../types";
 
 /* A layer card now shows only the "Data level" dropdown — geom knobs moved to
    the centralized StylePane (driven by the style registry). The card remains
    the place to choose which hierarchy level this layer draws from. */
 export function LayerCard(
   { layer, levels, onChange }:
-  { layer: Layer; registry: Registry;
+  { layer: Layer;
     levels: { value: string; label: string }[];
     onChange: (l: Layer) => void },
 ) {

@@ -55,7 +55,7 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
           <button className="icon" title="Remove layer" onClick={onRemove}>✕</button>
         </span>
       </div>
-      {open && <LayerCard layer={layer} registry={registry}
+      {open && <LayerCard layer={layer}
         levels={levels} onChange={onChange} />}
     </li>
   );

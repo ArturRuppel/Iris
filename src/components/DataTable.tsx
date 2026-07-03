@@ -1,9 +1,9 @@
-import { useMemo, useRef, type CSSProperties } from "react";
+import { useMemo, type CSSProperties } from "react";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule, ModuleRegistry, themeQuartz,
-  type CellEditRequestEvent, type ColDef, type GridApi, type IDatasource,
+  type CellEditRequestEvent, type ColDef, type IDatasource,
 } from "ag-grid-community";
 import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
@@ -37,7 +37,6 @@ export function DataTable() {
   // read-only view off the pool, so the version bump writes through the pool).
   const bumpHandle = useSetAtom(bumpActiveHandleAtom);
   const [typeColors, setTypeColors] = useAtom(typeColorsAtom);
-  const gridApiRef = useRef<GridApi<Row> | null>(null);
 
   /* Infinite Row Model datasource: the grid pulls row windows from the engine
      instead of holding all N rows. A version bump (an edit, Phase C)
@@ -155,7 +154,6 @@ export function DataTable() {
           suppressFieldDotNotation
           readOnlyEdit
           onCellEditRequest={onCellEditRequest}
-          onGridReady={(e) => { gridApiRef.current = e.api; }}
           singleClickEdit
           stopEditingWhenCellsLoseFocus
           suppressCellFocus={false}

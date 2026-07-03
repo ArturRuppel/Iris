@@ -22,7 +22,7 @@ function makeStoreWithSpine(spine: string[]) {
     hierarchy: { spine, fn: {} },
     handle: { id: "h_main", n: 0, version: 0, schema, counts: {} as never } }]);
   store.set(activeTableIdAtom, "main");
-  const p = makeDefaultPlottable(schema, "main");
+  const p = makeDefaultPlottable("main");
   store.set(plottablesAtom, [p]);
   store.set(activePlottableIdAtom, p.id);
   return store;

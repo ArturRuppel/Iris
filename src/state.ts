@@ -189,9 +189,6 @@ export interface Plottable {
      exclusive with `reference` (the TestPicker enforces it). */
   rate: RateOpts | null;
   describeOnly: boolean;    // user asked to render without a test
-  /* which level the reduced-table preview shows ("" = raw reduced rows). The
-     hierarchy itself is table-level (hierarchyAtom), shared by all analyses. */
-  previewLevel: string;
   style: StyleOverrides;
   reduce: ReduceSpec;
   /* un-forcing the nesting: per-analysis collapse plan + chosen test grain.
@@ -302,7 +299,7 @@ export function saveTablesFor(plottables: Plottable[], pool: WorkspaceTable[]): 
 
 /* a brand-new plottable starts completely blank: no preselected mapping, no
    preselected geom. The user picks x/y and adds layers explicitly. */
-export function makeDefaultPlottable(schema: Schema, tableId = ""): Plottable {
+export function makeDefaultPlottable(tableId = ""): Plottable {
   return {
     id: nextId(), name: "Analysis 1", tableId,
     mappings: { x: "", y: "" },
@@ -310,7 +307,6 @@ export function makeDefaultPlottable(schema: Schema, tableId = ""): Plottable {
     facetRow: "", facetCol: "", shareX: true, shareY: true,
     layers: [],
     override: null, reference: null, rate: null, describeOnly: false,
-    previewLevel: RAW_LEVEL,
     style: {},
     /* a fresh reduce per plottable — never share a singleton, so an in-place
        mutation could never alias across plottables.
@@ -620,15 +616,14 @@ export const loadTableAtom = atom(null, async (get, set,
   set(analysisRecencyAtom, []);
   set(reducePreviewByIdAtom, {});
   // add a default analysis bound to the new table (do NOT reset existing ones).
-  const first = makeDefaultPlottable(table.schema, id);
+  const first = makeDefaultPlottable(id);
   set(plottablesAtom, [...get(plottablesAtom), first]);
   set(activePlottableIdAtom, first.id);
 });
 
 /* Inverse of buildSpec: reconstruct the editable Plottable from a saved analysis
    spec so a loaded .viz comes back fully editable, not just renderable. The spec
-   carries everything the Plottable needs except previewLevel (a transient UI
-   preview state), which resets to raw. Geom knobs live in style.overrides.geoms
+   carries everything the Plottable needs. Geom knobs live in style.overrides.geoms
    (the canonical location the engine compiler reads), never on the layer. */
 /* A recode/pivot relabel map is an ordered [from,to] array in memory (types.ts),
    but older saved specs stored it as a dict. Accept either shape on load. */
@@ -687,7 +682,6 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
       ? { exposure: s?.exposure ?? "", model: s?.model ?? "nb" }
       : null,
     describeOnly: s?.describe_only ?? false,
-    previewLevel: RAW_LEVEL,
     style,
     /* a saved join step REFERENCES its right pool table by id (right_table_id),
        adopted straight into the internal rightTableId; an absent id starts "" (an
@@ -773,7 +767,7 @@ function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
   // a fresh doc with no saved analyses gets a single default plottable bound to
   // the first pool table.
   if (!doc.analyses.length) {
-    const first = makeDefaultPlottable(doc.tables[0].schema, doc.tables[0].name);
+    const first = makeDefaultPlottable(doc.tables[0].name);
     set(plottablesAtom, [first]);
     set(activePlottableIdAtom, first.id);
     return;
@@ -830,7 +824,6 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     spec_version: "2.1",
     id: p.id,
     title: p.name,
-    data: { filter: [] },
     reduce: {
       steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey),
       // the UI can't author post steps yet, but a loaded doc carrying them must
@@ -873,7 +866,6 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       ...(p.describeOnly ? { describe_only: true } : {}),
       alpha: 0.05,
     },
-    annotations: { significance_brackets: "auto", show_n: true },
     style: { overrides: style },
     engine_snapshot: snapshot,
     ...(p.collapse ? { collapse: p.collapse } : {}),
@@ -957,7 +949,7 @@ export const addPlottableAtom = atom(null, (get, set) => {
   if (!schema) return;
   // bind the new analysis to the table the active analysis is on (guaranteed
   // non-empty whenever the schema guard above passes — see design §4.2).
-  const p = makeDefaultPlottable(schema, get(activePlottableAtom)?.tableId ?? "");
+  const p = makeDefaultPlottable(get(activePlottableAtom)?.tableId ?? "");
   p.name = `Analysis ${get(plottablesAtom).length + 1}`;
   set(plottablesAtom, [...get(plottablesAtom), p]);
   set(activePlottableIdAtom, p.id);

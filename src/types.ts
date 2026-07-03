@@ -389,7 +389,6 @@ export interface AnalysisSpec {
   spec_version: "2.1";
   id: string;
   title: string;
-  data: { filter: unknown[] };
   reduce: EngineReduceSpec;
   encodings: {
     x: { column: string } | null;
@@ -438,7 +437,6 @@ export interface AnalysisSpec {
     describe_only?: boolean;
     alpha: number;
   };
-  annotations: { significance_brackets: "auto"; show_n: boolean };
   style: { overrides: StyleOverrides };
   engine_snapshot: Record<string, string>;
   /* un-forcing the nesting: recorded as-is (full plan + chosen grain), not a
@@ -733,9 +731,9 @@ export const engine = {
   /* steps are EngineReduceStep[]: every join must already have its right table
      INLINED (via resolveEngineSteps over the materialized cache) — a raw step
      carrying only a rightTableId reaches the engine with no rows and fails. */
-  reduce: (t: TableRef, steps: EngineReduceStep[], hierarchy?: Hierarchy, level?: string, at_step?: number,
+  reduce: (t: TableRef, steps: EngineReduceStep[], hierarchy?: Hierarchy, at_step?: number,
            collapse?: CollapsePlan, grain?: GrainKey) =>
-    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, level, at_step, collapse, grain }),
+    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, at_step, collapse, grain }),
   shapeCounts: (
     t: TableRef, steps: EngineReduceStep[], hierarchy?: Hierarchy,
     extra?: { collapse?: CollapsePlan; test_grain?: GrainKey; qualifier?: string | null },

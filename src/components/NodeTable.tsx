@@ -161,12 +161,10 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
       try {
         const tbl = node.table;
         const res = tbl.via === "at_step"
-          ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, tbl.at_step)
-          : tbl.via === "level"
-            ? await engine.reduce({ token: handle.id }, steps, hierarchy, tbl.level)
-            : tbl.via === "grain"
-              ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, undefined, collapse, tbl.grain)
-              : null;
+          ? await engine.reduce({ token: handle.id }, steps, hierarchy, tbl.at_step)
+          : tbl.via === "grain"
+            ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, collapse, tbl.grain)
+            : null;
         if (!res) return;
         if (cancelled) return;
         setTable(res.preview); setTotal(res.n_total);

@@ -8,7 +8,7 @@ const schema: Schema = { schema_version: "1.0", columns: [
 ] };
 
 const renderable: AnalysisSpec = {
-  spec_version: "2.1", id: "p1", title: "t", data: { filter: [] },
+  spec_version: "2.1", id: "p1", title: "t",
   reduce: { steps: [] },
   encodings: { x: { column: "cond" }, y: { column: "val" }, color: null, size: null, shape: null },
   facet: { row: null, col: null, share_x: true, share_y: true },
@@ -16,10 +16,6 @@ const renderable: AnalysisSpec = {
 } as unknown as AnalysisSpec;
 
 describe("dataCardStates", () => {
-  it("Table is always enabled", () => {
-    expect(dataCardStates(null, schema).tableEnabled).toBe(true);
-    expect(dataCardStates(renderable, schema).tableEnabled).toBe(true);
-  });
   it("Plot and Stats are disabled with no spec", () => {
     const s = dataCardStates(null, schema);
     expect(s.plotEnabled).toBe(false);

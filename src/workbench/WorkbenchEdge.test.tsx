@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
-import { ReactFlow, ReactFlowProvider, Position, type Node, type Edge } from "@xyflow/react";
+import { ReactFlow, ReactFlowProvider, Position, type Node } from "@xyflow/react";
 import { WorkbenchEdge, laneOf } from "./WorkbenchEdge";
 
 const edgeTypes = { workbench: WorkbenchEdge };

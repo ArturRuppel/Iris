@@ -15,7 +15,7 @@ import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
-  hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
+  hierarchyAtom, loadDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
@@ -51,7 +51,6 @@ export default function App() {
   const [active] = useAtom(activePlottableAtom);
   const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
-  const loadTable = useSetAtom(loadTableAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
   const plottables = useAtomValue(plottablesAtom);
   const store = useStore();
@@ -301,7 +300,7 @@ export default function App() {
      without stringifying every joined row each render. */
   const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const stepsKey = active
-    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel, materializedKey])
+    ? JSON.stringify([active.reduce.steps, hierarchy, materializedKey])
     : null;
   useEffect(() => {
     if (!handle || !active) return;
@@ -311,14 +310,13 @@ export default function App() {
     // an uncached/unset join is dropped until its rows land, so the preview never
     // ships a rightTableId the engine can't resolve.
     const steps = resolveEngineSteps(active.reduce.steps, materialized);
-    const level = active.previewLevel;
     /* the preview itself is id-routed; the global engine error is not, so a
        stale run must not write it over a newer run's state (mirrors the
        analyze loop above). */
     let stale = false;
     previewTimer.current = window.setTimeout(async () => {
       try {
-        const preview = await engine.reduce({ token: handle.id }, steps, hierarchy, level);
+        const preview = await engine.reduce({ token: handle.id }, steps, hierarchy);
         setReducePreviewById({ id: targetId, preview });
         if (!stale) setError(null);
       } catch (e) {

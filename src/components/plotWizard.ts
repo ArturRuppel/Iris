@@ -14,6 +14,5 @@ export function firstStep(_mode: WizardMode): WizardStep {
 
 export function nextStep(mode: WizardMode, step: WizardStep): WizardStep {
   if (step === "type") return mode === "first" ? "map" : "grain";
-  if (step === "map" || step === "grain") return "done";
   return "done";
 }
