@@ -644,6 +644,11 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   font-weight: 600; }
 .gallery-prose img { display: block; max-width: 100%; height: auto; margin: 1.2em 0;
   border: 1px solid var(--line); border-radius: 6px; }
+/* Screenshots render at their true 1× width (set inline as naturalWidth/2), so
+   the UI font is the same size in every shot. Shots wider than the text column
+   break out and centre on the column's centre, capped at the viewport. */
+.gallery-prose img.guide-shot { height: auto; margin: 1.4em 0; max-width: 94vw;
+  position: relative; left: 50%; transform: translateX(-50%); }
 .guide-link { background: none; border: none; padding: 0; font: inherit;
   color: var(--accent); cursor: pointer; text-decoration: underline; }
 
@@ -735,9 +740,13 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border:1px solid #e7eaf1; border-radius:12px; overflow:hidden;
   box-shadow:0 1px 3px rgba(20,30,60,.06); --accent:#64748b;
   display:flex; flex-direction:column; }
-/* a terminal (figure) expands to fit its two sections; its nbody holds the sections directly */
-.txw-node.figure { height:auto; min-height:150px; }
+/* a terminal (figure) expands to fit its two sections; its nbody holds the sections
+   directly. overflow is visible (unlike the fixed-size table nodes) so a pinned
+   facet's slot badge can overhang the section corner without being clipped; the
+   corner-touching bar + section backgrounds round themselves instead. */
+.txw-node.figure { height:auto; min-height:150px; overflow:visible; }
 .txw-node.figure .txw-nbody { flex:1; display:flex; flex-direction:column; padding:0; }
+.txw-node.figure .txw-nbar { border-radius:11px 11px 0 0; }
 .txw-node.source { border-style:dashed; }
 .txw-node.k-source{--accent:#64748b} .txw-node.k-table{--accent:#64748b}
 .txw-node.k-derive{--accent:#1f9e57} .txw-node.k-join{--accent:#0e7aa6}
@@ -801,6 +810,10 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-figsec.k-geom { --accent:#0e8a8a; }
 .txw-figsec.k-test { --accent:#4f46e5; }
 .txw-figsec + .txw-figsec { border-top:1px dashed #d0d0d8; }
+/* round the outer section corners so their pinned/hover backgrounds follow the
+   node's rounding now that .txw-node.figure no longer clips (see above). */
+.txw-figsections .txw-figsec:first-child { border-radius:11px 11px 0 0; }
+.txw-figsections .txw-figsec:last-child { border-radius:0 0 11px 11px; }
 .txw-figsec:hover { background:color-mix(in srgb, var(--accent) 7%, transparent); }
 .txw-figsec .txw-figsec-head { display:flex; align-items:center; gap:6px; color:var(--accent); }
 .txw-figsec.pinned { background:color-mix(in srgb, var(--accent) 12%, transparent); }
