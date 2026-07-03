@@ -2,28 +2,15 @@ import { useMemo, type CSSProperties } from "react";
 import { useAtomValue, useSetAtom, useAtom } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
-  AllCommunityModule, ModuleRegistry, themeQuartz,
+  AllCommunityModule, ModuleRegistry,
   type CellEditRequestEvent, type ColDef, type IDatasource,
 } from "ag-grid-community";
 import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAtom } from "../state";
 import type { ColumnType } from "../state";
 import { engine, type Row } from "../types";
+import { gridTheme } from "./gridTheme";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
-
-/* match the app shell; the grid is wrapped by our typed-column model and
-   stays read-only-edit so every change flows through Jotai (provenance) */
-const theme = themeQuartz.withParams({
-  accentColor: "#0e7490",
-  fontFamily: "inherit",
-  fontSize: 12,
-  headerFontSize: 12,
-  headerFontWeight: 500,
-  borderColor: "#e2e8f0",
-  headerBackgroundColor: "#f8fafc",
-  rowVerticalPaddingScale: 0.7,
-  wrapperBorder: false,
-});
 
 const TYPE_BADGE = { numeric: "123", categorical: "abc", identifier: "id", bool: "T/F" } as const;
 const TYPE_LABEL: Record<ColumnType, string> = {
@@ -141,7 +128,7 @@ export function DataTable() {
       </div>
       <div className="grid-host" style={typeVars}>
         <AgGridReact<Row>
-          theme={theme}
+          theme={gridTheme}
           rowModelType="infinite"
           datasource={datasource}
           cacheBlockSize={200}

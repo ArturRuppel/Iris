@@ -5,6 +5,7 @@ import {
   activeHandleAtom,
 } from "../state";
 import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
+import { labelForCol } from "../levels";
 
 /* The data hierarchy, defined on the DATA (not per analysis). Every non-numeric
    column is either an *identifier* (a nesting level on the spine) or a
@@ -43,8 +44,7 @@ export function HierarchyPanel() {
   }, [handle?.id, handle?.version, key]);
 
   if (!schema) return null;
-  const labelFor = (name: string) =>
-    schema.columns.find((c) => c.name === name)?.label ?? name;
+  const labelFor = (name: string) => labelForCol(schema, name);
   const nGroups = (lvl: string) =>
     info?.levels.find((l) => l.name === lvl)?.n_groups;
   const homeOf = (name: string) =>

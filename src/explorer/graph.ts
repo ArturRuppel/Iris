@@ -1,6 +1,7 @@
 import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, ValueDesc } from "../types";
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
+import { labelForCol } from "../levels";
 
 /* Nodes are DATA (a table at some grain, or a terminal figure output); edges
    are TRANSFORMATIONS (filter/drop/collapse between tables, geom + test into the
@@ -87,9 +88,6 @@ const stepId = (i: number) => `step:${i}`;
 export function nodeIdForGrain(key: string, rawNodeId: string): string {
   return key === "" ? rawNodeId : `grain:${key}`;
 }
-
-const labelForCol = (schema: Schema | null, name: string): string =>
-  schema?.columns.find((c) => c.name === name)?.label ?? name;
 
 const labelForGrain = (schema: Schema | null, kept: string[]): string =>
   kept.length === 1 ? `per ${labelForCol(schema, kept[0])}`

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useAtomValue } from "jotai";
 import { AgGridReact } from "ag-grid-react";
 import {
-  AllCommunityModule, ModuleRegistry, themeQuartz, type ColDef, type ColGroupDef,
+  AllCommunityModule, ModuleRegistry, type ColDef, type ColGroupDef,
 } from "ag-grid-community";
 import {
   activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
@@ -11,20 +11,9 @@ import {
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
 import { engine, type Table, type ColumnDef } from "../types";
+import { gridTheme } from "./gridTheme";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
-
-const theme = themeQuartz.withParams({
-  accentColor: "#0e7490",
-  fontFamily: "inherit",
-  fontSize: 12,
-  headerFontSize: 12,
-  headerFontWeight: 500,
-  borderColor: "#e2e8f0",
-  headerBackgroundColor: "#f8fafc",
-  rowVerticalPaddingScale: 0.7,
-  wrapperBorder: false,
-});
 
 /* Build AG Grid column defs for a reduced table. With `groupRoles` and a non-empty
    `axisNames`, columns split into two header groups — "Organised by" (the index
@@ -90,7 +79,7 @@ function Grid(
       </div>
       <div className="grid-host reduced-table">
         <AgGridReact
-          theme={theme}
+          theme={gridTheme}
           rowData={table.rows}
           columnDefs={colDefs}
           /* family columns carry dots (cell_shape.area_um2); without this
