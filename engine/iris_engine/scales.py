@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
+from .specutil import col_type
+
 # The group/series palette — the single colour source of truth, shared by the
 # geom render functions, the legend, the compiler (re-exported there), and the
 # cardinality guard (guards.COLOR_CAP = len(PALETTE)). Leading 8 are Okabe–Ito
@@ -50,11 +52,6 @@ def _levels(df: pd.DataFrame, schema: dict, name: str) -> list[str]:
         if c["name"] == name and c.get("levels"):
             return list(c["levels"])
     return sorted(str(v) for v in df[name].dropna().unique())
-
-
-def _is_numeric(schema: dict, name: str) -> bool:
-    return any(c["name"] == name and c["type"] == "numeric"
-               for c in schema["columns"])
 
 
 def _col(enc: dict, key: str, present: set[str]) -> str | None:
@@ -161,7 +158,7 @@ def resolve_scales(encodings: dict, df: pd.DataFrame, schema: dict,
     color = _col(encodings, "color", present)
     if color:
         sc.color_col = color
-        if _is_numeric(schema, color):
+        if col_type(schema, color) == "numeric":
             # Phase 3b: continuous color. Normalize over the data range; the
             # compiler renders points with c=values + cmap and a colorbar.
             vals = df[color].dropna().to_numpy(dtype=float)

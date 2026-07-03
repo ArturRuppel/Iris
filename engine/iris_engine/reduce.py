@@ -16,6 +16,8 @@ import ast
 import numpy as np
 import pandas as pd
 
+from .specutil import col_type
+
 
 class ReduceError(ValueError):
     """A reduction could not be applied (bad column, bad op, etc.)."""
@@ -32,10 +34,10 @@ _NUMERIC_OPS = {
 
 
 def _col_type(schema: dict, name: str) -> str:
-    for c in schema["columns"]:
-        if c["name"] == name:
-            return c["type"]
-    raise ReduceError(f"unknown column {name!r}")
+    t = col_type(schema, name)
+    if t is None:
+        raise ReduceError(f"unknown column {name!r}")
+    return t
 
 
 def _coerce(value, col_type: str):

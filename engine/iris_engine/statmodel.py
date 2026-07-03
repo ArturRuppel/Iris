@@ -9,20 +9,7 @@ per-facet correction). When the design is ambiguous, default to describe-only.
 from __future__ import annotations
 
 from . import geoms as geoms_mod
-
-
-def _kind(schema: dict, name: str | None) -> str | None:
-    if not name:
-        return None
-    for c in schema["columns"]:
-        if c["name"] == name:
-            return c["type"]
-    return None
-
-
-def _col(enc: dict, key: str) -> str | None:
-    e = enc.get(key)
-    return e["column"] if e and e.get("column") else None
+from .specutil import col_type, enc_col
 
 
 def _is_timeseries(layers: list[dict] | None) -> bool:
@@ -52,10 +39,10 @@ def infer(encodings: dict, schema: dict, override: str | None,
     `timeseries`) breaks the numeric/numeric tie toward a time-series design
     rather than `correlation` — the geom's declared family is authoritative when
     column types alone are ambiguous."""
-    x = _col(encodings, "x")
-    y = _col(encodings, "y")
-    color = _col(encodings, "color")
-    xk, yk = _kind(schema, x), _kind(schema, y)
+    x = enc_col(encodings, "x")
+    y = enc_col(encodings, "y")
+    color = enc_col(encodings, "color")
+    xk, yk = col_type(schema, x), col_type(schema, y)
 
     # Time series breaks the numeric/numeric tie before it can fall through to
     # `correlation`: an x-vs-y plot with an ordered x, described only (no
@@ -151,7 +138,7 @@ def infer(encodings: dict, schema: dict, override: str | None,
         # Item P: a categorical color overlays one distribution curve per group in
         # a single panel (shared bins). Carry it as the grouping factor so the
         # design sentence names it; the figure splits on this color directly.
-        if color and _kind(schema, color) == "categorical":
+        if color and col_type(schema, color) == "categorical":
             design += f", one curve per {color}"
             factors.append({"column": color, "role": "group"})
     else:
@@ -167,7 +154,7 @@ def infer(encodings: dict, schema: dict, override: str | None,
     group_factor = factors[0]["column"]
     issues = []
     if (family == "group_comparison" and color and color != group_factor
-            and _kind(schema, color) == "categorical"):
+            and col_type(schema, color) == "categorical"):
         design += (f"; color ({color}) could be a second factor — it is drawn "
                    f"as separate groups, but only {group_factor} is tested")
         issues.append({

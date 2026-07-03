@@ -16,6 +16,7 @@ import pandas as pd
 
 from . import (compiler, guards, hierarchy, reduce as reduce_mod, specnorm,
                stats, statmodel)
+from .specutil import enc_col, resolve_cat_val
 
 
 class RenderError(ValueError):
@@ -117,17 +118,11 @@ def render(table: dict, spec: dict, *, memo=None):
     # — same level materialization, inferential-grain resolution, and pairing — and
     # differs only in the terminal stats call, so it shares this branch.
     if family in ("group_comparison", "location", "rate"):
-        enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
-        enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
-        # Phase 3c: detect horizontal orientation (numeric x + categorical y).
-        # The stats function always receives (grouping_col, value_col); for
-        # horizontal the roles are swapped relative to the encoding axes.
-        x_is_numeric = any(c["name"] == enc_x and c["type"] == "numeric"
-                           for c in schema["columns"]) if enc_x else False
-        if x_is_numeric:
-            cat_col, val_col = enc_y, enc_x   # horizontal: y groups, x measures
-        else:
-            cat_col, val_col = enc_x, enc_y   # vertical: x groups, y measures
+        # The stats function always receives (grouping_col, value_col); for the
+        # horizontal orientation (numeric x + categorical y) the roles are
+        # swapped relative to the encoding axes. resolve_cat_val is the single
+        # rule the figure and the guards share, so they can't disagree.
+        cat_col, val_col, _ = resolve_cat_val(enc, schema)
         cat_schema = next((c for c in schema["columns"] if c["name"] == cat_col), None)
         # The ungrouped one-sample location test (only Y mapped, tested against a
         # reference) has no grouping column: stats.location handles cat_col=None as
@@ -279,8 +274,8 @@ def render(table: dict, spec: dict, *, memo=None):
                    df, enc["y"]["column"], alpha=alpha))
     elif family == "contingency":
         # Phase 3d: tile/heatmap — count rows per (x_level, y_level) cell.
-        enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
-        enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
+        enc_x = enc_col(enc, "x")
+        enc_y = enc_col(enc, "y")
         x_sch = next((c for c in schema["columns"] if c["name"] == enc_x), None)
         y_sch = next((c for c in schema["columns"] if c["name"] == enc_y), None)
         x_levels = ((x_sch.get("levels") or []) if x_sch else []) or sorted(
