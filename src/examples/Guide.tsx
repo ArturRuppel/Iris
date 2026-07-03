@@ -4,15 +4,12 @@ import ReactMarkdown from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { guideAnchorAtom } from "../state";
-import legacyGuideMd from "../../docs/guide.md?raw";
 import { parseExampleToken, parseOpenToken } from "./tokens";
 
-/* The in-app Guide, mid-restructure into a nested, task-oriented tree under
-   docs/guide/. Pages are plain Markdown, rendered with react-markdown; the
-   nav below switches between them. The old single-file guide (docs/guide.md)
-   is kept reachable as "Full guide" until its content is migrated into pages,
-   so its anchors — notably the "Why this test?" deep-link target
-   (how-iris-chooses-the-test) — still resolve.
+/* The in-app Guide: a nested, task-oriented tree of Markdown pages under
+   docs/guide/, rendered with react-markdown; the nav below switches between
+   them. The "Why this test?" deep-link (see guideAnchorAtom) targets a page
+   slug + heading, so it resolves against these pages like any in-app link.
 
    The markdown carries the same link/image kinds as before, resolved here:
      ![](example:<caseId>/<analysisId>)  -> inline example plot SVG
@@ -52,9 +49,6 @@ function resolveGuideSlug(fromSlug: string, href: string): string | null {
   return segs.length ? segs.join("/") : null;
 }
 
-/* The legacy full guide is a page too, but sourced from docs/guide.md. */
-const LEGACY_SLUG = "full-guide";
-
 /* Ordered nav. Titles and order are explicit here; a toc.json manifest can
    replace this once the tree grows past a handful of pages. */
 const NAV: { slug: string; title: string }[] = [
@@ -71,7 +65,6 @@ const NAV: { slug: string; title: string }[] = [
   { slug: "reference/composition", title: "How the pieces fit" },
   { slug: "reference/iris-format", title: "The .iris file" },
   { slug: "reference/citations", title: "References" },
-  { slug: LEGACY_SLUG, title: "Full guide" },
 ];
 
 /* Bundled, committed example SVGs (the example: token targets). Glob-import so
@@ -88,21 +81,23 @@ const svgByAnalysis = (analysisId: string): string | undefined =>
 export function Guide({ onOpen }: { onOpen: (caseId: string) => void }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState("index");
-  const [anchor, setAnchor] = useAtom(guideAnchorAtom);
+  const [target, setTarget] = useAtom(guideAnchorAtom);
 
   /* A deep-link request from elsewhere (the stats pane's "Why this test?"):
-     its target anchors live in the legacy full guide, so switch there first,
-     then scroll the named section into view and clear the request. */
+     switch to the target page first, then, once it has rendered, scroll the
+     named heading into view and clear the request. */
   useEffect(() => {
-    if (!anchor) return;
-    if (page !== LEGACY_SLUG) {
-      setPage(LEGACY_SLUG);
-      return; // re-runs once the legacy page has rendered
+    if (!target) return;
+    if (page !== target.page) {
+      setPage(target.page);
+      return; // re-runs once the target page has rendered
     }
-    const el = rootRef.current?.querySelector(`#${CSS.escape(anchor)}`);
+    const el = target.anchor
+      ? rootRef.current?.querySelector(`#${CSS.escape(target.anchor)}`)
+      : null;
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
-    setAnchor(null);
-  }, [anchor, page, setAnchor]);
+    setTarget(null);
+  }, [target, page, setTarget]);
 
   const goTo = (slug: string) => {
     setPage(slug);
@@ -110,7 +105,7 @@ export function Guide({ onOpen }: { onOpen: (caseId: string) => void }) {
     rootRef.current?.closest<HTMLElement>(".examples-mode")?.scrollTo?.({ top: 0 });
   };
 
-  const md = page === LEGACY_SLUG ? legacyGuideMd : mdForSlug(page) ?? "";
+  const md = mdForSlug(page) ?? "";
 
   return (
     <div className="gallery guide-doc" ref={rootRef}>
@@ -185,13 +180,13 @@ export function Guide({ onOpen }: { onOpen: (caseId: string) => void }) {
               if (href && href.startsWith("#")) return <a {...props} />;
               // relative link to another guide page (./slug.md[#anchor]),
               // resolved against the current page so subfolder links work
-              const target = href ? resolveGuideSlug(page, href) : null;
-              if (target && (mdForSlug(target) || target === LEGACY_SLUG))
+              const dest = href ? resolveGuideSlug(page, href) : null;
+              if (dest && mdForSlug(dest))
                 return (
                   <button
                     className="guide-link"
                     type="button"
-                    onClick={() => goTo(target)}
+                    onClick={() => goTo(dest)}
                   >
                     {props.children}
                   </button>

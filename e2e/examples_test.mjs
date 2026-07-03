@@ -35,19 +35,21 @@ const page = await browser.newPage();
 await page.addInitScript(installSavePickerStub);
 await page.goto(URL);
 
-// Switch to the Guide view.
+// Switch to the Guide view and open a page that carries example figures (the
+// Home landing has none).
 await page.getByRole("button", { name: "Guide" }).click();
+await page.getByRole("button", { name: "Plot types" }).click();
 
 // An inline plot SVG must render (no unknown-example placeholders).
 await page.waitForSelector(".gallery-figure svg", { timeout: 10_000 });
 const missing = await page.locator(".gallery-missing").count();
-if (missing > 0) fail(`${missing} unresolved example token(s) in guide.md`);
+if (missing > 0) fail(`${missing} unresolved example token(s) in the guide`);
 
 // Open the first example into the session.
 await page.locator(".gallery-open-btn").first().click();
 
-// It should land in the Analyses view with a figure.
-await page.waitForSelector(".analyses-mode .iris", { timeout: 15_000 });
+// It should land in the workbench view with a figure.
+await page.waitForSelector(".workbench-mode", { timeout: 15_000 });
 
 // Saving now must call the save picker (Save As) — the example is not bound.
 await page.getByRole("button", { name: "Save .iris" }).click();

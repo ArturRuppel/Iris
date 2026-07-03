@@ -322,7 +322,7 @@ export function TestPicker() {
       <div className="pane-head">
         <button type="button" className="link-btn methods-link"
           title="How Iris recommends a test — rules, thresholds, and sources"
-          onClick={() => { setGuideAnchor("how-iris-chooses-the-test"); setViewMode("guide"); }}>
+          onClick={() => { setGuideAnchor({ page: "test/choosing", anchor: "two-questions" }); setViewMode("guide"); }}>
           Why this test?
         </button>
       </div>

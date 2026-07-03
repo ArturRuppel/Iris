@@ -3,7 +3,8 @@
    `read` render as labelled lines when present. See the design spec:
    docs/superpowers/specs/2026-06-17-stats-info-boxes-design.md
    The full recommendation rules (thresholds, rationale, sources, failure modes)
-   live in docs/guide.md — keep this copy consistent with it.
+   live in docs/guide/test/choosing.md and docs/guide/troubleshooting.md — keep
+   this copy consistent with them.
    Copy lives here (not inline in JSX) so the prose is reviewable in one place. */
 
 export interface GlossaryEntry {
