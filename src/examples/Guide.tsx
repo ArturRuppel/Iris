@@ -62,8 +62,15 @@ const NAV: { slug: string; title: string }[] = [
   { slug: "quickstart", title: "Quickstart" },
   { slug: "data-in", title: "Get your data in" },
   { slug: "shape", title: "Shape it" },
+  { slug: "reshaping", title: "Reshaping real data" },
   { slug: "plots", title: "Plot types" },
+  { slug: "nesting", title: "Nested data" },
   { slug: "test/choosing", title: "Choosing a test" },
+  { slug: "test/interpreting", title: "Reading the result" },
+  { slug: "troubleshooting", title: "Troubleshooting" },
+  { slug: "reference/composition", title: "How the pieces fit" },
+  { slug: "reference/iris-format", title: "The .iris file" },
+  { slug: "reference/citations", title: "References" },
   { slug: LEGACY_SLUG, title: "Full guide" },
 ];
 

@@ -92,8 +92,10 @@ When the rank test Iris would otherwise suggest cannot reach 0.05 at your
 sample size, it does not suggest it. It suggests the parametric test instead and
 says why: the normality assumption cannot be verified at this n, so you report
 the parametric result with that caveat noted. The same guard covers the other
-rank tests, each with its own floor. You can still choose the rank test if you
-want it; the guard changes only the suggestion.
+rank tests, each with its own floor;
+[Troubleshooting](../troubleshooting.md#a-rank-test-that-cannot-reach-significance)
+lists them. You can still choose the rank test if you want it; the guard changes
+only the suggestion.
 
 ## Overriding
 

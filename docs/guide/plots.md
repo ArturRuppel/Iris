@@ -116,6 +116,18 @@ to see how one variable is distributed before you compare anything.
 
 [Open this example in Iris](iris-open:iris-sepal-descriptive)
 
+### Grouped potential curves
+
+One density curve per group on shared bins, turned into a "potential"
+U = −ln P so the peaks become wells. Reach for it to compare the shape of a
+distribution across groups and to read a barrier height straight off the curve.
+The example shows a signed reaction coordinate with a double well, the effective
+barrier labelled per curve.
+
+![](example:potential-double-well/potential-double-well-01)
+
+[Open this example in Iris](iris-open:potential-double-well)
+
 ## Crossing two categories
 
 ### Tile (heatmap)
