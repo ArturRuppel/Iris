@@ -427,21 +427,48 @@ export const bumpActiveHandleAtom = atom(null, (get, set, h: TableHandle) => {
   set(tablesAtom, upsertTable(get(tablesAtom), { ...t, handle: h }));
 });
 
-export const analysisByIdAtom = atom<Record<string, AnalyzeResponse>>({});
+/* ---- figure cache: ONE atom owning, per analysis, the rendered result, the
+   freshness key it was computed from, and the LRU recency together, so the three
+   can never desync — a key with no backing result was a real bug class. The
+   reduce PREVIEW stays separate (reducePreviewByIdAtom): different lifecycle
+   (rewritten per keystroke, never evicted, gates the background drain). ---- */
+interface CacheEntry { res: AnalyzeResponse; key: string }
+interface FigureCache {
+  byId: Record<string, CacheEntry>;
+  /* LRU recency, least- → most-recently used; invariant: every id is in byId. */
+  recency: string[];
+}
+export const figureCacheAtom = atom<FigureCache>({ byId: {}, recency: [] });
 
-/* Per plottable, the key the cached result in analysisByIdAtom was computed from:
-   `${handle.id}:${handle.version}:${JSON.stringify(spec)}` — a complete freshness
-   fingerprint (spec embeds encodings/layers/style/reduce/hierarchy/snapshot,
-   handle.version captures data edits). Written ONLY on a
-   successful render (setAnalysisResultAtom); reset with analysisByIdAtom on data /
-   document load. A fresh key means "the cached figure already matches" → no
-   re-render. */
-export const analysisKeyByIdAtom = atom<Record<string, string>>({});
+/* Read-only projections so every existing consumer (and test) reads the same
+   shapes as before. Each derives from `byId` alone, so a recency-only touch
+   doesn't change what a key/result reader sees. */
+export const analysisByIdAtom = atom((get) => {
+  const { byId } = get(figureCacheAtom);
+  const out: Record<string, AnalyzeResponse> = {};
+  for (const id in byId) out[id] = byId[id].res;
+  return out;
+});
+/* Per plottable, the freshness key its cached result was computed from
+   (`${handle.id}:${handle.version}:${JSON.stringify(spec)}`, spec embeds
+   encodings/layers/style/reduce/hierarchy/snapshot, handle.version captures data
+   edits). A fresh key means "the cached figure already matches" → no re-render. */
+export const analysisKeyByIdAtom = atom((get) => {
+  const { byId } = get(figureCacheAtom);
+  const out: Record<string, string> = {};
+  for (const id in byId) out[id] = byId[id].key;
+  return out;
+});
+/* LRU recency (least- → most-recently used); eviction drops from the front. */
+export const analysisRecencyAtom = atom((get) => get(figureCacheAtom).recency);
 
-/* LRU recency for the byte-budget cache: plottable ids ordered least- → most-
-   recently used (touched on every cache write and on every cache hit). Eviction
-   drops from the front. */
-export const analysisRecencyAtom = atom<string[]>([]);
+/* An identity-stable string of (id → key): an effect that must react to "did any
+   freshness key change" (the background drain) deps on this instead of the
+   derived key map, so it doesn't re-run on a recency-only touch. */
+export const cacheKeysFingerprintAtom = atom((get) => {
+  const { byId } = get(figureCacheAtom);
+  return Object.keys(byId).sort().map((id) => `${id}:${byId[id].key}`).join("|");
+});
 
 /* the complete freshness fingerprint for a plottable's spec under the current
    table handle. Must match the key the active analyze loop compares against. */
@@ -456,6 +483,38 @@ export const cacheKey = (handleId: string, version: number, spec: AnalysisSpec):
 const ENTRY_OVERHEAD = 4096;    // stats / stat_model / issues, flat
 export function estimateBytes(res: AnalyzeResponse): number {
   return res.figure.svg.length + ENTRY_OVERHEAD;
+}
+
+/* Pure reducers over the figure cache — unit-testable without a store.
+   cachePut inserts result+key, marks it most-recently-used, then evicts LRU
+   entries until back under `budget` (never the pinned/active id nor the entry
+   just written — both stay even if alone they exceed the budget). cacheTouch
+   bumps recency; cacheDrop removes one entry. All keep the invariant that every
+   recency id is present in byId. */
+export function cachePut(
+  c: FigureCache, arg: { id: string; key: string; res: AnalyzeResponse },
+  pinnedId: string | null, budget: number,
+): FigureCache {
+  const byId: Record<string, CacheEntry> = { ...c.byId, [arg.id]: { res: arg.res, key: arg.key } };
+  const recency = [...c.recency.filter((x) => x !== arg.id), arg.id];
+  let total = Object.values(byId).reduce((s, e) => s + estimateBytes(e.res), 0);
+  for (const victim of recency) {
+    if (total <= budget) break;
+    if (victim === pinnedId || victim === arg.id) continue;
+    if (!(victim in byId)) continue;
+    total -= estimateBytes(byId[victim].res);
+    delete byId[victim];
+  }
+  return { byId, recency: recency.filter((id) => id in byId) };
+}
+export function cacheTouch(c: FigureCache, id: string): FigureCache {
+  if (c.recency[c.recency.length - 1] === id || !(id in c.byId)) return c;
+  return { byId: c.byId, recency: [...c.recency.filter((x) => x !== id), id] };
+}
+export function cacheDrop(c: FigureCache, id: string): FigureCache {
+  if (!(id in c.byId)) return c;
+  const byId = { ...c.byId }; delete byId[id];
+  return { byId, recency: c.recency.filter((x) => x !== id) };
 }
 
 /* default cache budget — a single tunable knob. Hundreds of typical plots fit
@@ -512,42 +571,21 @@ export function pickStaleSpec(specs: AnalysisSpec[], opts: {
    the figure the user is looking at is always present. */
 export const setAnalysisResultAtom = atom(null,
   (get, set, arg: { id: string; key: string; res: AnalyzeResponse }) => {
-    const byId = { ...get(analysisByIdAtom), [arg.id]: arg.res };
-    const keyById = { ...get(analysisKeyByIdAtom), [arg.id]: arg.key };
-    // most-recently-used at the end
-    const recency = [...get(analysisRecencyAtom).filter((x) => x !== arg.id), arg.id];
-    const activeId = get(activePlottableIdAtom);
-    const budget = get(cacheBudgetAtom);
-    let total = Object.keys(byId).reduce((s, id) => s + estimateBytes(byId[id]), 0);
-    // evict from the front (LRU), skipping the active plottable and the entry we
-    // just inserted — both are pinned. The inserted/active entry alone may exceed
-    // the budget; that is accepted, never evicted.
-    for (const victim of recency) {
-      if (total <= budget) break;
-      if (victim === activeId || victim === arg.id) continue;
-      if (!(victim in byId)) continue;
-      total -= estimateBytes(byId[victim]);
-      delete byId[victim];
-      delete keyById[victim];
-    }
-    set(analysisByIdAtom, byId);
-    set(analysisKeyByIdAtom, keyById);
-    set(analysisRecencyAtom, recency.filter((id) => id in byId));
+    set(figureCacheAtom, cachePut(get(figureCacheAtom), arg,
+      get(activePlottableIdAtom), get(cacheBudgetAtom)));
   });
 
 /* mark a cached plottable most-recently-used without rewriting its result — used
    when the active loop shows a plot straight from cache (a freshness hit), so a
    plot the user keeps returning to is not the first evicted once they leave it. */
 export const touchAnalysisAtom = atom(null, (get, set, id: string) => {
-  const rec = get(analysisRecencyAtom);
-  if (rec[rec.length - 1] === id || !(id in get(analysisByIdAtom))) return;
-  set(analysisRecencyAtom, [...rec.filter((x) => x !== id), id]);
+  set(figureCacheAtom, cacheTouch(get(figureCacheAtom), id));
 });
 
 /* analysisAtom: derived read-only convenience for the ACTIVE plottable */
 export const analysisAtom = atom((get) => {
   const id = get(activePlottableIdAtom);
-  return id ? (get(analysisByIdAtom)[id] ?? null) : null;
+  return id ? (get(figureCacheAtom).byId[id]?.res ?? null) : null;
 });
 
 /* Write a result into an EXPLICIT plottable's slot. The caller captures the
@@ -556,19 +594,38 @@ export const analysisAtom = atom((get) => {
    whichever happens to be active when the network call returns). */
 export const setAnalysisByIdAtom = atom(
   null, (get, set, arg: { id: string; res: AnalyzeResponse | null }) => {
-    const map = { ...get(analysisByIdAtom) };
-    if (arg.res) { map[arg.id] = arg.res; }
-    else {
-      // clearing a figure (no Y / no layer / mapping error / failed active
-      // render) must also drop its freshness key and recency slot, so the
-      // background loop never sees a key with no backing result behind it.
-      delete map[arg.id];
-      const keys = { ...get(analysisKeyByIdAtom) }; delete keys[arg.id];
-      set(analysisKeyByIdAtom, keys);
-      set(analysisRecencyAtom, get(analysisRecencyAtom).filter((x) => x !== arg.id));
+    if (arg.res) {
+      // seed/replace a result, preserving any existing freshness key. A direct
+      // insert (no eviction) — the app renders via setAnalysisResultAtom; only a
+      // test injects a result here, sometimes a partial one with no figure.
+      const cur = get(figureCacheAtom);
+      const key = cur.byId[arg.id]?.key ?? "";
+      set(figureCacheAtom, {
+        byId: { ...cur.byId, [arg.id]: { res: arg.res, key } },
+        recency: [...cur.recency.filter((x) => x !== arg.id), arg.id],
+      });
+    } else {
+      // clearing a figure (no Y / no layer / mapping error / failed active render)
+      // drops its result, freshness key, and recency slot together, so the
+      // background loop never sees a key with no backing result. The reduce
+      // preview is independent and left untouched.
+      set(figureCacheAtom, cacheDrop(get(figureCacheAtom), arg.id));
     }
-    set(analysisByIdAtom, map);
   });
+
+/* ---- lifecycle verbs: the ONLY places the analysis caches are reset/dropped, so
+   no call site can forget one of them. clear = whole-workspace replace (import /
+   document load); drop = one analysis removed (delete). Both cover the figure
+   cache AND the reduce preview. ---- */
+export const clearAnalysisCachesAtom = atom(null, (_get, set) => {
+  set(figureCacheAtom, { byId: {}, recency: [] });
+  set(reducePreviewByIdAtom, {});
+});
+export const dropAnalysisAtom = atom(null, (get, set, id: string) => {
+  set(figureCacheAtom, cacheDrop(get(figureCacheAtom), id));
+  const prev = { ...get(reducePreviewByIdAtom) }; delete prev[id];
+  set(reducePreviewByIdAtom, prev);
+});
 
 /* swap in a freshly imported (or loaded) table and reset everything that
    referred to the old one: plottables, analysis */
@@ -611,10 +668,7 @@ export const loadTableAtom = atom(null, async (get, set,
   set(tablesAtom, upsertTable(get(tablesAtom), entry));
   set(activeTableIdAtom, id);
   set(engineErrorAtom, null);
-  set(analysisByIdAtom, {});
-  set(analysisKeyByIdAtom, {});
-  set(analysisRecencyAtom, []);
-  set(reducePreviewByIdAtom, {});
+  set(clearAnalysisCachesAtom);
   // add a default analysis bound to the new table (do NOT reset existing ones).
   const first = makeDefaultPlottable(id);
   set(plottablesAtom, [...get(plottablesAtom), first]);
@@ -760,10 +814,7 @@ function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
   }
   set(activeTableIdAtom, doc.tables[0].name);
   set(engineErrorAtom, null);
-  set(analysisByIdAtom, {});
-  set(analysisKeyByIdAtom, {});
-  set(analysisRecencyAtom, []);
-  set(reducePreviewByIdAtom, {});
+  set(clearAnalysisCachesAtom);
   // a fresh doc with no saved analyses gets a single default plottable bound to
   // the first pool table.
   if (!doc.analyses.length) {
@@ -1004,13 +1055,7 @@ export const deletePlottableAtom = atom(null, (get, set, id: string) => {
   set(plottablesAtom, next);
   if (get(activePlottableIdAtom) === id)
     set(activePlottableIdAtom, next[Math.max(0, idx - 1)].id);
-  const map = { ...get(analysisByIdAtom) }; delete map[id];
-  set(analysisByIdAtom, map);
-  const keys = { ...get(analysisKeyByIdAtom) }; delete keys[id];
-  set(analysisKeyByIdAtom, keys);
-  set(analysisRecencyAtom, get(analysisRecencyAtom).filter((x) => x !== id));
-  const prev = { ...get(reducePreviewByIdAtom) }; delete prev[id];
-  set(reducePreviewByIdAtom, prev);
+  set(dropAnalysisAtom, id);
 });
 
 /* ---- reduce-step CRUD + reorder on the ACTIVE plottable ---- */

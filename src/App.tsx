@@ -13,7 +13,7 @@ import { clearWorkbenchAtom, seedDefaultStashAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
-  analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
+  analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, cacheKeysFingerprintAtom, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
   hierarchyAtom, loadDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
@@ -60,6 +60,7 @@ export default function App() {
   const setAnalysisResult = useSetAtom(setAnalysisResultAtom);
   const touchAnalysis = useSetAtom(touchAnalysisAtom);
   const analysisKeyById = useAtomValue(analysisKeyByIdAtom);
+  const cacheKeysFingerprint = useAtomValue(cacheKeysFingerprintAtom);
   const reducePreviews = useAtomValue(reducePreviewByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
   const handle = useAtomValue(tableHandleAtom);
@@ -450,7 +451,11 @@ export default function App() {
         setBgTick((t) => t + 1);
       }
     })();
-  }, [handle?.id, handle?.version, allSpecsKey, analysisKeyById, analyzeStatus,
+    // dep on the string fingerprint of (id → key), not the derived key map: the
+    // map's identity now moves on a recency-only touch, but the fingerprint only
+    // moves when a freshness key actually changes (a render landed) — the one
+    // thing that should re-trigger the drain.
+  }, [handle?.id, handle?.version, allSpecsKey, cacheKeysFingerprint, analyzeStatus,
       activeId, active?.tableId, bgTick]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
