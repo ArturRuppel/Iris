@@ -1,10 +1,12 @@
 import { chromium } from "playwright";
 
-/* E2E for the in-app Guide (merged Examples + stats Methods, item R reachability):
-   1. the Guide tab renders the bundled src/examples/guide.md, including the
-      rank-floor section and an external citation link (opens in a new tab);
+/* E2E for the in-app Guide (nested tree under docs/guide/ + the migrated legacy
+   doc, item R reachability):
+   1. the Guide tab opens on the Home landing, exposes the page nav, and the
+      "Full guide" page still carries the rank-floor section, its sources, and an
+      external citation link (opens in a new tab);
    2. the "Why this test?" link in the stats pane deep-links into the Guide's
-      "How Iris chooses the test" section.
+      "How Iris chooses the test" section (which lives on the Full guide page).
    Needs the engine (8765) and the vite dev server (5173). */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
@@ -14,13 +16,18 @@ const browser = await chromium.launch();
 const page = await browser.newPage();
 await page.goto(URL);
 
-// (1) Guide tab renders the doc.
+// (1) Guide tab opens on the Home landing, with the page nav present.
 await page.getByRole("button", { name: "Guide" }).click();
 await page.waitForSelector(".guide-doc", { timeout: 10_000 });
+await page.waitForSelector(".guide-nav", { timeout: 10_000 });
 
+const home = (await page.locator(".guide-doc h1").first().textContent() ?? "").trim();
+if (home !== "Iris") fail(`Home landing heading unexpected: ${home}`);
+
+// Switch to the Full guide page (the migrated comprehensive doc).
+await page.getByRole("button", { name: "Full guide" }).click();
 const h1 = await page.locator(".guide-doc h1").first().textContent();
-if (!/a guided tour/i.test(h1 ?? ""))
-  fail(`Guide doc heading unexpected: ${h1}`);
+if (!/a guided tour/i.test(h1 ?? "")) fail(`Full guide heading unexpected: ${h1}`);
 
 // The rank-floor section (the item-R content) must be present, with its sources.
 const body = await page.locator(".guide-doc").textContent();
@@ -42,7 +49,8 @@ if (await page.locator(".gallery-figure svg").count() === 0)
   fail("no example figures rendered in the Guide");
 
 // (2) The contextual "Why this test?" link from the stats pane.
-// Open a shipped example so an analysis (and the StatsPanel) is present.
+// Open a shipped example (from the Full guide page) so an analysis (and the
+// StatsPanel) is present.
 await page.locator(".gallery-open-btn").first().click();
 await page.waitForSelector(".analyses-mode .iris", { timeout: 15_000 });
 

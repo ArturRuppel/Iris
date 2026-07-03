@@ -634,6 +634,18 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .gallery-open-btn:hover { filter: brightness(1.08); }
 .gallery-missing { display: inline-block; padding: 8px 12px; color: var(--warn);
   background: #fff7ed; border: 1px dashed var(--warn); border-radius: 5px; }
+.guide-nav { display: flex; gap: 2px; margin-bottom: 28px;
+  border-bottom: 1px solid var(--line); }
+.guide-nav button { background: none; border: none;
+  border-bottom: 2px solid transparent; margin-bottom: -1px; padding: 8px 14px;
+  font: inherit; color: var(--dim); cursor: pointer; }
+.guide-nav button:hover { color: var(--ink); border-bottom-color: var(--line); }
+.guide-nav button.active { color: var(--accent); border-bottom-color: var(--accent);
+  font-weight: 600; }
+.gallery-prose img { display: block; max-width: 100%; height: auto; margin: 1.2em 0;
+  border: 1px solid var(--line); border-radius: 6px; }
+.guide-link { background: none; border: none; padding: 0; font: inherit;
+  color: var(--accent); cursor: pointer; text-decoration: underline; }
 
 /* ---- transformation explorer node line ---- */
 /* Full-bleed strip directly under the header/error-bar: a direct child of the
