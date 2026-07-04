@@ -4,6 +4,7 @@ import type { AnalysisSpec, AnalyzeResponse, Schema } from "./types";
 import {
   activePlottableIdAtom, analysisByIdAtom, analysisKeyByIdAtom,
   analysisRecencyAtom, buildSpec, cacheBudgetAtom, cacheKey, estimateBytes,
+  cachePut, cacheTouch, cacheDrop,
   isSpecRenderable, makeDefaultPlottable, pickStaleSpec, plottableFromSpec,
   selectedNodeIdAtom, setAnalysisResultAtom,
   schemaAtom, hierarchyAtom, tableHandleAtom, plottablesAtom, activePlottableAtom,
@@ -482,6 +483,101 @@ describe("setAnalysisResultAtom — byte-budget LRU eviction", () => {
     expect(store.get(analysisByIdAtom).a).toBeDefined();
     expect(store.get(analysisByIdAtom).b).toBeUndefined();
     expect(store.get(analysisByIdAtom).c).toBeDefined();
+  });
+});
+
+describe("cache reducers (pure, no store)", () => {
+  const empty = { byId: {}, recency: [] };
+  /* the recency invariant the consolidated atom exists to keep: every id in
+     `recency` has a backing entry in `byId` (a key with no result was the bug
+     class the three-atom split used to allow). */
+  const invariantHolds = (c: { byId: Record<string, unknown>; recency: string[] }) =>
+    c.recency.every((id) => id in c.byId);
+
+  describe("cachePut", () => {
+    it("inserts result + key and marks the entry most-recently-used", () => {
+      const c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      expect(c.byId.a).toEqual({ res: makeRes(), key: "ka" });
+      expect(c.recency).toEqual(["a"]);
+      expect(invariantHolds(c)).toBe(true);
+    });
+
+    it("re-putting an existing id moves it to most-recently-used without duplicating", () => {
+      let c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      c = cachePut(c, { id: "b", key: "kb", res: makeRes() }, null, Infinity);
+      c = cachePut(c, { id: "a", key: "ka2", res: makeRes() }, null, Infinity);
+      expect(c.recency).toEqual(["b", "a"]);   // a moved to the back, appears once
+      expect(c.byId.a.key).toBe("ka2");        // key updated in place
+      expect(invariantHolds(c)).toBe(true);
+    });
+
+    it("evicts least-recently-used entries until back under budget", () => {
+      const budget = estimateBytes(makeRes()) * 2 + 10;   // room for ~2 entries
+      let c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, budget);
+      c = cachePut(c, { id: "b", key: "kb", res: makeRes() }, null, budget);
+      c = cachePut(c, { id: "c", key: "kc", res: makeRes() }, null, budget);
+      expect(c.byId.a).toBeUndefined();   // a was LRU → evicted
+      expect(c.byId.b).toBeDefined();
+      expect(c.byId.c).toBeDefined();
+      const total = Object.values(c.byId).reduce((s, e) => s + estimateBytes(e.res), 0);
+      expect(total).toBeLessThanOrEqual(budget);
+      expect(invariantHolds(c)).toBe(true);
+    });
+
+    it("never evicts the pinned id, even when it alone blows the budget", () => {
+      let c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, "a", 1);
+      c = cachePut(c, { id: "b", key: "kb", res: makeRes() }, "a", 1);
+      c = cachePut(c, { id: "c", key: "kc", res: makeRes() }, "a", 1);
+      expect(c.byId.a).toBeDefined();     // pinned, survives a blown budget
+      expect(c.byId.b).toBeUndefined();   // oldest non-pinned, evicted
+      expect(c.byId.c).toBeDefined();     // just-written, exempt this pass
+      expect(invariantHolds(c)).toBe(true);
+    });
+
+    it("never evicts the just-written entry, even when it alone exceeds budget", () => {
+      const c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, 1);
+      expect(c.byId.a).toBeDefined();     // the write always lands
+      expect(c.recency).toEqual(["a"]);
+      expect(invariantHolds(c)).toBe(true);
+    });
+  });
+
+  describe("cacheTouch", () => {
+    it("bumps an entry to most-recently-used", () => {
+      let c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      c = cachePut(c, { id: "b", key: "kb", res: makeRes() }, null, Infinity);
+      const before = c.byId;
+      c = cacheTouch(c, "a");
+      expect(c.recency).toEqual(["b", "a"]);
+      expect(c.byId).toBe(before);   // byId identity preserved (key/result readers unaffected)
+      expect(invariantHolds(c)).toBe(true);
+    });
+
+    it("is a no-op for the already-most-recent id (returns the same object)", () => {
+      const c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      expect(cacheTouch(c, "a")).toBe(c);
+    });
+
+    it("is a no-op for an id not in the cache", () => {
+      const c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      expect(cacheTouch(c, "missing")).toBe(c);
+    });
+  });
+
+  describe("cacheDrop", () => {
+    it("removes one entry from both byId and recency", () => {
+      let c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      c = cachePut(c, { id: "b", key: "kb", res: makeRes() }, null, Infinity);
+      c = cacheDrop(c, "a");
+      expect(c.byId.a).toBeUndefined();
+      expect(c.recency).toEqual(["b"]);
+      expect(invariantHolds(c)).toBe(true);
+    });
+
+    it("is a no-op for an id not in the cache (returns the same object)", () => {
+      const c = cachePut(empty, { id: "a", key: "ka", res: makeRes() }, null, Infinity);
+      expect(cacheDrop(c, "missing")).toBe(c);
+    });
   });
 });
 

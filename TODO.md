@@ -69,25 +69,6 @@ self-contained per-cell assembly and reproduces the committed r/p (crowding_q
 
 ## Open follow-ups
 
-### Direct tests for the extracted cache reducers + `useDebouncedAsync`
-The dead-code / de-duplication sweep (PR #9, merged 2026-07-04) left two net-new
-pieces of logic with only transitive coverage. Both are pure/isolated, so the
-tests are cheap:
-- `cachePut`/`cacheTouch`/`cacheDrop` in `src/state.ts` — pure reducers over the
-  consolidated `figureCacheAtom`. Exercised today only through the existing
-  `setAnalysisResultAtom` tests; the reducer's own comment advertises
-  "unit-testable without a store", so the intended tests just weren't written.
-  Worth pinning directly: eviction stops at budget, the active/just-written
-  entries are never evicted (even if alone they exceed budget), and every
-  recency id stays present in `byId` (the invariant that was the original
-  three-atom desync bug class).
-- `useDebouncedAsync` in `src/useDebouncedAsync.ts` — no test at all. It bakes
-  the subtle contract the three engine effects each re-implemented: `commit`
-  always runs (id-routed writes are safe late), `status` only if not superseded,
-  callbacks snapshotted at dispatch so id-capture can't be lost to a later
-  render. That last-writer / stale-guard behaviour is exactly what regresses
-  silently — worth a fake-timer test.
-
 ### Identifier default vs time-on-X (product note — flag only, no change made)
 A column named `frame`/`time`/`timepoint` defaults to `type: identifier` and so
 isn't axis-mappable without a manual retype — friction for the core time-lapse
