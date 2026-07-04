@@ -21,7 +21,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from . import (autosave, compiler, document, geoms, guards, hierarchy, importer,
+from . import (autosave, build_info, compiler, document, geoms, guards,
+               hierarchy, importer, methods as methods_mod,
                reduce as reduce_mod, render as render_mod, session as session_mod,
                shape as shape_mod, specnorm, style as style_mod)
 from .render import _load_frame, frame_from_table
@@ -54,6 +55,15 @@ class AnalyzeRequest(BaseModel):
 class ExportRequest(AnalyzeRequest):
     format: str = "pdf"
     dpi: int = 300
+
+
+class ExportMethodsRequest(BaseModel):
+    # Whole-document methods/stats export. `tables` resolve each analysis's main
+    # table (a SaveTable.name equals the analysis's spec.table_id); `analyses` are
+    # the LIVE specs (joins inlined as `right`, so the run path resolves them).
+    tables: list[SaveTable]
+    analyses: list[dict]
+    format: str = "md"
 
 
 class SaveTable(BaseModel):
@@ -754,6 +764,39 @@ def export(req: ExportRequest):
     compiler.close(fig)
     return {"filename": f"figure.{req.format}",
             "data_base64": base64.b64encode(data).decode()}
+
+
+@app.post("/export/methods")
+def export_methods(req: ExportMethodsRequest):
+    """Assemble a methods paragraph + statistics table across the whole document.
+    Runs each analysis to get its fresh stats (the numbers can't disagree with the
+    figure), then formats via the pure `methods` module. An analysis whose spec
+    can't render (e.g. no Y mapping yet) has no method to report and is skipped."""
+    if req.format not in ("md", "csv"):
+        raise HTTPException(400, "format must be md or csv")
+    resolved = _resolve_save_tables(req.tables)
+    computed = []
+    for spec in req.analyses:
+        tbl = resolved.get(spec.get("table_id"))
+        if tbl is None:
+            continue
+        try:
+            fig, res, _, _, model, _ = _run(
+                lambda t=tbl: {"schema": t["schema"], "rows": t["rows"]}, spec)
+        except HTTPException:
+            continue      # an incomplete/unrenderable analysis: nothing to report
+        compiler.close(fig)
+        computed.append({"title": spec.get("title") or "Analysis", "spec": spec,
+                         "stats": _json_safe(res), "stat_model": model})
+    manifest = {"engine": build_info.build_identity(),
+                "engine_snapshot": engine_snapshot()}
+    if req.format == "csv":
+        text, filename = methods_mod.stats_csv(computed), "statistics.csv"
+    else:
+        text = methods_mod.methods_markdown(computed, manifest)
+        filename = "methods.md"
+    return {"filename": filename,
+            "data_base64": base64.b64encode(text.encode()).decode()}
 
 
 @app.post("/import/upload")

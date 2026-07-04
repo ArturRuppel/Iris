@@ -18,7 +18,11 @@ spec 2.1), autosave / crash recovery (an engine-owned two-tier snapshot slot +
 a launch-time restore offer;
 `docs/superpowers/specs/2026-07-02-autosave-crash-recovery-design.md` — one
 slot per user by design, so two concurrent Iris windows share it, last writer
-wins), and the COV2D absorption work below through Tier C + Part-2 §3/§5.
+wins), the methods-text / statistics-table export (a whole-document methods
+paragraph + stats table, formatted for supplementary materials; server-side pure
+`engine/iris_engine/methods.py`, `POST /export/methods` → Markdown or CSV;
+`docs/superpowers/specs/2026-07-04-methods-stats-export-design.md`), and the
+COV2D absorption work below through Tier C + Part-2 §3/§5.
 
 ## COV2D absorption
 

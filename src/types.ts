@@ -743,6 +743,12 @@ export const engine = {
   export: (t: TableRef, spec: AnalysisSpec, format: "svg" | "pdf" | "png") =>
     post<{ filename: string; data_base64: string }>(
       "/export", { ...tableField(t), spec, format, dpi: 300 }),
+  /* whole-document methods paragraph + statistics table, formatted for
+     supplementary materials. `analyses` are the LIVE specs (joins inlined) so the
+     engine can run each; `tables` resolve each analysis's main table by name. */
+  exportMethods: (tables: SaveTable[], analyses: AnalysisSpec[], format: "md" | "csv") =>
+    post<{ filename: string; data_base64: string }>(
+      "/export/methods", { tables, analyses, format }),
   saveDocument: (tables: SaveTable[], analyses: AnalysisSpec[], provenance: unknown) =>
     post<{ filename: string; data_base64: string }>(
       "/document/save", { tables, analyses, provenance }),

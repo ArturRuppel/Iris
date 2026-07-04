@@ -73,8 +73,6 @@ putting it in front of the researchers it's for.
   controls. Still open are the drag-a-table-onto-the-open-circle canvas gesture
   as a second way to fill a join's right input, and authoring the post-collapse
   (`reduce.post`) phase.
-- **Methods-text / statistics-table export** — formatted for supplementary
-  materials, generated from the spec and provenance log.
 - **Sparkline mini-distributions** and click-a-header descriptives in the table.
 - **Mathtext in labels** — µM, R², Greek.
 - **Configurable significance-star thresholds.**

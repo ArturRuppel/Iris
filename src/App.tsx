@@ -440,6 +440,20 @@ export default function App() {
     const f = await engine.export({ token: handle.id }, spec, format);
     downloadBase64(f.filename, f.data_base64);
   };
+  /* Whole-document methods paragraph (.md) or statistics table (.csv). Sends the
+     LIVE specs (joins inlined) so the engine can run each analysis, and the pool
+     tables so it can resolve each one's main table. */
+  const doExportMethods = async (format: "md" | "csv") => {
+    if (!schema) return;
+    try {
+      const f = await engine.exportMethods(
+        saveTablesFor(store.get(plottablesAtom), store.get(tablesAtom)),
+        store.get(allSpecsAtom), format);
+      downloadBase64(f.filename, f.data_base64);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
   const IRIS_FILE_TYPES = [{
     description: "Iris document",
     accept: { "application/octet-stream": [".iris"] },
@@ -596,6 +610,8 @@ export default function App() {
           <button onClick={() => doExport("svg")}>SVG</button>
           <button onClick={() => doExport("pdf")}>PDF</button>
           <button onClick={() => doExport("png")}>PNG</button>
+          <button onClick={() => doExportMethods("md")} title="Methods paragraph + stats table (Markdown)">Methods</button>
+          <button onClick={() => doExportMethods("csv")} title="Statistics table (CSV)">Stats</button>
           <button onClick={doLoad}>Load .iris</button>
           <button className="primary" onClick={doSave}>Save .iris</button>
           <button onClick={doSaveAs}>Save As…</button>
