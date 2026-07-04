@@ -15,6 +15,7 @@ import pandas as pd
 
 from . import geoms
 from .scales import MARKERS, PALETTE
+from .specutil import col_type, enc_col, resolve_cat_val
 
 MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
 MIN_LOCATION_N = 3   # below this per group, the one-sample location test is underpowered
@@ -37,15 +38,6 @@ def _issue(level, code, message, geom=None):
     return {"level": level, "code": code, "message": message, "geom": geom}
 
 
-def _coltype(schema: dict, name: str | None) -> str | None:
-    if not name:
-        return None
-    for c in schema["columns"]:
-        if c["name"] == name:
-            return c["type"]
-    return None
-
-
 def drop_unrenderable_channels(schema: dict, spec: dict) -> list[dict]:
     """Warn about and remove mapped aesthetic channels the compiler can't render
     yet (UNRENDERABLE). Mutates spec["encodings"] in place so the channel is
@@ -53,11 +45,10 @@ def drop_unrenderable_channels(schema: dict, spec: dict) -> list[dict]:
     enc = spec.get("encodings", {})
     out: list[dict] = []
     for ch in ("color", "size", "shape"):
-        e = enc.get(ch)
-        col = e["column"] if e and e.get("column") else None
+        col = enc_col(enc, ch)
         if not col:
             continue
-        reason = UNRENDERABLE.get((ch, _coltype(schema, col)))
+        reason = UNRENDERABLE.get((ch, col_type(schema, col)))
         if reason:
             out.append(_issue(
                 "warning", "channel_unrenderable",
@@ -69,23 +60,7 @@ def drop_unrenderable_channels(schema: dict, spec: dict) -> list[dict]:
 
 def _xy(spec: dict):
     enc = spec["encodings"]
-    x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
-    y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
-    return x, y
-
-
-def _cat_val_cols(spec: dict, schema: dict):
-    """Return (cat_col, val_col) accounting for Phase 3c horizontal orientation.
-    For vertical: cat_col=x (categorical), val_col=y (numeric).
-    For horizontal: cat_col=y (categorical), val_col=x (numeric)."""
-    enc = spec["encodings"]
-    enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
-    enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
-    y_is_categorical = any(c["name"] == enc_y and c["type"] == "categorical"
-                           for c in schema["columns"]) if enc_y else False
-    if y_is_categorical:
-        return enc_y, enc_x   # horizontal
-    return enc_x, enc_y       # vertical
+    return enc_col(enc, "x"), enc_col(enc, "y")
 
 
 def _facet_cols(spec: dict) -> tuple[str | None, str | None]:
@@ -128,8 +103,8 @@ def _level_point_count(df: pd.DataFrame, spine: list[str], level: str | None,
 
 
 def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dict]:
-    # stat_model is unused in Phase 1 — it's the deliberate seam for model-level
-    # guards (facet multiplicity, etc.) that land in Phases 2-3.
+    # stat_model drives the model-level guards (e.g. the location small-n warning
+    # below); it remains the seam for further ones (facet multiplicity, etc.).
     x, y = _xy(spec)
     # drop unrenderable aesthetic channels first, so the compiler never sees them
     # and they don't also trip the "channel ignored" / "palette exhausted" checks
@@ -169,7 +144,7 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
 
         if name in ("box", "violin"):
             # Phase 3c: group by the categorical column regardless of orientation
-            cat_col, val_col = _cat_val_cols(spec, schema)
+            cat_col, val_col, _ = resolve_cat_val(spec["encodings"], schema)
             if cat_col and val_col and cat_col in df and val_col in df:
                 sizes = df.dropna(subset=[val_col]).groupby(cat_col)[val_col].size()
                 if len(sizes) and int(sizes.min()) < MIN_BOX_N:
@@ -183,7 +158,7 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     # warning above). Counted on the rows the guard can see; the test itself
     # additionally skips any group below the threshold.
     if stat_model and stat_model.get("family") == "location":
-        cat_col, val_col = _cat_val_cols(spec, schema)
+        cat_col, val_col, _ = resolve_cat_val(spec["encodings"], schema)
         if cat_col and val_col and cat_col in df and val_col in df:
             sizes = df.dropna(subset=[val_col]).groupby(cat_col)[val_col].size()
             if len(sizes) and int(sizes.min()) < MIN_LOCATION_N:
@@ -209,7 +184,7 @@ def _aesthetic_issues(df: pd.DataFrame, schema: dict, spec: dict) -> list[dict]:
     out: list[dict] = []
     for ch in ("color", "size", "shape"):
         e = enc.get(ch)
-        col = e["column"] if e and e.get("column") else None
+        col = enc_col(enc, ch)
         if not col:
             continue
         if ch not in accepted:
@@ -221,7 +196,7 @@ def _aesthetic_issues(df: pd.DataFrame, schema: dict, spec: dict) -> list[dict]:
             continue
         # a numeric color is a continuous colorbar (Phase 3b), not a palette —
         # it can't "exhaust" a discrete set, so skip the cardinality check.
-        if ch == "color" and _coltype(schema, col) == "numeric":
+        if ch == "color" and col_type(schema, col) == "numeric":
             continue
         if ch in ("color", "shape") and col in df:
             n = int(df[col].dropna().astype(str).nunique())

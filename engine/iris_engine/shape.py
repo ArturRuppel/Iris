@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from .specutil import col_type
+
 _META = ("id", "row_ids")
 
 
@@ -52,13 +54,6 @@ def _axis_is_ragged(frame: pd.DataFrame, spine: list[str], idx: int) -> bool:
     return bool(len(counts) and counts.min() != counts.max())
 
 
-def _coltype(schema: dict, name: str) -> str:
-    for c in schema.get("columns", []):
-        if c["name"] == name:
-            return c.get("type", "numeric")
-    return "numeric"   # conservative default, mirrors reduce._apply_derive
-
-
 def describe_shape(frame: pd.DataFrame, schema: dict, spine: list[str]) -> dict:
     """The array-shape descriptor for one materialized node frame:
     {axes:[{name,n_levels,ragged}], values:[{name,type,grain}]}.
@@ -73,7 +68,7 @@ def describe_shape(frame: pd.DataFrame, schema: dict, spine: list[str]) -> dict:
     ]
     axis_names = set(present)
     values = [
-        {"name": c, "type": _coltype(schema, c), "grain": value_grain(frame, spine, c)}
+        {"name": c, "type": col_type(schema, c, "numeric"), "grain": value_grain(frame, spine, c)}
         for c in frame.columns
         if c not in axis_names and c not in _META
     ]

@@ -3,7 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import {
   tablesAtom, activeTableIdAtom, plottablesAtom, activePlottableIdAtom,
-  reducePreviewByIdAtom, bumpActiveHandleAtom, makeDefaultPlottable,
+  reducePreviewByIdAtom, makeDefaultPlottable,
 } from "../state";
 import type { CollapsePlan, ReducePreview, Schema, Table } from "../types";
 import type { ExplorerNode } from "../explorer/graph";
@@ -28,7 +28,7 @@ function seed({ handle = true }: { handle?: boolean } = {}) {
       handle: { id: "tok-1", n: 1, version: 1, schema, counts: {} as never } }]);
     store.set(activeTableIdAtom, "main");
   }
-  const p = makeDefaultPlottable(schema, "main");
+  const p = makeDefaultPlottable("main");
   store.set(plottablesAtom, [p]);
   store.set(activePlottableIdAtom, p.id);
   return { store, schema, plottable: p };
@@ -100,10 +100,10 @@ describe("NodeTable", () => {
     expect(await screen.findByText("7")).toBeInTheDocument();
 
     // grain fetches forward the collapse plan + grain key in the trailing
-    // arg positions: (tableRef, steps, hierarchy, level, at_step, collapse, grain).
+    // arg positions: (tableRef, steps, hierarchy, at_step, collapse, grain).
     const args = spy.mock.calls[0];
-    expect(args[5]).toEqual(collapse);   // collapse plan
-    expect(args[6]).toBe("cell");        // grain key
+    expect(args[4]).toEqual(collapse);   // collapse plan
+    expect(args[5]).toBe("cell");        // grain key
   });
 
   it("forwards the DEFAULT prefix chain when the analysis carries no explicit collapse", async () => {
@@ -131,8 +131,8 @@ describe("NodeTable", () => {
 
     expect(await screen.findByText("7")).toBeInTheDocument();
     const args = spy.mock.calls[0];
-    expect(args[5]).toEqual([{ keep: ["cell"], fn: "mean" }]);  // default chain, NOT undefined
-    expect(args[6]).toBe("cell");
+    expect(args[4]).toEqual([{ keep: ["cell"], fn: "mean" }]);  // default chain, NOT undefined
+    expect(args[5]).toBe("cell");
   });
 });
 

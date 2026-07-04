@@ -13,9 +13,9 @@ import { clearWorkbenchAtom, seedDefaultStashAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
-  analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, dataLoadingAtom,
+  analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, cacheKeysFingerprintAtom, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
-  hierarchyAtom, loadDocumentAtom, loadTableAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
+  hierarchyAtom, loadDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
@@ -26,6 +26,7 @@ import {
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { AutosaveStatus, NodeShape } from "./types";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
+import { useDebouncedAsync } from "./useDebouncedAsync";
 
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
@@ -51,7 +52,6 @@ export default function App() {
   const [active] = useAtom(activePlottableAtom);
   const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
-  const loadTable = useSetAtom(loadTableAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
   const plottables = useAtomValue(plottablesAtom);
   const store = useStore();
@@ -61,6 +61,7 @@ export default function App() {
   const setAnalysisResult = useSetAtom(setAnalysisResultAtom);
   const touchAnalysis = useSetAtom(touchAnalysisAtom);
   const analysisKeyById = useAtomValue(analysisKeyByIdAtom);
+  const cacheKeysFingerprint = useAtomValue(cacheKeysFingerprintAtom);
   const reducePreviews = useAtomValue(reducePreviewByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
   const handle = useAtomValue(tableHandleAtom);
@@ -80,9 +81,6 @@ export default function App() {
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
-  const timer = useRef<number>();
-  const previewTimer = useRef<number>();
-  const shapeTimer = useRef<number>();
   const didInit = useRef(false);
   /* The .iris file the document is bound to: a real OS file handle (File System
      Access API) so Save writes back to the same file, tagged with the table id it
@@ -236,59 +234,50 @@ export default function App() {
      depending on it directly would never converge; the string key settles once
      the recommendation does. */
   const specKey = spec ? JSON.stringify(spec) : null;
+  /* renderable: a Y mapping, ≥1 layer, no mapped column the pipeline dropped. The
+     key its result must be stored under, and whether the cache already holds a
+     fresh one — read here so both the synchronous settle and the debounced render
+     share one definition. */
+  const renderable = !!(schema && spec && handle
+    && spec.encodings.y?.column && spec.layers.length > 0 && !mappingError);
+  const analyzeKey = renderable ? cacheKey(handle!.id, handle!.version, spec!) : null;
+  const cacheFresh = renderable && analysisKeyById[spec!.id] === analyzeKey;
+  /* synchronous settle (no debounce): go idle + clear when there's nothing to
+     render, or show the cached figure instantly on a freshness hit (touching
+     recency so a plot the user returns to survives eviction). A cache MISS falls
+     through — the debounced render below owns it. analysisKeyById is intentionally
+     NOT a dep: the active plottable's key only changes via its own render here, so
+     the fresh read is current, and re-running on every background completion would
+     needlessly churn. */
   useEffect(() => {
     if (!schema || !spec || !handle) return;
-    /* nothing to render yet (no Y mapped, no layer added), or a mapped column
-       the pipeline drops — show no render error (the mapping/empty state
-       speaks for itself), clear any stale figure from a removed layer, and go
-       idle. An empty X is fine: it's simply the descriptive (histogram) case. */
-    if (!spec.encodings.y?.column || spec.layers.length === 0 || mappingError) {
+    if (!renderable) {
       setStatus("idle"); setRenderError(null);
       setAnalysisById({ id: spec.id, res: null });
-      return;
-    }
-    /* freshness short-circuit: the cached figure was computed from this exact
-       data + spec, so show it instantly with no re-render. (Guards above run
-       first, so a non-renderable plottable never reaches here.) Touch recency so
-       a plot the user keeps returning to survives eviction once they leave it. */
-    const key = cacheKey(handle.id, handle.version, spec);
-    if (analysisKeyById[spec.id] === key) {
+    } else if (analysisKeyById[spec.id] === cacheKey(handle.id, handle.version, spec)) {
       setStatus("ok"); setRenderError(null); touchAnalysis(spec.id);
-      return;
     }
-    window.clearTimeout(timer.current);
-    /* a change is pending the moment deps settle — show it immediately so the
-       debounce + request window never reads as "hung" or "crashed" */
-    setStatus("running");
-    /* capture the target plottable at dispatch so a late-resolving result lands
-       in the plottable it was computed for, not whichever is active on return.
-       The GLOBAL status/error writes are different: they describe the plot on
-       screen, so a run superseded by a plottable switch or a newer edit must
-       not touch them — its failure would show as the new plot's "Render
-       failed". `stale` flips in the cleanup the moment the deps move on. */
-    const targetId = spec.id;
-    let stale = false;
-    timer.current = window.setTimeout(async () => {
-      try {
-        const res = await engine.analyze({ token: handle.id }, spec);
-        setAnalysisResult({ id: targetId, key, res });
-        if (!stale) { setRenderError(null); setStatus("ok"); }
-      } catch (e) {
-        const m = e instanceof Error ? e.message : String(e);
-        /* a config change invalidated the plot and the recompute failed: drop
-           the now-stale figure/stats for this plottable so the error shows
-           instead of a figure that no longer matches the config (item 11). */
-        setAnalysisById({ id: targetId, res: null });
-        if (!stale) { setRenderError(m); setStatus("error"); }
-      }
-    }, 200);
-    return () => { stale = true; window.clearTimeout(timer.current); };
-    // analysisKeyById is intentionally NOT a dep: the active plottable's cached
-    // key only ever changes via its own render here (the background loop skips it
-    // and eviction never drops it), so the short-circuit's read is always current
-    // under the existing deps — and re-running on every background completion
-    // would needlessly reset this loop's debounce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handle?.id, handle?.version, specKey, schemaKey, mappingError]);
+  /* the reactive render for a cache MISS: figure + stats for the active plottable.
+     `start` shows "running" the moment deps settle so the debounce never reads as
+     a freeze; the result is id-routed (commit, always) so a late result lands in
+     the plottable it was computed for; status is global (only-if-fresh) so a
+     superseded run never paints the active plot's status/error. */
+  useDebouncedAsync({
+    when: renderable && !cacheFresh,
+    deps: [handle?.id, handle?.version, specKey, schemaKey, mappingError],
+    start: () => setStatus("running"),
+    run: () => engine.analyze({ token: handle!.id }, spec!),
+    commit: (o) => o.ok
+      ? setAnalysisResult({ id: spec!.id, key: analyzeKey!, res: o.value })
+      // the config changed and the recompute failed: drop the now-stale figure so
+      // the error shows, not a figure that no longer matches the config.
+      : setAnalysisById({ id: spec!.id, res: null }),
+    status: (o) => o.ok
+      ? (setRenderError(null), setStatus("ok"))
+      : (setRenderError(o.error), setStatus("error")),
+  });
 
   /* live reduced-table preview for the active plottable, recomputed as the
      pipeline changes. Independent of the analyze loop and valid before any
@@ -301,32 +290,21 @@ export default function App() {
      without stringifying every joined row each render. */
   const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const stepsKey = active
-    ? JSON.stringify([active.reduce.steps, hierarchy, active.previewLevel, materializedKey])
+    ? JSON.stringify([active.reduce.steps, hierarchy, materializedKey])
     : null;
-  useEffect(() => {
-    if (!handle || !active) return;
-    window.clearTimeout(previewTimer.current);
-    const targetId = active.id;
+  useDebouncedAsync({
+    when: !!(handle && active),
+    deps: [handle?.id, handle?.version, stepsKey, activeId],
     // inline each filled join's right from the materialized cache (mirrors specAtom);
     // an uncached/unset join is dropped until its rows land, so the preview never
     // ships a rightTableId the engine can't resolve.
-    const steps = resolveEngineSteps(active.reduce.steps, materialized);
-    const level = active.previewLevel;
-    /* the preview itself is id-routed; the global engine error is not, so a
-       stale run must not write it over a newer run's state (mirrors the
-       analyze loop above). */
-    let stale = false;
-    previewTimer.current = window.setTimeout(async () => {
-      try {
-        const preview = await engine.reduce({ token: handle.id }, steps, hierarchy, level);
-        setReducePreviewById({ id: targetId, preview });
-        if (!stale) setError(null);
-      } catch (e) {
-        if (!stale) setError(e instanceof Error ? e.message : String(e));
-      }
-    }, 200);
-    return () => { stale = true; window.clearTimeout(previewTimer.current); };
-  }, [handle?.id, handle?.version, stepsKey, activeId]);
+    run: () => engine.reduce({ token: handle!.id },
+      resolveEngineSteps(active!.reduce.steps, materialized), hierarchy),
+    // the preview is id-routed (safe even when superseded); the global engine
+    // error is written only while still fresh (mirrors the analyze loop).
+    commit: (o) => { if (o.ok) setReducePreviewById({ id: active!.id, preview: o.value }); },
+    status: (o) => setError(o.ok ? null : o.error),
+  });
 
   /* per-node row×col counts for the transformation explorer, fetched in one shot
      via /shape_counts. Advisory only: on error we clear the counts and NEVER
@@ -344,36 +322,34 @@ export default function App() {
     .find((c) => c.name === mappings.x)?.type === "numeric";
   const qualifier = (xIsNumeric ? mappings.y : mappings.x) || active?.color || null;
   const collapseKey = JSON.stringify([collapsePlan, testGrain, qualifier]);
-  useEffect(() => {
-    if (!handle || !active) return;
-    window.clearTimeout(shapeTimer.current);
+  useDebouncedAsync({
+    when: !!(handle && active),
+    deps: [handle?.id, handle?.version, stepsKey, activeId, collapseKey],
     // inline filled joins from the materialized cache, as the reduce preview does.
-    const steps = resolveEngineSteps(active.reduce.steps, materialized);
-    shapeTimer.current = window.setTimeout(async () => {
-      try {
-        const sc = await engine.shapeCounts({ token: handle.id }, steps, hierarchy,
-          { collapse: collapsePlan, test_grain: testGrain, qualifier });
-        const counts: Record<string, NodeShape> = { source: sc.source };
-        sc.steps.forEach((c, i) => { counts[`step:${i}`] = c; });
-        /* grain-keyed counts map onto the graph's `grain:<key>` nodes. The raw
-           grain ("") is the source/last-step node, already counted above. */
-        for (const [key, c] of Object.entries(sc.grains ?? {})) {
-          if (key !== "") counts[`grain:${key}`] = c;
-        }
-        /* per-join right-table descriptors map onto the binary-join `source:<i>`
-           nodes the graph draws. */
-        for (const [i, c] of Object.entries(sc.joins ?? {})) {
-          counts[`source:${i}`] = c;
-        }
-        setShapeCounts(counts);
-        setGuards(sc.guards ?? null);
-      } catch {
-        setShapeCounts(null);
-        setGuards(null);
+    run: () => engine.shapeCounts({ token: handle!.id },
+      resolveEngineSteps(active!.reduce.steps, materialized), hierarchy,
+      { collapse: collapsePlan, test_grain: testGrain, qualifier }),
+    // advisory + GLOBAL (not id-routed), so write via `status` (only-if-fresh): a
+    // superseded fetch must never clobber a newer run's counts — the old effect
+    // had no stale guard, closing that latent race. A failure clears, never alarms.
+    status: (o) => {
+      if (!o.ok) { setShapeCounts(null); setGuards(null); return; }
+      const sc = o.value;
+      const counts: Record<string, NodeShape> = { source: sc.source };
+      sc.steps.forEach((c, i) => { counts[`step:${i}`] = c; });
+      /* grain-keyed counts map onto the graph's `grain:<key>` nodes. The raw grain
+         ("") is the source/last-step node, already counted above. */
+      for (const [key, c] of Object.entries(sc.grains ?? {})) {
+        if (key !== "") counts[`grain:${key}`] = c;
       }
-    }, 200);
-    return () => window.clearTimeout(shapeTimer.current);
-  }, [handle?.id, handle?.version, stepsKey, activeId, collapseKey]);
+      /* per-join right-table descriptors map onto the binary-join `source:<i>` nodes. */
+      for (const [i, c] of Object.entries(sc.joins ?? {})) {
+        counts[`source:${i}`] = c;
+      }
+      setShapeCounts(counts);
+      setGuards(sc.guards ?? null);
+    },
+  });
 
   /* keep the materialized cache populated: whenever a join references a pool table,
      fetch that table's FULL rows from its session and write them at the table's
@@ -452,7 +428,11 @@ export default function App() {
         setBgTick((t) => t + 1);
       }
     })();
-  }, [handle?.id, handle?.version, allSpecsKey, analysisKeyById, analyzeStatus,
+    // dep on the string fingerprint of (id → key), not the derived key map: the
+    // map's identity now moves on a recency-only touch, but the fingerprint only
+    // moves when a freshness key actually changes (a render landed) — the one
+    // thing that should re-trigger the drain.
+  }, [handle?.id, handle?.version, allSpecsKey, cacheKeysFingerprint, analyzeStatus,
       activeId, active?.tableId, bgTick]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {

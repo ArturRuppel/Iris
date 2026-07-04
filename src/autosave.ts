@@ -13,8 +13,7 @@ import type { WorkspaceTable } from "./tables";
 import type { ReduceStep } from "./types";
 
 /* session-only fields that must not count as unsaved work: a step's React
-   list key is regenerated every load, and the preview level is transient UI
-   state (plottableFromSpec resets it to raw). */
+   list key is regenerated every load. */
 const stripStep = (s: ReduceStep) => {
   const { _key, ...rest } = s as ReduceStep & { _key?: string };
   void _key;
@@ -29,7 +28,6 @@ export function snapshotStateKey(
   return JSON.stringify({
     plottables: plottables.map((p) => ({
       ...p,
-      previewLevel: null,
       reduce: {
         steps: p.reduce.steps.map(stripStep),
         post: p.reduce.post?.map(stripStep) ?? null,

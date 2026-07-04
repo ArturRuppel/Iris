@@ -29,7 +29,6 @@ function makeSpec(id: string, opts: {
 } = {}): AnalysisSpec {
   return {
     spec_version: "2.1", id, title: opts.tag ?? id,
-    data: { filter: [] },
     reduce: { steps: [] },
     encodings: {
       x: opts.xCol ? { column: opts.xCol } : null,
@@ -42,7 +41,6 @@ function makeSpec(id: string, opts: {
     stats: {
       family: "group_comparison", test: "welch_t", override: null, alpha: 0.05,
     },
-    annotations: { significance_brackets: "auto", show_n: true },
     style: { overrides: {} },
     engine_snapshot: {},
   };
@@ -90,7 +88,7 @@ describe("location (vs-reference) family round-trips through save/load", () => {
   });
 
   it("buildSpec re-emits family=location with the reference (no silent group_comparison)", () => {
-    const p = { ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" }, reference: 0 };
+    const p = { ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" }, reference: 0 };
     const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {});
     expect(spec.stats.family).toBe("location");
     expect(spec.stats.reference).toBe(0);
@@ -137,7 +135,7 @@ describe("rate (count-regression) family round-trips through save/load", () => {
 
   it("buildSpec re-emits family=rate with exposure + model", () => {
     const p = {
-      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
       rate: { exposure: "hours", model: "auto" as const },
     };
     const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {});
@@ -148,7 +146,7 @@ describe("rate (count-regression) family round-trips through save/load", () => {
 
   it("buildSpec emits a null exposure when none is chosen (rate per row)", () => {
     const p = {
-      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
       rate: { exposure: "", model: "nb" as const },
     };
     const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {});
@@ -171,7 +169,7 @@ describe("rate (count-regression) family round-trips through save/load", () => {
       handle: { id: "h", n: 1, version: 1, schema: SCHEMA, counts: {} as never },
     }]);
     const src = {
-      ...makeDefaultPlottable(SCHEMA, "t"), id: "src",
+      ...makeDefaultPlottable("t"), id: "src",
       mappings: { x: "grp", y: "val" }, rate: { exposure: "hours", model: "nb" as const },
     };
     store.set(plottablesAtom, [src]);
@@ -222,7 +220,7 @@ describe("post-collapse reduce phase (reduce.post) round-trips", () => {
 });
 
 describe("stats block stores decisions only (format redesign)", () => {
-  const base = () => ({ ...makeDefaultPlottable(SCHEMA),
+  const base = () => ({ ...makeDefaultPlottable(),
                         mappings: { x: "grp", y: "val" } });
 
   it("buildSpec emits no derived/process fields", () => {
@@ -257,7 +255,7 @@ describe("stats block stores decisions only (format redesign)", () => {
 
 describe("specForSave — save joins by reference (Plan B 2.1)", () => {
   it("serializes a filled join as a right_table_id reference and sets table_id", () => {
-    const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
+    const p = { ...makeDefaultPlottable("cells"),
       reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
     const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, {});
     // the analysis records which pool table it roots in
@@ -283,9 +281,9 @@ describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     const pool = [wt("cells"), wt("annot")];
     // two analyses both rooted in cells; the first also joins annot
-    const p1 = { ...makeDefaultPlottable(SCHEMA, "cells"),
+    const p1 = { ...makeDefaultPlottable("cells"),
       reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
-    const p2 = { ...makeDefaultPlottable(SCHEMA, "cells") } as never;
+    const p2 = { ...makeDefaultPlottable("cells") } as never;
     expect(saveTablesFor([p1, p2], pool)).toEqual([
       { name: "cells", table_id: "h_cells", hierarchy: { spine: ["cells"], fn: {} } },
       { name: "annot", table_id: "h_annot", hierarchy: { spine: ["annot"], fn: {} } },
@@ -298,7 +296,7 @@ describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     const pool = [wt("main"), wt("lookup")];
     // the only analysis roots in main and joins lookup; nothing ever roots in lookup.
-    const p = { ...makeDefaultPlottable(SCHEMA, "main"),
+    const p = { ...makeDefaultPlottable("main"),
       reduce: { steps: [{ ...makeStep("join"), rightTableId: "lookup", on: ["k"] }] } } as never;
     const tables = saveTablesFor([p], pool);
     // lookup must still be saved, else its join reference dangles on reload.
@@ -504,7 +502,7 @@ describe("table pool atoms", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     store.set(tablesAtom, [wt("cells"), wt("annot")]);
     store.set(activeTableIdAtom, "annot");
-    const p = { ...makeDefaultPlottable(SCHEMA), tableId: "cells" };
+    const p = { ...makeDefaultPlottable(), tableId: "cells" };
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     expect(store.get(activeTableAtom)?.id).toBe("annot");
@@ -518,13 +516,13 @@ describe("table pool atoms", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     store.set(tablesAtom, [wt("cells"), wt("annot")]);
     // makeDefaultPlottable takes the seed id explicitly (pure); the writer passes the last pool id.
-    expect(makeDefaultPlottable(SCHEMA, "annot").tableId).toBe("annot");
-    expect(makeDefaultPlottable(SCHEMA).tableId).toBe("");   // no pool → empty, resolved later
+    expect(makeDefaultPlottable("annot").tableId).toBe("annot");
+    expect(makeDefaultPlottable().tableId).toBe("");   // no pool → empty, resolved later
   });
 
   it("duplicatePlottableAtom re-keys per-layer style overrides to the fresh layer ids", () => {
     const store = createStore();
-    const p = makeDefaultPlottable(SCHEMA, "cells");
+    const p = makeDefaultPlottable("cells");
     p.layers = [{ id: "ly_a", geom: "box", level: "__raw__" },
                 { id: "ly_b", geom: "dot", level: "__raw__" }];
     p.style = { layers: { ly_a: { fill_alpha: 0.2 }, ly_b: { dot_size: 3 } } };
@@ -550,7 +548,7 @@ describe("single-table globals derive off the active analysis's pool table", () 
       hierarchy: { spine: [id], fn: {} },
       handle: { id: `h_${id}`, n: 5, version: 1, schema: s, counts: {} as never } });
     store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
-    const p = { ...makeDefaultPlottable(SCHEMA, "annot"), tableId: "annot" };
+    const p = { ...makeDefaultPlottable("annot"), tableId: "annot" };
     store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
     expect(store.get(schemaAtom)).toBe(S2);
     expect(store.get(tableHandleAtom)?.id).toBe("h_annot");
@@ -564,7 +562,7 @@ describe("single-table globals derive off the active analysis's pool table", () 
       handle: { id: `h_${id}`, n: 1, version: 0, schema: s, counts: {} as never } });
     store.set(tablesAtom, [wt("cells", SCHEMA), wt("annot", S2)]);
     store.set(activeTableIdAtom, "annot");                 // Data tab on annot
-    const p = { ...makeDefaultPlottable(SCHEMA, "cells") };  // active analysis on cells
+    const p = { ...makeDefaultPlottable("cells") };  // active analysis on cells
     store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
     expect(store.get(activeSchemaAtom)).toBe(S2);          // Data-tab table
     expect(store.get(schemaAtom)).toBe(SCHEMA);            // analysis table — different
@@ -624,7 +622,7 @@ describe("per-analysis collapse plan + test grain", () => {
       hierarchy: { spine, fn: {} },
       handle: { id: "h_main", n: 0, version: 0, schema, counts: {} as never } }]);
     store.set(activeTableIdAtom, "main");
-    const p = makeDefaultPlottable(schema, "main");
+    const p = makeDefaultPlottable("main");
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     return store;
@@ -719,11 +717,8 @@ describe("step writers — insert, and reduce.post preservation", () => {
   /* an active plottable carrying both a steps chain and a post phase. */
   function makeStoreWithPost() {
     const store = createStore();
-    const schema: Schema = { schema_version: "1.0", columns: [
-      { name: "val", type: "numeric", label: "Value" },
-    ] };
     const p = {
-      ...makeDefaultPlottable(schema),
+      ...makeDefaultPlottable(),
       reduce: {
         steps: [makeStep("filter"), makeStep("drop")],
         post: [makeStep("derive")],
@@ -809,14 +804,14 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
 
   it("buildSpec excludes an unset join and inlines a materialized one", () => {
     const p = {
-      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
       reduce: { steps: [makeStep("filter"), makeStep("join")] },
     };
     const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
     expect(spec.reduce.steps.map((s) => s.kind)).toEqual(["filter"]);
 
     const pFilled = {
-      ...makeDefaultPlottable(SCHEMA), mappings: { x: "grp", y: "val" },
+      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
       reduce: { steps: [makeStep("filter"),
         { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep] },
     };
@@ -838,7 +833,7 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
       handle: { id: `h_${id}`, n: 3, version, schema: SCHEMA, counts: {} as never } });
     const pool = [wt("cells", 1), wt("annot", 2)];
     const join = { ...makeStep("join"), rightTableId: "annot" };
-    const p = { ...makeDefaultPlottable(SCHEMA, "cells"),
+    const p = { ...makeDefaultPlottable("cells"),
       reduce: { steps: [join] } } as never;
     // cache empty → annot needs fetch (cells is not referenced by a join)
     expect(tablesNeedingMaterialize(pool, [p], {}).map((t) => t.id)).toEqual(["annot"]);
@@ -912,7 +907,7 @@ describe("loadDocumentAtom — full-pool rebuild, joins bound by reference", () 
 describe("undo history — spec mutations only", () => {
   const seedActive = () => {
     const store = createStore();
-    const p = makeDefaultPlottable(SCHEMA);
+    const p = makeDefaultPlottable();
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     return { store, p };

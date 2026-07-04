@@ -6,6 +6,7 @@ import {
 } from "../state";
 import { shapeCountsAtom } from "../explorer/graphAtom";
 import { grainKey, planGrains } from "../collapse";
+import { labelForCol } from "../levels";
 import { LEVEL_FNS, type LevelFn } from "../types";
 
 export function CollapseRoutingPanel() {
@@ -20,7 +21,7 @@ export function CollapseRoutingPanel() {
   const reset = useSetAtom(resetCollapseAtom);
   if (!p || spine.length === 0) return null;
 
-  const label = (n: string) => schema?.columns.find((c) => c.name === n)?.label ?? n;
+  const label = (n: string) => labelForCol(schema, n);
   const grainLabel = (k: string) => k === "" ? "Raw (every row)"
     : k.split("/").map(label).join(" × ");
   const keptDims = new Set(plan.flatMap((s) => s.keep));

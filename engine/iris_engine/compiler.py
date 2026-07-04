@@ -34,6 +34,7 @@ from . import scales as scales_mod
 from . import stats as stats_mod
 from . import style as style_mod
 from .scales import PALETTE  # the single colour source of truth (see scales.py)
+from .specutil import col_type, resolve_cat_val
 
 MM = 1 / 25.4
 INK = "#0f172a"
@@ -719,22 +720,6 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
     return build_comparison_figure(df, schema, spec, stats, level_tables)
 
 
-def _is_categorical(schema, name):
-    return any(c["name"] == name and c["type"] == "categorical"
-               for c in schema["columns"])
-
-
-def _resolve_cat_val(schema, enc):
-    """Phase 3c: detect horizontal orientation (categorical y + numeric x).
-    Returns (cat_col, val_col, h_orient) — cat_col is the categorical column
-    (groups), val_col the numeric column (values). The stats result always
-    groups by cat_col regardless of which encoding axis it sits on."""
-    enc_x = enc["x"]["column"] if enc.get("x") and enc["x"].get("column") else None
-    enc_y = enc["y"]["column"] if enc.get("y") and enc["y"].get("column") else None
-    h_orient = _is_categorical(schema, enc_y) and enc_x is not None
-    return (enc_y, enc_x, True) if h_orient else (enc_x, enc_y, False)
-
-
 def _cat_levels(df, schema, cat_col):
     """Ordered category levels for the grouping axis: the schema's declared
     levels (restricted to those present in the data) first, then any present
@@ -764,7 +749,7 @@ def _layout(df, schema, spec, *, scales=None):
     enc = spec["encodings"]
     cols = {c["name"]: c for c in schema["columns"]}
     style = resolve_style(spec)
-    cat_col, val_col, h_orient = _resolve_cat_val(schema, enc)
+    cat_col, val_col, h_orient = resolve_cat_val(enc, schema)
     levels = _cat_levels(df, schema, cat_col)
 
     color = enc.get("color")
@@ -783,7 +768,7 @@ def _layout(df, schema, spec, *, scales=None):
                     if l.get("geom") in geoms_mod.GEOMS)
     dodged = (color_col is not None and color_col != cat_col
               and not sc.color_numeric
-              and (_is_categorical(schema, color_col) or not has_point))
+              and (col_type(schema, color_col) == "categorical" or not has_point))
 
     if dodged:
         clevels = list(sc.color_levels)
@@ -1135,7 +1120,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     style = resolve_style(spec)
     if not level_tables:
         level_tables = {hierarchy_mod.RAW: (df, schema)}
-    cat_col, val_col, h_orient = _resolve_cat_val(schema, spec["encodings"])
+    cat_col, val_col, h_orient = resolve_cat_val(spec["encodings"], schema)
     sc_global = scales_mod.resolve_scales(
         spec["encodings"], df[df[val_col].notna()] if val_col in df else df,
         schema, style)
@@ -1755,7 +1740,7 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     # Numeric color is a colorbar, not curves, so only categorical color groups.
     color = enc.get("color")
     color_col = color["column"] if color and color.get("column") else None
-    grouped = bool(color_col) and _is_categorical(schema, color_col)
+    grouped = bool(color_col) and col_type(schema, color_col) == "categorical"
     sc = scales_mod.resolve_scales(enc, df, schema, style)
     color_levels = sc.color_levels if grouped else []
     # Shared bins span the POOLED in-scope values so overlaid/faceted curves are
@@ -1944,15 +1929,12 @@ def build_tile_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     return fig
 
 
-def figure_to_svg(fig, *, tight: bool = False) -> str:
-    """Export a rendered figure to an SVG string. `tight` requests
-    ``bbox_inches="tight"`` so artists placed outside the figure box (e.g. a
-    caption drawn just below the axes) are not clipped."""
+def figure_to_svg(fig) -> str:
+    """Export a rendered figure to an SVG string."""
     _finalize_deferred(fig)
     buf = io.StringIO()
-    save_kw = {"bbox_inches": "tight"} if tight else {}
     with plt.rc_context(_OUTPUT_RC):
-        fig.savefig(buf, format="svg", **save_kw)
+        fig.savefig(buf, format="svg")
     return buf.getvalue()
 
 

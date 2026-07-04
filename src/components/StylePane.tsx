@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
   activePlottableAtom, analysisAtom, DEFAULT_PALETTE, effectiveSchemaAtom,
   hierarchyAtom, styleRegistryAtom, styleClipboardAtom, styleLibraryAtom,
@@ -9,7 +9,6 @@ import { levelOptions } from "../levels";
 import type { StyleKnob, StyleOverrides } from "../types";
 import { captureStyle, serializeStyleSheet, parseStyleSheet } from "../style/sheet";
 import type { StyleSheet } from "../style/sheet";
-import { fileToBase64 } from "../types";
 
 const PRESET_SWATCHES = [
   "#0e7490", "#c2410c", "#4d7c0f", "#7c3aed", "#be123c", "#0369a1",
@@ -74,7 +73,7 @@ export function StylePane() {
   const grouped = family === "group_comparison" || family === "location";
 
   /* ---- style sheet hooks ---- */
-  const [clipboard, setClipboard] = useAtom(styleClipboardAtom);
+  const [, setClipboard] = useAtom(styleClipboardAtom);
   const [librarySheets, setLibrarySheets] = useAtom(styleLibraryAtom);
   const [saveName, setSaveName] = useState("");
   const [showSave, setShowSave] = useState(false);

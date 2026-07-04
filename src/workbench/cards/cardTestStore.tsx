@@ -27,7 +27,7 @@ export function seedStore(
   store.set(activeTableIdAtom, "main");
   const registry: Registry = { point_cap: 5000, facet_cell_cap: 200, geoms: {} };
   store.set(registryAtom, registry);
-  const p = makeDefaultPlottable(schema, "main");
+  const p = makeDefaultPlottable("main");
   store.set(plottablesAtom, [p]);
   store.set(activePlottableIdAtom, p.id);
   return { store, plottable: p };

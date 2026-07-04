@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { layoutGraph, COL_GAP, ROW_GAP } from "./layout";
+import { layoutGraph, COL_GAP } from "./layout";
 import type { ExplorerGraph } from "../explorer/graph";
 
 /* a minimal linear pipeline: source → step:0 → figure (both geom + test edges

@@ -38,16 +38,22 @@ export const RENDERABLE: Record<Channel, Partial<Record<ColType, Support>>> = {
   facet_col: { categorical: true },
 };
 
+/* the ColType a column carries, independent of any channel: a bool is a
+   stochastic-event flag that plots/analyzes as numeric 1/0, so it and numeric
+   both read "numeric"; a categorical reads "categorical"; an identifier is null
+   (not a ColType — only specific channels treat it as categorical, see
+   offeredColumns). The single classifier every call site shares. */
+export function colTypeOf(col: ColumnDef): ColType | null {
+  if (col.type === "numeric" || col.type === "bool") return "numeric";
+  return col.type === "categorical" ? "categorical" : null;
+}
+
 /* the type of a column in a schema, or null when the column is absent/unmapped
    or an identifier (never a visual channel). */
 export function colType(schema: Schema | null, name: string): ColType | null {
   if (!schema || !name) return null;
   const c = schema.columns.find((c) => c.name === name);
-  if (!c) return null;
-  // a bool is a stochastic-event flag: it plots/analyzes as numeric 1/0 (the
-  // fraction of trues), so every channel treats it as numeric.
-  if (c.type === "numeric" || c.type === "bool") return "numeric";
-  return c.type === "categorical" ? "categorical" : null;
+  return c ? colTypeOf(c) : null;
 }
 
 /* the derived stats family — the label the stats engine reads — computed from
@@ -250,10 +256,7 @@ export function geomSatisfiableByColumns(
   // Count usable columns per ColType (identifiers and single-value cats excluded)
   const avail: Record<ColType, number> = { categorical: 0, numeric: 0 };
   for (const c of columns) {
-    const ct: ColType | null =
-      c.type === "numeric" || c.type === "bool" ? "numeric"
-      : c.type === "categorical" ? "categorical"
-      : null;
+    const ct = colTypeOf(c);
     if (!ct) continue;
     if (ct === "categorical" && !categoryUsable(c)) continue;
     avail[ct]++;
@@ -344,11 +347,8 @@ export function offeredColumns(
   const selectable: ColumnDef[] = [];
   const disabled: { col: ColumnDef; reason: string }[] = [];
   for (const c of columns) {
-    const t: ColType | null =
-      c.type === "numeric" || c.type === "bool" ? "numeric"
-      : c.type === "categorical" ? "categorical"
-      : c.type === "identifier" && ID_AS_CATEGORICAL.has(channel) ? "categorical"
-      : null;
+    const t: ColType | null = colTypeOf(c)
+      ?? (c.type === "identifier" && ID_AS_CATEGORICAL.has(channel) ? "categorical" : null);
     if (!t) continue;
     // a single-value categorical groups nothing — hide it entirely (design §4).
     if (t === "categorical" && c.type === "categorical" && !categoryUsable(c)) continue;
