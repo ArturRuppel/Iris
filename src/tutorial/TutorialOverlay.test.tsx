@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, act } from "@testing-library/react";
 import { Provider, createStore } from "jotai";
 import { TutorialOverlay } from "./TutorialOverlay";
 import { tutorialActiveAtom, tutorialStepAtom } from "./state";
@@ -38,6 +38,18 @@ describe("TutorialOverlay", () => {
     mount({ step: WB, view: "workbench" });
     expect(screen.getByRole("button", { name: "Next" })).toBeEnabled();
     expect(screen.getByText(/done/)).toBeInTheDocument();
+  });
+
+  it("auto-advances the workbench step when the view flips to workbench", () => {
+    const store = mount({ step: WB, view: "data" });     // goal unmet on entry
+    expect(store.get(tutorialStepAtom)).toBe(WB);
+    act(() => store.set(viewModeAtom, "workbench"));      // the real click's effect
+    expect(store.get(tutorialStepAtom)).toBe(WB + 1);     // stepped on, no Next click
+  });
+
+  it("does not auto-advance when the workbench step is entered already met (Back)", () => {
+    const store = mount({ step: WB, view: "workbench" });
+    expect(store.get(tutorialStepAtom)).toBe(WB);         // stays put, waits for Next
   });
 
   it("leaves Next enabled on an observational step (no goal)", () => {

@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   activePlottableAtom, analysisAtom, effectiveSchemaAtom, specAtom, viewModeAtom,
 } from "../state";
@@ -57,6 +57,21 @@ export function TutorialOverlay() {
     window.addEventListener("resize", measure);
     return () => { window.clearInterval(id); window.removeEventListener("resize", measure); };
   }, [active, step?.anchor]);
+
+  /* Auto-advance a step that opts in, the moment its goal flips from unmet to met.
+     enteredMetRef remembers whether the goal already held on entry, so arriving via
+     Back on an already-satisfied step waits for a real Next instead of bouncing on. */
+  const enteredMetRef = useRef(false);
+  const prevIndexRef = useRef(-1);
+  useEffect(() => {
+    if (!active || !step) return;
+    const met = !step.goal || step.goal(ctx);
+    if (prevIndexRef.current !== index) {
+      prevIndexRef.current = index;
+      enteredMetRef.current = met;
+    }
+    if (step.autoAdvance && met && !enteredMetRef.current) advance();
+  });
 
   if (!active || !step) return null;
 

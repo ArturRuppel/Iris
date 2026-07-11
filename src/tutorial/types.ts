@@ -36,4 +36,9 @@ export interface TutorialStep {
      prose the user hasn't read; we enable Next instead. */
   goal?: (ctx: TutorialCtx) => boolean;
   hint?: string;                      // nudge shown while the goal is unmet
+  /* Advance automatically the moment the goal is met, skipping the Next click.
+     Only for a step whose goal-completing action IS the point and leaves no new
+     prose to read (opening the Workbench). Fires only on a fresh not-met → met
+     transition, so clicking Back into an already-met step does not bounce forward. */
+  autoAdvance?: boolean;
 }

@@ -34,6 +34,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     title: "Open the Workbench",
     anchor: "mode-workbench",
     goal: (c) => c.viewMode === "workbench",
+    autoAdvance: true,   // opening the Workbench IS the step; don't ask for a second click
     hint: "Click Workbench in the header to continue.",
     body: (
       <p>
