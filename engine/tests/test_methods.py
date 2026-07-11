@@ -254,6 +254,23 @@ def test_shaping_includes_post_steps():
     assert "derived z = sum_a / sum_b" in methods.shaping_prose(spec)
 
 
+def test_shaping_describes_a_dag_reduce():
+    # spec 2.2: reduce is a DAG (nodes+output), not the linear {steps} fold —
+    # the methods prose must still name every step, not silently drop them.
+    spec = {"reduce": {"nodes": [
+        {"id": "src", "kind": "source"},
+        {"id": "n0", "kind": "step", "inputs": ["src"],
+         "step": {"kind": "filter", "conditions": [{"column": "area", "op": ">", "value": 5}]}},
+        {"id": "n1", "kind": "step", "inputs": ["n0"],
+         "step": {"kind": "derive", "column": "ratio", "expr": "a / b"}},
+    ], "output": "n1", "post": [
+        {"kind": "derive", "column": "z", "expr": "sum_a / sum_b"}]}}
+    out = methods.shaping_prose(spec)
+    assert out.startswith("Data were ")
+    for frag in ["kept rows where area > 5", "derived ratio = a / b", "derived z = sum_a / sum_b"]:
+        assert frag in out
+
+
 # ── software_line ─────────────────────────────────────────────────────────────
 
 def test_software_line_names_present_libraries_only():

@@ -69,11 +69,27 @@ def render(table: dict, spec: dict, *, memo=None):
     spec = specnorm.normalize(spec)
     df, schema = _load_frame(table)
     reduce_block = spec.get("reduce") or {}
-    steps = reduce_block.get("steps") or []
-    try:
-        df, schema = reduce_mod.apply_reduction(df, schema, steps)
-    except reduce_mod.ReduceError as e:
-        raise RenderError(f"reduction failed: {e}") from e
+    if "nodes" in reduce_block:
+        # spec 2.2: reduce is a DAG (nodes+output), not the linear fold below.
+        # A source node with no inline `table`/`table_id` never carries the
+        # MAIN table's rows — the render path rides those on the request's own
+        # table/token, exactly as the legacy fold does — so bind it here to the
+        # table already resolved above. Every OTHER source (a join's right)
+        # already carries its own inline rows (see resolveEngineDag, state.ts).
+        from . import dag as dag_mod
+        nodes = [{**n, "table": table} if n.get("kind") == "source"
+                 and "table" not in n and "table_id" not in n else n
+                 for n in reduce_block["nodes"]]
+        try:
+            df, schema = dag_mod.evaluate_dag({**reduce_block, "nodes": nodes})
+        except dag_mod.DagError as e:
+            raise RenderError(f"reduction failed: {e}") from e
+    else:
+        steps = reduce_block.get("steps") or []
+        try:
+            df, schema = reduce_mod.apply_reduction(df, schema, steps)
+        except reduce_mod.ReduceError as e:
+            raise RenderError(f"reduction failed: {e}") from e
     # Post-collapse reduce phase: further steps run on the chosen test-grain table
     # AFTER collapse (below), expressing grain-dependent transforms a raw-grain
     # reduce cannot (e.g. log2(Σobs/Σexp) after a sum-collapse). Their output

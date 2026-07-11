@@ -274,6 +274,30 @@ def test_filter_on_flag_drops_rows():
     assert s["summaries"][0]["n"] == 18           # two control rows dropped
 
 
+def test_analyze_endpoint_accepts_a_dag_reduce():
+    # spec 2.2: reduce is a DAG (nodes+output) instead of the linear {steps}
+    # fold — render.py must still apply the pipeline, not silently drop it.
+    # The DAG's source node carries NO inline rows: render.py binds it from the
+    # request's own already-resolved `table` (the main table still rides on
+    # `table`/`table_token`, never inlined into the DAG itself).
+    table = make_table()
+    table["schema"] = {**document.SAMPLE_SCHEMA, "columns": [
+        *document.SAMPLE_SCHEMA["columns"],
+        {"name": "flag", "type": "bool", "label": "Flag"}]}
+    for i, row in enumerate(table["rows"]):
+        row["flag"] = i < 2                       # flag the first two control rows
+    spec = make_spec()
+    spec["reduce"] = {"nodes": [
+        {"id": "src", "kind": "source"},
+        {"id": "n0", "kind": "step", "inputs": ["src"],
+         "step": {"kind": "filter", "conditions": [
+             {"column": "flag", "op": "==", "value": False}]}}],
+        "output": "n0"}
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    s = r.json()["stats"]
+    assert s["summaries"][0]["n"] == 18           # two control rows dropped
+
+
 def test_pdf_export_has_exact_mm_size():
     spec = make_spec()
     spec["style"]["overrides"] = {"width_mm": 89, "height_mm": 70}

@@ -97,6 +97,12 @@ class ReduceRequest(BaseModel):
     table: dict | None = None
     table_token: str | None = None
     steps: list[dict] = []
+    # a reduce DAG {nodes, output} (spec 2.2); when present, supersedes
+    # `table`/`table_token` + `steps` (which stay for the legacy linear callers
+    # — the live preview and /shape_counts still send those in this phase).
+    # Every source node must carry its own inline `table` — a DAG request is
+    # self-contained, unlike the legacy `table`/`table_token` + `steps` split.
+    reduce: dict | None = None
     # data hierarchy: when a non-raw level is requested, the preview shows that
     # level's grain (e.g. one row per cell) instead of the raw reduced rows.
     hierarchy: dict | None = None
@@ -104,6 +110,8 @@ class ReduceRequest(BaseModel):
     # when set, return the table AFTER step index `at_step` (slicing steps[:at_step+1]);
     # -1 means the raw table before any step. Drives the explorer data tab. Takes
     # precedence over `level` (flatten-level inspection is a separate node kind).
+    # Not yet supported alongside `reduce` (a DAG request always returns its
+    # `output` node; per-node fetching is Phase C/D, via distinct node ids).
     at_step: int | None = None
     # un-forcing the nesting: fetch an arbitrary collapse grain by key (kept dims
     # joined by '/'). Takes precedence over `level` when both are set.
@@ -115,6 +123,12 @@ class ShapeCountsRequest(BaseModel):
     table: dict | None = None
     table_token: str | None = None
     steps: list[dict] = []
+    # a reduce DAG {nodes, output} (spec 2.2); accepted for forward-compat with
+    # the client's spec shape, but NOT YET wired into the per-node counts below
+    # — those are keyed by pipeline-step-index (`sc.steps[i]`/`sc.joins[i]`),
+    # matching the still-unconverted explorer graph (Phase C moves both to
+    # node ids together). Present here only so the request model accepts it.
+    reduce: dict | None = None
     hierarchy: dict | None = None
     # un-forcing the nesting: the per-analysis plan (grain-list), chosen test
     # grain, and the comparison qualifier (for the pairing-flip guard). Absent
@@ -616,6 +630,21 @@ def reduce_preview(req: ReduceRequest):
     pipeline editor before any X/Y mapping exists."""
     if req.at_step is not None and req.at_step < -1:
         raise HTTPException(422, "at_step must be >= -1")
+    if req.reduce is not None:
+        from . import dag as dag_mod
+        try:
+            cache, order = dag_mod.evaluate_dag_traced(req.reduce)
+        except dag_mod.DagError as e:
+            raise HTTPException(422, f"reduction failed: {e}") from e
+        out, sch = cache[req.reduce["output"]]
+        by_id = {n["id"]: n for n in req.reduce["nodes"]}
+        trace = [{"n_rows_out": int(len(cache[nid][0])), "schema_out": cache[nid][1]}
+                 for nid in order if by_id[nid].get("kind") == "step"]
+        out = out.drop(columns=["row_ids"], errors="ignore")
+        return {"preview": _to_table(out.head(PREVIEW_CAP), sch),
+                "n_total": int(len(out)),
+                "trace": trace,
+                "summary": _column_summary(out, sch)}
     table = _resolve_table(req.table, req.table_token)
     df, schema = _load_frame(table)
     steps = req.steps if req.at_step is None else req.steps[: req.at_step + 1]

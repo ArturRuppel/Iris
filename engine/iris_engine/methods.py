@@ -238,11 +238,21 @@ def _step_phrase(step: dict) -> str | None:
     return None
 
 
+def _reduce_step_list(reduce: dict) -> list[dict]:
+    """The reduce pipeline's step dicts, in order — from either the legacy
+    linear fold shape (`{steps: [...]}`) or the DAG shape (`{nodes, output}`,
+    spec 2.2). `post` (always a flat list, in both shapes) is handled by the
+    caller."""
+    if "nodes" in reduce:
+        return [n["step"] for n in reduce["nodes"] if n.get("kind") == "step"]
+    return list(reduce.get("steps", []))
+
+
 def shaping_prose(spec: dict) -> str:
     """One sentence describing the reduce pipeline + nesting for an analysis, or ""
     when there is nothing to say (no reduce steps and no spine)."""
     reduce = spec.get("reduce") or {}
-    steps = list(reduce.get("steps", [])) + list(reduce.get("post", []))
+    steps = _reduce_step_list(reduce) + list(reduce.get("post", []))
     phrases = [p for p in (_step_phrase(s) for s in steps) if p]
     spine = (spec.get("hierarchy") or {}).get("spine") or []
 
