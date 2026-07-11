@@ -443,21 +443,29 @@ def apply_reduction(df: pd.DataFrame, schema: dict,
     return out, schema
 
 
+def iter_reduction(df: pd.DataFrame, schema: dict, steps: list[dict] | None):
+    """Fold `steps` over (df, schema), yielding `(frame, schema, info)` after each
+    step in one pass. The frame is normalized exactly as the pipeline requires:
+    index reset, and a unique `id` re-stamped whenever a row-rebuilding step (pivot,
+    grid_complete) drops it — id-preserving steps (filter/drop/derive/recode/join)
+    keep theirs untouched. Callers that need every prefix's frame (e.g. per-node
+    shape counts) consume this instead of re-folding each prefix from scratch."""
+    out, sch = df, schema
+    for step in (steps or []):
+        out, sch, info = _apply_step(out, sch, step)
+        out = out.reset_index(drop=True)
+        if "id" not in out.columns:
+            out = out.assign(id=[str(i + 1) for i in range(len(out))])
+        yield out, sch, info
+
+
 def reduce_with_trace(
     df: pd.DataFrame, schema: dict, steps: list[dict] | None,
 ) -> tuple[pd.DataFrame, dict, list[dict]]:
     """Like `apply_reduction`, but also returns a per-step trace
     `[{n_rows_out, schema_out}]` (in order) for the live preview UI."""
     out, sch, trace = df, schema, []
-    for step in (steps or []):
-        out, sch, info = _apply_step(out, sch, step)
-        out = out.reset_index(drop=True)
-        # Row-rebuilding steps (pivot, grid_complete) produce a fresh frame that no
-        # longer carries the `id` meta column the hierarchy materialization keys on.
-        # Re-stamp a unique `id` so the reduced table stays a valid pipeline input;
-        # id-preserving steps (filter/drop/derive/recode/join) keep theirs untouched.
-        if "id" not in out.columns:
-            out = out.assign(id=[str(i + 1) for i in range(len(out))])
+    for out, sch, info in iter_reduction(df, schema, steps):
         trace.append({"n_rows_out": int(len(out)), "schema_out": sch, **info})
     out = out.reset_index(drop=True)
     return out, sch, trace

@@ -60,7 +60,10 @@ def save_document(tables: dict, analyses: list[dict],
                        json.dumps(t.get("hierarchy", {"spine": [], "fn": {}}),
                                   indent=2))
         for i, an in enumerate(analyses, 1):
-            z.writestr(f"analyses/{i:02d}-{an.get('id', 'analysis')}.json",
+            # 4-digit zero-pad so the lexicographic load order (`sorted(names)`)
+            # still matches numeric order past 99 entries — array position is the
+            # analysis's identity on the frontend, so a reorder would misassign it.
+            z.writestr(f"analyses/{i:04d}-{an.get('id', 'analysis')}.json",
                        json.dumps(an, indent=2))
         z.writestr("provenance.json", json.dumps(provenance, indent=2))
     return buf.getvalue()

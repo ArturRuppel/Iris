@@ -197,7 +197,10 @@ def home_level(df: pd.DataFrame, spine: list[str], qualifier: str) -> str | None
         return None
     for i in range(len(spine)):
         grain = spine[: i + 1]
-        if int(df.groupby(grain, observed=True)[qualifier].nunique().max() or 0) <= 1:
+        # an all-rows-filtered frame makes .max() NaN; NaN is truthy so `or 0`
+        # wouldn't catch it and int(NaN) raises — guard as _peak does.
+        m = df.groupby(grain, observed=True)[qualifier].nunique().max()
+        if (0 if pd.isna(m) else int(m)) <= 1:
             return spine[i]
     return spine[-1] if spine else None
 

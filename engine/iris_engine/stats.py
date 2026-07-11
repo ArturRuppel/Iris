@@ -784,7 +784,6 @@ def rate(df: pd.DataFrame, group: str | None, count: str, *,
         found += sorted(set(sub[group].astype(str)) - set(map(str, levels)))
     else:
         found = ["all"]
-        sub = sub.assign(**{count: sub[count]})
     if not found or not len(sub):
         return {"error": "no groups to estimate a rate for", "levels": found}
 
@@ -794,7 +793,6 @@ def rate(df: pd.DataFrame, group: str | None, count: str, *,
         return {"error": "exposure must be positive to use it as a rate offset"}
 
     import statsmodels.api as sm
-    from scipy import stats as sps
     z = float(sps.norm.ppf(1 - alpha / 2))
 
     def _subset(lv):

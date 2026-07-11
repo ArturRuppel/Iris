@@ -326,8 +326,10 @@ def _resolve_table(table: dict | None, token: str | None) -> dict:
     a follow-up token request hits."""
     if table is not None:
         if token:
-            with _TABLE_CACHE_LOCK:
-                _TABLE_CACHE.setdefault(token, table)
+            # route through _store_table so the entry is tracked by the eviction
+            # order list; a bare setdefault here leaked (unbounded, invisible to
+            # eviction) — idempotent, so a repeat token is a no-op.
+            _store_table(token, table)
         return table
     sess = _SESSIONS.get(token)
     if sess is not None:
@@ -668,14 +670,17 @@ def shape_counts(req: ShapeCountsRequest):
     out_source = {"rows": int(len(src)), "cols": _cols(src),
                   **shape_mod.describe_shape(src, src_sch, spine)}
 
+    # One incremental fold over the steps instead of re-running every prefix from
+    # scratch: this endpoint was O(n²) in the pipeline length (each node re-applied
+    # all prior steps). `iter_reduction` yields the same per-prefix frame the old
+    # `reduce_with_trace(steps[:i+1])` produced, so the counts are unchanged.
     steps_counts = []
-    for i in range(len(req.steps)):
-        try:
-            out, _sch, _ = reduce_mod.reduce_with_trace(df, schema, req.steps[: i + 1])
-        except reduce_mod.ReduceError as e:
-            raise HTTPException(422, f"reduction failed: {e}") from e
-        steps_counts.append({"rows": int(len(out)), "cols": _cols(out),
-                             **shape_mod.describe_shape(out, _sch, spine)})
+    try:
+        for out, _sch, _ in reduce_mod.iter_reduction(df, schema, req.steps):
+            steps_counts.append({"rows": int(len(out)), "cols": _cols(out),
+                                 **shape_mod.describe_shape(out, _sch, spine)})
+    except reduce_mod.ReduceError as e:
+        raise HTTPException(422, f"reduction failed: {e}") from e
 
     # per-join right-table descriptor: the join's right input rides inline on the
     # step (step.right = {schema, rows}); describe its SOURCE shape (its own
@@ -977,8 +982,6 @@ def _exit_when_stdin_closes():
 
 
 def main():
-    import threading
-
     import uvicorn
     if os.environ.get("IRIS_WATCH_STDIN") == "1":
         threading.Thread(target=_exit_when_stdin_closes, daemon=True).start()
