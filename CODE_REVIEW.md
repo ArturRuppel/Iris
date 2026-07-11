@@ -6,6 +6,53 @@
 
 ---
 
+## Addendum — mechanical-remainder pass (2026-07-11)
+
+The §1 high-severity items and the §2/§7 blockers were closed earlier (inline
+✅ markers). This pass swept the low-severity tail — §4 bugs, §5 dead code, §6
+duplication — on branch `cleanup/code-review-mechanical-remainder`. Verified
+against a green baseline (frontend 422 → **424**, engine **579**, tsc clean).
+
+**Landed (3 commits):**
+- **Engine perf/dead code** — `/shape_counts` was O(n²) in pipeline length; now
+  one incremental fold via `reduce.iter_reduction` (shared with
+  `reduce_with_trace`, per-prefix frames byte-identical). `_resolve_table`'s
+  inline+token path leaked into `_TABLE_CACHE` without eviction tracking → routed
+  through `_store_table`. `home_level` `int(NaN)` crash guarded. Analyses
+  zero-padded `{i:04d}` (load order past 99). Removed: `stats.rate` no-op
+  self-assign + redundant scipy re-import, redundant `threading` import, unused
+  `numpy` import.
+- **Frontend §4 bugs** — reference-InfoTip glossary key; `xIsNumeric` now honors
+  bool-on-X (via `colType`); `resizeColumns` clamp-inversion; stale
+  `focusedStashIdAtom` after FIFO eviction; Stash slot highlight ignoring
+  `facet`; HierarchyPanel out-of-order fetch guard; `pointercancel` on both drag
+  loops. +2 regression tests.
+- **§6 dedup** — `MIN_LOCATION_N` (guards→stats), `spine`/`present` alias,
+  `TEST_LABELS` (→ `statsGlossary`), `<FromToRows>` (recode/pivot), exported
+  `orderBy` (join/pivot/grid_complete).
+
+**Found already-fixed** (review was stale — mostly the `chore: remove dead code`
+/ `de-duplicate helpers` commits): §4 item 8 (role-change stale upsert), the
+`channels.ts` family upgrade, `DataTab`, `addStepAtom`/`moveStepAtom`,
+`previewLevel`, `spec.data.filter`, `fileToBase64`, `SessionTable.frame()`,
+importer byte-wrappers, `figure_to_svg(tight)`, `statmodel.infer(unit)`,
+`levelInitial` dup.
+
+**Deliberately left (need judgment / own spec, not mechanical):**
+- §4.2 GuidedTestPicker two-pick race, §4.13 authoring duplicate-card ids — real
+  but need the graph/edge context to fix correctly.
+- §4.7 `loadDocument` empty-`doc.tables` bail — has a deliberate "already
+  cleared" comment; the right empty-workspace semantics is a product call.
+- §4 latent/unreachable notes (timeseries `?? tests[0]`, §4.9 inert `onClose`,
+  `p===alpha` label — which is conventionally correct and matches the engine).
+- §5 wire-contract/test-backed items — `/sample` + `/table` endpoints (each has
+  a test caller / frozen-binary smoke), `GeomDef.needs` (emitted over the wire),
+  `/reduce` `summary` — subsystem/contract removals, not one-liners.
+- `reduce.post` plumbing and `FilterCond.bound` — dormant-**by-design** (deferred
+  post-step authoring; `.iris`-reachable), not dead. Do not strip.
+
+---
+
 ## 1. High severity — scientific / data integrity
 
 ### 1.1 CSV import silently corrupts US-formatted numbers in non-comma-delimited files — ✅ FIXED (2026-07-02)
