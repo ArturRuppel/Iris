@@ -62,6 +62,11 @@ export const nodePositionsAtom = atom<Record<string, { x: number; y: number }>>(
 export interface WorkbenchLayout {
   stashH: number;
   cols: number[];
+  /* true once the user has dragged a resize handle. Until then the stash
+     auto-fits to ~2/3 of the vertical space on every appearance (a fresh mount
+     or an analysis switch, which resets the layout below). Omitted from the
+     default so a reset reads as "unsized" and re-fits. */
+  userSized?: boolean;
 }
 export const DEFAULT_STASH_H = 270;
 const defaultLayout = (): WorkbenchLayout => ({

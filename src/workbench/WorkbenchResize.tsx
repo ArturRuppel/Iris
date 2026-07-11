@@ -44,7 +44,8 @@ export function useWorkbenchResize(
         const cols = splitIndex != null
           ? resizeColumns(startCols, splitIndex, ev.clientX - startX, innerW)
           : startCols;
-        setLayout({ stashH, cols });
+        // once dragged, the layout is the user's — stop the 2/3 auto-fit.
+        setLayout({ stashH, cols, userSized: true });
       };
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);

@@ -107,19 +107,19 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const stashRef = useRef<HTMLDivElement>(null);
   const resize = useWorkbenchResize(overlayRef, stashRef);
 
-  // On the stash's first appearance, give the cards ~2/3 of the vertical space
-  // (they're the focus; the DAG rides above in the remaining third). Runs once
-  // per mount, before paint, so there's no jump from the atom's static default;
-  // after that the user's drags own the height.
-  const didAutoSizeRef = useRef(false);
+  // Give the cards ~2/3 of the vertical space (they're the focus; the DAG rides
+  // above in the remaining third). Applies on every appearance the user hasn't
+  // sized by hand — a fresh mount AND an analysis switch, which resets the layout
+  // to its 270px default (see clearWorkbenchAtom). Runs before paint, so there's
+  // no jump; guarded by the value check so setting it doesn't re-trigger itself.
   useLayoutEffect(() => {
-    if (!hasStash || didAutoSizeRef.current) return;
+    if (!hasStash || layout.userSized) return;
     const overlay = overlayRef.current;
     if (!overlay) return;
-    didAutoSizeRef.current = true;
     const contentH = overlay.clientHeight - TOPBAR;
-    setLayout((l) => ({ ...l, stashH: clampStashH(Math.round((contentH * 2) / 3), contentH) }));
-  }, [hasStash, setLayout]);
+    const target = clampStashH(Math.round((contentH * 2) / 3), contentH);
+    if (layout.stashH !== target) setLayout((l) => ({ ...l, stashH: target }));
+  }, [hasStash, layout.userSized, layout.stashH, setLayout]);
 
   // clicking a node pins its data card into the stash (docked, comparable),
   // never a floating popup. A stale id (kind === null) is ignored. A whole-node
