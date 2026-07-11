@@ -1,4 +1,3 @@
-import { colType } from "../channels";
 import type { TutorialStep } from "./types";
 
 /* The quickstart golden path, as a walk through the real app: raw table → open
@@ -50,12 +49,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // Spotlight the "+ add plot" button; once clicked it is replaced by the
     // wizard, so fall the spotlight through to the wizard rather than collapse.
     anchor: ["plot-wizard", "add-plot"],
-    goal: (c) =>
-      !!c.plottable &&
-      c.plottable.layers.length > 0 &&
-      colType(c.schema, c.plottable.mappings.x) === "categorical" &&
-      colType(c.schema, c.plottable.mappings.y) === "numeric",
-    hint: "Add a plot, then map species onto X and a measurement onto Y.",
+    // Any built plot counts: pick whatever type and mapping you like. Constraining
+    // it to one shape traps anyone who tries something else.
+    goal: (c) => !!c.plottable && c.plottable.layers.length > 0,
+    hint: "Add a plot and map your columns to the axes.",
     body: (
       <>
         <p>
@@ -63,10 +60,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
           click <strong>+ add plot</strong>.
         </p>
         <p>
-          Iris offers only the plot types your columns can satisfy. Pick one, then
-          map <code>species</code> onto the X axis and <code>petal length</code>{" "}
-          onto Y. A box or a dot plot is the natural choice for two groups: it shows
-          the spread, not just one number.
+          Iris offers only the plot types your columns can satisfy. Pick whichever
+          you like and map your columns to the axes. For two groups a box or a dot
+          plot reads well, showing the spread rather than a single number; mapping{" "}
+          <code>species</code> against <code>petal length</code> is a natural start.
         </p>
       </>
     ),

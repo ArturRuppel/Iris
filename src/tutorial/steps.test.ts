@@ -39,14 +39,13 @@ describe("tutorial step goals", () => {
     it("is unmet with no plottable", () => {
       expect(g(ctx({ plottable: null }))).toBe(false);
     });
-    it("is unmet when channels are mapped but no layer exists", () => {
+    it("is unmet when a mapping exists but no layer does", () => {
       expect(g(ctx({ plottable: plot("species", "petal_length", 0) }))).toBe(false);
     });
-    it("is unmet when the channel types are swapped (numeric on X, categorical on Y)", () => {
-      expect(g(ctx({ plottable: plot("petal_length", "species", 1) }))).toBe(false);
-    });
-    it("is met with a layer plus categorical→X and numeric→Y", () => {
+    it("is met by any built plot, whatever type or mapping the user picked", () => {
       expect(g(ctx({ plottable: plot("species", "petal_length", 1) }))).toBe(true);
+      expect(g(ctx({ plottable: plot("petal_length", "species", 1) }))).toBe(true);
+      expect(g(ctx({ plottable: plot("petal_length", "petal_width", 1) }))).toBe(true);
     });
   });
 
