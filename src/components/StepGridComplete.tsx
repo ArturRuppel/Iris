@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ColumnDef, GridCompleteStep } from "../types";
+import { orderBy } from "./StepCards";
 
 /* ---- Grid complete: fill in missing category combinations and count rows per combination ---- */
 export function StepGridComplete(
@@ -14,7 +15,7 @@ export function StepGridComplete(
   const toggleBy = (name: string) => {
     const next = new Set(step.by);
     next.has(name) ? next.delete(name) : next.add(name);
-    onChange({ ...step, by: columns.map((c) => c.name).filter((n) => next.has(n)) });
+    onChange({ ...step, by: orderBy(columns, next) });
   };
   return (
     <>

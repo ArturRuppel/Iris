@@ -1,7 +1,7 @@
 import type { Schema, StatsDecision, TestName } from "../types";
 import type { RateModel } from "../channels";
 import { InfoTip } from "./InfoTip";
-import type { GlossaryKey } from "./statsGlossary";
+import { TEST_LABELS, type GlossaryKey } from "./statsGlossary";
 
 /* The guided two-group test picker. Instead of presenting the test as a fait
    accompli, it surfaces the two questions a statistician would ask — is the
@@ -9,13 +9,6 @@ import type { GlossaryKey } from "./statsGlossary";
    robust? — recommends an answer to each (from the engine's `decision`), and
    lets the user confirm or change it. The resolved test falls out of the two
    answers. See docs/superpowers/specs/2026-06-17-guided-test-picker-ui-design.md */
-
-const TEST_LABELS: Record<string, string> = {
-  welch_t: "Welch's t-test",
-  mann_whitney: "Mann–Whitney U",
-  paired_t: "Paired t-test",
-  wilcoxon: "Wilcoxon signed-rank",
-};
 
 /* The engine's `_COMBINE` grid (stats.py:79), mirrored on the frontend so the
    two answers map back to the single-`override` engine API. */

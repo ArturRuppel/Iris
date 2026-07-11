@@ -1,4 +1,6 @@
 import type { ColumnDef, PivotStep } from "../types";
+import { FromToRows } from "./FromToRows";
+import { orderBy } from "./StepCards";
 
 /* ---- Pivot: long→wide. `index` rows stay as keys, `column`'s values become
    new headers, `values` is aggregated (sum), empties fill with `fill`. ---- */
@@ -9,18 +11,8 @@ export function StepPivot(
   const toggleIndex = (name: string) => {
     const next = new Set(step.index);
     next.has(name) ? next.delete(name) : next.add(name);
-    onChange({ ...step, index: columns.map((c) => c.name).filter((n) => next.has(n)) });
+    onChange({ ...step, index: orderBy(columns, next) });
   };
-  // `names` is an ordered [from,to] array (not a dict) for the same reason as
-  // RecodeStep.map: transient empty/duplicate `from` keys must survive editing.
-  const entries = step.names;
-  const emitNames = (next: [string, string][]) => onChange({ ...step, names: next });
-  const setFrom = (i: number, from: string) =>
-    emitNames(entries.map((e, j) => (j === i ? [from, e[1]] : e)));
-  const setTo = (i: number, to: string) =>
-    emitNames(entries.map((e, j) => (j === i ? [e[0], to] : e)));
-  const addName = () => emitNames([...entries, ["", ""]]);
-  const rmName = (i: number) => emitNames(entries.filter((_, j) => j !== i));
   return (
     <div className="filter-conds">
       <div className="step-meta">
@@ -69,16 +61,11 @@ export function StepPivot(
         />
       </div>
       <div className="step-meta">relabel pivoted columns</div>
-      {entries.map(([from, to], i) => (
-        <div key={i} className="filter-row">
-          <input aria-label="rename from" value={from}
-            onChange={(e) => setFrom(i, e.target.value)} />
-          <input aria-label="rename to" value={to}
-            onChange={(e) => setTo(i, e.target.value)} />
-          <button className="icon" aria-label="remove" title="remove" onClick={() => rmName(i)}>✕</button>
-        </div>
-      ))}
-      <button className="step-add-row" onClick={addName}>+ relabel</button>
+      <FromToRows
+        entries={step.names}
+        fromLabel="rename from" toLabel="rename to" addLabel="+ relabel"
+        onChange={(names) => onChange({ ...step, names })}
+      />
     </div>
   );
 }

@@ -721,8 +721,10 @@ def shape_counts(req: ShapeCountsRequest):
         for lvl in spine:
             lout, _lsch = hierarchy.resolve_level(levels, lvl)
             levels_out[lvl] = {"rows": int(len(lout)), "cols": _cols(lout)}
-    # grain-keyed counts + guards for the routing graph (un-forcing the nesting)
-    present = hierarchy.spine_present(full, (req.hierarchy or {}).get("spine") or [])
+    # grain-keyed counts + guards for the routing graph (un-forcing the nesting).
+    # `present` is the same spine_present(full, …) computed for `spine` above —
+    # alias it rather than recompute.
+    present = spine
     plan = req.collapse or hierarchy.default_plan(present, (req.hierarchy or {}).get("fn") or {})
     grains: dict[str, dict] = {}
     guards: dict = {"pseudoreplication": None, "pairing_flip": None,

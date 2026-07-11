@@ -7,7 +7,10 @@ import type {
 // (spec-authored only) — deferred with the inline-editing follow-up.
 const OPS: FilterOp[] = ["==", "!=", "<", "<=", ">", ">=", "in", "not-in"];
 
-const orderBy = (cols: ColumnDef[], chosen: Set<string>) =>
+/* pick the chosen column names back in canonical column order — shared by every
+   multi-select step editor (drop here, plus join/pivot/grid_complete) so a toggled
+   set always serializes in a stable order. */
+export const orderBy = (cols: ColumnDef[], chosen: Set<string>) =>
   cols.map((c) => c.name).filter((n) => chosen.has(n));
 
 /* ---- Drop: remove the named columns (everything else passes through) ---- */

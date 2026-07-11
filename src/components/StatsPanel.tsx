@@ -7,27 +7,10 @@ import {
   GuidedTestPicker, overrideFor,
   RATE_MODELS, RATE_MODEL_LABELS, exposureColumns,
 } from "./GuidedTestPicker";
-import type { GlossaryKey } from "./statsGlossary";
+import { TEST_LABELS, type GlossaryKey } from "./statsGlossary";
 
 const fmtP = (p: number) => (p < 0.001 ? "< 0.001" : "= " + p.toFixed(3));
 const stars = (p: number) => (p < 0.001 ? "***" : p < 0.01 ? "**" : p < 0.05 ? "*" : "ns");
-const TEST_LABELS: Record<string, string> = {
-  welch_t: "Welch's t-test",
-  mann_whitney: "Mann–Whitney U",
-  paired_t: "Paired t-test",
-  wilcoxon: "Wilcoxon signed-rank",
-  one_way_anova: "One-way ANOVA",
-  kruskal: "Kruskal–Wallis",
-  one_sample_t: "One-sample t-test",
-  wilcoxon_signed: "Wilcoxon signed-rank",
-  pearson: "Pearson r",
-  spearman: "Spearman ρ",
-  descriptive: "Descriptive summary",
-  chi_square: "Chi-square",
-  fisher_exact: "Fisher's exact",
-  nb_glm: "Negative-binomial GLM",
-  poisson_glm: "Poisson GLM",
-};
 /* the rate family's resolved test ids — its result reads per-lane estimates, so
    several render sites branch on this rather than on a single test name. */
 const isRateTest = (t: string) => t === "nb_glm" || t === "poisson_glm";

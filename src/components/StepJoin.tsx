@@ -1,4 +1,5 @@
 import type { ColumnDef, JoinStep, Schema } from "../types";
+import { orderBy } from "./StepCards";
 
 /* ---- Join: inner-join a referenced pool table on shared keys ----
    `rightTableId` picks the right table from the loaded pool (the missing-input
@@ -33,7 +34,7 @@ export function StepJoin(
   const toggle = (name: string) => {
     const has = step.on.includes(name);
     const next = new Set(has ? step.on.filter((n) => n !== name) : [...step.on, name]);
-    onChange({ ...step, on: columns.map((c) => c.name).filter((n) => next.has(n)) });
+    onChange({ ...step, on: orderBy(columns, next) });
   };
 
   return (

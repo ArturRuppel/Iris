@@ -264,3 +264,24 @@ export const STATS_GLOSSARY = {
 } satisfies Record<string, GlossaryEntry>;
 
 export type GlossaryKey = keyof typeof STATS_GLOSSARY;
+
+/* Display names for every resolved test id — shown wherever a test is named
+   (StatsPanel's result + recommendation, GuidedTestPicker's resolution line).
+   One home so the two panels can't drift out of sync. */
+export const TEST_LABELS: Record<string, string> = {
+  welch_t: "Welch's t-test",
+  mann_whitney: "Mann–Whitney U",
+  paired_t: "Paired t-test",
+  wilcoxon: "Wilcoxon signed-rank",
+  one_way_anova: "One-way ANOVA",
+  kruskal: "Kruskal–Wallis",
+  one_sample_t: "One-sample t-test",
+  wilcoxon_signed: "Wilcoxon signed-rank",
+  pearson: "Pearson r",
+  spearman: "Spearman ρ",
+  descriptive: "Descriptive summary",
+  chi_square: "Chi-square",
+  fisher_exact: "Fisher's exact",
+  nb_glm: "Negative-binomial GLM",
+  poisson_glm: "Poisson GLM",
+};

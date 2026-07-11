@@ -16,9 +16,9 @@ import pandas as pd
 from . import geoms
 from .scales import MARKERS, PALETTE
 from .specutil import col_type, enc_col, resolve_cat_val
+from .stats import MIN_LOCATION_N  # single source: the test's skip threshold
 
 MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
-MIN_LOCATION_N = 3   # below this per group, the one-sample location test is underpowered
 COLOR_CAP = len(PALETTE)  # the default palette length; above it, colors repeat
 
 # Phase 3 "model now, build later" safeguard: the (channel, column-type) pairings
