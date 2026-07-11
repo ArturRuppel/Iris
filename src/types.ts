@@ -602,8 +602,17 @@ export interface AutosaveStatus {
 
 export interface ReshapeOptions {
   value_columns: string[];
-  var_name: string;
   value_name: string;
+  /* single-level stack (the import wizard's "stack columns"): every value
+     column folds into one categorical column named `var_name`. */
+  var_name?: string;
+  /* hierarchical stack (the data-entry grid's nested headers): each value
+     column carries a full path of group labels, one per nesting level.
+     `level_names[i]` names the tidy column the i-th path element melts into;
+     `groups[col]` is that column's path (length === level_names.length). When
+     present these win over `var_name`. */
+  level_names?: string[];
+  groups?: Record<string, string[]>;
 }
 export interface ImportOptions {
   delimiter?: string | null;

@@ -170,9 +170,16 @@ def _clean(df: pd.DataFrame) -> None:
 
 def _reshape(df: pd.DataFrame, labels: list[str],
              reshape: dict | None) -> tuple[pd.DataFrame, list[str]]:
-    """Stack wide columns (one column per condition) into a long condition +
-    value pair; rows whose value is missing are dropped, so ragged columns
-    of unequal length work. Level order = column order."""
+    """Stack wide columns into a long table; rows whose value is missing are
+    dropped, so ragged columns of unequal length work. Two shapes:
+
+    - single-level (the import wizard): every value column folds into one
+      categorical column named `var_name`, its level = the column's label.
+    - hierarchical (the data-entry grid): each value column carries a path of
+      group labels in `groups`, one per nesting level in `level_names`; the
+      path melts into that many categorical columns. This is the nested
+      merged-header sheet flattened to tidy.
+    """
     if not reshape:
         return df, labels
     value_cols = [c for c in reshape.get("value_columns", []) if c in df.columns]
@@ -180,12 +187,31 @@ def _reshape(df: pd.DataFrame, labels: list[str],
         raise ValueError("reshape needs at least two value columns")
     label_of = dict(zip(df.columns, labels))
     id_vars = [c for c in df.columns if c not in value_cols]
-    var_label = str(reshape.get("var_name") or "Condition")
     val_label = str(reshape.get("value_name") or "Value")
     long = df.melt(id_vars=id_vars, value_vars=value_cols,
                    var_name="__var", value_name="__val")
-    long["__var"] = long["__var"].map(label_of)  # levels get the pretty labels
     long = long[long["__val"].notna()].reset_index(drop=True)
+
+    groups = reshape.get("groups")
+    if groups:  # hierarchical: split the path into one column per level
+        level_names = [str(n) for n in reshape.get("level_names") or []]
+        depth = len(level_names)
+        # the sanitized value-column name keys `groups`; a column with no path
+        # (shouldn't happen) falls back to blanks so the melt never crashes.
+        paths = long["__var"].map(lambda c: list(groups.get(c, [])))
+        level_cols = {}
+        for i, lvl in enumerate(level_names):
+            level_cols[lvl] = paths.map(lambda p, i=i: p[i] if i < len(p) else None)
+        out = long[id_vars].copy()
+        for lvl in level_names:
+            out[lvl] = level_cols[lvl].values
+        out[val_label] = long["__val"].values
+        new_labels = [label_of[c] for c in id_vars] + level_names + [val_label]
+        out.columns = _sanitize_names(new_labels)
+        return out.reset_index(drop=True), new_labels
+
+    var_label = str(reshape.get("var_name") or "Condition")
+    long["__var"] = long["__var"].map(label_of)  # levels get the pretty labels
     new_labels = [label_of[c] for c in id_vars] + [var_label, val_label]
     long.columns = _sanitize_names(new_labels)
     return long, new_labels

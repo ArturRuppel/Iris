@@ -966,6 +966,48 @@ def test_import_reshape_wide_to_long():
     assert by_level["10 µM"] == pytest.approx([7.2, 6.9, 7.8])
 
 
+# a nested-header sheet (the data-entry grid): Control/Treatment groups, each
+# over Day 1/Day 2 columns. Synthetic headers c0..c3 carry the hierarchy in
+# `groups`, one path per leaf; the melt splits the path into a column per level.
+NESTED_CSV = (
+    "c0;c1;c2;c3\n"
+    "1;4;6;9\n"
+    "2;5;7;10\n"
+    "3;;8;11\n"          # ragged: Control/Day 2 has fewer values
+).encode()
+
+
+def test_import_reshape_nested_to_tidy():
+    opts = {"delimiter": ";", "reshape": {
+        "value_columns": ["c0", "c1", "c2", "c3"],
+        "value_name": "Value",
+        "level_names": ["group", "subgroup"],
+        "groups": {"c0": ["Control", "Day 1"], "c1": ["Control", "Day 2"],
+                   "c2": ["Treatment", "Day 1"], "c3": ["Treatment", "Day 2"]},
+    }}
+    prev = client.post("/import/preview", json={
+        "filename": "nested.csv", "data_base64": _b64(NESTED_CSV),
+        "options": opts}).json()
+    cols = {c["name"]: c for c in prev["columns"]}
+    assert set(cols) == {"group", "subgroup", "value"}
+    assert cols["group"]["type"] == "categorical"
+    assert cols["group"]["levels"] == ["Control", "Treatment"]
+    assert cols["subgroup"]["levels"] == ["Day 1", "Day 2"]
+    assert cols["value"]["type"] == "numeric"
+    assert prev["n_rows"] == 11  # 12 cells minus the one empty
+
+    table = client.post("/import/commit", json={
+        "filename": "nested.csv", "data_base64": _b64(NESTED_CSV),
+        "options": opts, "columns": prev["columns"]}).json()
+    assert table["n"] == 11
+    cells = list(zip(table["columns"]["group"], table["columns"]["subgroup"],
+                     table["columns"]["value"]))
+    assert ("Control", "Day 1", 1.0) in cells
+    assert ("Treatment", "Day 2", 11.0) in cells
+    # the ragged blank (Control/Day 2, 3rd row) was dropped, not carried as null
+    assert sum(1 for g, s, _ in cells if g == "Control" and s == "Day 2") == 2
+
+
 def test_import_excel():
     import io as _io
     df = pd.DataFrame({"Group": ["a", "a", "b", "b"],
