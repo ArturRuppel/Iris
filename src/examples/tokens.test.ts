@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseExampleToken, parseOpenToken } from "./tokens";
+import { parseExampleToken, parseOpenToken, parseTutorialToken } from "./tokens";
 
 describe("parseExampleToken", () => {
   it("parses a plot token into case + analysis ids", () => {
@@ -20,5 +20,21 @@ describe("parseOpenToken", () => {
   });
   it("returns null for an ordinary link", () => {
     expect(parseOpenToken("https://docs.example.com")).toBeNull();
+  });
+  it("does not mistake an iris-tutorial link for an open token", () => {
+    expect(parseOpenToken("iris-tutorial:quickstart")).toBeNull();
+  });
+});
+
+describe("parseTutorialToken", () => {
+  it("parses a tutorial token into an id", () => {
+    expect(parseTutorialToken("iris-tutorial:quickstart")).toEqual({ tutorialId: "quickstart" });
+  });
+  it("returns null for an open token or an ordinary link", () => {
+    expect(parseTutorialToken("iris-open:mann-whitney")).toBeNull();
+    expect(parseTutorialToken("https://docs.example.com")).toBeNull();
+  });
+  it("returns null when the id is missing", () => {
+    expect(parseTutorialToken("iris-tutorial:")).toBeNull();
   });
 });

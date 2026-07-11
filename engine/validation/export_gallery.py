@@ -16,6 +16,7 @@ import zipfile
 from pathlib import Path
 
 import matplotlib
+import pandas as pd
 
 from iris_engine import compiler, document, main
 
@@ -134,11 +135,43 @@ def _export_case(case_name: str) -> dict:
     }
 
 
+# The interactive tutorial (docs/guide/quickstart) seeds the app with a genuinely
+# raw table the user builds an analysis from — so, unlike a gallery case, it ships
+# ZERO analyses. It reuses the Fisher iris data filtered to the two-group cell
+# (versicolor vs virginica, the same comparison the iris-species-comparison case
+# ends on), trimmed to a group column and two measured values so the Data view
+# stays uncluttered and the y-axis mapping is a real choice.
+_TUTORIAL_SEED = "tutorial-quickstart"
+_TUTORIAL_SPECIES = ["versicolor", "virginica"]
+_TUTORIAL_COLS = ["species", "petal_length", "petal_width"]
+
+
+def _export_tutorial_seed() -> None:
+    src = pd.read_csv(harness.CASES_DIR / "iris-species-comparison" / "data.csv")
+    df = (src[src["species"].isin(_TUTORIAL_SPECIES)][_TUTORIAL_COLS]
+          .reset_index(drop=True))
+    schema = harness._build_schema(
+        df, {"species": {"type": "categorical", "levels": _TUTORIAL_SPECIES}})
+    rows = json.loads(df.to_json(orient="records"))
+    for i, r in enumerate(rows, 1):        # the bookkeeping id column an import adds
+        r["id"] = str(i)
+    tables = {"table_1": {"schema": schema,
+                          "hierarchy": {"spine": [], "fn": {}},   # flat table
+                          "rows": rows}}
+    provenance = {"source": "iris-engine tutorial seed", "case": _TUTORIAL_SEED,
+                  "title": "Petal length: versicolor vs virginica (Fisher's iris)",
+                  "data_source": "Fisher 1936", "exclusions": []}
+    data = _normalize_iris(
+        document.save_document(tables, [], provenance, main.engine_snapshot()))
+    (ASSETS / f"{_TUTORIAL_SEED}.iris").write_bytes(data)
+
+
 def export(*, write: bool = True) -> list[dict]:
     ASSETS.mkdir(parents=True, exist_ok=True)
     manifest = [_export_case(name) for name in GALLERY_CASES]
     if write:
         (ASSETS / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        _export_tutorial_seed()
     return manifest
 
 

@@ -14,7 +14,7 @@ export function StatsCard(_props: CardBodyProps) {
   const { statsEnabled } = dataCardStates(spec, schema);
 
   return (
-    <div className="txw-card-stats" data-testid="stats-card">
+    <div className="txw-card-stats" data-testid="stats-card" data-tour="stats">
       {statsEnabled ? (
         <>
           <StatsResults />

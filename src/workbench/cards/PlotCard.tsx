@@ -21,7 +21,7 @@ export function PlotCard(_props: CardBodyProps) {
   const [wizard, setWizard] = useState<WizardMode | null>(null);
 
   return (
-    <div className="txw-card-plot" data-testid="plot-card">
+    <div className="txw-card-plot" data-testid="plot-card" data-tour="plot">
       {wizard ? (
         <PlotWizard mode={wizard}
           onDone={() => setWizard(null)} onCancel={() => setWizard(null)} />
@@ -35,7 +35,7 @@ export function PlotCard(_props: CardBodyProps) {
           } />
         </>
       ) : (
-        <button className="txw-add-plot" onClick={() => setWizard("first")}>+ add plot</button>
+        <button className="txw-add-plot" data-tour="add-plot" onClick={() => setWizard("first")}>+ add plot</button>
       )}
     </div>
   );

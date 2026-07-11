@@ -8,6 +8,8 @@ import { ImportWizard } from "./components/ImportWizard";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { TableList } from "./components/TableList";
 import { Guide } from "./examples/Guide";
+import { TutorialOverlay } from "./tutorial/TutorialOverlay";
+import { startTutorialAtom } from "./tutorial/state";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
 import { clearWorkbenchAtom, seedDefaultStashAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
@@ -54,6 +56,7 @@ export default function App() {
   const activeId = useAtomValue(activePlottableIdAtom);
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
+  const startTutorial = useSetAtom(startTutorialAtom);
   const plottables = useAtomValue(plottablesAtom);
   const store = useStore();
   const spec = useAtomValue(specAtom);
@@ -581,6 +584,26 @@ export default function App() {
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
+  /* Launch the interactive tutorial: seed the two-species Fisher-iris table with
+     NO analyses (a genuinely raw start the user builds a plot from), then hand off
+     to the overlay. Reuses the same load path as an example open. */
+  const handleStartTutorial = async () => {
+    try {
+      const url = EXAMPLE_IRIS["./examples/assets/tutorial-quickstart.iris"];
+      if (!url) throw new Error("tutorial seed is not bundled");
+      const buf = await (await fetch(url)).arrayBuffer();
+      const doc = await engine.loadDocument(fileToBase64(buf));
+      await loadDocument({
+        manifest: doc.manifest,
+        analyses: [],                               // raw table — the user builds the analysis
+        provenance: doc.provenance,
+        tables: doc.tables,
+      });
+      fileHandleRef.current = null;                 // never overwrite the seed in place
+      startTutorial();
+    } catch (e) { surfaceUnlessAbort(e); }
+  };
+
   if (engineUp === false) return (
     <div className="engine-down">
       <h1>Engine not reachable</h1>
@@ -601,8 +624,8 @@ export default function App() {
           Iris <span className="tag">tier 2</span>
         </h1>
         <div className="mode-toggle">
-          <button className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
-          <button className={viewMode === "workbench" ? "active" : ""} onClick={() => setViewMode("workbench")}>Workbench</button>
+          <button data-tour="mode-data" className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
+          <button data-tour="mode-workbench" className={viewMode === "workbench" ? "active" : ""} onClick={() => setViewMode("workbench")}>Workbench</button>
           <button className={viewMode === "guide" ? "active" : ""} onClick={() => setViewMode("guide")}>Guide</button>
         </div>
         <div className="controls">
@@ -639,9 +662,9 @@ export default function App() {
         : null}
       <main>
         {viewMode === "guide" ? (
-          <div className="examples-mode"><Guide onOpen={handleOpenExample} /></div>
+          <div className="examples-mode"><Guide onOpen={handleOpenExample} onStartTutorial={handleStartTutorial} /></div>
         ) : viewMode === "data" ? (
-          <div className="data-mode"><TableList /><HierarchyPanel /><DataTable /></div>
+          <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataTable /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />
@@ -666,6 +689,7 @@ export default function App() {
         </button>
         {showSpec && <pre>{JSON.stringify(spec, null, 2)}</pre>}
       </footer>
+      <TutorialOverlay />
     </div>
   );
 }

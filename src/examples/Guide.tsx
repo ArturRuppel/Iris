@@ -4,7 +4,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeSlug from "rehype-slug";
 import remarkGfm from "remark-gfm";
 import { guideAnchorAtom } from "../state";
-import { parseExampleToken, parseOpenToken } from "./tokens";
+import { parseExampleToken, parseOpenToken, parseTutorialToken } from "./tokens";
 
 /* The in-app Guide: a nested, task-oriented tree of Markdown pages under
    docs/guide/, rendered with react-markdown; the nav below switches between
@@ -15,6 +15,7 @@ import { parseExampleToken, parseOpenToken } from "./tokens";
      ![](example:<caseId>/<analysisId>)  -> inline example plot SVG
      ![](/guide/<name>.png)              -> a screenshot served from public/
      [Open in Iris](iris-open:<caseId>)  -> load the example into the session
+     [Start](iris-tutorial:<id>)         -> launch the interactive tutorial
      [text](./other-page.md)             -> jump to another guide page
      [text](./sub/page.md) / (../page.md)-> jump across subfolders
      [text](https://…)                   -> external citation, new tab
@@ -78,7 +79,10 @@ const SVGS = import.meta.glob("./assets/*.svg", {
 const svgByAnalysis = (analysisId: string): string | undefined =>
   SVGS[`./assets/${analysisId}.svg`];
 
-export function Guide({ onOpen }: { onOpen: (caseId: string) => void }) {
+export function Guide(
+  { onOpen, onStartTutorial }:
+  { onOpen: (caseId: string) => void; onStartTutorial: (id: string) => void },
+) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [page, setPage] = useState("index");
   const [target, setTarget] = useAtom(guideAnchorAtom);
@@ -164,6 +168,17 @@ export function Guide({ onOpen }: { onOpen: (caseId: string) => void }) {
             a(props) {
               const href =
                 typeof props.href === "string" ? props.href : undefined;
+              const tut = parseTutorialToken(href);
+              if (tut)
+                return (
+                  <button
+                    className="gallery-open-btn"
+                    type="button"
+                    onClick={() => onStartTutorial(tut.tutorialId)}
+                  >
+                    {props.children}
+                  </button>
+                );
               const open = parseOpenToken(href);
               if (open)
                 return (
