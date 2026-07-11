@@ -3,12 +3,10 @@ import { createPortal } from "react-dom";
 import { Handle, Position } from "@xyflow/react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
-import { cannedExample } from "../explorer/cannedExamples";
-import type { EdgeKind, ExplorerNode } from "../explorer/graph";
+import { reduceStepInEdgeId, type EdgeKind, type ExplorerNode } from "../explorer/graph";
 import { insertStepAtom } from "../state";
 import { openCardAtom, pushStashAtom, stashAtom } from "./state";
-import { EDGE_CARD } from "./cardRegistry";
-import { EDGE_TYPE } from "./edgeMeta";
+import { nodeTableName } from "./nodeName";
 import type { NodeDelta } from "./nodeDelta";
 import { affordances, authorDispatch, type AuthorAction, type AuthorOption } from "./authoring";
 import { AddStepMenu } from "./AddStepMenu";
@@ -29,7 +27,7 @@ function variantOf(node: ExplorerNode): NodeVariant {
 /* the RF node data: the presentational props plus a `missing` flag (an unfilled
    required input — see ExplorerNode.missing) that drives the open-circle handle,
    the `+`-menu options fitting this node's phase (see authoring.affordances), and
-   the incoming edge (so the detail click can open that step's editor). */
+   the incoming edge kind (the accent colour tying the box to its wire). */
 export type RFNodeData = ArrayShapeNodeProps & {
   missing?: boolean;
   options?: AuthorOption[];
@@ -52,32 +50,26 @@ function accentKind(node: ExplorerNode, delta?: NodeDelta): string {
   if (isSource(node)) return "source";
   return delta?.inEdge?.kind ?? "table";
 }
-function eyebrowText(node: ExplorerNode, delta?: NodeDelta): string {
-  if (node.kind === "figure") return "Figure";
-  if (isSource(node)) return "Source";
-  return delta?.inEdge ? (EDGE_TYPE[delta.inEdge.kind] ?? "Step") : node.label;
-}
-
 /* an ExplorerNode (+ its computed delta) -> the RF node data. Pure + exported so
-   the mapping is unit-tested without React Flow. The terminal (figure) carries
-   two named sections (plot + stats) with their geom/test chips, and clears its
-   detail line. */
-export function nodeShapeProps(node: ExplorerNode, delta?: NodeDelta): RFNodeData {
+   the mapping is unit-tested without React Flow. The node's eyebrow names the
+   TABLE it holds (see nodeName): the step that produced it is named on its
+   incoming edge, so the box reads as data and the wire above it as the verb. The
+   terminal (figure) carries two named sections (plot + stats) instead. */
+export function nodeShapeProps(
+  node: ExplorerNode, delta?: NodeDelta, sourceName = "Table",
+): RFNodeData {
   const c = node.count;
-  const isTerminal = node.kind === "figure";
-  const ex = delta?.inEdge ? cannedExample(delta.inEdge.kind) : null;
   return {
     variant: variantOf(node),
     kind: accentKind(node, delta),
-    eyebrow: eyebrowText(node, delta),
-    detail: (isSource(node) || isTerminal) ? "" : (delta?.inEdge?.label ?? ""),
+    eyebrow: nodeTableName(node, sourceName),
+    detail: "",
     sections: node.sections?.map((s): FigureSection => ({
       kind: s.kind, label: s.kind === "plot" ? "Plot" : "Stats", facts: s.facts,
     })),
     spine: delta?.spine ?? [], live: delta?.live ?? [], shed: delta?.shed ?? [],
     values: c?.values ?? [], newValues: delta?.newValues ?? [],
     rows: c?.rows, cols: c?.cols,
-    example: ex, definition: ex?.caption,
     inEdge: delta?.inEdge ? { id: delta.inEdge.id, kind: delta.inEdge.kind } : undefined,
     missing: node.missing,
     options: affordances(node),
@@ -111,12 +103,6 @@ export function ArrayShapeRFNode(
   const slot = stash.findIndex((e) => e.target.kind === "node" && e.target.id === id && !e.target.facet);
   const slotNum = slot >= 0 ? slot + 1 : null;
 
-  // clicking the detail line opens the editor for the step that produced this
-  // node (the same card a click on its incoming edge opens).
-  const onEdit = inEdge
-    ? () => openCard({ target: { kind: "edge", id: inEdge.id }, cardKind: EDGE_CARD[inEdge.kind] })
-    : undefined;
-
   const sections = shape.sections?.map((sec) => {
     const secSlot = stash.findIndex(
       (e) => e.target.kind === "node" && e.target.id === id && e.target.facet === sec.kind);
@@ -133,8 +119,14 @@ export function ArrayShapeRFNode(
   const pick = (action: AuthorAction) => {
     setMenuAt(null);
     const d = authorDispatch(stepIndex ?? -1, action);
-    if (d.atom === "insertStep") insertStep(d.arg);
-    else openCard(d.arg);
+    if (d.atom === "insertStep") {
+      // splice the blank step, then open its editor at once — a new step is empty,
+      // so dropping the user straight into it is the whole point of adding one. The
+      // edge id is derivable from the new index before the async graph rebuild.
+      insertStep(d.arg);
+      const index = d.arg.afterIndex + 1;
+      openCard({ target: { kind: "edge", id: reduceStepInEdgeId(index) }, cardKind: "op-editor" });
+    } else openCard(d.arg);
   };
 
   return (
@@ -146,7 +138,7 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
-      <ArrayShapeNode {...shape} sections={sections} onEdit={onEdit} />
+      <ArrayShapeNode {...shape} sections={sections} />
       <Handle
         id="out" type="source" position={Position.Right}
         className={canAdd ? "txw-handle-add" : undefined}

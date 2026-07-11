@@ -128,7 +128,7 @@ describe("WorkbenchCanvas", () => {
   });
 
   it("toRF places overridden nodes at their nudged position", () => {
-    const { nodes } = toRF(graph, { plot: { x: 30, y: 40 } });
+    const { nodes } = toRF(graph, { plot: { x: 30, y: 40 } }, "iris");
     expect(nodes.find(n => n.id === "plot")!.position).toEqual({ x: 30, y: 40 });
     expect(nodes.find(n => n.id === "source")!.position).not.toEqual({ x: 30, y: 40 });
   });

@@ -1,12 +1,14 @@
 import { forwardRef } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import type { ExplorerGraph } from "../explorer/graph";
+import { analysisTableAtom } from "../state";
 import {
   stashAtom, popStashAtom, selectedTargetAtom, focusedStashIdAtom,
   STASH_SLOTS, type StashEntry,
 } from "./state";
 import { gridCols } from "./WorkbenchResize";
 import { CARD } from "./cardRegistry";
+import { nodeTableName } from "./nodeName";
 
 /* one pinned data card: a header (which node + unpin) over the registry body.
    Pointer-down anywhere selects its target so the canvas highlights the node. */
@@ -49,10 +51,12 @@ export function StashFocus({ graph }: { graph: ExplorerGraph }) {
   const focusedId = useAtomValue(focusedStashIdAtom);
   const setFocused = useSetAtom(focusedStashIdAtom);
   const stash = useAtomValue(stashAtom);
+  const sourceName = useAtomValue(analysisTableAtom)?.name ?? "Table";
   const entry = stash.find((e) => e.id === focusedId);
   if (!entry) return null;
   const { body: Body, title } = CARD[entry.cardKind];
-  const label = graph.nodes.find((n) => n.id === entry.target.id)?.label ?? entry.target.id;
+  const node = graph.nodes.find((n) => n.id === entry.target.id);
+  const label = node ? nodeTableName(node, sourceName) : entry.target.id;
   return (
     <div className="txw-focus" role="region" aria-label={`${title}: ${label} (maximized)`}>
       <div className="txw-focus-bar">
@@ -76,10 +80,13 @@ export const Stash = forwardRef<HTMLDivElement, {
   cols?: number[];
 }>(function Stash({ graph, cols = Array(STASH_SLOTS).fill(1) }, ref) {
   const stash = useAtomValue(stashAtom);
+  const sourceName = useAtomValue(analysisTableAtom)?.name ?? "Table";
   if (stash.length === 0) return null;
 
-  const labelOf = (e: StashEntry) =>
-    graph.nodes.find((n) => n.id === e.target.id)?.label ?? e.target.id;
+  const labelOf = (e: StashEntry) => {
+    const node = graph.nodes.find((n) => n.id === e.target.id);
+    return node ? nodeTableName(node, sourceName) : e.target.id;
+  };
   const ghosts = Math.max(0, STASH_SLOTS - stash.length);
 
   return (

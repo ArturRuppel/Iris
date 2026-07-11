@@ -756,9 +756,10 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-node.k-geom{--accent:#0e8a8a} .txw-node.k-test{--accent:#4f46e5}
 .txw-nbar { height:3px; background:var(--accent); }
 .txw-nbody { padding:9px 11px 10px; }
+/* the eyebrow now holds the TABLE NAME (see nodeName), so it reads as a title in
+   ink, not a shouted micro-caps verb — the verb moved to the edge chip. */
 .txw-eyebrow { position:relative; display:flex; align-items:center; gap:6px;
-  font:600 9px/1 system-ui; letter-spacing:.09em; text-transform:uppercase;
-  color:var(--accent); cursor:default; }
+  font:650 12.5px/1.15 system-ui; color:#1d2430; cursor:default; }
 .txw-nicon { flex:none; display:inline-flex; color:var(--accent); }
 .txw-eyebrow-text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .txw-ndetail { position:relative; margin-top:4px; font:11.5px/1.25 var(--mono);
@@ -949,6 +950,22 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .react-flow__edge-path.txw-rfedge.collapse      { stroke:#7c3aed; }
 .react-flow__edge-path.txw-rfedge.geom          { stroke:#0e7490; }
 .react-flow__edge-path.txw-rfedge.test          { stroke:#4f46e5; }
+
+/* the step's name written over a table-producing edge: just the verb ("filter"),
+   in the edge's accent, and IS the edit affordance — click it to open the step's
+   editor. No pill: a soft white halo keeps it legible where the wire runs under it.
+   The box below is the resulting table; the wire is the step. Its full specifics
+   ride the title tooltip. */
+.txw-edge-step { position:absolute; z-index:6; padding:0 4px; cursor:pointer;
+  background:none; border:none; border-radius:3px;
+  font:650 11px/1.2 system-ui; color:var(--accent); --accent:#64748b;
+  text-shadow:0 0 3px #fff, 0 0 3px #fff, 0 0 2px #fff; }
+.txw-edge-step:hover { text-decoration:underline; }
+.txw-edge-step:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+.txw-edge-step.k-filter{--accent:#e11d48} .txw-edge-step.k-drop{--accent:#d97706}
+.txw-edge-step.k-derive{--accent:#16a34a} .txw-edge-step.k-recode{--accent:#ca8a04}
+.txw-edge-step.k-join{--accent:#0891b2} .txw-edge-step.k-pivot{--accent:#0d9488}
+.txw-edge-step.k-grid_complete{--accent:#9333ea} .txw-edge-step.k-collapse{--accent:#7c3aed}
 
 /* tame React Flow's stock chrome to the app's tokens. */
 .react-flow__controls { border:1px solid var(--line); border-radius:8px;

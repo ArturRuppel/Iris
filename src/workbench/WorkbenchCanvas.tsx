@@ -21,7 +21,7 @@ import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
 import { clampStashH, TOPBAR } from "./paneTiling";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
-import { removeStepAtom, undoSpecAtom, redoSpecAtom } from "../state";
+import { removeStepAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom } from "../state";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -41,6 +41,7 @@ export function applyNudge(
 export function toRF(
   graph: ExplorerGraph,
   overrides: Record<string, { x: number; y: number }>,
+  sourceName: string,
 ): { nodes: Node[]; edges: RFEdge[] } {
   const L = layoutGraph(graph);
   const deltas = nodeDeltas(graph);
@@ -51,7 +52,7 @@ export function toRF(
       // wire from the right edge into the left edge: RF derives edge endpoints
       // from these node fields, not from the <Handle> dot placement.
       sourcePosition: Position.Right, targetPosition: Position.Left,
-      data: nodeShapeProps(n.node, deltas.get(n.id)) as unknown as Record<string, unknown>,
+      data: nodeShapeProps(n.node, deltas.get(n.id), sourceName) as unknown as Record<string, unknown>,
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
@@ -87,9 +88,12 @@ function GrainLegend({ spine }: { spine: string[] }) {
 function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void }) {
   const nodePositions = useAtomValue(nodePositionsAtom);
   const setNodePositions = useSetAtom(nodePositionsAtom);
+  // the analysis's main table names every box in the reduce chain (see nodeName).
+  const sourceName = useAtomValue(analysisTableAtom)?.name ?? "Table";
   // nodePositions here seeds only the FIRST render; later changes flow through
   // the structural effect below.
-  const initial = useMemo(() => toRF(graph, nodePositions), [graph, nodePositions]);
+  const initial = useMemo(() => toRF(graph, nodePositions, sourceName),
+    [graph, nodePositions, sourceName]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
@@ -225,7 +229,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const lastStructure = useRef<string>("");
 
   useEffect(() => {
-    const rf = toRF(graph, nodePositions);
+    const rf = toRF(graph, nodePositions, sourceName);
     if (structureKey !== lastStructure.current) {
       // structure changed (step/grain/terminal added or removed):
       // full re-layout with fresh positions.
@@ -245,15 +249,15 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
     // state. The effect re-seeds only on a structure change, reading the current
     // overrides at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, structureKey, setNodes, setEdges]);
+  }, [graph, structureKey, sourceName, setNodes, setEdges]);
 
   // "tidy" clears persisted nudges then re-layouts from scratch.
   const tidy = useCallback(() => {
     setNodePositions({});
-    const rf = toRF(graph, {});
+    const rf = toRF(graph, {}, sourceName);
     setNodes(rf.nodes);
     setEdges(rf.edges);
-  }, [graph, setNodes, setEdges, setNodePositions]);
+  }, [graph, sourceName, setNodes, setEdges, setNodePositions]);
 
   useEffect(() => {
     if (!onClose) return;

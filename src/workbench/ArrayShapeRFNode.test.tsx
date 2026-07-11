@@ -16,7 +16,7 @@ const phaseOf = (id: string): NodePhase =>
   : "reduce";
 
 describe("nodeShapeProps", () => {
-  it("maps a step node + delta to eyebrow / detail / grain / values", () => {
+  it("names the node after its table (source + grain suffix), clearing the detail", () => {
     const node: ExplorerNode = {
       id: "grain:exp", kind: "table", phase: "grain", label: "per Experiment", table: { via: "grain", grain: "exp" },
       count: { rows: 3, cols: 2, axes: [{ name: "experiment_id", n_levels: 3, ragged: false }],
@@ -26,17 +26,19 @@ describe("nodeShapeProps", () => {
       spine: ["experiment_id", "frame"], live: ["experiment_id"], shed: ["frame"], newValues: [],
       inEdge: { id: "e:c", kind: "collapse" as const, label: "median over frame" },
     };
-    expect(nodeShapeProps(node, delta)).toMatchObject({
-      variant: "grain", kind: "collapse", eyebrow: "Collapse", detail: "median over frame",
+    // the step ("Collapse · median over frame") now names the EDGE, not the node;
+    // the node names the reduced table, and keeps the accent tying it to that edge.
+    expect(nodeShapeProps(node, delta, "iris")).toMatchObject({
+      variant: "grain", kind: "collapse", eyebrow: "iris · per Experiment", detail: "",
       spine: ["experiment_id", "frame"], live: ["experiment_id"], shed: ["frame"],
       values: [{ name: "value", type: "numeric", grain: null }],
       inEdge: { id: "e:c", kind: "collapse" },
     });
   });
-  it("gives the source an eyebrow and no detail; a figure carries two sections", () => {
+  it("names the source after the source table; a figure carries two sections", () => {
     const src: ExplorerNode =
       { id: "source", kind: "table", phase: "source", label: "source", table: { via: "none" } };
-    expect(nodeShapeProps(src)).toMatchObject({ eyebrow: "Source", detail: "" });
+    expect(nodeShapeProps(src, undefined, "iris")).toMatchObject({ eyebrow: "iris", detail: "" });
     const fig: ExplorerNode = {
       id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" },
       sections: [{ kind: "plot", facts: ["dots"] }, { kind: "stats", facts: ["MW"] }],
@@ -78,12 +80,12 @@ describe("ArrayShapeRFNode", () => {
           data={nodeShapeProps({
             id: "grain:cell", kind: "table", phase: "grain", label: "per Cell", table: { via: "grain", grain: "cell" },
             count: { rows: 3, cols: 2, axes: [], values: [] },
-          })}
+          }, undefined, "iris")}
           selected={false}
         />
       </ReactFlowProvider>,
     );
-    expect(screen.getByText("per Cell")).toBeInTheDocument();
+    expect(screen.getByText("iris · per Cell")).toBeInTheDocument();
   });
   it("renders an open 'missing' input handle when the node is missing", () => {
     const { container } = render(

@@ -30,11 +30,19 @@ const renderEdge = (data: Record<string, unknown>) =>
   );
 
 describe("WorkbenchEdge", () => {
-  it("draws a wire and carries the kind class, with no floating label", () => {
+  it("draws a wire carrying the kind class; a geom edge shows no step chip", () => {
     const { container } = renderEdge({ kind: "geom", label: "dots" });
     const path = container.querySelector(".react-flow__edge-path.txw-rfedge.geom");
     expect(path).not.toBeNull();
-    expect(container.querySelector(".txw-rfedge-label")).toBeNull(); // label moved into the node
+    // geom/test feed the figure, whose sections are their own editor — no chip.
+    expect(container.querySelector(".txw-edge-step")).toBeNull();
+  });
+  it("writes a table-producing step's verb over the edge, specifics on the tooltip", () => {
+    const { container } = renderEdge({ kind: "drop", label: "petal_width" });
+    const word = container.querySelector(".txw-edge-step.k-drop") as HTMLElement | null;
+    expect(word).not.toBeNull();
+    expect(word!.textContent).toBe("drop");           // just the verb, lowercased
+    expect(word!.getAttribute("title")).toBe("petal_width");
   });
 });
 

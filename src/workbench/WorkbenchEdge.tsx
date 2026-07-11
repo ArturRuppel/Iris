@@ -1,8 +1,18 @@
-import { BaseEdge, getBezierPath, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
+import { useSetAtom } from "jotai";
 import type { EdgeKind } from "../explorer/graph";
 import { COL_GAP } from "./layout";
+import { openCardAtom } from "./state";
+import { EDGE_CARD } from "./cardRegistry";
+import { EDGE_TYPE } from "./edgeMeta";
 
 export interface WorkbenchEdgeData { kind: EdgeKind; label: string }
+
+/* The geom/test wires feed the figure, whose Plot/Stats sections are their own
+   editing surface — so only the table-producing steps (reduce/collapse/join/…)
+   name themselves on the edge. */
+const namesOnEdge = (kind: EdgeKind | undefined): boolean =>
+  !!kind && kind !== "geom" && kind !== "test";
 
 /* The collapse chain is the literal data flow and keeps the inline corridor.
    The fan-in families (geom -> the shared Plot, test -> Stats) only need special
@@ -61,26 +71,48 @@ export function laneOf(
   return sourceY + (kind === "geom" ? -LANE_Y : LANE_Y);       // far + on-row: lift to a lane
 }
 
-/* a graph edge: a "blackbox" wire — the transformation it carries is now named
-   inside the TARGET node (eyebrow + detail), so the edge renders no label. An
-   inline edge is a gentle bezier: a flat horizontal line when its two nodes share
-   a row, easing into a smooth S when one is dragged off-row (a centered orthogonal
-   step would read as a detached squiggle in the gutter). Only the geom/test fan-in
-   lanes stay orthogonal: their long top/bottom detour around the collapse corridor
-   wants crisp right angles, not a sagging curve, to read as a deliberate bypass
-   rather than a wandering wire. */
+/* a graph edge: the wire AND, for a table-producing step, the step's name written
+   over it (just the verb — "filter", "collapse") as the edit affordance: click it
+   to open that step's editor. The box below is the resulting table, the wire is the
+   step, so the step is named on the wire. An inline edge is a gentle bezier: a flat
+   horizontal line when its two nodes share a row, easing into a smooth S when one
+   is dragged off-row (a centered orthogonal step would read as a detached squiggle
+   in the gutter). Only the geom/test fan-in lanes stay orthogonal: their long
+   top/bottom detour around the collapse corridor wants crisp right angles, not a
+   sagging curve, to read as a deliberate bypass rather than a wandering wire. */
 export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
+  const openCard = useSetAtom(openCardAtom);
   // geom -> Plot, test -> Stats: pick the lane the TARGET is on so the wire never
   // detours. Off-row target -> route straight to its row; on-row target -> lift
   // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
   const lane = laneOf(data?.kind, sourceX, sourceY, targetX, targetY);
-  const [path] = lane != null
+  const [path, labelX, labelY] = lane != null
     ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
     : getBezierPath({ sourceX, sourceY, targetX, targetY,
         sourcePosition, targetPosition });
+  const kind = data?.kind;
   return (
-    <BaseEdge id={id} path={path} className={`txw-rfedge ${data?.kind ?? ""}`} />
+    <>
+      <BaseEdge id={id} path={path} className={`txw-rfedge ${kind ?? ""}`} />
+      {namesOnEdge(kind) && (
+        <EdgeLabelRenderer>
+          <button
+            type="button"
+            className={`txw-edge-step k-${kind}`}
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+                     pointerEvents: "all" }}
+            title={data?.label || undefined}
+            onClick={(e) => {
+              e.stopPropagation();
+              openCard({ target: { kind: "edge", id }, cardKind: EDGE_CARD[kind!] });
+            }}
+          >
+            {EDGE_TYPE[kind!].toLowerCase()}
+          </button>
+        </EdgeLabelRenderer>
+      )}
+    </>
   );
 }

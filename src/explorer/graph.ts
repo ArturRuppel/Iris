@@ -85,6 +85,14 @@ export const SOURCE_ID = "source";
 export const FIGURE_ID = "figure";
 const stepId = (i: number) => `step:${i}`;
 
+/* the id of the edge feeding the reduce step at `index` (its `prev -> step:index`
+   wire). Exported so authoring can open a freshly-spliced step's editor by id
+   before the async graph rebuild lands — the id scheme lives here, not there. */
+export function reduceStepInEdgeId(index: number): string {
+  const prev = index <= 0 ? SOURCE_ID : stepId(index - 1);
+  return `e:${prev}->${stepId(index)}`;
+}
+
 export function nodeIdForGrain(key: string, rawNodeId: string): string {
   return key === "" ? rawNodeId : `grain:${key}`;
 }
