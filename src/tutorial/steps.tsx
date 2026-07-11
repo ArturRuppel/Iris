@@ -14,14 +14,17 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     body: (
       <>
         <p>
-          Iris works from a tidy table — one row per observation, one column per
-          variable. This one holds petal measurements for two iris species.
+          Iris works from one tidy table: one row per observation, one column per
+          variable. This one holds petal measurements for two iris species,
+          versicolor and virginica.
         </p>
         <p>
           Each column has a <strong>type</strong>, shown by the colour of its
-          header: <em>species</em> is categorical (a few labelled groups) and the
-          measurements are numeric. The types decide what Iris offers you next, so
-          they are worth a glance before you build anything.
+          header. <code>species</code> is categorical, a few labelled groups; the
+          measurements are numeric. The types decide what Iris offers you next: a
+          numeric column can go on a value axis, a categorical one can group, and
+          the test suggestion reads the typed table. So give them a glance before
+          you build anything.
         </p>
       </>
     ),
@@ -34,7 +37,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     hint: "Click Workbench in the header to continue.",
     body: (
       <p>
-        The <strong>Workbench</strong> is where an analysis is built: a graph that
+        The <strong>Workbench</strong> is where the analysis is built: a graph that
         flows left to right, from your table to a figure. Open it now.
       </p>
     ),
@@ -59,9 +62,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
           click <strong>+ add plot</strong>.
         </p>
         <p>
-          Iris only offers plot types your columns can satisfy. Pick one, then map
-          the <em>species</em> onto the X axis and <em>petal length</em> onto Y — a
-          box or dot plot is the natural choice for two groups.
+          Iris offers only the plot types your columns can satisfy. Pick one, then
+          map <code>species</code> onto the X axis and <code>petal length</code>{" "}
+          onto Y. A box or a dot plot is the natural choice for two groups: it shows
+          the spread, not just one number.
         </p>
       </>
     ),
@@ -74,13 +78,13 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     body: (
       <>
         <p>
-          You didn't ask for statistics — they're already here. The moment a plot
-          exists, Iris reads the shape of your data (a numeric value across two
-          groups) and <strong>suggests a test</strong>, showing how it got there.
+          You didn't ask for statistics; they are already here. The moment a plot
+          exists, Iris reads the shape of the data (a numeric value across two
+          groups), <strong>suggests a test</strong>, and shows how it got there.
         </p>
         <p>
-          Take the suggestion or override it; the decision is yours. Because the
-          plot and the test come from one specification, they can never disagree.
+          Take the suggestion or override it: the decision is yours. The plot and
+          the test come from one specification, so they can never disagree.
         </p>
       </>
     ),
@@ -95,12 +99,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
         <p>
           The statistic, the p-value and the effect size are all computed from your
           real table. Edit a value in the Data view and the figure and the numbers
-          move with it — that's the reactive loop at the heart of Iris.
+          move with it: that is the reactive loop at the heart of Iris.
         </p>
         <p>
           Save the whole analysis as a single <code>.iris</code> file from the
-          header whenever you like; reopening it reproduces exactly this figure and
-          these numbers. That's one full pass — you're ready to explore.
+          header whenever you like; reopening it reproduces this exact figure and
+          these numbers. That is one full pass. You are ready to explore.
         </p>
       </>
     ),
