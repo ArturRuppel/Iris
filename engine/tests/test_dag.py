@@ -46,3 +46,42 @@ def test_topo_order_rejects_missing_input():
     nodes = [{"id": "a", "kind": "step", "inputs": ["ghost"]}]
     with pytest.raises(DagError):
         topo_order(nodes)
+
+
+from iris_engine.dag import evaluate_dag
+from iris_engine.reduce import apply_reduction
+from iris_engine.main import _load_frame
+
+
+def _table():
+    return {"schema": {"columns": [{"name": "cell", "type": "categorical"},
+                                   {"name": "v", "type": "numeric"}]},
+            "rows": [{"cell": "a", "v": 1.0}, {"cell": "b", "v": 3.0}]}
+
+
+def test_evaluate_dag_equals_fold_on_linear():
+    table, steps = _table(), [{"kind": "derive", "column": "w", "expr": "v * 2"}]
+    dag = linear_to_dag(table, steps)
+    dag_df, _ = evaluate_dag(dag)
+    df0, sch0 = _load_frame(table)
+    fold_df, _ = apply_reduction(df0, sch0, steps)
+    assert dag_df["w"].tolist() == fold_df["w"].tolist()
+
+
+def test_evaluate_dag_diamond_joins_two_branches():
+    # src fans out to two derives, which join back on `cell`.
+    table = _table()
+    nodes = [
+        {"id": "src", "kind": "source", "table": table},
+        {"id": "hi", "kind": "step", "inputs": ["src"],
+         "step": {"kind": "derive", "column": "hi", "expr": "v + 10"}},
+        {"id": "lo", "kind": "step", "inputs": ["src"],
+         "step": {"kind": "derive", "column": "lo", "expr": "v - 10"}},
+        {"id": "j", "kind": "step", "inputs": ["hi", "lo"],
+         "step": {"kind": "join", "on": ["cell"], "how": "inner"}},
+    ]
+    dag = {"nodes": nodes, "output": "j"}
+    out, schema = evaluate_dag(dag)
+    assert {"hi", "lo"} <= set(out.columns)
+    assert out.loc[out.cell == "a", "hi"].iloc[0] == 11.0
+    assert out.loc[out.cell == "a", "lo"].iloc[0] == -9.0

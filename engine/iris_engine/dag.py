@@ -51,3 +51,42 @@ def topo_order(nodes: list[dict]) -> list[str]:
     if len(order) != len(ids):
         raise DagError("reduce DAG contains a cycle")
     return order
+
+
+def evaluate_dag(dag: dict) -> tuple:
+    """Topologically evaluate `dag['nodes']`, returning the `output` node's
+    (frame, schema). Source nodes load their inline {schema, rows}; unary step
+    nodes fold one input through `_apply_step`; a join step merges its two inputs
+    via `_join_frames`. Each node is evaluated once and cached by id."""
+    from .main import _load_frame
+    from .reduce import _apply_step, _join_frames
+
+    by_id = {n["id"]: n for n in dag["nodes"]}
+    output = dag.get("output")
+    if output not in by_id:
+        raise DagError(f"reduce DAG output {output!r} is not a node")
+    cache: dict[str, tuple] = {}
+    for nid in topo_order(dag["nodes"]):
+        node = by_id[nid]
+        if node.get("kind") == "source":
+            cache[nid] = _load_frame(node["table"])
+            continue
+        step = node.get("step") or {}
+        inputs = node.get("inputs") or []
+        if step.get("kind") == "join":
+            if len(inputs) != 2:
+                raise DagError(f"join node {nid!r} needs exactly 2 inputs")
+            left_df, left_schema = cache[inputs[0]]
+            right_df, right_schema = cache[inputs[1]]
+            out, schema = _join_frames(left_df, left_schema, right_df, right_schema,
+                                       step.get("on") or [], step.get("how", "inner"))
+        else:
+            if len(inputs) != 1:
+                raise DagError(f"step node {nid!r} needs exactly 1 input")
+            in_df, in_schema = cache[inputs[0]]
+            out, schema, _info = _apply_step(in_df, in_schema, step)
+            out = out.reset_index(drop=True)
+            if "id" not in out.columns:
+                out = out.assign(id=[str(i + 1) for i in range(len(out))])
+        cache[nid] = (out, schema)
+    return cache[output]
