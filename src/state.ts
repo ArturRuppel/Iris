@@ -5,6 +5,7 @@ import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableHandle, TestName, ReduceSpec,
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
+  ReduceDag, ReduceStepNode,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
@@ -278,6 +279,45 @@ export function resolveSaveSteps(steps: ReduceStep[]): EngineReduceStep[] {
     .map((s) => (s.kind === "join"
       ? { kind: "join" as const, on: s.on, how: s.how, right_table_id: s.rightTableId }
       : s));
+}
+
+/* ---- reduce DAG adapters (spec 2.2): linear steps[] <-> a {sources, steps,
+   output} node set. Phase B authors only ever produce the degenerate linear
+   DAG (dagFromLinear); linearizeReduce (topo order over `inputs`) is the
+   inverse used by the engine-request resolvers below. */
+export function dagFromLinear(tableId: string, steps: ReduceStepNode[] | ReduceStep[]): ReduceDag {
+  const withIds: ReduceStepNode[] = (steps as ReduceStep[]).map((s, i) => ({
+    ...s,
+    id: (s as ReduceStepNode).id ?? `n${i}_${s._key ?? i}`,
+    inputs: [],
+  }));
+  let prev = "src";
+  for (const node of withIds) { node.inputs = [prev]; prev = node.id; }
+  return { sources: [{ id: "src", tableId }], steps: withIds, output: prev };
+}
+
+export function linearizeReduce(dag: ReduceDag): ReduceStepNode[] {
+  // topo order over inputs, source(s) first; returns the step nodes in order.
+  const byId = new Map(dag.steps.map((s) => [s.id, s]));
+  const indeg = new Map<string, number>();
+  const kids = new Map<string, string[]>();
+  const ids = new Set<string>([...dag.sources.map((s) => s.id), ...byId.keys()]);
+  for (const id of ids) { indeg.set(id, 0); kids.set(id, []); }
+  for (const s of dag.steps) for (const i of s.inputs) {
+    indeg.set(s.id, (indeg.get(s.id) ?? 0) + 1);
+    kids.get(i)!.push(s.id);
+  }
+  const q = [...ids].filter((id) => (indeg.get(id) ?? 0) === 0).sort();
+  const order: string[] = [];
+  while (q.length) {
+    const id = q.shift()!;
+    order.push(id);
+    for (const c of (kids.get(id) ?? []).sort()) {
+      indeg.set(c, (indeg.get(c) ?? 0) - 1);
+      if (indeg.get(c) === 0) q.push(c);
+    }
+  }
+  return order.map((id) => byId.get(id)).filter((s): s is ReduceStepNode => !!s);
 }
 
 /* the SAVE table pool: every pool table some analysis roots in (its main table) or

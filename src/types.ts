@@ -293,6 +293,34 @@ export const REDUCE_KIND_ORDER = Object.keys(REDUCE_KIND_LABEL) as ReduceStepKin
 // reduce cannot express (e.g. a derive over per-replicate sums). [] means no step.
 export interface ReduceSpec { steps: ReduceStep[]; post?: ReduceStep[] }
 
+/* ---- reduce DAG (spec 2.2): a node set converging to one `output` node, in
+   place of the ordered `steps[]` fold above. A reduce node carries its own id
+   and the ids of the nodes it consumes. The linear pipeline is the degenerate
+   case: each step's input is its predecessor. Fan-out = two steps naming one
+   input; fan-in (join) = a step naming two. See dag.py (engine) for the
+   topological evaluator this mirrors. */
+export type ReduceStepNode = ReduceStep & { id: string; inputs: string[] };
+export interface ReduceSource { id: string; tableId: string }
+export interface ReduceDag {
+  sources: ReduceSource[];
+  steps: ReduceStepNode[];
+  /* the single node whose frame feeds collapse -> plot/stats. */
+  output: string;
+  /* post-collapse steps stay a LINEAR chain (no input refs); out of scope here. */
+  post?: ReduceStep[];
+}
+
+/* engine wire shape for a reduce DAG: source nodes carry inline {schema, rows}
+   (render path) or a table_id reference (save path); step nodes carry the
+   engine step + inputs. Built by resolveEngineDag (render) / resolveSaveDag
+   (save) in state.ts. Not yet wired into AnalysisSpec — see buildSpec. */
+export interface EngineReduceDag {
+  nodes: ({ id: string; kind: "source"; table?: Table; table_id?: string }
+        | { id: string; kind: "step"; step: EngineReduceStep; inputs: string[] })[];
+  output: string;
+  post?: EngineReduceStep[];
+}
+
 /* ---- /reduce preview payload (display-only; no figure/stats render) ---- */
 export interface ColumnSummary {
   column: string; n: number; n_distinct: number; n_missing: number;
