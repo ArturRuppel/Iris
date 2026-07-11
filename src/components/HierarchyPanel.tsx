@@ -34,12 +34,17 @@ export function HierarchyPanel() {
   useEffect(() => {
     if (!handle) return;
     window.clearTimeout(timer.current);
+    // the debounce timer cancels a not-yet-fired fetch, but not one already
+    // awaiting; a stale flag drops a superseded response so an out-of-order
+    // resolve can't overwrite fresher info.
+    let stale = false;
     timer.current = window.setTimeout(async () => {
       try {
-        setInfo(await engine.hierarchy({ token: handle.id }, spine, classifiers.map((c) => c.name)));
+        const res = await engine.hierarchy({ token: handle.id }, spine, classifiers.map((c) => c.name));
+        if (!stale) setInfo(res);
       } catch { /* preview only; ignore transient errors */ }
     }, 200);
-    return () => window.clearTimeout(timer.current);
+    return () => { stale = true; window.clearTimeout(timer.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handle?.id, handle?.version, key]);
 

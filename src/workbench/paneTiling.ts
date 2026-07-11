@@ -37,8 +37,12 @@ export function resizeColumns(
   const perPx = total / innerW;          // weight per pixel
   const minW = MIN_COL_PX * perPx;       // the floor, in weight units
   const a = cols[i], b = cols[i + 1];
-  // a grows / b shrinks as the divider moves right; clamp both to the floor.
-  const df = Math.max(-(a - minW), Math.min(b - minW, dxPx * perPx));
+  // a grows / b shrinks as the divider moves right; df must stay in [lo, hi] to
+  // keep both at the floor. When the pair together is under 2·floor, lo > hi and
+  // the clamp would invert to a positive constant (shrinking the already-too-small
+  // neighbor further regardless of drag direction) — do nothing instead.
+  const lo = -(a - minW), hi = b - minW;
+  const df = lo <= hi ? Math.max(lo, Math.min(hi, dxPx * perPx)) : 0;
   const next = cols.slice();
   next[i] = a + df;
   next[i + 1] = b - df;

@@ -5,7 +5,7 @@ import {
   openCardAtom, closeCardAtom, moveCardAtom, resizeCardAtom,
   toggleCardCollapsedAtom, collapseAllCardsAtom, clearWorkbenchAtom,
   stashAtom, pushStashAtom, popStashAtom, seedDefaultStashAtom, STASH_SLOTS,
-  workbenchLayoutAtom, DEFAULT_STASH_H,
+  focusedStashIdAtom, workbenchLayoutAtom, DEFAULT_STASH_H,
 } from "./state";
 import type { Target } from "./cardRegistry";
 
@@ -101,6 +101,17 @@ describe("pop stash", () => {
     }
     expect(s.get(stashAtom)).toHaveLength(STASH_SLOTS);
     expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b", "c", "d"]);
+  });
+
+  it("clears focus when the FIFO evicts the focused tile", () => {
+    const s = createStore();
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    s.set(focusedStashIdAtom, s.get(stashAtom)[0].id);   // focus the oldest
+    for (const id of ["b", "c", "d"]) {
+      s.set(pushStashAtom, { target: tNode(id), cardKind: "table" as const });
+    }
+    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b", "c", "d"]);
+    expect(s.get(focusedStashIdAtom)).toBeNull();        // "a" gone → focus reset
   });
 
   it("popStash unpins one card by id", () => {

@@ -49,11 +49,15 @@ export function useWorkbenchResize(
       const onUp = () => {
         window.removeEventListener("pointermove", onMove);
         window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
         document.body.style.cursor = prevCursor;
         document.body.style.userSelect = "";
       };
       window.addEventListener("pointermove", onMove);
       window.addEventListener("pointerup", onUp);
+      // a cancelled pointer skips pointerup — without this the cursor + userSelect
+      // override would stay stuck on the whole document.
+      window.addEventListener("pointercancel", onUp);
     },
     [overlayRef, stashRef, setLayout],
   );

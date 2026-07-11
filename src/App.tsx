@@ -25,6 +25,7 @@ import {
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { AutosaveStatus, NodeShape } from "./types";
+import { colType } from "./channels";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 import { useDebouncedAsync } from "./useDebouncedAsync";
 
@@ -318,8 +319,10 @@ export default function App() {
      pairs on (render's `cat_col`: x, unless x is numeric, then y), falling back to
      color; null when unmapped. Sending `color` alone missed the common SuperPlot
      (groups on x, color unset), leaving guard #2 inert. */
-  const xIsNumeric = effectiveSchema?.columns
-    .find((c) => c.name === mappings.x)?.type === "numeric";
+  // colType (not a raw type check) so a bool measurement on X counts as numeric
+  // here exactly as render's cat_col selection treats it — otherwise the qualifier
+  // resolved to the bool X instead of Y and the pairing-flip guard got the wrong one.
+  const xIsNumeric = colType(effectiveSchema ?? null, mappings.x) === "numeric";
   const qualifier = (xIsNumeric ? mappings.y : mappings.x) || active?.color || null;
   const collapseKey = JSON.stringify([collapsePlan, testGrain, qualifier]);
   useDebouncedAsync({

@@ -56,6 +56,15 @@ describe("resizeColumns", () => {
     expect(resizeColumns(cols, 2, 50, innerW)).toBe(cols);
     expect(resizeColumns(cols, -1, 50, innerW)).toBe(cols);
   });
+
+  it("makes no move when the adjacent pair is already under 2*MIN_COL_PX", () => {
+    // both a and b sit below the 120px floor (0.4 weight each here), so no df
+    // keeps both at the floor; the clamp must yield 0, not invert to a positive
+    // constant that shrinks the already-too-small neighbor further.
+    const tight = [0.3, 0.3, 2.4];        // a,b ≈ 90px each
+    expect(resizeColumns(tight, 0, -50, innerW)).toEqual(tight);
+    expect(resizeColumns(tight, 0, 50, innerW)).toEqual(tight);
+  });
 });
 
 describe("slotSplit", () => {

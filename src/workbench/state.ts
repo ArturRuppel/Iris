@@ -104,7 +104,12 @@ export const pushStashAtom = atom(
     const stash = get(stashAtom);
     if (stash.some((e) => e.id === id)) return;
     const next = [...stash, { id, target: arg.target, cardKind: arg.cardKind }];
-    set(stashAtom, next.slice(-STASH_SLOTS));
+    const sliced = next.slice(-STASH_SLOTS);
+    set(stashAtom, sliced);
+    // if the FIFO evicted the focused tile, clear focus — a stale id left the
+    // canvas swallowing the next Escape.
+    const focused = get(focusedStashIdAtom);
+    if (focused && !sliced.some((e) => e.id === focused)) set(focusedStashIdAtom, null);
   },
 );
 

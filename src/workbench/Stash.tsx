@@ -16,7 +16,11 @@ function StashCard({ entry, label, slot }: { entry: StashEntry; label: string; s
   const selected = useAtomValue(selectedTargetAtom);
   const focus = useSetAtom(focusedStashIdAtom);
   const { body: Body, title } = CARD[entry.cardKind];
-  const isSel = selected?.kind === entry.target.kind && selected?.id === entry.target.id;
+  // compare facet too: the seeded plot and stats slots share id "figure", so
+  // ignoring facet lit both when only one was selected.
+  const isSel = selected?.kind === entry.target.kind
+    && selected?.id === entry.target.id
+    && selected?.facet === entry.target.facet;
 
   return (
     <div className={`txw-slot${isSel ? " sel" : ""}`} role="group" aria-label={`${title}: ${label}`}

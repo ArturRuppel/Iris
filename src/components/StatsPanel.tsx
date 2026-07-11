@@ -137,7 +137,7 @@ function ResultRows({ s }: { s: StatsResult }) {
       const lanes = s.per_group ?? [];
       return (
         <>
-          <dt>Reference (chance) <InfoTip k="significance_stars" /></dt>
+          <dt>Reference (chance) <InfoTip k="one_sample_t" /></dt>
           <dd className="mono">{ref}</dd>
           {lanes.length > 0 ? lanes.map((g) => (
             <span key={g.level} style={{ display: "contents" }}>

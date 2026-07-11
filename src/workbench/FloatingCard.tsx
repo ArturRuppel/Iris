@@ -28,9 +28,13 @@ function startDrag(
   const up = () => {
     window.removeEventListener("pointermove", move);
     window.removeEventListener("pointerup", up);
+    window.removeEventListener("pointercancel", up);
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
+  // a cancelled pointer (OS gesture, focus loss) never fires pointerup; without
+  // this the move listener would stay wired forever.
+  window.addEventListener("pointercancel", up);
 }
 
 /* Generic ephemeral card: title bar (drag to move), registry-chosen body,
