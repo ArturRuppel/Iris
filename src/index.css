@@ -1044,7 +1044,10 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border-radius: 8px;
   box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18);
   overflow: hidden;
-  z-index: 5;
+  /* above the stash (6) and its resize handles (7): an edit popup always floats
+     over the docked cards, never gets painted under them. Below focus mode (36)
+     and the menus/scrims, which are deliberate full-workspace takeovers. */
+  z-index: 20;
 }
 .txw-card-bar {
   display: flex;
@@ -1116,9 +1119,11 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 .txw-collapse-all { margin-left: 8px; }
 
 /* ---- the pop stash: 3 docked slots along the canvas bottom ---- */
-/* when the stash is open, the canvas and floating layer give it room. */
+/* when the stash is open, the DAG canvas gives it room. The floating-card layer
+   is NOT clamped — edit popups float over the whole workspace, stash included
+   (the layer is pointer-events:none, so it never steals the stash's clicks). */
 :root { --stash-h: 270px; }
-.txw-rfcanvas.with-stash, .txw-cards.with-stash { bottom: var(--stash-h); }
+.txw-rfcanvas.with-stash { bottom: var(--stash-h); }
 
 .txw-stash {
   position: absolute;
