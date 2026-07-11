@@ -85,3 +85,17 @@ def test_evaluate_dag_diamond_joins_two_branches():
     assert {"hi", "lo"} <= set(out.columns)
     assert out.loc[out.cell == "a", "hi"].iloc[0] == 11.0
     assert out.loc[out.cell == "a", "lo"].iloc[0] == -9.0
+
+
+from iris_engine.dag import evaluate_dag_traced
+
+
+def test_evaluate_dag_traced_returns_every_node_frame():
+    table = _table()
+    dag = linear_to_dag(table, [{"kind": "filter",
+        "conditions": [{"column": "v", "op": ">", "value": 2.0}]}])
+    cache, order = evaluate_dag_traced(dag)
+    assert set(cache) == {"src", "s0"}
+    assert len(cache["src"][0]) == 2      # source: both rows
+    assert len(cache["s0"][0]) == 1       # after filter v > 2: one row
+    assert order[0] == "src"
