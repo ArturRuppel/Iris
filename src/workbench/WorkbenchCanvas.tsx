@@ -21,7 +21,7 @@ import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
 import { clampStashH, TOPBAR } from "./paneTiling";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
-import { removeStepAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom } from "../state";
+import { removeStepAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom } from "../state";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -175,12 +175,17 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   // nodes have no single step to drop, so they offer no delete. Reachable two
   // ways: right-click (context menu) and Delete/Backspace on a selected node.
   const removeStep = useSetAtom(removeStepAtom);
+  const active = useAtomValue(activePlottableAtom);
   const [menu, setMenu] = useState<NodeMenu | null>(null);
-  const deletableStep = (n: Node): { index: number; label: string } | null => {
+  // removeStepAtom takes a DAG node id now (Phase B); array order still matches
+  // chain order for Phase B's linear-only authoring (see insertStepAtom), so a
+  // pipeline-step-index still resolves to the right node via this lookup —
+  // Phase D routes the canvas through real ids directly instead.
+  const deletableStep = (n: Node): { id: string; label: string } | null => {
     const d = n.data as unknown as RFNodeData;
-    return typeof d.stepIndex === "number" && d.stepIndex >= 0
-      ? { index: d.stepIndex, label: d.eyebrow ?? "step" }
-      : null;
+    const id = typeof d.stepIndex === "number" && d.stepIndex >= 0
+      ? active?.reduce.steps[d.stepIndex]?.id : undefined;
+    return id ? { id, label: d.eyebrow ?? "step" } : null;
   };
   const onNodeContextMenu = useCallback((e: ReactMouseEvent, n: Node) => {
     e.preventDefault();
@@ -196,9 +201,9 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
     }
     const del = deletableStep(n);
     setMenu(del ? { x: e.clientX, y: e.clientY, items: [
-      { label: `Delete ${del.label.toLowerCase()}`, danger: true, onClick: () => removeStep(del.index) },
+      { label: `Delete ${del.label.toLowerCase()}`, danger: true, onClick: () => removeStep(del.id) },
     ] } : null);
-  }, [openCard, removeStep]);
+  }, [openCard, removeStep, active]);
 
   // undo/redo the spec (Cmd/Ctrl+Z, +Shift to redo / +Y); spec mutations only —
   // style + node positions are excluded at the source (see state.ts).
@@ -236,12 +241,12 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
       if (e.key === "Delete" || e.key === "Backspace") {
         const sel = nodesRef.current.find((n) => n.selected);
         const d = sel && deletableStep(sel);
-        if (d) { e.preventDefault(); removeStep(d.index); setMenu(null); }
+        if (d) { e.preventDefault(); removeStep(d.id); setMenu(null); }
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [removeStep, undo, redo, focusedStashId, setFocused]);
+  }, [removeStep, undo, redo, focusedStashId, setFocused, active]);
 
   // the structural identity of the graph: the SET of node + edge ids. Layout
   // (positions) is recomputed only when this changes — not on every

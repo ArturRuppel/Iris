@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { linearizeReduce, dagFromLinear } from "./state";
+import { createStore } from "jotai";
+import {
+  linearizeReduce, dagFromLinear, plottablesAtom, activePlottableIdAtom,
+  insertStepAtom, activePlottableAtom, makeDefaultPlottable,
+} from "./state";
 import type { ReduceStepNode } from "./types";
 
 describe("reduce DAG adapters", () => {
@@ -21,5 +25,24 @@ describe("reduce DAG adapters", () => {
       { kind: "drop", columns: [], _key: "k1" },
     ] as unknown as ReduceStepNode[]);
     expect(linearizeReduce(dag).map((s) => s.kind)).toEqual(["filter", "drop"]);
+  });
+});
+
+describe("Plottable.reduce is a DAG", () => {
+  it("a fresh plottable carries the degenerate single-source DAG", () => {
+    const p = makeDefaultPlottable("tbl");
+    expect(p.reduce).toEqual({ sources: [{ id: "src", tableId: "tbl" }], steps: [], output: "src" });
+  });
+
+  it("insertStep appends a node chained to its predecessor", () => {
+    const store = createStore();
+    const p = makeDefaultPlottable("tbl");
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, p.id);
+    store.set(insertStepAtom, { afterId: "src", kind: "filter" });
+    const dag = store.get(activePlottableAtom)!.reduce;
+    expect(dag.steps).toHaveLength(1);
+    expect(dag.steps[0].inputs).toEqual(["src"]);
+    expect(dag.output).toBe(dag.steps[0].id);
   });
 });

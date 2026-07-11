@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { Provider } from "jotai";
 import { OpEditorCard, edgeIdToStepIndex } from "./OpEditorCard";
 import { seedStore } from "./cardTestStore";
-import { activePlottableAtom, tablesAtom } from "../../state";
+import { activePlottableAtom, tablesAtom, dagFromLinear } from "../../state";
 import type { JoinStep, Schema } from "../../types";
 import { explorerGraphAtom } from "../../explorer/graphAtom";
 import type { ExplorerGraph } from "../../explorer/graph";
@@ -42,7 +42,7 @@ describe("OpEditorCard", () => {
     const { store, plottable } = seedStore();
     store.set(activePlottableAtom, {
       ...plottable,
-      reduce: { steps: [{ kind: "filter", _key: "k1", conditions: [] }] },
+      reduce: dagFromLinear(plottable.tableId, [{ kind: "filter", _key: "k1", conditions: [] }]),
     });
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.kind === "filter")!;
@@ -75,7 +75,8 @@ describe("OpEditorCard", () => {
     ]);
     store.set(activePlottableAtom, {
       ...plottable,
-      reduce: { steps: [{ kind: "join", _key: "k1", on: [], how: "inner", rightTableId: "" }] },
+      reduce: dagFromLinear(plottable.tableId,
+        [{ kind: "join", _key: "k1", on: [], how: "inner", rightTableId: "" }]),
     });
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.kind === "join")!;
@@ -97,12 +98,13 @@ describe("OpEditorCard", () => {
     const { store, plottable } = seedStore();
     store.set(activePlottableAtom, {
       ...plottable,
-      reduce: { steps: [{ kind: "filter", _key: "k1", conditions: [] }] },
+      reduce: dagFromLinear(plottable.tableId, [{ kind: "filter", _key: "k1", conditions: [] }]),
     });
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.kind === "filter")!;
     // now empty the pipeline so the resolved index is out of range
-    store.set(activePlottableAtom, { ...plottable, reduce: { steps: [] } });
+    store.set(activePlottableAtom,
+      { ...plottable, reduce: dagFromLinear(plottable.tableId, []) });
     render(
       <Provider store={store}>
         <OpEditorCard target={{ kind: "edge", id: edge.id }} />
@@ -118,7 +120,7 @@ describe("post-collapse edges", () => {
     const { store, plottable } = seedStore();
     store.set(activePlottableAtom, {
       ...plottable,
-      reduce: { steps: [],
+      reduce: { ...dagFromLinear(plottable.tableId, []),
                 post: [{ kind: "derive", _key: "k9", column: "q", expr: "a/b" }] },
     });
     const graph = store.get(explorerGraphAtom)!;

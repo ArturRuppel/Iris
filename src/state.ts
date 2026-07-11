@@ -3,9 +3,9 @@ import { atomWithStorage } from "jotai/utils";
 import { dataFingerprint, snapshotStateKey } from "./autosave";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
-  StatsFamily, StyleKnob, StyleOverrides, Table, TableHandle, TestName, ReduceSpec,
+  StatsFamily, StyleKnob, StyleOverrides, Table, TableHandle, TestName,
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
-  ReduceDag, ReduceStepNode,
+  ReduceDag, ReduceStepNode, ReduceSource, EngineReduceDag,
 } from "./types";
 import { RAW_LEVEL, engine } from "./types";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
@@ -191,7 +191,7 @@ export interface Plottable {
   rate: RateOpts | null;
   describeOnly: boolean;    // user asked to render without a test
   style: StyleOverrides;
-  reduce: ReduceSpec;
+  reduce: ReduceDag;
   /* un-forcing the nesting: per-analysis collapse plan + chosen test grain.
      Absent -> the default chain generated from the table-level spine. */
   collapse?: CollapsePlan;
@@ -209,6 +209,12 @@ export const nextLayerId = () => `ly_${Date.now().toString(36)}_${_lid++}`;
    stripped in buildSpec, so it never reaches the engine or a saved .viz. */
 let _sk = 0;
 const nextStepKey = () => `sk_${Date.now().toString(36)}_${_sk++}`;
+/* a reduce DAG node's id — real, persisted data (unlike `_key` above), read
+   back verbatim by adoptReduceDag on load so a reloaded file's node ids stay
+   stable. Only freshly authored (insertStepAtom) or duplicated
+   (duplicatePlottableAtom) nodes mint a new one. */
+let _nid = 0;
+const nextNodeId = () => `n_${Date.now().toString(36)}_${_nid++}`;
 /* distribute Omit over a union so each member keeps its own (key-stripped) shape;
    a plain Omit<A|B, …> would collapse to the members' common keys only. */
 type StripKey<T> = T extends unknown ? Omit<T, "_key"> : never;
@@ -254,7 +260,9 @@ export function tablesNeedingMaterialize(
    authored, and sending it would flash the engine's "join needs on keys" error
    mid-edit). The spec keeps the step so its editor card and the open "missing"
    circle persist; it just isn't sent until filled. */
-export function runnableSteps(steps: ReduceStep[], cache: RightCache): ReduceStep[] {
+// generic over T (a plain ReduceStep or a ReduceStepNode) so a caller filtering
+// DAG nodes keeps their id/inputs, not just the declared ReduceStep shape.
+export function runnableSteps<T extends ReduceStep>(steps: T[], cache: RightCache): T[] {
   return steps.filter((s) => s.kind !== "join"
     || (!!s.rightTableId && s.on.length > 0 && !!cache[s.rightTableId]));
 }
@@ -269,10 +277,12 @@ export function resolveEngineSteps(steps: ReduceStep[], cache: RightCache): Engi
       : s);
 }
 
-/* SAVE serialization (Plan B): a FILLED join serializes as a REFERENCE to its
-   right pool table (`right_table_id`), not inline rows — the engine reads the
-   right's full rows from its session when it saves the table pool. An UNSET join
-   (no rightTableId) has nothing to reference and is dropped. No cache, no inline. */
+/* SAVE serialization for the post-collapse phase (reduce.post), which — unlike
+   the main reduce.steps — still runs through the engine's linear FOLD
+   (apply_reduction), not the DAG evaluator (see render.py), so a join there
+   keeps the OLD inline-right-by-reference shape: a FILLED join serializes as a
+   right_table_id reference; an UNSET join has nothing to reference and is
+   dropped. No cache, no inline rows. */
 export function resolveSaveSteps(steps: ReduceStep[]): EngineReduceStep[] {
   return steps
     .filter((s) => s.kind !== "join" || s.rightTableId.length > 0)
@@ -285,7 +295,7 @@ export function resolveSaveSteps(steps: ReduceStep[]): EngineReduceStep[] {
    output} node set. Phase B authors only ever produce the degenerate linear
    DAG (dagFromLinear); linearizeReduce (topo order over `inputs`) is the
    inverse used by the engine-request resolvers below. */
-export function dagFromLinear(tableId: string, steps: ReduceStepNode[] | ReduceStep[]): ReduceDag {
+export function dagFromLinear(tableId: string, steps: (ReduceStep | ReduceStepNode)[]): ReduceDag {
   const withIds: ReduceStepNode[] = (steps as ReduceStep[]).map((s, i) => ({
     ...s,
     id: (s as ReduceStepNode).id ?? `n${i}_${s._key ?? i}`,
@@ -320,6 +330,85 @@ export function linearizeReduce(dag: ReduceDag): ReduceStepNode[] {
   return order.map((id) => byId.get(id)).filter((s): s is ReduceStepNode => !!s);
 }
 
+type EngineSourceNode = Extract<EngineReduceDag["nodes"][number], { kind: "source" }>;
+
+/* shared core of resolveEngineDag/resolveSaveDag: walk the chain in topo order,
+   keep only the step ids `keptIds` accepts (mirrors the old runnableSteps /
+   resolveSaveSteps filters — an unfilled/unmaterialized join is dropped, its
+   consumer's input bypassed to its own predecessor, so the request degrades
+   gracefully exactly as before), and express a KEPT join's right input as a
+   synthesized second source node. The engine's DAG evaluator (dag.py) requires
+   a join to have two REAL node inputs — it never reads an inline `right` /
+   `right_table_id` on the step itself — so this is where a join step's
+   `rightTableId` gets dissolved into an ordinary fan-in node, one level below
+   the internal DAG (which still only tracks the join's LEFT input; the right
+   is implicit in `rightTableId` until Phase D lets a join's right be wired to
+   an arbitrary branch on the canvas). */
+function resolveReduceDag(
+  dag: ReduceDag, keptIds: Set<string>,
+  rightSource: (rightTableId: string) => Omit<EngineSourceNode, "id">,
+  mainSource: (s: ReduceSource) => EngineSourceNode,
+): EngineReduceDag {
+  const nodes: EngineReduceDag["nodes"] = dag.sources.map(mainSource);
+  const byId = new Map(dag.steps.map((s) => [s.id, s]));
+  const isSource = new Set(dag.sources.map((s) => s.id));
+  const resolveInput = (id: string): string => {
+    if (isSource.has(id) || keptIds.has(id)) return id;
+    const step = byId.get(id);
+    return resolveInput(step?.inputs[0] ?? dag.sources[0]?.id ?? id);
+  };
+  for (const n of linearizeReduce(dag)) {
+    if (!keptIds.has(n.id)) continue;
+    const input0 = resolveInput(n.inputs[0]);
+    if (n.kind === "join") {
+      const rightId = `${n.id}__right`;
+      nodes.push({ ...rightSource(n.rightTableId), id: rightId });
+      nodes.push({ id: n.id, kind: "step", inputs: [input0, rightId],
+        step: { kind: "join", on: n.on, how: n.how } });
+    } else {
+      nodes.push({ id: n.id, kind: "step", inputs: [input0], step: stripStepKey(n) as EngineReduceStep });
+    }
+  }
+  return { nodes, output: resolveInput(dag.output) };
+}
+
+/* render path (buildSpec): a source rides on the request's own top-level
+   table/table_token exactly as it does today (WorkspaceTable carries no rows —
+   the browser never holds the master data), so a source node here carries NO
+   inline table; the engine (render.py) binds it from the already-resolved
+   table before evaluating the rest of the DAG. A join's right is still
+   inlined from the materialized cache, exactly as resolveEngineSteps did.
+   `post` is NOT walked through the DAG dissolution above: it still runs
+   through the engine's linear fold (render.py never switched it over), so it
+   keeps the old inline-right-by-value shape via resolveEngineSteps. */
+export function resolveEngineDag(dag: ReduceDag, cache: RightCache): EngineReduceDag {
+  const keptIds = new Set(runnableSteps(dag.steps, cache).map((s) => s.id));
+  const out = resolveReduceDag(dag, keptIds,
+    (rightTableId) => ({ kind: "source", table: cache[rightTableId].table }),
+    (s) => ({ id: s.id, kind: "source" }));
+  return dag.post?.length
+    ? { ...out, post: resolveEngineSteps(dag.post, cache).map(stripStepKey) as EngineReduceStep[] }
+    : out;
+}
+
+/* save path (specForSave): every source — main and a filled join's right —
+   rides as a table-id REFERENCE, not inline rows; the full pool is saved
+   separately, by reference (saveTablesFor). An UNSET join has nothing to
+   reference and is dropped, like resolveSaveSteps did. `post` keeps the old
+   inline-right-by-reference shape via resolveSaveSteps, for the same reason
+   as the render path above. */
+export function resolveSaveDag(dag: ReduceDag): EngineReduceDag {
+  const keptIds = new Set(dag.steps
+    .filter((s) => s.kind !== "join" || s.rightTableId.length > 0)
+    .map((s) => s.id));
+  const out = resolveReduceDag(dag, keptIds,
+    (rightTableId) => ({ kind: "source", table_id: rightTableId }),
+    (s) => ({ id: s.id, kind: "source", table_id: s.tableId }));
+  return dag.post?.length
+    ? { ...out, post: resolveSaveSteps(dag.post).map(stripStepKey) as EngineReduceStep[] }
+    : out;
+}
+
 /* the SAVE table pool: every pool table some analysis roots in (its main table) or
    references through a filled join, once each, in first-seen order. The engine
    reads each table's FULL rows from its live session (`handle.id`) and writes them
@@ -349,9 +438,9 @@ export function makeDefaultPlottable(tableId = ""): Plottable {
     override: null, reference: null, rate: null, describeOnly: false,
     style: {},
     /* a fresh reduce per plottable — never share a singleton, so an in-place
-       mutation could never alias across plottables.
-       Empty steps == the full table (today's default). */
-    reduce: { steps: [] },
+       mutation could never alias across plottables. The degenerate single-
+       source DAG (no steps) == the full table (today's default). */
+    reduce: dagFromLinear(tableId, []),
   };
 }
 
@@ -747,8 +836,53 @@ const adoptStep = (s: EngineReduceStep): ReduceStep => {
   return { ...s, _key: nextStepKey() };
 };
 
+/* inverse of resolveEngineDag/resolveSaveDag: rebuild the internal (single-
+   LEFT-input) DAG from a saved `EngineReduceDag`. A join's right input is a
+   synthesized source node (see resolveReduceDag) — undo that dissolution here
+   by reading the right's `table_id` back into `rightTableId` and dropping the
+   synthetic node, so the adopted DAG has exactly one source (`tableId`, the
+   analysis's main table) plus a straight chain of steps, matching what every
+   authoring atom in this file expects for now (Phase D lets a join's right be
+   an arbitrary branch instead). */
+function adoptReduceDag(spec: AnalysisSpec, tableId: string): ReduceDag {
+  const dag = spec.reduce;
+  const stepNodes = dag.nodes.filter(
+    (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "step" }> => n.kind === "step");
+  const sourceNodes = dag.nodes.filter(
+    (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "source" }> => n.kind === "source");
+  // every join step's 2nd input is a synthetic right-source node, never part
+  // of the adopted internal DAG.
+  const joinRightIds = new Set(
+    stepNodes.filter((n) => n.step.kind === "join" && n.inputs.length > 1)
+             .map((n) => n.inputs[1]));
+  const rightTableIdByNode = new Map(
+    sourceNodes.filter((n) => joinRightIds.has(n.id))
+               .map((n) => [n.id, n.table_id ?? ""]));
+  const mainSource = sourceNodes.find((n) => !joinRightIds.has(n.id)) ?? sourceNodes[0];
+  const srcId = mainSource?.id ?? "src";
+
+  const steps: ReduceStepNode[] = stepNodes
+    .filter((n) => !joinRightIds.has(n.id))
+    .map((n) => {
+      const step = n.step.kind === "join"
+        ? { ...n.step, right_table_id: rightTableIdByNode.get(n.inputs[1]) ?? "" }
+        : n.step;
+      return { ...adoptStep(step), id: n.id, inputs: [n.inputs[0]] };
+    });
+  // the output can never legitimately be a synthetic right-source; the guard
+  // is defensive (a hand-edited file could name one).
+  const output = joinRightIds.has(dag.output) ? srcId : dag.output;
+  return {
+    sources: [{ id: srcId, tableId }],
+    steps,
+    output,
+    ...(dag.post?.length ? { post: dag.post.map(adoptStep) } : {}),
+  };
+}
+
 export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   const s = spec.stats;
+  const tableId = (spec as { table_id?: string }).table_id ?? "";
   const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
   // tolerate (and drop) a vestigial `params` key on a layer — no spec carries geom
   // knobs there anymore; they ride in style.overrides.geoms.
@@ -759,7 +893,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
   return {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",
-    tableId: (spec as { table_id?: string }).table_id ?? "",
+    tableId,
     mappings: { x: spec.encodings.x?.column ?? "", y: spec.encodings.y?.column ?? "" },
     color: spec.encodings.color?.column ?? "",
     size: spec.encodings.size?.column ?? "",
@@ -785,15 +919,13 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
       : null,
     describeOnly: s?.describe_only ?? false,
     style,
-    /* a saved join step REFERENCES its right pool table by id (right_table_id),
-       adopted straight into the internal rightTableId; an absent id starts "" (an
-       unfilled or hand-edited join). Key every step for React. The post-collapse
-       phase (reduce.post) is adopted too — the UI can't author it yet, but a
-       loaded doc that carries one must round-trip, not silently lose it. */
-    reduce: {
-      steps: (spec.reduce?.steps ?? []).map(adoptStep),
-      ...(spec.reduce?.post?.length ? { post: spec.reduce.post.map(adoptStep) } : {}),
-    },
+    /* a saved join step's right rides as a synthesized source node referencing
+       its pool table by id (table_id); adoptReduceDag undoes that dissolution
+       back into the internal rightTableId (an absent id starts "" — an unfilled
+       or hand-edited join). Key every step for React. The post-collapse phase
+       (reduce.post) is adopted too — the UI can't author it yet, but a loaded
+       doc that carries one must round-trip, not silently lose it. */
+    reduce: adoptReduceDag(spec, tableId),
     collapse: spec.collapse,
     testGrain: spec.test_grain,
   };
@@ -920,16 +1052,10 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     ? { ...p.style, reference_value: reference }
     : p.style;
   return {
-    spec_version: "2.1",
+    spec_version: "2.2",
     id: p.id,
     title: p.name,
-    reduce: {
-      steps: resolveEngineSteps(p.reduce.steps, cache).map(stripStepKey),
-      // the UI can't author post steps yet, but a loaded doc carrying them must
-      // keep running (and re-saving) them, not silently drop the phase.
-      ...(p.reduce.post?.length
-        ? { post: resolveEngineSteps(p.reduce.post, cache).map(stripStepKey) } : {}),
-    },
+    reduce: resolveEngineDag(p.reduce, cache),
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -984,11 +1110,7 @@ export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | u
   return {
     ...base,
     table_id: p.tableId,
-    reduce: {
-      steps: resolveSaveSteps(p.reduce.steps).map(stripStepKey),
-      ...(p.reduce.post?.length
-        ? { post: resolveSaveSteps(p.reduce.post).map(stripStepKey) } : {}),
-    },
+    reduce: resolveSaveDag(p.reduce),
   };
 }
 
@@ -1054,6 +1176,27 @@ export const addPlottableAtom = atom(null, (get, set) => {
   set(activePlottableIdAtom, p.id);
 });
 
+/* deep-clone a reduce DAG with fresh node ids (so an edit to the copy can
+   never alias the original's step objects), remapping every `inputs` ref and
+   `output` through the id substitution. Sources keep their table refs as-is —
+   only step nodes are cloned/re-ided. */
+function cloneReduceDag(dag: ReduceDag): ReduceDag {
+  const idMap = new Map<string, string>(dag.sources.map((s) => [s.id, s.id]));
+  const steps = structuredClone(dag.steps).map((s) => {
+    const nid = nextNodeId();
+    idMap.set(s.id, nid);
+    return { ...s, id: nid, _key: nextStepKey() };
+  });
+  const relinked = steps.map((s) => ({ ...s, inputs: s.inputs.map((i) => idMap.get(i) ?? i) }));
+  return {
+    sources: dag.sources.map((s) => ({ ...s })),
+    steps: relinked,
+    output: idMap.get(dag.output) ?? dag.output,
+    ...(dag.post?.length
+      ? { post: structuredClone(dag.post).map((s) => ({ ...s, _key: nextStepKey() })) } : {}),
+  };
+}
+
 export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const src = get(plottablesAtom).find((p) => p.id === id);
   if (!src) return;
@@ -1080,11 +1223,7 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
     rate: src.rate ? { ...src.rate } : null,
     layers,
     style,
-    reduce: {
-      steps: structuredClone(src.reduce.steps).map((s) => ({ ...s, _key: nextStepKey() })),
-      ...(src.reduce.post?.length
-        ? { post: structuredClone(src.reduce.post).map((s) => ({ ...s, _key: nextStepKey() })) } : {}),
-    },
+    reduce: cloneReduceDag(src.reduce),
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
   set(activePlottableIdAtom, copy.id);
@@ -1153,36 +1292,93 @@ const reorder = <T>(arr: T[], index: number, dir: -1 | 1): T[] | null => {
   return out;
 };
 
+/* append a new node chained onto the current tip (the DAG's `output`) and
+   promote it to the new output — "add a step" always extends the pipeline. */
 export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) =>
-  updateActive(get, set, (p) =>
-    ({ ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, makeStep(kind)] } })));
+  updateActive(get, set, (p) => {
+    const node: ReduceStepNode = { ...makeStep(kind), id: nextNodeId(), inputs: [p.reduce.output] };
+    return { ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, node], output: node.id } };
+  }));
 
-/* splice a blank step in immediately AFTER `afterIndex` (the source node's step
-   index; Source = -1 → insert at 0). Append and insert are the same operation at
-   different positions — a node's `+` adds after it, splicing if a downstream
-   neighbour exists. */
+/* splice a new step so it consumes `afterId` (a node id: a step's id, or a
+   source's id — "src" for the root). Any consumer of `afterId` (another step
+   naming it in `inputs`, or the DAG's own `output`) is rewired onto the new
+   node, so a mid-chain insert splices in rather than forking. The array is
+   also spliced at afterId's position (not just appended) so raw array order
+   keeps matching chain order for the linear-only topology Phase B authors —
+   Phase D's real branching makes this an approximation only; graph.ts (Phase
+   C) reads true adjacency, not array order. */
 export const insertStepAtom = atom(null,
-  (get, set, arg: { afterIndex: number; kind: ReduceStepKind }) =>
+  (get, set, arg: { afterId: string; kind: ReduceStepKind }) =>
     updateActive(get, set, (p) => {
-      const steps = [...p.reduce.steps];
-      steps.splice(arg.afterIndex + 1, 0, makeStep(arg.kind));
-      return { ...p, reduce: { ...p.reduce, steps } };
+      const node: ReduceStepNode = { ...makeStep(arg.kind), id: nextNodeId(), inputs: [arg.afterId] };
+      const consumers = p.reduce.steps.filter((s) => s.inputs.includes(arg.afterId));
+      const steps = p.reduce.steps.map((s) =>
+        consumers.includes(s)
+          ? { ...s, inputs: s.inputs.map((i) => (i === arg.afterId ? node.id : i)) }
+          : s);
+      const output = p.reduce.output === arg.afterId && consumers.length === 0
+        ? node.id : p.reduce.output;
+      const afterIdx = steps.findIndex((s) => s.id === arg.afterId);
+      const insertAt = afterIdx === -1 ? steps.length : afterIdx + 1;
+      const nextSteps = [...steps.slice(0, insertAt), node, ...steps.slice(insertAt)];
+      return { ...p, reduce: { ...p.reduce, steps: nextSteps, output } };
     }));
 
+/* edit a step's own fields (kind/columns/…) in place — its id and chain
+   wiring (inputs) are untouched, only its content is replaced. */
 export const updateStepAtom = atom(null,
   (get, set, arg: { index: number; step: ReduceStep }) =>
     updateActive(get, set, (p) => ({ ...p, reduce: { ...p.reduce, steps:
-      p.reduce.steps.map((s, i) => (i === arg.index ? arg.step : s)) } })));
+      p.reduce.steps.map((s, i) => (i === arg.index ? { ...arg.step, id: s.id, inputs: s.inputs } : s)) } })));
 
-export const removeStepAtom = atom(null, (get, set, index: number) =>
-  updateActive(get, set, (p) =>
-    ({ ...p, reduce: { ...p.reduce, steps: p.reduce.steps.filter((_, i) => i !== index) } })));
+/* drop a node by id, rewiring every consumer (another step's `inputs`, or the
+   DAG's own `output`) onto the removed node's own (sole, Phase-B) input — the
+   chain auto-heals, exactly like the old index-based splice. */
+export const removeStepAtom = atom(null, (get, set, nodeId: string) =>
+  updateActive(get, set, (p) => {
+    const removed = p.reduce.steps.find((s) => s.id === nodeId);
+    if (!removed) return p;
+    const feeder = removed.inputs[0] ?? p.reduce.sources[0]?.id ?? "src";
+    const steps = p.reduce.steps
+      .filter((s) => s.id !== nodeId)
+      .map((s) => ({ ...s, inputs: s.inputs.map((i) => (i === nodeId ? feeder : i)) }));
+    const output = p.reduce.output === nodeId ? feeder : p.reduce.output;
+    return { ...p, reduce: { ...p.reduce, steps, output } };
+  }));
+
+/* swap two adjacent nodes IN THE CHAIN (via `inputs`, not raw array
+   position — the DAG's wiring is truth once nodes can branch). `up` directly
+   feeds `down` (down's sole input is up's id); after the swap, down precedes
+   up, and whoever consumed down now consumes up instead. Returns `dag`
+   unchanged (same reference) when there is nothing to swap with, so the
+   caller's updateActive no-ops correctly. */
+function swapAdjacentSteps(dag: ReduceDag, upId: string, downId: string): ReduceDag {
+  const upStep = dag.steps.find((s) => s.id === upId);
+  if (!upStep) return dag;   // upId is a source: nothing upstream to swap with
+  const upupId = upStep.inputs[0];
+  const steps = dag.steps.map((s) => {
+    if (s.id === upId) return { ...s, inputs: [downId] };
+    if (s.id === downId) return { ...s, inputs: [upupId] };
+    if (s.inputs[0] === downId) return { ...s, inputs: [upId] };
+    return s;
+  });
+  const output = dag.output === downId ? upId : dag.output;
+  return { ...dag, steps, output };
+}
 
 export const moveStepAtom = atom(null,
   (get, set, arg: { index: number; dir: -1 | 1 }) =>
     updateActive(get, set, (p) => {
-      const steps = reorder(p.reduce.steps, arg.index, arg.dir);
-      return steps ? { ...p, reduce: { ...p.reduce, steps } } : p;
+      const a = p.reduce.steps[arg.index];
+      if (!a) return p;
+      if (arg.dir === -1) {
+        const next = swapAdjacentSteps(p.reduce, a.inputs[0], a.id);
+        return next === p.reduce ? p : { ...p, reduce: next };
+      }
+      const down = p.reduce.steps.find((s) => s.inputs[0] === a.id);
+      if (!down) return p;   // a feeds the output directly: nothing downstream
+      return { ...p, reduce: swapAdjacentSteps(p.reduce, a.id, down.id) };
     }));
 
 /* ---- live /reduce preview ---- */

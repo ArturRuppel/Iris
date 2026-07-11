@@ -414,10 +414,10 @@ export interface StyleOverrides {
 }
 
 export interface AnalysisSpec {
-  spec_version: "2.1";
+  spec_version: "2.2";
   id: string;
   title: string;
-  reduce: EngineReduceSpec;
+  reduce: EngineReduceDag;
   encodings: {
     x: { column: string } | null;
     y: { column: string } | null;
@@ -575,7 +575,7 @@ export interface AnalyzeResponse {
 }
 
 /* Upgrade a serialized analysis spec to the current shape. Every .iris the engine
-   emits (and reads) is already spec_version 2.1 — the engine refuses older files —
+   emits (and reads) is already spec_version 2.2 — the engine refuses older files —
    so this is an identity pass today, kept as the seam where a future spec
    migration would hook in. */
 export function migrateSpec(an: Record<string, unknown>): AnalysisSpec {

@@ -3,7 +3,7 @@ import { createStore } from "jotai";
 import { dataFingerprint, snapshotStateKey } from "./autosave";
 import {
   autosaveBaselineAtom, autosaveKeyAtom, loadDocumentAtom, makeDefaultPlottable,
-  plottablesAtom, tablesAtom, activePlottableAtom, type Plottable, type WorkspaceTable,
+  dagFromLinear, plottablesAtom, tablesAtom, activePlottableAtom, type Plottable, type WorkspaceTable,
 } from "./state";
 import type { Schema } from "./types";
 
@@ -27,10 +27,13 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("snapshotStateKey — the autosave dirtiness signature", () => {
   it("ignores session-only state: step _key", () => {
-    const step = { _key: "sk_1", kind: "drop" as const, columns: ["val"] };
-    const a = plottable({ reduce: { steps: [step] } });
+    // an explicit node id (not just _key) so both variants land on the SAME id —
+    // a real reload preserves the saved DAG node id and only regenerates _key
+    // (see adoptReduceDag), so this isolates the _key-only dimension.
+    const step = { _key: "sk_1", kind: "drop" as const, columns: ["val"], id: "n0" };
+    const a = plottable({ reduce: dagFromLinear("t1", [step]) });
     const b = plottable({
-      reduce: { steps: [{ ...step, _key: "sk_other" }] },    // React list key
+      reduce: dagFromLinear("t1", [{ ...step, _key: "sk_other" }]),    // React list key
     });
     expect(snapshotStateKey([a], [table()])).toBe(snapshotStateKey([b], [table()]));
   });

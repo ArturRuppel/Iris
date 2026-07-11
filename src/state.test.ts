@@ -12,15 +12,37 @@ import {
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
   loadTableAtom, setColumnRoleAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
-  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, saveTablesFor, materializedTablesAtom,
-  tablesNeedingMaterialize,
+  removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, resolveSaveDag, saveTablesFor, materializedTablesAtom,
+  tablesNeedingMaterialize, dagFromLinear,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
   addPlottableAtom, duplicatePlottableAtom, loadDocumentAtom,
   undoSpecAtom, redoSpecAtom, specHistoryAtom, specRedoAtom, clearSpecHistoryAtom,
 } from "./state";
-import type { ReduceStep, Table } from "./types";
+import type { ReduceStep, Table, EngineReduceStep, EngineReduceDag } from "./types";
 import { EMPTY_HIERARCHY, engine } from "./types";
+
+/* a fixture-only EngineReduceDag builder: a straight chain from `src`, mirroring
+   resolveSaveDag's real output shape for a join step (a synthesized second
+   source node referencing `right_table_id`) so adoptReduceDag round-trips it. */
+function engineDag(steps: EngineReduceStep[] = [], post?: EngineReduceStep[]): EngineReduceDag {
+  const nodes: EngineReduceDag["nodes"] = [{ id: "src", kind: "source" }];
+  let prev = "src";
+  steps.forEach((step, i) => {
+    const id = `n${i}`;
+    if (step.kind === "join") {
+      const rightId = `${id}__right`;
+      const rtid = (step as { right_table_id?: string }).right_table_id;
+      nodes.push({ id: rightId, kind: "source", ...(rtid ? { table_id: rtid } : {}) });
+      nodes.push({ id, kind: "step", inputs: [prev, rightId],
+        step: { kind: "join", on: step.on, how: step.how } });
+    } else {
+      nodes.push({ id, kind: "step", inputs: [prev], step });
+    }
+    prev = id;
+  });
+  return { nodes, output: prev, ...(post?.length ? { post } : {}) };
+}
 
 /* a minimal renderable spec: a Y encoding and one layer. Toggle `y`/`layers`/`x`
    to exercise the renderable gate; `tag` lets a test mutate the spec so its key
@@ -29,8 +51,8 @@ function makeSpec(id: string, opts: {
   y?: boolean; layers?: number; xCol?: string | null; tag?: string;
 } = {}): AnalysisSpec {
   return {
-    spec_version: "2.1", id, title: opts.tag ?? id,
-    reduce: { steps: [] },
+    spec_version: "2.2", id, title: opts.tag ?? id,
+    reduce: engineDag([]),
     encodings: {
       x: opts.xCol ? { column: opts.xCol } : null,
       y: opts.y === false ? null : { column: "val" },
@@ -185,10 +207,10 @@ describe("rate (count-regression) family round-trips through save/load", () => {
 describe("post-collapse reduce phase (reduce.post) round-trips", () => {
   const postSpec = (): AnalysisSpec => ({
     ...makeSpec("pp"),
-    reduce: {
-      steps: [{ kind: "drop", columns: ["grp"] }],
-      post: [{ kind: "derive", column: "ratio", expr: "val / 2" }],
-    },
+    reduce: engineDag(
+      [{ kind: "drop", columns: ["grp"] }],
+      [{ kind: "derive", column: "ratio", expr: "val / 2" }],
+    ),
   });
 
   it("plottableFromSpec keeps the post phase (keyed like main steps)", () => {
@@ -212,9 +234,11 @@ describe("post-collapse reduce phase (reduce.post) round-trips", () => {
     const store = createStore();
     const p = plottableFromSpec(postSpec());
     store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
+    const step0 = p.reduce.steps[0].id;
     store.set(updateStepAtom, { index: 0, step: { kind: "drop", columns: ["val"] } });
-    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
-    store.set(removeStepAtom, 1);
+    store.set(insertStepAtom, { afterId: step0, kind: "filter" });
+    const inserted = store.get(activePlottableAtom)!.reduce.steps.find((s) => s.kind === "filter")!;
+    store.set(removeStepAtom, inserted.id);
     const after = store.get(activePlottableAtom)!;
     expect(after.reduce.post).toHaveLength(1);
   });
@@ -230,7 +254,7 @@ describe("stats block stores decisions only (format redesign)", () => {
     for (const dead of ["chosen_by", "alternatives_offered", "assumption_checks", "report"]) {
       expect(keys).not.toContain(dead);
     }
-    expect(spec.spec_version).toBe("2.1");
+    expect(spec.spec_version).toBe("2.2");
   });
 
   it("describe_only is a stored decision and round-trips", () => {
@@ -254,19 +278,39 @@ describe("stats block stores decisions only (format redesign)", () => {
   });
 });
 
-describe("specForSave — save joins by reference (Plan B 2.1)", () => {
-  it("serializes a filled join as a right_table_id reference and sets table_id", () => {
+describe("specForSave — save joins by reference (Plan B 2.2)", () => {
+  it("serializes a filled join as a right_table_id-referencing source node and sets table_id", () => {
     const p = { ...makeDefaultPlottable("cells"),
-      reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
+      reduce: dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]) };
     const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, {});
     // the analysis records which pool table it roots in
     expect(spec.table_id).toBe("cells");
-    // the join references its right by pool id — NO inline rows
-    expect(spec.reduce.steps[0]).toMatchObject({ kind: "join", on: ["k"], right_table_id: "annot" });
-    expect("right" in spec.reduce.steps[0]).toBe(false);
+    // the join is a genuine 2-input DAG node; its right is a source node
+    // referencing the pool table by id — NO inline rows.
+    const joinNode = spec.reduce.nodes.find(
+      (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "step" }> =>
+        n.kind === "step" && n.step.kind === "join")!;
+    expect(joinNode.step).toMatchObject({ kind: "join", on: ["k"] });
+    expect("right" in joinNode.step).toBe(false);
+    expect("right_table_id" in joinNode.step).toBe(false);
+    const rightSrc = spec.reduce.nodes.find((n) => n.id === joinNode.inputs[1]);
+    expect(rightSrc).toMatchObject({ kind: "source", table_id: "annot" });
   });
 
-  it("resolveSaveSteps drops UNSET joins and keeps filled ones as references", () => {
+  it("resolveSaveDag drops an UNSET join and keeps a filled one as a reference", () => {
+    const unset = dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "", on: ["k"] } as ReduceStep]);
+    expect(resolveSaveDag(unset).nodes.some((n) => n.kind === "step")).toBe(false);
+
+    const filled = dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]);
+    const out = resolveSaveDag(filled);
+    const joinNode = out.nodes.find(
+      (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "step" }> => n.kind === "step")!;
+    expect(joinNode.step).toMatchObject({ kind: "join", on: ["k"], how: "inner" });
+    const rightSrc = out.nodes.find((n) => n.id === joinNode.inputs[1]);
+    expect(rightSrc).toMatchObject({ kind: "source", table_id: "annot" });
+  });
+
+  it("resolveSaveSteps (post-collapse phase) drops UNSET joins and keeps filled ones as references", () => {
     const unset: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "", on: ["k"] } as ReduceStep];
     expect(resolveSaveSteps(unset)).toEqual([]);
     const filled: ReduceStep[] = [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep];
@@ -283,8 +327,8 @@ describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
     const pool = [wt("cells"), wt("annot")];
     // two analyses both rooted in cells; the first also joins annot
     const p1 = { ...makeDefaultPlottable("cells"),
-      reduce: { steps: [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] }] } } as never;
-    const p2 = { ...makeDefaultPlottable("cells") } as never;
+      reduce: dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]) };
+    const p2 = makeDefaultPlottable("cells");
     expect(saveTablesFor([p1, p2], pool)).toEqual([
       { name: "cells", table_id: "h_cells", hierarchy: { spine: ["cells"], fn: {} } },
       { name: "annot", table_id: "h_annot", hierarchy: { spine: ["annot"], fn: {} } },
@@ -298,7 +342,7 @@ describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
     const pool = [wt("main"), wt("lookup")];
     // the only analysis roots in main and joins lookup; nothing ever roots in lookup.
     const p = { ...makeDefaultPlottable("main"),
-      reduce: { steps: [{ ...makeStep("join"), rightTableId: "lookup", on: ["k"] }] } } as never;
+      reduce: dagFromLinear("main", [{ ...makeStep("join"), rightTableId: "lookup", on: ["k"] } as ReduceStep]) };
     const tables = saveTablesFor([p], pool);
     // lookup must still be saved, else its join reference dangles on reload.
     expect(tables.map((t) => t.name)).toEqual(["main", "lookup"]);
@@ -815,26 +859,26 @@ describe("step writers — insert, and reduce.post preservation", () => {
     const store = createStore();
     const p = {
       ...makeDefaultPlottable(),
-      reduce: {
-        steps: [makeStep("filter"), makeStep("drop")],
-        post: [makeStep("derive")],
-      },
+      reduce: { ...dagFromLinear("", [makeStep("filter"), makeStep("drop")]),
+                post: [makeStep("derive")] },
     };
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     return store;
   }
 
-  it("insertStepAtom splices after the given index", () => {
+  it("insertStepAtom splices after the given node", () => {
     const store = makeStoreWithPost();
-    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
+    const first = store.get(activePlottableAtom)!.reduce.steps[0];
+    store.set(insertStepAtom, { afterId: first.id, kind: "filter" });
     const steps = store.get(activePlottableAtom)!.reduce.steps;
     expect(steps.map((s) => s.kind)).toEqual(["filter", "filter", "drop"]);
   });
 
-  it("insertStepAtom after the last index appends", () => {
+  it("insertStepAtom after the last node appends", () => {
     const store = makeStoreWithPost();
-    store.set(insertStepAtom, { afterIndex: 1, kind: "derive" });
+    const second = store.get(activePlottableAtom)!.reduce.steps[1];
+    store.set(insertStepAtom, { afterId: second.id, kind: "derive" });
     const steps = store.get(activePlottableAtom)!.reduce.steps;
     expect(steps.map((s) => s.kind)).toEqual(["filter", "drop", "derive"]);
   });
@@ -848,7 +892,8 @@ describe("step writers — insert, and reduce.post preservation", () => {
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
-    store.set(insertStepAtom, { afterIndex: 0, kind: "filter" });
+    store.set(insertStepAtom,
+      { afterId: store.get(activePlottableAtom)!.reduce.steps[0].id, kind: "filter" });
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
@@ -856,7 +901,7 @@ describe("step writers — insert, and reduce.post preservation", () => {
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
-    store.set(removeStepAtom, 1);
+    store.set(removeStepAtom, store.get(activePlottableAtom)!.reduce.steps[1].id);
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
@@ -898,23 +943,32 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
     expect(out[0]).toMatchObject({ kind: "join", on: ["k"], right });
   });
 
+  const stepKinds = (dag: EngineReduceDag) =>
+    dag.nodes.filter((n) => n.kind === "step").map((n) => (n as { step: EngineReduceStep }).step.kind);
+
   it("buildSpec excludes an unset join and inlines a materialized one", () => {
     const p = {
       ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
-      reduce: { steps: [makeStep("filter"), makeStep("join")] },
+      reduce: dagFromLinear("", [makeStep("filter"), makeStep("join")]),
     };
     const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
-    expect(spec.reduce.steps.map((s) => s.kind)).toEqual(["filter"]);
+    expect(stepKinds(spec.reduce)).toEqual(["filter"]);
 
     const pFilled = {
       ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
-      reduce: { steps: [makeStep("filter"),
-        { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep] },
+      reduce: dagFromLinear("", [makeStep("filter"),
+        { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]),
     };
     const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, cache);
-    expect(specFilled.reduce.steps.map((s) => s.kind)).toEqual(["filter", "join"]);
-    const joinStep = specFilled.reduce.steps[1];
-    expect(joinStep).toMatchObject({ kind: "join", right });
+    expect(stepKinds(specFilled.reduce)).toEqual(["filter", "join"]);
+    // the join is a genuine 2-input DAG node: its right is a synthesized source
+    // node carrying the materialized table inline (no `right`/`right_table_id`
+    // on the step itself — the DAG evaluator never reads those).
+    const joinNode = specFilled.reduce.nodes.find(
+      (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "step" }> =>
+        n.kind === "step" && n.step.kind === "join")!;
+    const rightSrc = specFilled.reduce.nodes.find((n) => n.id === joinNode.inputs[1]);
+    expect(rightSrc).toMatchObject({ kind: "source", table: right });
   });
 
   it("materializedTablesAtom feeds specAtom-style resolution through buildSpec", () => {
@@ -930,7 +984,7 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
     const pool = [wt("cells", 1), wt("annot", 2)];
     const join = { ...makeStep("join"), rightTableId: "annot" };
     const p = { ...makeDefaultPlottable("cells"),
-      reduce: { steps: [join] } } as never;
+      reduce: dagFromLinear("cells", [join]) };
     // cache empty → annot needs fetch (cells is not referenced by a join)
     expect(tablesNeedingMaterialize(pool, [p], {}).map((t) => t.id)).toEqual(["annot"]);
     // cache has annot at the WRONG version → still stale
@@ -949,14 +1003,14 @@ describe("loadDocumentAtom — full-pool rebuild, joins bound by reference", () 
     n: 1, version: 0, counts: { total: 1 }, rows: [],
   });
 
-  it("(2.1) rebuilds the full pool and binds joins by reference — no migration", async () => {
+  it("(2.2) rebuilds the full pool and binds joins by reference — no migration", async () => {
     const store = createStore();
     const createSession = vi.spyOn(engine, "createSession").mockResolvedValue(
       { id: "x", n: 0, version: 0, schema: SCHEMA, counts: { total: 0 } } as never);
     // analysis 1 roots in cells and joins annot by reference; analysis 2 roots in annot.
     const a1 = { ...makeSpec("a1", { xCol: "grp" }), table_id: "cells",
-      reduce: { steps: [{ kind: "join", on: ["k"], how: "inner", right_table_id: "annot" }] } } as never;
-    const a2 = { ...makeSpec("a2", { xCol: "grp" }), table_id: "annot" } as never;
+      reduce: engineDag([{ kind: "join", on: ["k"], how: "inner", right_table_id: "annot" }]) };
+    const a2 = { ...makeSpec("a2", { xCol: "grp" }), table_id: "annot" };
     await store.set(loadDocumentAtom,
       { analyses: [a1, a2], tables: [lt("cells"), lt("annot")] } as never);
     const pool = store.get(tablesAtom);

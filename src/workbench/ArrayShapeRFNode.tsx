@@ -4,7 +4,7 @@ import { Handle, Position } from "@xyflow/react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
 import { reduceStepInEdgeId, type EdgeKind, type ExplorerNode } from "../explorer/graph";
-import { insertStepAtom } from "../state";
+import { insertStepAtom, activePlottableAtom } from "../state";
 import { openCardAtom, pushStashAtom, stashAtom } from "./state";
 import { nodeTableName } from "./nodeName";
 import type { NodeDelta } from "./nodeDelta";
@@ -87,6 +87,7 @@ export function ArrayShapeRFNode(
 ) {
   const { missing, options, inEdge, stepIndex, ...shape } = data;
   const insertStep = useSetAtom(insertStepAtom);
+  const active = useAtomValue(activePlottableAtom);
   const openCard = useSetAtom(openCardAtom);
   const pushStash = useSetAtom(pushStashAtom);
   // the add menu is positioned in screen space and portalled to <body>, not
@@ -123,7 +124,14 @@ export function ArrayShapeRFNode(
       // splice the blank step, then open its editor at once — a new step is empty,
       // so dropping the user straight into it is the whole point of adding one. The
       // edge id is derivable from the new index before the async graph rebuild.
-      insertStep(d.arg);
+      // authorDispatch still speaks pipeline-step-index (source = -1); translate
+      // to the DAG node id insertStepAtom takes (Phase D routes the canvas
+      // through real ids directly — array order still matches chain order for
+      // Phase B's linear-only authoring, see insertStepAtom).
+      const afterId = d.arg.afterIndex < 0
+        ? (active?.reduce.sources[0]?.id ?? "src")
+        : (active?.reduce.steps[d.arg.afterIndex]?.id ?? "src");
+      insertStep({ afterId, kind: d.arg.kind });
       const index = d.arg.afterIndex + 1;
       openCard({ target: { kind: "edge", id: reduceStepInEdgeId(index) }, cardKind: "op-editor" });
     } else openCard(d.arg);
