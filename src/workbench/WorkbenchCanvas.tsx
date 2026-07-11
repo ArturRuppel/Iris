@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
-  useNodesState, useEdgesState,
+  useNodesState, useEdgesState, useReactFlow,
   type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -27,6 +27,11 @@ import { removeStepAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom } from ".
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
 const nodeTypes = { arrayShape: ArrayShapeRFNode } as unknown as NodeTypes;
 const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
+
+/* fit the DAG into its pane with a little breathing room; maxZoom 1 keeps nodes
+   at their natural size at most, so a roomy pane never balloons them. Shared by
+   the initial fit and the resize re-fit so both frame the graph identically. */
+const FIT_OPTS = { padding: 0.15, maxZoom: 1, duration: 0 };
 
 /* the onNodeDragStop reducer: records a node's post-drag position into the
    override map, immutably. Kept pure so it's unit-testable (RF drag events don't
@@ -110,6 +115,26 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const overlayRef = useRef<HTMLDivElement>(null);
   const stashRef = useRef<HTMLDivElement>(null);
   const resize = useWorkbenchResize(overlayRef, stashRef);
+
+  // Keep the DAG framed in its pane. The pane shrinks when the stash grows to its
+  // 2/3 default (and on window resize), but React Flow only fits once at mount —
+  // so without this the nodes keep their old, larger zoom and spill out of the
+  // band. Observe the pane and re-fit (coalesced to a frame) whenever it resizes.
+  const { fitView } = useReactFlow();
+  const rfcanvasRef = useRef<HTMLDivElement>(null);
+  const hasNodesRef = useRef(false);
+  hasNodesRef.current = nodes.length > 0;
+  useEffect(() => {
+    const el = rfcanvasRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => { if (hasNodesRef.current) fitView(FIT_OPTS); });
+    });
+    ro.observe(el);
+    return () => { cancelAnimationFrame(raf); ro.disconnect(); };
+  }, [fitView]);
 
   // Give the cards ~2/3 of the vertical space (they're the focus; the DAG rides
   // above in the remaining third). Applies on every appearance the user hasn't
@@ -283,7 +308,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <button className="txw-close" onClick={onClose} aria-label="Close workbench">✕</button>
         )}
       </div>
-      <div className={`txw-rfcanvas${hasStash ? " with-stash" : ""}`}>
+      <div className={`txw-rfcanvas${hasStash ? " with-stash" : ""}`} ref={rfcanvasRef}>
         <ReactFlow
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -295,7 +320,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           onEdgeClick={(_e, ed) => openEdge({ kind: "edge", id: ed.id })}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           deleteKeyCode={null}
-          fitView proOptions={{ hideAttribution: true }}
+          fitView fitViewOptions={FIT_OPTS} proOptions={{ hideAttribution: true }}
         >
           <Background gap={22} size={1} color="#d7dee7" />
           <Controls />
