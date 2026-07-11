@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
   useNodesState, useEdgesState,
@@ -19,6 +19,7 @@ import { targetToCardKind, type Target } from "./cardRegistry";
 import { FloatingCard } from "./FloatingCard";
 import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
+import { clampStashH, TOPBAR } from "./paneTiling";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
 import { removeStepAtom, undoSpecAtom, redoSpecAtom } from "../state";
 
@@ -101,9 +102,24 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
 
   // tiling-resize: stashH + column weights, driven by Alt-drag and the sliders.
   const layout = useAtomValue(workbenchLayoutAtom);
+  const setLayout = useSetAtom(workbenchLayoutAtom);
   const overlayRef = useRef<HTMLDivElement>(null);
   const stashRef = useRef<HTMLDivElement>(null);
   const resize = useWorkbenchResize(overlayRef, stashRef);
+
+  // On the stash's first appearance, give the cards ~2/3 of the vertical space
+  // (they're the focus; the DAG rides above in the remaining third). Runs once
+  // per mount, before paint, so there's no jump from the atom's static default;
+  // after that the user's drags own the height.
+  const didAutoSizeRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!hasStash || didAutoSizeRef.current) return;
+    const overlay = overlayRef.current;
+    if (!overlay) return;
+    didAutoSizeRef.current = true;
+    const contentH = overlay.clientHeight - TOPBAR;
+    setLayout((l) => ({ ...l, stashH: clampStashH(Math.round((contentH * 2) / 3), contentH) }));
+  }, [hasStash, setLayout]);
 
   // clicking a node pins its data card into the stash (docked, comparable),
   // never a floating popup. A stale id (kind === null) is ignored. A whole-node
@@ -292,7 +308,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
       {hasStash && (
         <ResizeHandles
           cols={layout.cols}
-          startH={resize.startH} startV={resize.startV} startCorner={resize.startCorner}
+          startV={resize.startV} startCorner={resize.startCorner}
         />
       )}
       <StashFocus graph={graph} />

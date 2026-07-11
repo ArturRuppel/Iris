@@ -1129,8 +1129,9 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
 
 /* ---- tiling resize: the slider layer over the stash boundaries ----
    a transparent grid mirroring .txw-stash columns; only the handles take input.
-   .txw-rs-h = height (ns), .txw-rs-v = a column gap (ew), .txw-rs-corner = both
-   axes at once where they cross (the Hyprland-style two-axis grip). */
+   .txw-rs-v = a column gap (ew), .txw-rs-corner = both axes at once where a gap
+   meets the top boundary (the Hyprland-style two-axis grip; it also carries the
+   height resize, so there's no full-width bar across the middle). */
 .txw-stash-handles {
   position: absolute;
   inset: auto 0 0 0;
@@ -1142,14 +1143,6 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   z-index: 7;
 }
 .txw-stash-handles > * { pointer-events: auto; background: transparent; transition: background .12s; }
-.txw-rs-h {
-  grid-column: 1 / -1;
-  align-self: start;
-  height: 8px;
-  margin-top: -14px;                     /* straddle the canvas/stash boundary */
-  cursor: ns-resize;
-  border-radius: 4px;
-}
 .txw-rs-v {
   grid-row: 1;
   justify-self: end;
@@ -1171,7 +1164,7 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   background: #cbd5e1;
   opacity: .6;
 }
-.txw-rs-h:hover, .txw-rs-v:hover { background: #6366f1; opacity: .55; }
+.txw-rs-v:hover { background: #6366f1; opacity: .55; }
 .txw-rs-corner:hover { background: #6366f1; opacity: 1; }
 /* ---- stash ↔ graph association: a numbered, colour-coded disc on each pinned
    node (top-left) and on its stash card, so slot 1/2/3 read as the same thing in

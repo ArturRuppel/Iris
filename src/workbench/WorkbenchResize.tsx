@@ -88,9 +88,6 @@ export function useWorkbenchResize(
     [stashRef, beginDrag],
   );
 
-  const startH = useCallback((e: RPE) => {
-    e.preventDefault(); e.stopPropagation(); beginDrag(e, true, null);
-  }, [beginDrag]);
   const startV = useCallback((e: RPE, i: number) => {
     e.preventDefault(); e.stopPropagation(); beginDrag(e, false, i);
   }, [beginDrag]);
@@ -98,24 +95,21 @@ export function useWorkbenchResize(
     e.preventDefault(); e.stopPropagation(); beginDrag(e, true, i);
   }, [beginDrag]);
 
-  return { onOverlayPointerDownCapture, startH, startV, startCorner };
+  return { onOverlayPointerDownCapture, startV, startCorner };
 }
 
 /* The visible slider layer: a transparent grid mirroring the stash columns, with
-   a full-width height handle along the top boundary, an ew handle on each column
-   gap, and a two-axis corner grip where they cross. */
+   an ew handle on each column gap and a two-axis corner grip where the gap meets
+   the top boundary (height rides on the corner grip, or on an Alt-drag). */
 export function ResizeHandles({
-  cols, startH, startV, startCorner,
+  cols, startV, startCorner,
 }: {
   cols: number[];
-  startH: (e: RPE) => void;
   startV: (e: RPE, i: number) => void;
   startCorner: (e: RPE, i: number) => void;
 }) {
   return (
     <div className="txw-stash-handles" style={{ gridTemplateColumns: gridCols(cols) }}>
-      <div className="txw-rs-h" title="Drag to resize height (or Alt-drag a pane)"
-           onPointerDown={startH} />
       {cols.slice(0, -1).map((_, i) => (
         <Fragment key={i}>
           <div className="txw-rs-v" style={{ gridColumn: i + 1 }}
