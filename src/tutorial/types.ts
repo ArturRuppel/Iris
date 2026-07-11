@@ -17,6 +17,7 @@ export interface TutorialCtx {
   spec: AnalysisSpec | null;
   schema: Schema | null;              // effective (post-reduction) schema, for colType
   analysis: AnalyzeResponse | null;
+  wizardOpen: boolean;                // a plot wizard is mid-build (layer added, not yet Done)
 }
 
 export interface TutorialStep {

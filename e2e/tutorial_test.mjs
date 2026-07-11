@@ -22,8 +22,10 @@ if (await page.locator(".engine-down").count() > 0)
 
 const next = page.locator(".tutorial-next");
 const card = page.locator(".tutorial-card");
-const waitNextEnabled = () =>
-  page.waitForSelector(".tutorial-next:not([disabled])", { timeout: 15_000 });
+const waitStep = (n) => page.waitForFunction(
+  (label) => new RegExp(`Step ${label} of 5`).test(
+    document.querySelector(".tutorial-card")?.textContent ?? ""),
+  String(n), { timeout: 15_000 });
 
 // --- Launch from the Guide's Quickstart page ---------------------------------
 await page.getByRole("button", { name: "Guide" }).click();
@@ -41,10 +43,7 @@ await next.click();
 // --- Step 2: open the Workbench (auto-advances on viewMode) ------------------
 if (!await next.isDisabled()) fail("step 2 Next must be disabled until the Workbench opens");
 await page.locator("[data-tour='mode-workbench']").click();
-// opening the Workbench IS the step — it auto-advances, no second click.
-await page.waitForFunction(
-  () => /Step 3 of 5/.test(document.querySelector(".tutorial-card")?.textContent ?? ""),
-  { timeout: 15_000 });
+await waitStep(3);          // opening the Workbench IS the step — it auto-advances, no click
 
 // --- Step 3: make a plot (gated on layer + categorical→X + numeric→Y) --------
 if (!await next.isDisabled()) fail("step 3 Next must be disabled until a mapped plot exists");
@@ -54,8 +53,7 @@ await page.locator(".wiz-geom").first().click();               // pick a geom �
 await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("species");
 await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("petal_length");
 await page.locator(".wiz-done").click();
-await waitNextEnabled();                        // mappings + layer now satisfy the goal
-await next.click();
+await waitStep(4);          // closing the wizard with a built plot auto-advances, no click
 
 // --- Step 4: Iris suggests a test (observational) ----------------------------
 await page.waitForSelector("[data-tour='stats']", { timeout: 10_000 });

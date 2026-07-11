@@ -24,7 +24,8 @@ const plot = (x: string, y: string, layers: number): Plottable =>
   ({ mappings: { x, y }, layers: Array(layers).fill({}) } as unknown as Plottable);
 
 const ctx = (over: Partial<TutorialCtx> = {}): TutorialCtx =>
-  ({ viewMode: "data", plottable: null, spec: null, schema, analysis: null, ...over });
+  ({ viewMode: "data", plottable: null, spec: null, schema, analysis: null,
+     wizardOpen: false, ...over });
 
 describe("tutorial step goals", () => {
   it("the workbench step is met only in the workbench view", () => {
@@ -42,7 +43,10 @@ describe("tutorial step goals", () => {
     it("is unmet when a mapping exists but no layer does", () => {
       expect(g(ctx({ plottable: plot("species", "petal_length", 0) }))).toBe(false);
     });
-    it("is met by any built plot, whatever type or mapping the user picked", () => {
+    it("stays unmet while the wizard is still open (a layer exists before Done)", () => {
+      expect(g(ctx({ plottable: plot("species", "petal_length", 1), wizardOpen: true }))).toBe(false);
+    });
+    it("is met by any built plot once the wizard closes, whatever the mapping", () => {
       expect(g(ctx({ plottable: plot("species", "petal_length", 1) }))).toBe(true);
       expect(g(ctx({ plottable: plot("petal_length", "species", 1) }))).toBe(true);
       expect(g(ctx({ plottable: plot("petal_length", "petal_width", 1) }))).toBe(true);

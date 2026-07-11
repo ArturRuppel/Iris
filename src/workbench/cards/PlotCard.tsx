@@ -1,6 +1,6 @@
-import { useAtomValue } from "jotai";
-import { useState } from "react";
-import { specAtom, effectiveSchemaAtom } from "../../state";
+import { useAtomValue, useSetAtom } from "jotai";
+import { useEffect, useState } from "react";
+import { specAtom, effectiveSchemaAtom, plotWizardOpenCountAtom } from "../../state";
 import { dataCardStates } from "../cardGating";
 import { FigurePane } from "../../components/FigurePane";
 import { LayerStrip } from "../../components/LayerStrip";
@@ -19,6 +19,15 @@ export function PlotCard(_props: CardBodyProps) {
   const schema = useAtomValue(effectiveSchemaAtom);
   const { plotEnabled } = dataCardStates(spec, schema);
   const [wizard, setWizard] = useState<WizardMode | null>(null);
+
+  /* Publish "a wizard is open here" while one is, so the tutorial can wait for the
+     user to actually finish building rather than fire the moment a geom is picked. */
+  const setWizardCount = useSetAtom(plotWizardOpenCountAtom);
+  useEffect(() => {
+    if (!wizard) return;
+    setWizardCount((c) => c + 1);
+    return () => setWizardCount((c) => c - 1);
+  }, [wizard, setWizardCount]);
 
   return (
     <div className="txw-card-plot" data-testid="plot-card" data-tour="plot">

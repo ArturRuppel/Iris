@@ -319,6 +319,12 @@ export const plottablesAtom = atom<Plottable[]>([]);
 export const activePlottableIdAtom = atom<string | null>(null);
 export const viewModeAtom = atom<"data" | "workbench" | "guide">("data");
 
+/* how many plot wizards are open right now (a count, so several plot cards can
+   host one at once without clobbering each other). Session-only UI state: the
+   tutorial reads it to tell "still building" from "done", since a layer is added
+   the moment a geom is picked, well before the wizard closes. */
+export const plotWizardOpenCountAtom = atom(0);
+
 /* a pending deep-link into the Guide tab: set by the stats pane's "Why this
    test?" link to a page slug (path under docs/guide/, no extension) and an
    optional heading slug on that page, consumed (and cleared) by the Guide once

@@ -50,8 +50,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     // wizard, so fall the spotlight through to the wizard rather than collapse.
     anchor: ["plot-wizard", "add-plot"],
     // Any built plot counts: pick whatever type and mapping you like. Constraining
-    // it to one shape traps anyone who tries something else.
-    goal: (c) => !!c.plottable && c.plottable.layers.length > 0,
+    // it to one shape traps anyone who tries something else. Wait for the wizard to
+    // close, though — a layer exists the instant a geom is picked, before Done.
+    goal: (c) => !!c.plottable && c.plottable.layers.length > 0 && !c.wizardOpen,
+    autoAdvance: true,   // finishing the plot IS the step; don't ask for a second click
     hint: "Add a plot and map your columns to the axes.",
     body: (
       <>

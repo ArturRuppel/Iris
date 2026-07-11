@@ -1,7 +1,8 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import {
-  activePlottableAtom, analysisAtom, effectiveSchemaAtom, specAtom, viewModeAtom,
+  activePlottableAtom, analysisAtom, effectiveSchemaAtom, plotWizardOpenCountAtom,
+  specAtom, viewModeAtom,
 } from "../state";
 import {
   advanceTutorialAtom, backTutorialAtom, exitTutorialAtom,
@@ -29,6 +30,7 @@ export function TutorialOverlay() {
     spec: useAtomValue(specAtom),
     schema: useAtomValue(effectiveSchemaAtom),
     analysis: useAtomValue(analysisAtom),
+    wizardOpen: useAtomValue(plotWizardOpenCountAtom) > 0,
   };
 
   const step = TUTORIAL_STEPS[index];
