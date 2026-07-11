@@ -70,6 +70,25 @@ def test_describe_only_decision_is_carried():
     assert specnorm.normalize(spec)["_describe_only"] is False
 
 
+def test_2_2_passes_through_unchanged_like_2_1():
+    # spec 2.2 (reduce is a DAG) is still the modern encodings/layers shape —
+    # normalize must treat it as modern, not rebuild it from a nonexistent
+    # `mappings` (which would silently null out encodings/hierarchy/facet and
+    # crash on `layer["mark"]`, since a 2.2 layer only carries `geom`).
+    spec = {"spec_version": "2.2", "id": "a", "title": "t",
+            "encodings": {"x": {"column": "treatment"},
+                          "y": {"column": "response"}, "color": None,
+                          "size": None, "shape": None},
+            "hierarchy": {"spine": ["subject"], "fn": {}},
+            "layers": [{"geom": "dot", "params": {}, "level": ""}],
+            "reduce": {"nodes": [{"id": "src", "kind": "source"}], "output": "src"},
+            "stats": {"family": "group_comparison", "test": "welch_t"}}
+    out = specnorm.normalize(spec)
+    assert out["encodings"] == spec["encodings"]
+    assert out["hierarchy"] == spec["hierarchy"]
+    assert out["reduce"] == spec["reduce"]
+
+
 def test_legacy_descriptive_drops_x_so_inference_reads_it_right():
     # legacy descriptive specs left x mapped; the grammar reads family from the
     # encodings, so x must be dropped or it would misinfer as comparison

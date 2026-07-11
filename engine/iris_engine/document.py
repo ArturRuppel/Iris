@@ -18,6 +18,11 @@ import pandas as pd
 
 from . import build_info
 
+# 2.2: reduce is a DAG (`{nodes, output}`, per-node `inputs`) instead of the
+# linear `{steps}` fold; a join no longer carries an inline right sub-pipeline
+# on the step itself — its right rides as an ordinary source node, referenced
+# by table_id (see state.ts's resolveSaveDag). Analyses are stored/read as
+# opaque JSON, so the DAG rides through load/save unchanged; no migration.
 # 2.1: the document persists a multi-table workspace — one Parquet per named
 # table under `tables/<name>/`. Analyses carry a `table_id`; join steps carry a
 # `right_table_id`. Files older than 2.1 are not read (the 2.0 single-inline-table
@@ -26,7 +31,7 @@ from . import build_info
 # stored analysis spec drops its derived stats fields (chosen_by /
 # alternatives_offered / assumption_checks / report) — those are recomputed on
 # open. See docs/superpowers/specs/2026-06-24-iris-file-format-redesign-design.md.
-FORMAT_VERSION = "2.1"
+FORMAT_VERSION = "2.2"
 
 
 def save_document(tables: dict, analyses: list[dict],

@@ -37,9 +37,9 @@ def _manifest_only_bytes(format_version: str) -> bytes:
     return buf.getvalue()
 
 
-def test_format_version_is_2_1():
+def test_format_version_is_2_2():
     data = document.save_document(_tables(), [], PROV, {"scipy": "1.0"})
-    assert _manifest(data)["format_version"] == "2.1"
+    assert _manifest(data)["format_version"] == "2.2"
 
 
 def test_manifest_carries_engine_identity():
@@ -80,7 +80,7 @@ def test_save_writes_one_parquet_per_named_table():
         assert "tables/cells/hierarchy.json" in names
         assert "tables/annot/table.parquet" in names
         manifest = json.loads(z.read("manifest.json"))
-        assert manifest["format_version"] == "2.1"
+        assert manifest["format_version"] == "2.2"
 
 
 def test_load_roundtrips_2_1_tables():
@@ -112,3 +112,20 @@ def test_load_rejects_a_pre_2_1_document():
     import pytest
     with pytest.raises(ValueError, match="predates the 2.1"):
         document.load_document(_manifest_only_bytes("2.0"))
+
+
+# ----- 2.2 reduce DAG -----
+
+def test_document_roundtrips_a_dag_analysis():
+    analyses = [{"spec_version": "2.2", "id": "p1", "title": "A",
+        "reduce": {"nodes": [
+            {"id": "src", "kind": "source", "table_id": "main"},
+            {"id": "n0", "kind": "step", "inputs": ["src"],
+             "step": {"kind": "filter", "conditions": []}}], "output": "n0"},
+        "sources": [{"id": "src", "table_id": "main"}]}]
+    tables = {"main": {"schema": {"columns": [{"name": "v", "type": "numeric"}]},
+                       "hierarchy": {"spine": [], "fn": {}}, "rows": [{"v": 1}]}}
+    blob = document.save_document(tables, analyses, {}, {})
+    doc = document.load_document(blob)
+    assert doc["analyses"][0]["reduce"]["output"] == "n0"
+    assert doc["manifest"]["format_version"] == "2.2"

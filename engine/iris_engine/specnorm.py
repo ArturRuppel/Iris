@@ -16,7 +16,10 @@ from __future__ import annotations
 
 # Spec versions that already use the modern encodings/layers shape — passed
 # through normalization idempotently rather than rebuilt from `mappings`.
-MODERN_VERSIONS = ("2.0", "2.1")
+# 2.2 changed `reduce` from a linear fold to a DAG; that field is copied
+# through verbatim by `dict(spec)` either way, so 2.2 needs no branch of its
+# own here — it only needs to be recognized as "already modern".
+MODERN_VERSIONS = ("2.0", "2.1", "2.2")
 
 
 def normalize(spec: dict) -> dict:
