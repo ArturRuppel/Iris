@@ -56,7 +56,7 @@ export function PlotWizard({ mode, onDone, onCancel }: {
   const xyMapped = !!active.mappings.x && !!active.mappings.y;
 
   return (
-    <div className="plot-wizard" data-testid="plot-wizard">
+    <div className="plot-wizard" data-testid="plot-wizard" data-tour="plot-wizard">
       {step === "type" && (
         <div className="wiz-step wiz-type">
           <p className="wiz-head">Choose a plot type</p>

@@ -40,9 +40,16 @@ export function TutorialOverlay() {
   useEffect(() => {
     if (!active) return;
     const measure = () => {
-      const el = step?.anchor
-        ? document.querySelector(`[data-tour="${step.anchor}"]`)
-        : null;
+      // Try each candidate anchor in order; the first present in the DOM wins, so
+      // the spotlight follows a control that is swapped for another mid-step.
+      const names = step?.anchor
+        ? (Array.isArray(step.anchor) ? step.anchor : [step.anchor])
+        : [];
+      let el: Element | null = null;
+      for (const name of names) {
+        el = document.querySelector(`[data-tour="${name}"]`);
+        if (el) break;
+      }
       setRect(el ? el.getBoundingClientRect() : null);
     };
     measure();

@@ -26,7 +26,11 @@ export interface TutorialStep {
   /* Force this view when the step is entered. Omit for a step whose task IS to
      navigate (the workbench-open step), so the overlay never fights the user. */
   view?: TutorialView;
-  anchor?: string;                    // data-tour value to spotlight (optional)
+  /* data-tour value(s) to spotlight (optional). An array names candidates tried
+     in order — the first present in the DOM wins — so a step can follow a control
+     that gets replaced by another (the "+ add plot" button becoming the wizard)
+     without the spotlight collapsing when the first one unmounts. */
+  anchor?: string | string[];
   /* Next is gated until this returns true. Omit for observational steps (Next
      always enabled). We never auto-advance on a met goal — that would skip past
      prose the user hasn't read; we enable Next instead. */

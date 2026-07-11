@@ -43,7 +43,9 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     id: "plot",
     title: "Make a plot",
     view: "workbench",
-    anchor: "add-plot",
+    // Spotlight the "+ add plot" button; once clicked it is replaced by the
+    // wizard, so fall the spotlight through to the wizard rather than collapse.
+    anchor: ["plot-wizard", "add-plot"],
     goal: (c) =>
       !!c.plottable &&
       c.plottable.layers.length > 0 &&
