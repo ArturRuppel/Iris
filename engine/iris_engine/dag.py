@@ -18,3 +18,36 @@ def linear_to_dag(table: dict, steps: list[dict] | None) -> dict:
         nodes.append({"id": nid, "kind": "step", "step": step, "inputs": [prev]})
         prev = nid
     return {"nodes": nodes, "output": prev}
+
+
+class DagError(ValueError):
+    """The reduce DAG is malformed (cycle, missing input, missing output)."""
+
+
+def topo_order(nodes: list[dict]) -> list[str]:
+    """Kahn topological sort over `inputs` edges. Raises DagError on a cycle or a
+    reference to an undeclared node id."""
+    ids = {n["id"] for n in nodes}
+    deps = {n["id"]: [i for i in (n.get("inputs") or [])] for n in nodes}
+    for nid, ins in deps.items():
+        missing = [i for i in ins if i not in ids]
+        if missing:
+            raise DagError(f"node {nid!r} names unknown input(s) {missing!r}")
+    indeg = {nid: 0 for nid in ids}
+    children: dict[str, list[str]] = {nid: [] for nid in ids}
+    for nid, ins in deps.items():
+        for i in ins:
+            indeg[nid] += 1
+            children[i].append(nid)
+    queue = sorted(nid for nid, d in indeg.items() if d == 0)
+    order: list[str] = []
+    while queue:
+        nid = queue.pop(0)
+        order.append(nid)
+        for c in sorted(children[nid]):
+            indeg[c] -= 1
+            if indeg[c] == 0:
+                queue.append(c)
+    if len(order) != len(ids):
+        raise DagError("reduce DAG contains a cycle")
+    return order

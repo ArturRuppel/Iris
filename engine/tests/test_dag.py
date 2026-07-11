@@ -19,3 +19,30 @@ def test_linear_to_dag_no_steps_outputs_source():
     dag = linear_to_dag(table, [])
     assert dag["output"] == "src"
     assert [n["id"] for n in dag["nodes"]] == ["src"]
+
+
+from iris_engine.dag import topo_order, DagError
+import pytest
+
+
+def test_topo_order_respects_inputs():
+    nodes = [{"id": "src", "kind": "source", "table": {}},
+             {"id": "a", "kind": "step", "inputs": ["src"]},
+             {"id": "b", "kind": "step", "inputs": ["src"]},
+             {"id": "j", "kind": "step", "inputs": ["a", "b"]}]
+    order = topo_order(nodes)
+    assert order.index("src") < order.index("a") < order.index("j")
+    assert order.index("b") < order.index("j")
+
+
+def test_topo_order_rejects_cycle():
+    nodes = [{"id": "a", "kind": "step", "inputs": ["b"]},
+             {"id": "b", "kind": "step", "inputs": ["a"]}]
+    with pytest.raises(DagError):
+        topo_order(nodes)
+
+
+def test_topo_order_rejects_missing_input():
+    nodes = [{"id": "a", "kind": "step", "inputs": ["ghost"]}]
+    with pytest.raises(DagError):
+        topo_order(nodes)
