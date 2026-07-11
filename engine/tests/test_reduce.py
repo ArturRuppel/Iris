@@ -126,3 +126,18 @@ def test_trace_reports_rows_and_schema_per_step():
     assert "treatment" in last_cols and "response" in last_cols
     assert "dose" not in last_cols
     assert len(out) == 2
+
+
+def test_join_frames_merges_on_key():
+    from iris_engine.reduce import _join_frames
+    import pandas as pd
+    left = pd.DataFrame({"cell": ["a", "b"], "speed": [1.0, 2.0]})
+    left_schema = {"columns": [{"name": "cell", "type": "categorical"},
+                               {"name": "speed", "type": "numeric"}]}
+    right = pd.DataFrame({"cell": ["a", "b"], "het": [0.1, 0.2]})
+    right_schema = {"columns": [{"name": "cell", "type": "categorical"},
+                                {"name": "het", "type": "numeric"}]}
+    out, schema = _join_frames(left, left_schema, right, right_schema, ["cell"], "inner")
+    assert list(out.columns) >= ["cell", "speed", "het"]
+    assert out.loc[out.cell == "a", "het"].iloc[0] == 0.1
+    assert any(c["name"] == "het" for c in schema["columns"])

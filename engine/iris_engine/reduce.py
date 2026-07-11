@@ -277,6 +277,36 @@ def _apply_recode(df: pd.DataFrame, schema: dict,
     return out, {**schema, "columns": new_cols}
 
 
+def _join_frames(df: pd.DataFrame, schema: dict,
+                 right_df: pd.DataFrame, right_schema: dict,
+                 on: list[str], how: str) -> tuple[pd.DataFrame, dict]:
+    """Inner-merge two already-materialized frames on `on`. The one merge
+    mechanism the fold and the DAG evaluator share: drops bookkeeping cols,
+    rejects a non-unique right key (many-to-many deferred), appends only the
+    right's new declared columns."""
+    if how != "inner":
+        raise ReduceError(f"join: only inner is supported, got {how!r}")
+    if not on:
+        raise ReduceError("join needs `on` keys")
+    right_df = right_df.drop(columns=["id", "row_ids"], errors="ignore")
+    missing = [k for k in on if k not in df.columns or k not in right_df.columns]
+    if missing:
+        raise ReduceError(f"join: key(s) {missing!r} absent from a side")
+    if right_df.duplicated(subset=on).any():
+        raise ReduceError("join: right table is not unique on the join key(s); "
+                          "many-to-many is not yet supported")
+    left_names = {c["name"] for c in schema["columns"]} | set(_meta_cols(df)) | set(on)
+    add = [c for c in right_schema.get("columns", [])
+           if c["name"] not in left_names and c["name"] in right_df.columns]
+    keep = list(dict.fromkeys(on + [c["name"] for c in add]))
+    right_df = right_df[[c for c in keep if c in right_df.columns]]
+    try:
+        out = df.merge(right_df, on=on, how="inner")
+    except ValueError as e:
+        raise ReduceError(f"join: merge failed — {e}") from e
+    return out.reset_index(drop=True), {**schema, "columns": [*schema["columns"], *add]}
+
+
 def _apply_join(df: pd.DataFrame, schema: dict,
                 step: dict) -> tuple[pd.DataFrame, dict]:
     on = step.get("on") or []
@@ -310,26 +340,9 @@ def _apply_join(df: pd.DataFrame, schema: dict,
             tg = right.get("test_grain")
             right_df, right_schema = (grains[tg] if tg in grains
                                       else hierarchy.resolve_level(grains, tg))
-    # bookkeeping columns must not collide / multiply the merge
-    right_df = right_df.drop(columns=["id", "row_ids"], errors="ignore")
-    missing = [k for k in on if k not in df.columns or k not in right_df.columns]
-    if missing:
-        raise ReduceError(f"join: key(s) {missing!r} absent from a side")
-    # defer many-to-many (spec): a non-unique right key would multiply left rows
-    if right_df.duplicated(subset=on).any():
-        raise ReduceError("join: right table is not unique on the join key(s); "
-                          "many-to-many is not yet supported")
-    left_names = {c["name"] for c in schema["columns"]} | set(_meta_cols(df)) | set(on)
-    # append only the right's NEW columns that the schema declares AND the rows carry
-    add = [c for c in right_schema.get("columns", [])
-           if c["name"] not in left_names and c["name"] in right_df.columns]
-    keep = list(dict.fromkeys(on + [c["name"] for c in add]))
-    right_df = right_df[[c for c in keep if c in right_df.columns]]
-    try:
-        out = df.merge(right_df, on=on, how="inner")
-    except ValueError as e:                 # e.g. dtype mismatch on a key
-        raise ReduceError(f"join: merge failed — {e}") from e
-    return out.reset_index(drop=True), {**schema, "columns": [*schema["columns"], *add]}
+    on = step.get("on") or []
+    how = step.get("how", "inner")
+    return _join_frames(df, schema, right_df, right_schema, on, how)
 
 
 def _apply_pivot(df: pd.DataFrame, schema: dict,
