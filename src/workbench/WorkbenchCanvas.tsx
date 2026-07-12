@@ -80,9 +80,12 @@ export function toRF(
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
-      // forward edges leave the right edge and enter the left edge.
+      // forward edges leave the right edge and enter the left edge. The figure's
+      // Plot and Stats sections are separate sinks: a geom wire feeds the Plot, the
+      // test wire the Stats, so they target the section-specific handles (see
+      // ArrayShapeRFNode) instead of stacking on one point as a single line.
       sourceHandle: "out",
-      targetHandle: "in",
+      targetHandle: e.kind === "geom" ? "in-plot" : e.kind === "test" ? "in-test" : "in",
       data: { kind: e.kind, label: e.label },
     })),
   };

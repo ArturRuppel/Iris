@@ -150,6 +150,20 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
+      {/* the figure's two sections (Plot + Stats) are distinct sinks: geom wires
+          feed the Plot, the test wire feeds the Stats — and the two can even read
+          different grains. Give each section its own left-edge target handle so the
+          wires land at the section they feed instead of stacking on one point and
+          reading as a single edge. geom -> in-plot (upper), test -> in-test (lower);
+          see toRF's targetHandle mapping. */}
+      {shape.variant === "figure" && (
+        <>
+          <Handle id="in-plot" type="target" position={Position.Left}
+            style={{ top: "30%", opacity: 0 }} />
+          <Handle id="in-test" type="target" position={Position.Left}
+            style={{ top: "76%", opacity: 0 }} />
+        </>
+      )}
       {/* a join's right (slot 1) input: a distinct drop target, lower on the left
           edge, that a dragged wire fills — the second path in beside the picker. */}
       {acceptsRightInput && (

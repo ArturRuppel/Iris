@@ -157,4 +157,20 @@ describe("ArrayShapeRFNode", () => {
     screen.getByRole("button", { name: /Stats summary/i }).click();
     expect(store.get(stashAtom).map((e) => e.target.facet)).toEqual(["plot", "stats"]);
   });
+  it("a figure exposes section-specific target handles so geom/test wires don't overlap", () => {
+    const { container } = render(
+      <ReactFlowProvider>
+        <ArrayShapeRFNode
+          id="figure"
+          data={nodeShapeProps({ id: "figure", kind: "figure", phase: "terminal", label: "Figure",
+            table: { via: "none" },
+            sections: [{ kind: "plot", facts: ["dots"] }, { kind: "stats", facts: ["MW"] }] })}
+        />
+      </ReactFlowProvider>,
+    );
+    // geom wires target in-plot, the test wire targets in-test (see toRF) — two
+    // distinct sinks so the Plot and Stats each get their own visible edge.
+    expect(container.querySelector('[data-handleid="in-plot"]')).not.toBeNull();
+    expect(container.querySelector('[data-handleid="in-test"]')).not.toBeNull();
+  });
 });
