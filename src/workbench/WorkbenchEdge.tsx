@@ -1,4 +1,4 @@
-import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from "@xyflow/react";
+import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
 import { useSetAtom } from "jotai";
 import type { EdgeKind } from "../explorer/graph";
 import { COL_GAP } from "./layout";
@@ -74,12 +74,11 @@ export function laneOf(
 /* a graph edge: the wire AND, for a table-producing step, the step's name written
    over it (just the verb — "filter", "collapse") as the edit affordance: click it
    to open that step's editor. The box below is the resulting table, the wire is the
-   step, so the step is named on the wire. An inline edge is a gentle bezier: a flat
-   horizontal line when its two nodes share a row, easing into a smooth S when one
-   is dragged off-row (a centered orthogonal step would read as a detached squiggle
-   in the gutter). Only the geom/test fan-in lanes stay orthogonal: their long
-   top/bottom detour around the collapse corridor wants crisp right angles, not a
-   sagging curve, to read as a deliberate bypass rather than a wandering wire. */
+   step, so the step is named on the wire. Every wire is orthogonal with crisp,
+   rounded right angles: an inline edge is a flat horizontal line when its two nodes
+   share a row and a smooth-step corner when one is dragged off-row; the geom/test
+   fan-in lanes take the same right angles on their long top/bottom detour around
+   the collapse corridor. One consistent edge style across the whole canvas. */
 export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
@@ -90,8 +89,8 @@ export function WorkbenchEdge(props: EdgeProps) {
   const lane = laneOf(data?.kind, sourceX, sourceY, targetX, targetY);
   const [path, labelX, labelY] = lane != null
     ? laneRoute(sourceX, sourceY, targetX, targetY, lane)
-    : getBezierPath({ sourceX, sourceY, targetX, targetY,
-        sourcePosition, targetPosition });
+    : getSmoothStepPath({ sourceX, sourceY, targetX, targetY,
+        sourcePosition, targetPosition, borderRadius: 8 });
   const kind = data?.kind;
   return (
     <>
