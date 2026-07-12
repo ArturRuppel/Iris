@@ -74,15 +74,85 @@ def build_table(case: ModuleType) -> dict:
     return {"schema": schema, "rows": rows}
 
 
-def _analyses(case: ModuleType) -> list[dict]:
-    """The spec dicts to persist, one per ANALYSES entry, each given a stable id
-    (``<case>-NN``) so the saved document parts are named and ordered."""
+def _linear_to_dag_spec(spec: dict, main_id: str, next_num: int) -> tuple[dict, dict, int]:
+    """Convert a linear 2.1 spec to a 2.2 reduce DAG, mirroring the frontend's
+    resolveSaveDag (state.ts): one `src` source, a straight ``inputs`` chain, a
+    single ``output``. A join's inline ``right`` table is PROMOTED to a pool table
+    (``table_N``) referenced by id from a synthesized right-source node, dissolving
+    the legacy inline-right form into an ordinary fan-in node — so the file loads
+    through the frontend's adoptReduceDag like any saved join. ``post`` stays a
+    linear chain (``reduce.post``), unchanged. Returns (spec, extra_tables, next_num).
+    Idempotent: a spec already at 2.2 passes through untouched."""
+    spec = dict(spec)
+    if spec.get("spec_version") == "2.2":
+        return spec, {}, next_num
+    reduce_block = spec.get("reduce") or {}
+    steps = list(reduce_block.get("steps") or [])
+    post = list(reduce_block.get("post") or [])
+    nodes: list[dict] = [{"id": "src", "kind": "source", "table_id": main_id}]
+    extra: dict[str, dict] = {}
+    prev = "src"
+    for i, raw in enumerate(steps):
+        step = dict(raw)
+        nid = f"n{i}"
+        if step.get("kind") == "join":
+            right_inline = step.get("right")
+            if right_inline is not None:                      # promote to a pool table
+                rid = f"table_{next_num}"; next_num += 1
+                extra[rid] = {"schema": right_inline["schema"],
+                              "hierarchy": {"spine": [], "fn": {}},
+                              "rows": right_inline["rows"]}
+                right_ref = rid
+            else:
+                right_ref = step.get("right_table_id") or ""
+            rnode = f"{nid}__right"
+            nodes.append({"id": rnode, "kind": "source", "table_id": right_ref})
+            nodes.append({"id": nid, "kind": "step", "inputs": [prev, rnode],
+                          "step": {"kind": "join", "on": step.get("on", []),
+                                   "how": step.get("how", "inner")}})
+        else:
+            nodes.append({"id": nid, "kind": "step", "inputs": [prev], "step": step})
+        prev = nid
+    new_reduce: dict = {"nodes": nodes, "output": prev}
+    if post:
+        new_reduce["post"] = post
+    spec["spec_version"] = "2.2"
+    spec["table_id"] = main_id
+    spec["reduce"] = new_reduce
+    return spec, extra, next_num
+
+
+def _inline_dag_sources(spec: dict, pool: dict) -> dict:
+    """Inline each source node's rows from `pool` (id -> {schema, rows, ...}) so the
+    engine's DAG evaluator can load them — the render-time mirror of the frontend's
+    resolveEngineDag, which inlines source rows at the request boundary. A no-op for
+    a linear (non-DAG) spec."""
+    reduce_block = spec.get("reduce") or {}
+    nodes = reduce_block.get("nodes")
+    if not nodes:
+        return spec
     out = []
+    for n in nodes:
+        if n.get("kind") == "source" and "table" not in n and n.get("table_id") in pool:
+            t = pool[n["table_id"]]
+            n = {**n, "table": {"schema": t["schema"], "rows": t["rows"]}}
+        out.append(n)
+    return {**spec, "reduce": {**reduce_block, "nodes": out}}
+
+
+def _dag_analyses(case: ModuleType, main_id: str) -> tuple[list[dict], dict]:
+    """The 2.2 spec dicts to persist, one per ANALYSES entry (each given a stable id
+    ``<case>-NN``), plus any pool tables promoted from a join's inline right."""
+    specs: list[dict] = []
+    extra: dict[str, dict] = {}
+    next_num = 2
     for i, an in enumerate(case.ANALYSES, 1):
         spec = dict(an["spec"])
         spec.setdefault("id", f"{case.__case_dir__.name}-{i:02d}")
-        out.append(spec)
-    return out
+        spec, more, next_num = _linear_to_dag_spec(spec, main_id, next_num)
+        specs.append(spec)
+        extra.update(more)
+    return specs, extra
 
 
 def build_iris(case: ModuleType, *, write: bool = True) -> bytes:
@@ -94,10 +164,12 @@ def build_iris(case: ModuleType, *, write: bool = True) -> bytes:
                   "title": getattr(case, "TITLE", case.__case_dir__.name),
                   "data_source": getattr(case, "SOURCE", ""),
                   "exclusions": []}
+    specs, extra_tables = _dag_analyses(case, "table_1")
     tables = {"table_1": {"schema": table["schema"],
                           "hierarchy": {"spine": [], "fn": {}},
-                          "rows": table["rows"]}}
-    data = document.save_document(tables, _analyses(case), provenance,
+                          "rows": table["rows"]},
+              **extra_tables}
+    data = document.save_document(tables, specs, provenance,
                                   main.engine_snapshot())
     if write:
         ARTIFACTS.mkdir(exist_ok=True)
@@ -218,6 +290,7 @@ def render_svg(case: ModuleType, spec: dict, *, write: bool = True) -> str:
     to ``artifacts/`` for human spot-checking ('look for yourself')."""
     _, t = next(iter(case.__built__["tables"].items()))
     table = {"schema": t["schema"], "rows": t["rows"]}
+    spec = _inline_dag_sources(spec, case.__built__["tables"])
     fig, res, _, _, model, issues = main._run(table, spec)
     svg = compiler.figure_to_svg(fig)
     compiler.close(fig)

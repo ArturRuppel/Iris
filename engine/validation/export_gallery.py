@@ -115,6 +115,10 @@ def _export_case(case_name: str) -> dict:
     plots = []
     for spec in doc["analyses"]:
         analysis_id = spec.get("id") or case_name
+        # inline each DAG source's rows from the pool (main + any promoted join
+        # right), mirroring the frontend's resolveEngineDag, so the saved 2.2
+        # reference-form spec renders here.
+        spec = harness._inline_dag_sources(spec, doc["tables"])
         fig, *_ = main._run(table, spec)
         try:
             svg = _normalize_svg(compiler.figure_to_svg(fig))

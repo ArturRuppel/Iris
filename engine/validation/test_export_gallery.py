@@ -39,6 +39,29 @@ def test_manifest_assets_round_trip(assets):
                 f"missing {plot['svgFile']}"
 
 
+def test_committed_examples_are_reduce_dag():
+    """Every COMMITTED example .iris must be format 2.2 with a DAG-shaped reduce
+    (nodes + output, no legacy linear `steps`). A stale 2.1 fixture crashes the
+    frontend's adoptReduceDag on open (it reads reduce.nodes), so this guards the
+    shipped assets against drifting behind the reduce-DAG spec. Reads the real
+    src/examples/assets dir (no ASSETS redirect), not a rebuilt tmp copy."""
+    iris_files = sorted(export_gallery.ASSETS.glob("*.iris"))
+    assert iris_files, "no committed example .iris files found"
+    for f in iris_files:
+        doc = document.load_document(f.read_bytes())
+        assert doc["manifest"]["format_version"] == "2.2", \
+            f"{f.name}: manifest format_version {doc['manifest']['format_version']!r} != 2.2"
+        for spec in doc["analyses"]:
+            sid = spec.get("id")
+            assert spec.get("spec_version") == "2.2", \
+                f"{f.name}/{sid}: spec_version {spec.get('spec_version')!r} != 2.2"
+            reduce = spec.get("reduce") or {}
+            assert "nodes" in reduce and "output" in reduce, \
+                f"{f.name}/{sid}: reduce is not a DAG (missing nodes/output)"
+            assert "steps" not in reduce, \
+                f"{f.name}/{sid}: reduce still carries a legacy `steps` list"
+
+
 def test_export_is_byte_deterministic(assets):
     """Two exports of the same case must yield identical .iris and .svg bytes —
     committed assets would otherwise churn on every rebuild."""
