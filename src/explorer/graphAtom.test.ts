@@ -4,7 +4,21 @@ import { buildGraph } from "./graph";
 import type { Edge, NodeCount } from "./graph";
 import { defaultPlan } from "../collapse";
 import { RAW_LEVEL } from "../types";
-import type { ShapeCountsGuards, StyleOverrides, Schema } from "../types";
+import type { ShapeCountsGuards, StyleOverrides, Schema, ReduceDag, ReduceStep } from "../types";
+
+/* wrap a linear step list in the degenerate reduce DAG buildGraph now takes: one
+   source, a straight `inputs` chain, output = the last step. buildGraph re-maps
+   these ids to `step:<arrayIndex>`, so the internal ids here are arbitrary. */
+function linearDag(steps: ReduceStep[], post: ReduceStep[] = []): ReduceDag {
+  const nodes = steps.map((s, i) => ({
+    ...s, id: `k${i}`, inputs: [i === 0 ? "src" : `k${i - 1}`] }));
+  return {
+    sources: [{ id: "src", tableId: "t" }],
+    steps: nodes,
+    output: nodes.length ? nodes[nodes.length - 1].id : "src",
+    ...(post.length ? { post } : {}),
+  };
+}
 
 const NO_GUARDS: ShapeCountsGuards = {
   pseudoreplication: null, pairing_flip: null,
@@ -72,7 +86,7 @@ describe("pruneIdentityGrains", () => {
   ] } as unknown as Schema;
   const SPINE = ["experiment", "cell"];
   // source -> grain:experiment/cell (regroup) -> grain:experiment (real collapse).
-  const graph = () => buildGraph([], SPINE, defaultPlan(SPINE, {}),
+  const graph = () => buildGraph(linearDag([]), SPINE, defaultPlan(SPINE, {}),
     [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
   const n = (rows: number): NodeCount => ({ rows, cols: 3 });
 
@@ -108,7 +122,7 @@ describe("pruneIdentityGrains", () => {
     // no-op and must be pruned — even though 60 != the source's 100. Comparing to
     // the source falsely KEPT it.
     const g = buildGraph(
-      [{ kind: "filter", conditions: [] }], SPINE, defaultPlan(SPINE, {}),
+      linearDag([{ kind: "filter", conditions: [] }]), SPINE, defaultPlan(SPINE, {}),
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const counts = {
       source: n(100), "step:0": n(60),
@@ -128,8 +142,8 @@ describe("pruneIdentityGrains", () => {
     // must be kept even when it equals the source. Model that directly: input 140,
     // grain 100 (== source) -> kept, because 100 != 140.
     const g = buildGraph(
-      [{ kind: "grid_complete", by: ["experiment"], column: "cell",
-         levels: [], fill: 0, count_name: "n" }],
+      linearDag([{ kind: "grid_complete", by: ["experiment"], column: "cell",
+         levels: [], fill: 0, count_name: "n" }]),
       SPINE, defaultPlan(SPINE, {}),
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const counts = {

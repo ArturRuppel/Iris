@@ -944,6 +944,30 @@ git commit -m "feat(engine): .iris format 2.2 (reduce DAG + sources)"
 
 ---
 
+## Reconciliation note (after Phase B, 2026-07-12)
+
+Phase B discovered a constraint the design glossed: the browser never holds the
+*primary* table's rows (it works off an engine `table_token`); only right-join
+tables are materialized client-side (`RightCache`). So Phase B kept `JoinStep.
+rightTableId` and a single internal source, synthesizing the two-input DAG shape
+only at the wire boundary. This is aligned with the design, which explicitly wants
+the right-table *picker* and the *wire* gesture to coexist ("the right-table picker
+stays; the drag gesture is the second path in"). Consequences for C/D:
+
+- We do NOT rip out `rightTableId`. A join's right input comes from EITHER the
+  picker (`rightTableId` -> synthesized right source at the wire, existing path)
+  OR a wire (`inputs[1]` names a real upstream node). Precedence: if `inputs[1]`
+  is set it wins and `rightTableId` is ignored (cleared on wire).
+- **Node identity / shape-counts:** counts are keyed `source` / `step:${i}` /
+  `grain:${key}` / `source:${i}` where `i` is the index in the steps array SENT to
+  the engine (`App.tsx`), and Phase B keeps `reduce.steps` array order == topo
+  order. So buildGraph keeps `step:${i}` ids (i = array index) while drawing edges
+  from `inputs` — fan-out renders AND count identity holds, with no engine change.
+- **C splits in two:** C1 = buildGraph walks adjacency (this section). C2
+  (fast-follow) = node-id-native `/shape_counts` via `evaluate_dag_traced` so a
+  genuine fan-out gets correct per-node counts (badges + no-op-grain pruning are
+  advisory, so C1 ships without them on branched nodes).
+
 ## Phase C — buildGraph reads adjacency
 
 `buildGraph` (`src/explorer/graph.ts:196-316`) stops threading a single `prev` cursor and instead walks the DAG's `sources` + `steps` adjacency. Source nodes become source `ExplorerNode`s; each step node emits edges from its `inputs`; a join emits two converging edges from real nodes (no synthetic `source:i`). The collapse chain, geom edges, and post chain are still synthesized downstream of `output` and are unchanged.

@@ -4,7 +4,21 @@ import { buildGraph, type NodeCount } from "../explorer/graph";
 import { pruneIdentityGrains } from "../explorer/graphAtom";
 import { defaultPlan } from "../collapse";
 import { RAW_LEVEL } from "../types";
-import type { AxisDesc, Schema } from "../types";
+import type { AxisDesc, Schema, ReduceDag, ReduceStep } from "../types";
+
+/* wrap a linear step list in the degenerate reduce DAG buildGraph now takes: one
+   source, a straight `inputs` chain, output = the last step. buildGraph re-maps
+   these ids to `step:<arrayIndex>`, so the internal ids here are arbitrary. */
+function linearDag(steps: ReduceStep[], post: ReduceStep[] = []): ReduceDag {
+  const nodes = steps.map((s, i) => ({
+    ...s, id: `k${i}`, inputs: [i === 0 ? "src" : `k${i - 1}`] }));
+  return {
+    sources: [{ id: "src", tableId: "t" }],
+    steps: nodes,
+    output: nodes.length ? nodes[nodes.length - 1].id : "src",
+    ...(post.length ? { post } : {}),
+  };
+}
 
 /* Regression: after pruneIdentityGrains drops the leading full-spine regroup, the
    first real collapse is rewired onto the source. Its shed level must still light
@@ -31,7 +45,7 @@ const SPINE = ["E", "P", "C", "F"];
 /* source -> [regroup E/P/C/F] -> E/P/C -> E/P -> E, the default prefix chain. */
 function prunedDeltas() {
   const join = { kind: "join" as const, on: ["C"], how: "inner" as const, rightTableId: "labels" };
-  const g = buildGraph([join], SPINE, defaultPlan(SPINE, {}),
+  const g = buildGraph(linearDag([join]), SPINE, defaultPlan(SPINE, {}),
     [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
   // counts with axes; the source is one-row-per-frame, so the regroup grain's row
   // count equals the source's and the prune fires, rewiring E/P/C onto the join.

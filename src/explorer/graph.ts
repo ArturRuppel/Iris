@@ -1,4 +1,4 @@
-import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceStep, Schema, ValueDesc } from "../types";
+import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceDag, ReduceStep, Schema, ValueDesc } from "../types";
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
 import { labelForCol } from "../levels";
@@ -194,47 +194,69 @@ const postAggregateDerive = (column: string, grainLabel: string): GuardVerdict =
 });
 
 export function buildGraph(
-  steps: ReduceStep[],
+  dag: ReduceDag,
   spine: string[],
   plan: CollapsePlan,
   layers: Layer[],
   schema: Schema | null,
   stats: StatsInput | null,
-  post: ReduceStep[] = [],
 ): ExplorerGraph {
-  const nodes: ExplorerNode[] = [
-    { id: SOURCE_ID, kind: "table", phase: "source", stepIndex: -1,
-      label: "Source", table: { via: "at_step", at_step: -1 } },
-  ];
+  const post: ReduceStep[] = dag.post ?? [];
+  // Map every DAG node id -> its graph node id. The primary source is "source";
+  // any further source is "source:<its id>". A step keeps the index-based id
+  // `step:<i>` (i = its position in reduce.steps) so per-node shape-counts, keyed
+  // by the same array index in App.tsx, still line up. Edges are drawn from each
+  // node's `inputs`, so true adjacency (fan-out, a wired join right) renders even
+  // though the ids are positional. Built in a first pass so an input may name a
+  // node appearing later in the array (a branch need not be array-ordered).
+  const graphId = new Map<string, string>();
+  dag.sources.forEach((s, si) =>
+    graphId.set(s.id, si === 0 ? SOURCE_ID : `source:${s.id}`));
+  dag.steps.forEach((n, i) => graphId.set(n.id, stepId(i)));
+  const mapId = (id: string): string => graphId.get(id) ?? SOURCE_ID;
+
+  const nodes: ExplorerNode[] = dag.sources.map((s, si) => ({
+    id: mapId(s.id), kind: "table", phase: "source",
+    stepIndex: si === 0 ? -1 : undefined,
+    label: si === 0 ? "Source" : s.tableId,
+    table: { via: "at_step", at_step: -1 } }));
   const edges: Edge[] = [];
 
-  let prev = SOURCE_ID;
-  steps.forEach((step, i) => {
+  dag.steps.forEach((step, i) => {
     const id = stepId(i);
     nodes.push({ id, kind: "table", phase: "reduce", stepIndex: i,
       label: STEP_NODE_LABEL[step.kind] ?? step.kind,
       table: { via: "at_step", at_step: i } });
     if (step.kind === "join") {
-      // a second source feeds the join: draw it converging into this node. An
-      // unset rightTableId is the unfilled "missing input" state — an open circle
-      // labelled to invite a drop, not the referenced table name.
-      const srcId = `source:${i}`;
-      const filled = step.rightTableId.length > 0;
       const onLabel = step.on.join(", ");
-      nodes.push({ id: srcId, kind: "table", phase: "join-input",
-        label: filled ? step.rightTableId : "drop a table here",
-        table: { via: "none" }, missing: !filled });
-      edges.push({ id: `e:${prev}->${id}`, kind: "join", label: `on ${onLabel}`,
-        fromId: prev, toId: id, onKeys: step.on });
-      edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `on ${onLabel}`,
-        fromId: srcId, toId: id, onKeys: step.on });
+      const leftId = mapId(step.inputs[0]);
+      edges.push({ id: `e:${leftId}->${id}`, kind: "join", label: `on ${onLabel}`,
+        fromId: leftId, toId: id, onKeys: step.on });
+      // Right input: a WIRED second input (inputs[1]) wins and points at a real
+      // upstream node; otherwise the PICKER's rightTableId synthesizes a right
+      // source, an unset id being the unfilled "missing input" open circle.
+      if (step.inputs[1]) {
+        const rightId = mapId(step.inputs[1]);
+        edges.push({ id: `e:${rightId}->${id}`, kind: "join", label: `on ${onLabel}`,
+          fromId: rightId, toId: id, onKeys: step.on });
+      } else {
+        const srcId = `source:${i}`;
+        const filled = step.rightTableId.length > 0;
+        nodes.push({ id: srcId, kind: "table", phase: "join-input",
+          label: filled ? step.rightTableId : "drop a table here",
+          table: { via: "none" }, missing: !filled });
+        edges.push({ id: `e:${srcId}->${id}`, kind: "join", label: `on ${onLabel}`,
+          fromId: srcId, toId: id, onKeys: step.on });
+      }
     } else {
-      edges.push({ id: `e:${prev}->${id}`, kind: step.kind,
-        label: stepEdgeLabel(step, schema), fromId: prev, toId: id });
+      step.inputs.forEach((inId) => {
+        const fromId = mapId(inId);
+        edges.push({ id: `e:${fromId}->${id}`, kind: step.kind,
+          label: stepEdgeLabel(step, schema), fromId, toId: id });
+      });
     }
-    prev = id;
   });
-  const rawNodeId = prev;
+  const rawNodeId = mapId(dag.output);
 
   let cprev = rawNodeId;
   let prevKeep: string[] = spine;            // raw carries the full spine identity

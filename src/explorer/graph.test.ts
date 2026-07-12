@@ -1,8 +1,22 @@
 import { describe, it, expect } from "vitest";
 import { buildGraph, nodeIdForGrain } from "./graph";
-import type { Layer, ReduceStep, Schema } from "../types";
+import type { Layer, ReduceDag, ReduceStep, Schema } from "../types";
 import { RAW_LEVEL } from "../types";
 import { defaultPlan } from "../collapse";
+
+/* wrap a linear step list in the degenerate reduce DAG buildGraph now takes: one
+   source, a straight `inputs` chain, output = the last step. buildGraph re-maps
+   these ids to `step:<arrayIndex>`, so the internal ids here are arbitrary. */
+function linearDag(steps: ReduceStep[], post: ReduceStep[] = []): ReduceDag {
+  const nodes = steps.map((s, i) => ({
+    ...s, id: `k${i}`, inputs: [i === 0 ? "src" : `k${i - 1}`] }));
+  return {
+    sources: [{ id: "src", tableId: "t" }],
+    steps: nodes,
+    output: nodes.length ? nodes[nodes.length - 1].id : "src",
+    ...(post.length ? { post } : {}),
+  };
+}
 
 const SCHEMA: Schema = {
   schema_version: "1.0",
@@ -24,7 +38,7 @@ describe("buildGraph", () => {
       { kind: "filter", conditions: [] },
       { kind: "drop", columns: ["area"] },
     ];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(g.nodes.map((n) => n.id)).toEqual([
       "source", "step:0", "step:1", "grain:experiment/cell", "grain:experiment", "figure",
     ]);
@@ -33,8 +47,53 @@ describe("buildGraph", () => {
     ]);
   });
 
+  it("draws one edge per input; a fan-out node emits two outgoing edges", () => {
+    // src feeds two derives (a fan-out); one of them is the output.
+    const dag: ReduceDag = {
+      sources: [{ id: "src", tableId: "t" }],
+      steps: [
+        { kind: "derive", column: "hi", expr: "area+1", id: "hi", inputs: ["src"] },
+        { kind: "derive", column: "lo", expr: "area-1", id: "lo", inputs: ["src"] },
+      ] as ReduceDag["steps"],
+      output: "hi",
+    };
+    const g = buildGraph(dag, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    // "hi" is step:0, "lo" is step:1 (array order); both hang off the source.
+    const fromSrc = g.edges.filter((e) => e.fromId === "source" && e.kind === "derive");
+    expect(fromSrc.map((e) => e.toId).sort()).toEqual(["step:0", "step:1"]);
+  });
+
+  it("a wired join right draws an edge from the real upstream node, not a synthetic source", () => {
+    // src -> derive(branch); a join whose right input is WIRED to that branch.
+    const dag: ReduceDag = {
+      sources: [{ id: "src", tableId: "t" }],
+      steps: [
+        { kind: "derive", column: "b", expr: "area*2", id: "branch", inputs: ["src"] },
+        { kind: "join", on: ["cell"], how: "inner", rightTableId: "", id: "j",
+          inputs: ["src", "branch"] },
+      ] as ReduceDag["steps"],
+      output: "j",
+    };
+    const g = buildGraph(dag, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    // no synthetic join-input node when the right is wired.
+    expect(g.nodes.some((n) => n.phase === "join-input")).toBe(false);
+    // branch (step:0) feeds the join (step:1) as its right input.
+    expect(edge(g, "step:0", "step:1", "join")).toBeTruthy();
+  });
+
+  it("an unwired join with a rightTableId keeps the picker's synthetic source node", () => {
+    const dag = linearDag([
+      { kind: "join", on: ["cell"], how: "inner", rightTableId: "other" } as ReduceStep,
+    ]);
+    const g = buildGraph(dag, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const ji = g.nodes.find((n) => n.phase === "join-input");
+    expect(ji?.label).toBe("other");
+    expect(ji?.missing).toBe(false);
+    expect(edge(g, "source:0", "step:0", "join")).toBeTruthy();
+  });
+
   it("collapse nodes are keyed by grain; chain runs full-spine -> coarsest", () => {
-    const g = buildGraph([{ kind: "drop", columns: ["area"] }], SPINE, PLAN,
+    const g = buildGraph(linearDag([{ kind: "drop", columns: ["area"] }]), SPINE, PLAN,
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "step:0", "grain:experiment/cell")?.kind).toBe("collapse");
     expect(edge(g, "grain:experiment/cell", "grain:experiment")?.kind).toBe("collapse");
@@ -42,13 +101,13 @@ describe("buildGraph", () => {
   });
 
   it("each collapse edge carries the white #3 flatten-info guard", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const ce = g.edges.find((e) => e.kind === "collapse");
     expect(ce?.guards?.some((gd) => gd.id === "flatten_info" && gd.severity === "info")).toBe(true);
   });
 
   it("collapse edge label reads as the reduction; identity regroup reads 'group per'", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     // real collapse: experiment/cell -> experiment removes Cell
     expect(edge(g, "grain:experiment/cell", "grain:experiment")?.label).toBe("mean over Cell");
     // first chain edge keeps the full spine (removes nothing): a regroup, not a collapse
@@ -59,7 +118,7 @@ describe("buildGraph", () => {
   });
 
   it("tags the leading full-spine grain as a regroup candidate; real collapses are not", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(g.nodes.find((n) => n.id === "grain:experiment/cell")?.regroup).toBe(true);
     expect(g.nodes.find((n) => n.id === "grain:experiment")?.regroup).toBe(false);
   });
@@ -70,13 +129,13 @@ describe("buildGraph", () => {
                                      { column: "area", op: "<", value: 9 }] },
       { kind: "drop", columns: ["area"] },
     ];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")).toMatchObject({ kind: "filter", label: "2 conditions" });
     expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "drop", label: "Area" });
   });
 
   it("maps each node to its data-tab fetch strategy", () => {
-    const g = buildGraph([{ kind: "drop", columns: ["area"] }], SPINE, PLAN,
+    const g = buildGraph(linearDag([{ kind: "drop", columns: ["area"] }]), SPINE, PLAN,
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const byId = Object.fromEntries(g.nodes.map((n) => [n.id, n.table]));
     expect(byId["source"]).toEqual({ via: "at_step", at_step: -1 });
@@ -87,7 +146,7 @@ describe("buildGraph", () => {
 
   it("geom edge per layer into figure; raw reads the last reduce node", () => {
     const steps: ReduceStep[] = [{ kind: "drop", columns: ["area"] }];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "step:0", "figure", "geom")).toMatchObject({ kind: "geom", label: "dots" });
   });
 
@@ -97,7 +156,7 @@ describe("buildGraph", () => {
       { geom: "box", level: "experiment" },
       { geom: "box", level: "experiment" },
     ];
-    const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, null);
+    const g = buildGraph(linearDag([]), SPINE, PLAN, layers, SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toHaveLength(2);
     expect(edge(g, "source", "figure", "geom")?.label).toBe("dots");
@@ -109,7 +168,7 @@ describe("buildGraph", () => {
       { geom: "dot", level: RAW_LEVEL },
       { geom: "box", level: RAW_LEVEL },
     ];
-    const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, null);
+    const g = buildGraph(linearDag([]), SPINE, PLAN, layers, SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toHaveLength(1);
     expect(geoms[0].label).toBe("dots, box");
@@ -117,7 +176,7 @@ describe("buildGraph", () => {
   });
 
   it("skips a geom edge for a level no longer on the spine", () => {
-    const g = buildGraph([], ["experiment"], defaultPlan(["experiment"], {}),
+    const g = buildGraph(linearDag([]), ["experiment"], defaultPlan(["experiment"], {}),
       [{ geom: "dot", level: "cell" }], SCHEMA, null);
     const geoms = g.edges.filter((e) => e.kind === "geom");
     expect(geoms).toEqual([{ id: expect.any(String), kind: "geom",
@@ -129,13 +188,13 @@ describe("buildGraph", () => {
       { geom: "dot", level: RAW_LEVEL },
       { geom: "box", level: "experiment" },
     ];
-    const g = buildGraph([], SPINE, PLAN, layers, SCHEMA, { test: "Welch's t-test", describeOnly: false });
+    const g = buildGraph(linearDag([]), SPINE, PLAN, layers, SCHEMA, { test: "Welch's t-test", describeOnly: false });
     expect(edge(g, "grain:experiment", "figure", "test")).toMatchObject({
       kind: "test", label: "Welch's t-test" });
   });
 
   it("describe-only -> the test edge reads 'describe'", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
       { test: null, describeOnly: true });
     expect(edge(g, "grain:experiment", "figure", "test")).toMatchObject({ kind: "test", label: "describe" });
   });
@@ -150,7 +209,7 @@ describe("buildGraph", () => {
       { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
       { kind: "recode", column: "class_label", map: [["negative", "VimentinKO"]] },
     ];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const kinds = g.edges.filter((e) => e.kind === "derive" || e.kind === "recode")
       .map((e) => e.kind);
     expect(kinds).toEqual(["derive", "recode"]);
@@ -163,7 +222,7 @@ describe("buildGraph", () => {
       { kind: "grid_complete", by: ["experiment"], column: "tt",
         levels: ["a", "b"], fill: 0, count_name: "count" },
     ];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")).toMatchObject({ kind: "pivot", label: "opp → {same, opp}" });
     expect(edge(g, "step:0", "step:1")).toMatchObject({ kind: "grid_complete", label: "Experiment × tt · fill 0" });
     const kinds = g.edges.filter((e) => e.kind === "pivot" || e.kind === "grid_complete")
@@ -176,14 +235,14 @@ describe("buildGraph", () => {
       { kind: "filter", conditions: [{ column: "area", op: ">", value: 1 }] },
       { kind: "derive", column: "q", expr: "perimeter / sqrt(area)" },
     ];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")?.label).toBe("Area > 1");
     expect(edge(g, "step:0", "step:1")?.label).toBe("q = perimeter / sqrt(area)");
   });
 
   it("a join emits a referenced right node and two 'join on <keys>' edges", () => {
     const steps: ReduceStep[] = [{ kind: "join", on: ["cell_id"], how: "inner", rightTableId: "annot" }];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const sources = g.nodes.filter((n) => n.kind === "table" && n.id.startsWith("source"));
     expect(sources.length).toBeGreaterThanOrEqual(2);
     const incoming = g.edges.filter((e) => e.toId === "step:0" && e.kind === "join");
@@ -198,7 +257,7 @@ describe("buildGraph", () => {
 
   it("an UNFILLED join (empty rightTableId) renders its right input as a missing node", () => {
     const steps: ReduceStep[] = [{ kind: "join", on: [], how: "inner", rightTableId: "" }];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const src = g.nodes.find((n) => n.id === "source:0");
     expect(src?.missing).toBe(true);
     expect(src?.label).toBe("drop a table here");
@@ -206,7 +265,7 @@ describe("buildGraph", () => {
 
   it("a FILLED join (rightTableId set) is not missing (label = the table name)", () => {
     const steps: ReduceStep[] = [{ kind: "join", on: ["k"], how: "inner", rightTableId: "annot" }];
-    const g = buildGraph(steps, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     const src = g.nodes.find((n) => n.id === "source:0");
     expect(src?.missing).toBeFalsy();
     expect(src?.label).toBe("annot");
@@ -214,8 +273,8 @@ describe("buildGraph", () => {
 
   it("post-collapse phase: a derive runs after the collapse chain, with the caution badge", () => {
     const post: ReduceStep[] = [{ kind: "derive", column: "enrich", expr: "obs / exp" }];
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }],
-      SCHEMA, null, post);
+    const g = buildGraph(linearDag([], post), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }],
+      SCHEMA, null);
     // the post derive hangs off the coarsest grain node (where the test runs)
     const pe = edge(g, "grain:experiment", "post:0");
     expect(pe?.kind).toBe("derive");
@@ -226,13 +285,13 @@ describe("buildGraph", () => {
   });
 
   it("no post phase: the test reads the coarsest grain directly", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "grain:experiment", "figure", "test")?.kind).toBe("test");
     expect(g.nodes.some((n) => n.id.startsWith("post:"))).toBe(false);
   });
 
   it("the single figure terminal carries a plot section and a stats section", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
       { test: "Welch's t-test", describeOnly: false });
     const fig = g.nodes.find((n) => n.id === "figure")!;
     expect(fig.kind).toBe("figure");
@@ -244,7 +303,7 @@ describe("buildGraph", () => {
   });
 
   it("annotated test marks the stats section, not a back-edge", () => {
-    const g = buildGraph([], SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
       { test: "Welch's t-test", describeOnly: false, annotate: true });
     const fig = g.nodes.find((n) => n.id === "figure")!;
     expect(fig.sections?.find((s) => s.kind === "stats")?.facts)
