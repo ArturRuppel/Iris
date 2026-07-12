@@ -263,8 +263,14 @@ export function tablesNeedingMaterialize(
 // generic over T (a plain ReduceStep or a ReduceStepNode) so a caller filtering
 // DAG nodes keeps their id/inputs, not just the declared ReduceStep shape.
 export function runnableSteps<T extends ReduceStep>(steps: T[], cache: RightCache): T[] {
-  return steps.filter((s) => s.kind !== "join"
-    || (!!s.rightTableId && s.on.length > 0 && !!cache[s.rightTableId]));
+  return steps.filter((s) => {
+    if (s.kind !== "join") return true;
+    if (s.on.length === 0) return false;
+    // a WIRED join (its right input is a real upstream node, inputs[1]) is runnable
+    // on its own; a PICKER join needs its right table materialized in the cache.
+    const wired = ((s as unknown as ReduceStepNode).inputs?.length ?? 0) > 1;
+    return wired || (!!s.rightTableId && !!cache[s.rightTableId]);
+  });
 }
 
 /* map internal steps to engine-facing steps, inlining each runnable join's right
@@ -361,10 +367,17 @@ function resolveReduceDag(
     if (!keptIds.has(n.id)) continue;
     const input0 = resolveInput(n.inputs[0]);
     if (n.kind === "join") {
-      const rightId = `${n.id}__right`;
-      nodes.push({ ...rightSource(n.rightTableId), id: rightId });
-      nodes.push({ id: n.id, kind: "step", inputs: [input0, rightId],
-        step: { kind: "join", on: n.on, how: n.how } });
+      if (n.inputs[1]) {
+        // WIRED: the right input is a real upstream node already in the walk.
+        nodes.push({ id: n.id, kind: "step", inputs: [input0, resolveInput(n.inputs[1])],
+          step: { kind: "join", on: n.on, how: n.how } });
+      } else {
+        // PICKER: synthesize a right source node from the chosen pool table.
+        const rightId = `${n.id}__right`;
+        nodes.push({ ...rightSource(n.rightTableId), id: rightId });
+        nodes.push({ id: n.id, kind: "step", inputs: [input0, rightId],
+          step: { kind: "join", on: n.on, how: n.how } });
+      }
     } else {
       nodes.push({ id: n.id, kind: "step", inputs: [input0], step: stripStepKey(n) as EngineReduceStep });
     }
@@ -399,7 +412,7 @@ export function resolveEngineDag(dag: ReduceDag, cache: RightCache): EngineReduc
    as the render path above. */
 export function resolveSaveDag(dag: ReduceDag): EngineReduceDag {
   const keptIds = new Set(dag.steps
-    .filter((s) => s.kind !== "join" || s.rightTableId.length > 0)
+    .filter((s) => s.kind !== "join" || s.rightTableId.length > 0 || s.inputs.length > 1)
     .map((s) => s.id));
   const out = resolveReduceDag(dag, keptIds,
     (rightTableId) => ({ kind: "source", table_id: rightTableId }),
@@ -850,28 +863,32 @@ function adoptReduceDag(spec: AnalysisSpec, tableId: string): ReduceDag {
     (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "step" }> => n.kind === "step");
   const sourceNodes = dag.nodes.filter(
     (n): n is Extract<EngineReduceDag["nodes"][number], { kind: "source" }> => n.kind === "source");
-  // every join step's 2nd input is a synthetic right-source node, never part
-  // of the adopted internal DAG.
-  const joinRightIds = new Set(
-    stepNodes.filter((n) => n.step.kind === "join" && n.inputs.length > 1)
+  // A join's 2nd input is EITHER a synthesized PICKER source (a source node —
+  // fold it back into rightTableId, drop the node) OR a WIRED step node (a real
+  // upstream branch — keep it as inputs[1]). The discriminant is source-vs-step.
+  const sourceIds = new Set(sourceNodes.map((n) => n.id));
+  const pickerRightIds = new Set(
+    stepNodes.filter((n) => n.step.kind === "join" && n.inputs.length > 1
+                            && sourceIds.has(n.inputs[1]))
              .map((n) => n.inputs[1]));
   const rightTableIdByNode = new Map(
-    sourceNodes.filter((n) => joinRightIds.has(n.id))
+    sourceNodes.filter((n) => pickerRightIds.has(n.id))
                .map((n) => [n.id, n.table_id ?? ""]));
-  const mainSource = sourceNodes.find((n) => !joinRightIds.has(n.id)) ?? sourceNodes[0];
+  const mainSource = sourceNodes.find((n) => !pickerRightIds.has(n.id)) ?? sourceNodes[0];
   const srcId = mainSource?.id ?? "src";
 
-  const steps: ReduceStepNode[] = stepNodes
-    .filter((n) => !joinRightIds.has(n.id))
-    .map((n) => {
-      const step = n.step.kind === "join"
-        ? { ...n.step, right_table_id: rightTableIdByNode.get(n.inputs[1]) ?? "" }
-        : n.step;
+  const steps: ReduceStepNode[] = stepNodes.map((n) => {
+    if (n.step.kind === "join") {
+      const wired = n.inputs.length > 1 && !sourceIds.has(n.inputs[1]);
+      if (wired) return { ...adoptStep(n.step), id: n.id, inputs: [n.inputs[0], n.inputs[1]] };
+      const step = { ...n.step, right_table_id: rightTableIdByNode.get(n.inputs[1]) ?? "" };
       return { ...adoptStep(step), id: n.id, inputs: [n.inputs[0]] };
-    });
-  // the output can never legitimately be a synthetic right-source; the guard
-  // is defensive (a hand-edited file could name one).
-  const output = joinRightIds.has(dag.output) ? srcId : dag.output;
+    }
+    return { ...adoptStep(n.step), id: n.id, inputs: n.inputs };
+  });
+  // the output can never legitimately be a synthetic picker right-source; the
+  // guard is defensive (a hand-edited file could name one).
+  const output = pickerRightIds.has(dag.output) ? srcId : dag.output;
   return {
     sources: [{ id: srcId, tableId }],
     steps,
@@ -1346,6 +1363,53 @@ export const removeStepAtom = atom(null, (get, set, nodeId: string) =>
     const output = p.reduce.output === nodeId ? feeder : p.reduce.output;
     return { ...p, reduce: { ...p.reduce, steps, output } };
   }));
+
+/* does `start` reach `goal` walking `inputs` upward (toward the sources)? Used to
+   reject a connect that would close a cycle. */
+function reaches(dag: ReduceDag, start: string, goal: string): boolean {
+  const byId = new Map(dag.steps.map((s) => [s.id, s]));
+  const seen = new Set<string>();
+  const stack = [start];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (id === goal) return true;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const i of byId.get(id)?.inputs ?? []) stack.push(i);
+  }
+  return false;
+}
+
+/* wire a node's `slot`-th input to `sourceId` (an onConnect drag). No-ops a
+   self-wire or one that would form a cycle. Wiring a join's right input (slot 1)
+   supersedes its picker, so `rightTableId` is cleared — the wire is now the second
+   path in. */
+export const connectInputAtom = atom(null,
+  (get, set, arg: { targetId: string; sourceId: string; slot: number }) =>
+    updateActive(get, set, (p) => {
+      if (arg.sourceId === arg.targetId) return p;
+      if (reaches(p.reduce, arg.sourceId, arg.targetId)) return p;   // would cycle
+      const steps = p.reduce.steps.map((s) => {
+        if (s.id !== arg.targetId) return s;
+        const inputs = [...s.inputs];
+        inputs[arg.slot] = arg.sourceId;
+        return s.kind === "join" && arg.slot === 1
+          ? { ...s, inputs, rightTableId: "" }
+          : { ...s, inputs };
+      });
+      return { ...p, reduce: { ...p.reduce, steps } };
+    }));
+
+/* create a new step consuming `fromId` as an ADDITIONAL consumer — a fan-out
+   branch. Unlike insertStepAtom it neither rewires `fromId`'s existing consumers
+   nor moves the output: the branch is a side path that stays dead until it is
+   wired back into a join (fan-in). */
+export const branchStepAtom = atom(null,
+  (get, set, arg: { fromId: string; kind: ReduceStepKind }) =>
+    updateActive(get, set, (p) => {
+      const node: ReduceStepNode = { ...makeStep(arg.kind), id: nextNodeId(), inputs: [arg.fromId] };
+      return { ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, node] } };
+    }));
 
 /* swap two adjacent nodes IN THE CHAIN (via `inputs`, not raw array
    position — the DAG's wiring is truth once nodes can branch). `up` directly
