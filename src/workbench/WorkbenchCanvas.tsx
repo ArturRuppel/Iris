@@ -21,7 +21,7 @@ import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
 import { clampStashH, TOPBAR } from "./paneTiling";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
-import { removeStepAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom } from "../state";
+import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom } from "../state";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -41,6 +41,25 @@ export function applyNudge(
   id: string, x: number, y: number,
 ): Record<string, { x: number; y: number }> {
   return { ...prev, [id]: { x, y } };
+}
+
+/* Map a React Flow connection (graph node ids + a target handle) to a
+   connectInputAtom arg. `dagIdOf` translates a graph node id (`source`,
+   `step:<i>`) to its DAG node id; a synthetic/unwireable endpoint resolves to
+   null and the connection is dropped. The target handle names the input slot:
+   "in-1" is a join's right (slot 1), anything else the primary input (slot 0).
+   Pure + exported: React Flow connect events do not fire under jsdom, so the
+   handler delegates here and we unit-test this directly. */
+export function onConnectDelegate(
+  conn: { source: string | null; target: string | null; targetHandle?: string | null },
+  dagIdOf: (graphId: string) => string | null,
+): { targetId: string; sourceId: string; slot: number } | null {
+  if (!conn.source || !conn.target) return null;
+  const targetId = dagIdOf(conn.target);
+  const sourceId = dagIdOf(conn.source);
+  if (!targetId || !sourceId) return null;
+  const slot = conn.targetHandle === "in-1" ? 1 : 0;
+  return { targetId, sourceId, slot };
 }
 
 export function toRF(
@@ -175,8 +194,20 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   // nodes have no single step to drop, so they offer no delete. Reachable two
   // ways: right-click (context menu) and Delete/Backspace on a selected node.
   const removeStep = useSetAtom(removeStepAtom);
+  const connectInput = useSetAtom(connectInputAtom);
   const active = useAtomValue(activePlottableAtom);
   const [menu, setMenu] = useState<NodeMenu | null>(null);
+  // translate a graph node id to its DAG node id for wiring: the primary source
+  // is sources[0]; a `step:<i>` node is reduce.steps[i] (array index == the id's
+  // index, per buildGraph). Synthetic/terminal ids (source:<i>, grain:, figure)
+  // are not wireable and resolve to null.
+  const dagIdOf = useCallback((graphId: string): string | null => {
+    if (!active) return null;
+    if (graphId === "source") return active.reduce.sources[0]?.id ?? null;
+    const m = /^step:(\d+)$/.exec(graphId);
+    if (m) return active.reduce.steps[Number(m[1])]?.id ?? null;
+    return null;
+  }, [active]);
   // removeStepAtom takes a DAG node id now (Phase B); array order still matches
   // chain order for Phase B's linear-only authoring (see insertStepAtom), so a
   // pipeline-step-index still resolves to the right node via this lookup —
@@ -319,6 +350,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onNodeClick={(_e, n) => pinNode({ kind: "node", id: n.id })}
           onNodeContextMenu={onNodeContextMenu}
+          onConnect={(c) => { const a = onConnectDelegate(c, dagIdOf); if (a) connectInput(a); }}
           onPaneClick={() => setMenu(null)}
           onNodeDragStop={(_e, n) =>
             setNodePositions((prev) => applyNudge(prev, n.id, n.position.x, n.position.y))}

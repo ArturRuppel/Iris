@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { WorkbenchCanvas, applyNudge, toRF } from "./WorkbenchCanvas";
+import { WorkbenchCanvas, applyNudge, toRF, onConnectDelegate } from "./WorkbenchCanvas";
 import { cardsAtom, nodePositionsAtom, stashAtom, seedDefaultStashAtom } from "./state";
 import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
@@ -26,6 +26,28 @@ function mount(g: ExplorerGraph = graph, onClose?: () => void) {
   );
   return { store, ...utils };
 }
+
+describe("onConnectDelegate", () => {
+  // stand-in resolver: source -> "src", step:i -> "n<i>", everything else unwireable.
+  const dagIdOf = (g: string): string | null =>
+    g === "source" ? "src" : /^step:(\d+)$/.test(g) ? `n${g.slice(5)}` : null;
+
+  it("maps a drop on a join's right handle to slot 1", () => {
+    const arg = onConnectDelegate({ source: "step:0", target: "step:1", targetHandle: "in-1" }, dagIdOf);
+    expect(arg).toEqual({ targetId: "n1", sourceId: "n0", slot: 1 });
+  });
+
+  it("maps a drop on the primary handle to slot 0", () => {
+    const arg = onConnectDelegate({ source: "source", target: "step:0", targetHandle: "in" }, dagIdOf);
+    expect(arg).toEqual({ targetId: "n0", sourceId: "src", slot: 0 });
+  });
+
+  it("drops a connection to/from an unwireable (synthetic/terminal) node", () => {
+    expect(onConnectDelegate({ source: "source:0", target: "step:0", targetHandle: "in-1" }, dagIdOf)).toBeNull();
+    expect(onConnectDelegate({ source: "step:0", target: "figure", targetHandle: "in" }, dagIdOf)).toBeNull();
+    expect(onConnectDelegate({ source: null, target: "step:0", targetHandle: "in" }, dagIdOf)).toBeNull();
+  });
+});
 
 describe("WorkbenchCanvas", () => {
   it("renders one React Flow node per graph node, plus a tidy control", () => {

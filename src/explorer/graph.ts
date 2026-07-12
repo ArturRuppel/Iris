@@ -54,6 +54,9 @@ export interface ExplorerNode {
   /* a required input this node doesn't yet have (an unfilled join right): rendered
      as an open "missing" circle prompting a drag to fill it. */
   missing?: boolean;
+  /* a join node accepts a second (right) input: the canvas renders a distinct
+     right-input handle (slot 1) that a dragged wire fills, superseding the picker. */
+  acceptsRightInput?: boolean;
   /* terminal (figure) sections: the plot's geom chips and the stats' test chip,
      kept distinct so the node renders two labeled sections. Set only on the
      terminal; absent elsewhere. */
@@ -226,7 +229,8 @@ export function buildGraph(
     const id = stepId(i);
     nodes.push({ id, kind: "table", phase: "reduce", stepIndex: i,
       label: STEP_NODE_LABEL[step.kind] ?? step.kind,
-      table: { via: "at_step", at_step: i } });
+      table: { via: "at_step", at_step: i },
+      ...(step.kind === "join" ? { acceptsRightInput: true } : {}) });
     if (step.kind === "join") {
       const onLabel = step.on.join(", ");
       const leftId = mapId(step.inputs[0]);

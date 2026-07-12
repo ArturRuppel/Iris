@@ -35,6 +35,9 @@ export type RFNodeData = ArrayShapeNodeProps & {
   /* the reduce-step index this node inserts after (source = -1); routed to
      authorDispatch when a `+`-pick splices a step. */
   stepIndex?: number;
+  /* a join node: renders a distinct right-input (slot 1) target handle that a
+     dragged wire fills. */
+  acceptsRightInput?: boolean;
 };
 
 /* the root source or a join's right input: both render as a source, with no
@@ -74,6 +77,7 @@ export function nodeShapeProps(
     missing: node.missing,
     options: affordances(node),
     stepIndex: node.stepIndex,
+    acceptsRightInput: node.acceptsRightInput,
   };
 }
 
@@ -85,7 +89,7 @@ export function nodeShapeProps(
 export function ArrayShapeRFNode(
   { id, data }: { id?: string; selected?: boolean; data: RFNodeData },
 ) {
-  const { missing, options, inEdge, stepIndex, ...shape } = data;
+  const { missing, options, inEdge, stepIndex, acceptsRightInput, ...shape } = data;
   const insertStep = useSetAtom(insertStepAtom);
   const active = useAtomValue(activePlottableAtom);
   const openCard = useSetAtom(openCardAtom);
@@ -146,6 +150,15 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
+      {/* a join's right (slot 1) input: a distinct drop target, lower on the left
+          edge, that a dragged wire fills — the second path in beside the picker. */}
+      {acceptsRightInput && (
+        <Handle
+          id="in-1" type="target" position={Position.Left}
+          className="txw-handle-right-input"
+          style={{ top: "75%" }}
+        />
+      )}
       <ArrayShapeNode {...shape} sections={sections} />
       <Handle
         id="out" type="source" position={Position.Right}

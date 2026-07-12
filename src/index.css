@@ -1002,6 +1002,16 @@ footer pre { background: #0f172a; color: #cffafe; font-size: 11px;
   border: 2px dashed #f59e0b;
 }
 
+/* a join's right (slot 1) input handle: a solid teal target, lower on the left
+   edge, that a dragged wire drops onto to feed the join a second table. */
+.react-flow__handle.txw-handle-right-input {
+  opacity: 1;
+  width: 12px;
+  height: 12px;
+  background: #0e7490;
+  border: 2px solid #fff;
+}
+
 /* the authoring + handle on a node's output side: click for the phase-keyed add
    menu, drag onto another table to wire a join. */
 .react-flow__handle.txw-handle-add {
