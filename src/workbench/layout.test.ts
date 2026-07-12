@@ -36,6 +36,31 @@ describe("layoutGraph", () => {
     expect(at(L, "figure").y).toBe(0);
   });
 
+  it("drops a figure onto its own row when a fan-in spans >1 column (superplot)", () => {
+    // A raw layer (source -> figure, spanning the grain node between them) plus a
+    // coarser-grain layer: without the offset the raw geom wire lifts into an
+    // off-canvas lane and reads as a missing input edge. The figure moves below the
+    // chain so both fan-ins route as visible drops; the chain itself stays on y=0.
+    const g: ExplorerGraph = {
+      nodes: [
+        { id: "source", kind: "table", phase: "source", label: "Source", table: { via: "at_step", at_step: -1 } },
+        { id: "grain:s", kind: "table", phase: "grain", label: "per subject", table: { via: "grain", grain: "s" } },
+        { id: "figure", kind: "figure", phase: "terminal", label: "Figure", table: { via: "none" } },
+      ],
+      edges: [
+        { id: "e0", kind: "collapse", label: "mean", fromId: "source", toId: "grain:s" },
+        { id: "g:source", kind: "geom", label: "box", fromId: "source", toId: "figure" },   // spans 2 cols
+        { id: "g:grain:s", kind: "geom", label: "dots", fromId: "grain:s", toId: "figure" }, // adjacent
+        { id: "t0", kind: "test", label: "t", fromId: "grain:s", toId: "figure" },
+      ],
+      spine: [],
+    };
+    const L = layoutGraph(g);
+    expect(at(L, "source").y).toBe(0);
+    expect(at(L, "grain:s").y).toBe(0);
+    expect(at(L, "figure").y).toBeGreaterThan(0);   // pushed to its own row below the chain
+  });
+
   it("emits one layout edge per graph edge, carrying kind/label/source/target", () => {
     const L = layoutGraph(forkGraph());
     expect(L.edges).toHaveLength(3);

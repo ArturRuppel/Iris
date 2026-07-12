@@ -61,6 +61,26 @@ export function layoutGraph(graph: ExplorerGraph): GraphLayout {
     order.set(r, i + 1);
   }
 
+  // A terminal figure with a fan-in that spans more than one column (the superplot
+  // case: a raw layer AND a coarser-grain layer both feed the plot) would force the
+  // far geom/test wire into an off-row lane that lifts ABOVE the top node — outside
+  // the node bounding box fitView frames, so it clips off-canvas and reads as a
+  // MISSING input edge. Drop such a figure onto its own row below the chain: each
+  // fan-in then routes as a clean orthogonal drop UNDER the intermediate collapse
+  // nodes, on-canvas, so every source table keeps a visible edge into the figure. A
+  // figure whose only fan-ins are from the adjacent column stays inline (unchanged).
+  for (const n of graph.nodes) {
+    if (n.kind !== "figure") continue;
+    const figRank = rank.get(n.id) ?? 0;
+    const spans = forward.some((e) => e.toId === n.id
+      && (e.kind === "geom" || e.kind === "test")
+      && (rank.get(e.fromId) ?? 0) <= figRank - 2);
+    if (!spans) continue;
+    const below = Math.max(0, ...graph.nodes
+      .filter((m) => m.id !== n.id).map((m) => yOf.get(m.id) ?? 0)) + ROW_GAP;
+    yOf.set(n.id, below);
+  }
+
   const nodes: PositionedNode[] = graph.nodes.map((n) => ({
     id: n.id, x: (rank.get(n.id) ?? 0) * COL_GAP, y: yOf.get(n.id) ?? 0, node: n,
   }));
