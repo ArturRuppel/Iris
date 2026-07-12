@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { render, fireEvent } from "@testing-library/react";
 import { ReactFlow, ReactFlowProvider, Position, type Node } from "@xyflow/react";
 import { WorkbenchEdge, laneOf } from "./WorkbenchEdge";
 
@@ -43,6 +43,16 @@ describe("WorkbenchEdge", () => {
     expect(word).not.toBeNull();
     expect(word!.textContent).toBe("drop");           // just the verb, lowercased
     expect(word!.getAttribute("title")).toBe("petal_width");
+  });
+  it("hovering the step chip floats a before/after schematic of the op", () => {
+    const { container } = renderEdge({ kind: "drop", label: "petal_width" });
+    const word = container.querySelector(".txw-edge-step.k-drop") as HTMLElement;
+    expect(document.querySelector(".txw-pop .txw-hover")).toBeNull();  // hidden until hover
+    fireEvent.mouseEnter(word, { clientX: 40, clientY: 40 });
+    // portalled to <body>, so query the document, not the render container.
+    expect(document.querySelector(".txw-pop .txw-hover")).not.toBeNull();
+    fireEvent.mouseLeave(word);
+    expect(document.querySelector(".txw-pop .txw-hover")).toBeNull();
   });
 });
 

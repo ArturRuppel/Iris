@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
   useNodesState, useEdgesState, useReactFlow,
-  type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes,
+  type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes, type FitViewOptions,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useSetAtom, useAtomValue } from "jotai";
@@ -29,9 +29,12 @@ const nodeTypes = { arrayShape: ArrayShapeRFNode } as unknown as NodeTypes;
 const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
 
 /* fit the DAG into its pane with a little breathing room; maxZoom 1 keeps nodes
-   at their natural size at most, so a roomy pane never balloons them. Shared by
-   the initial fit and the resize re-fit so both frame the graph identically. */
-const FIT_OPTS = { padding: 0.15, maxZoom: 1, duration: 0 };
+   at their natural size at most, so a roomy pane never balloons them. The top gets
+   extra room so the chain always clears the GRAIN legend that floats over the
+   canvas's top-left (see the top-left Panel) instead of tucking behind it. Shared
+   by the initial fit and the resize re-fit so both frame the graph identically. */
+const FIT_OPTS: FitViewOptions = { padding: { top: "72px", right: "24px", bottom: "24px", left: "24px" },
+  maxZoom: 1, duration: 0 };
 
 /* the onNodeDragStop reducer: records a node's post-drag position into the
    override map, immutably. Kept pure so it's unit-testable (RF drag events don't

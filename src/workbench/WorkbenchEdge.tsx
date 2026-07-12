@@ -1,6 +1,10 @@
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
+import { useState } from "react";
+import { createPortal } from "react-dom";
 import { useSetAtom } from "jotai";
 import type { EdgeKind } from "../explorer/graph";
+import { cannedExample } from "../explorer/cannedExamples";
+import { OpHoverExample } from "../components/OpHoverExample";
 import { COL_GAP } from "./layout";
 import { openCardAtom } from "./state";
 import { EDGE_CARD } from "./cardRegistry";
@@ -83,6 +87,11 @@ export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
   const openCard = useSetAtom(openCardAtom);
+  // hovering the step chip floats a before/after schematic of what the op does,
+  // just above the cursor and portalled to <body> so it paints over every node
+  // (each React Flow node is its own stacking context). The op now rides the wire,
+  // so its worked example rides the wire's chip too.
+  const [exAt, setExAt] = useState<{ x: number; y: number } | null>(null);
   // geom -> Plot, test -> Stats: pick the lane the TARGET is on so the wire never
   // detours. Off-row target -> route straight to its row; on-row target -> lift
   // into a top (geom) / bottom (test) lane to clear the inline collapse corridor.
@@ -92,6 +101,7 @@ export function WorkbenchEdge(props: EdgeProps) {
     : getSmoothStepPath({ sourceX, sourceY, targetX, targetY,
         sourcePosition, targetPosition, borderRadius: 8 });
   const kind = data?.kind;
+  const example = kind ? cannedExample(kind) : null;
   return (
     <>
       <BaseEdge id={id} path={path} className={`txw-rfedge ${kind ?? ""}`} />
@@ -103,6 +113,9 @@ export function WorkbenchEdge(props: EdgeProps) {
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
                      pointerEvents: "all" }}
             title={data?.label || undefined}
+            onMouseEnter={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
+            onMouseMove={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
+            onMouseLeave={example ? () => setExAt(null) : undefined}
             onClick={(e) => {
               e.stopPropagation();
               openCard({ target: { kind: "edge", id }, cardKind: EDGE_CARD[kind!] });
@@ -110,6 +123,13 @@ export function WorkbenchEdge(props: EdgeProps) {
           >
             {EDGE_TYPE[kind!].toLowerCase()}
           </button>
+          {example && exAt && createPortal(
+            <div className="txw-pop" role="tooltip"
+                 style={{ left: exAt.x, top: exAt.y - 12 }}>
+              <OpHoverExample example={example} />
+            </div>,
+            document.body,
+          )}
         </EdgeLabelRenderer>
       )}
     </>
