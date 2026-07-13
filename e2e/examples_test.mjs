@@ -52,7 +52,7 @@ await page.locator(".gallery-open-btn").first().click();
 await page.waitForSelector(".workbench-mode", { timeout: 15_000 });
 
 // Saving now must call the save picker (Save As) — the example is not bound.
-await page.getByRole("button", { name: "Save .iris" }).click();
+await page.getByRole("button", { name: "Save", exact: true }).click();
 await page.waitForFunction(() => window.__savePickerCalls > 0, { timeout: 10_000 })
   .catch(() => fail("Save did not prompt for a file — example may be bound as write target"));
 

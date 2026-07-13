@@ -31,7 +31,7 @@ const fail = (msg) => { console.error(msg); process.exit(1); };
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "plottables_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -40,8 +40,8 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 // Switch to Analyses mode; the pipeline rail and reduced preview appear.
-await page.click(".mode-toggle button:has-text('Analyses')");
-await page.waitForSelector(".analyses-mode", { timeout: 60000 });
+await page.click(".tb-seg button:has-text('Workbench')");
+await page.waitForSelector(".workbench-mode", { timeout: 60000 });
 await page.waitForSelector(".pipeline-section", { timeout: 60000 });
 
 // The reduced-table preview loads (table upload + /reduce round trip).

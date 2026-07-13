@@ -25,7 +25,7 @@ const csv = [
   "a,1", "a,2", "a,3", "b,4", "b,5", "b,6",
 ].join("\n");
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "zoom_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -33,7 +33,7 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-await page.click(".mode-toggle button:has-text('Analyses')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
 await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");

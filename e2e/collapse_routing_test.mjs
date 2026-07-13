@@ -40,7 +40,7 @@ for (const [grp, base] of [["ctrl", 10], ["drug", 14]])
       rows.push(`${grp},${grp}_s${s},${r},${base + s + r * 0.1}`);
 const csv = rows.join("\n");
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "collapse_routing_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -49,7 +49,7 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 // Into Analyses, map a categorical-X / numeric-Y comparison so a plot+test exist.
-await page.click(".mode-toggle button:has-text('Analyses')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
 await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");

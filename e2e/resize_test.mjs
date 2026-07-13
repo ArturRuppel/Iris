@@ -19,7 +19,7 @@ page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.goto(process.env.APP_URL ?? "http://localhost:5173");
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "resize_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -27,7 +27,7 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-await page.click(".mode-toggle button:has-text('Analyses')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".layer-rail", { timeout: 60000 });
 
 await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");

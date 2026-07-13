@@ -36,7 +36,7 @@ for (const [grp, base] of [["ctrl", 10], ["drug", 14]])
       rows.push(`${grp},${grp}_s${s},${r},${base + s + r * 0.1}`);
 const csv = rows.join("\n");
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "superplot_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -47,13 +47,13 @@ await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000
 // The spine is seeded from the imported identifier columns — `subject` and `rep`
 // are identifier tokens, so the hierarchy panel (Data tab) shows a 2-level spine
 // with no manual building. (The app opens in Data mode by default.)
-await page.click(".mode-toggle button:has-text('Data')");
+await page.click(".tb-seg button:has-text('Data')");
 await page.waitForSelector(".hierarchy-panel", { timeout: 15000 });
 const spineNodes = await page.locator(".hierarchy-panel .hp-node").count();
 if (spineNodes !== 2)
   fail(`spine should have 2 levels (subject, rep) from the identifier columns, saw ${spineNodes}`);
 
-await page.click(".mode-toggle button:has-text('Analyses')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 
 // Map a group comparison (categorical X + numeric Y).

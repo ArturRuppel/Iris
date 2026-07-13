@@ -44,7 +44,7 @@ function installSavePickerStub() {
 }
 
 async function importFixture(page) {
-  await page.click("button:has-text('Import data…')");
+  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
   await page.setInputFiles("input[type=file]", {
     name: "autosave_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
   });
@@ -57,7 +57,7 @@ async function importFixture(page) {
    dump — the exact-state fingerprint the restore must reproduce. */
 async function readSpec(page) {
   if (await page.locator("footer pre").count() === 0)
-    await page.click("footer button.link");
+    await page.click(".tb-icon"); await page.click(".tb-menu-right button:has-text('analysis spec')");
   const txt = await page.locator("footer pre").innerText();
   return JSON.parse(txt);
 }
@@ -79,7 +79,7 @@ if (await page.locator(".recovery-bar").count() > 0)
 await importFixture(page);
 console.log("dataset imported");
 
-await page.click(".mode-toggle button:has-text('Workbench')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".txw-add-plot", { timeout: 15000 });
 await page.click(".txw-add-plot");
 await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
@@ -133,7 +133,7 @@ if (await page2.locator(".error-bar").count() > 0)
   fail("error bar after restore: " + await page2.locator(".error-bar").innerText());
 
 // ── Phase 3: an explicit Save clears the slot; the next launch is quiet ──────
-await page2.click("header button:has-text('Save .iris')");
+await page2.click("header .tb-primary");
 await page2.waitForFunction(() => window.__writeCount === 1, null, { timeout: 30000 });
 await waitForSlot(false, "cleared (explicit Save)");
 console.log("explicit Save cleared the snapshot slot");

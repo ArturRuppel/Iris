@@ -1,10 +1,10 @@
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import irisMark from "./assets/iris-mark.svg";
-import { DataEntry } from "./components/DataEntry";
+import { DataEntry, type DataEntryHandle } from "./components/DataEntry";
 import { DataTable } from "./components/DataTable";
 import { HierarchyPanel } from "./components/HierarchyPanel";
-import { ImportWizard } from "./components/ImportWizard";
+import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { TableList } from "./components/TableList";
 import { Guide } from "./examples/Guide";
@@ -35,19 +35,39 @@ const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
 }) as Record<string, string>;
 
+/* Small geometric top-bar glyphs (currentColor, ~15px). Recreated from the
+   design handoff; kept inline so they inherit the button's ink/active colour. */
+const G = { width: 15, height: 15, viewBox: "0 0 16 16", fill: "none" } as const;
+const DataGlyph = () => (
+  <svg {...G}><rect x="1.5" y="2.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" /><line x1="1.5" y1="6.2" x2="14.5" y2="6.2" stroke="currentColor" strokeWidth="1.4" /><line x1="6" y1="6.2" x2="6" y2="13.5" stroke="currentColor" strokeWidth="1.4" /></svg>
+);
+const WorkbenchGlyph = () => (
+  <svg {...G}><circle cx="3.2" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.4" /><circle cx="12.8" cy="3.4" r="2.1" stroke="currentColor" strokeWidth="1.4" /><circle cx="12.8" cy="12.6" r="2.1" stroke="currentColor" strokeWidth="1.4" /><line x1="5" y1="7.1" x2="11" y2="4.2" stroke="currentColor" strokeWidth="1.4" /><line x1="5" y1="8.9" x2="11" y2="11.8" stroke="currentColor" strokeWidth="1.4" /></svg>
+);
+const GuideGlyph = () => (
+  <svg {...G}><rect x="2" y="3" width="12" height="10.5" rx="1.2" stroke="currentColor" strokeWidth="1.4" /><line x1="8" y1="3.4" x2="8" y2="13.2" stroke="currentColor" strokeWidth="1.4" /></svg>
+);
+const SunGlyph = () => (
+  <svg {...G}><circle cx="8" cy="8" r="3.1" stroke="currentColor" strokeWidth="1.4" /><g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><line x1="8" y1="1.5" x2="8" y2="3" /><line x1="8" y1="13" x2="8" y2="14.5" /><line x1="1.5" y1="8" x2="3" y2="8" /><line x1="13" y1="8" x2="14.5" y2="8" /><line x1="3.4" y1="3.4" x2="4.4" y2="4.4" /><line x1="11.6" y1="11.6" x2="12.6" y2="12.6" /><line x1="12.6" y1="3.4" x2="11.6" y2="4.4" /><line x1="4.4" y1="11.6" x2="3.4" y2="12.6" /></g></svg>
+);
+const MoonGlyph = () => (
+  <svg {...G}><path d="M13 9.6A5.5 5.5 0 0 1 6.4 3 5.5 5.5 0 1 0 13 9.6Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>
+);
+
 /* Tells the user, at a glance, whether the figure is current, being computed,
-   or failed — so a long render never reads as a freeze or a crash. */
+   or failed — so a long render never reads as a freeze or a crash. Rendered as
+   a status pill in the top bar (dot + label, colour keyed to the state). */
 function RenderIndicator({ dataLoading }: { dataLoading: boolean }) {
   const status = useAtomValue(analyzeStatusAtom);
-  if (dataLoading)
-    return <span className="render-status loading"><span className="dot" />Loading data…</span>;
-  if (status === "running")
-    return <span className="render-status running"><span className="dot" />Rendering…</span>;
-  if (status === "error")
-    return <span className="render-status error">⚠ Render failed</span>;
-  if (status === "ok")
-    return <span className="render-status ok">✓ Up to date</span>;
-  return null;
+  const state = dataLoading ? "loading"
+    : status === "running" ? "running"
+    : status === "error" ? "error"
+    : status === "ok" ? "ok" : null;
+  if (!state) return null;
+  const label = state === "loading" ? "Loading data…"
+    : state === "running" ? "Rendering…"
+    : state === "error" ? "Render failed" : "Up to date";
+  return <span className={`render-status ${state}`}><span className="dot" />{label}</span>;
 }
 
 export default function App() {
@@ -85,6 +105,25 @@ export default function App() {
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
+  /* Appearance: light default, persisted, applied as data-theme on the document
+     root so portalled popovers (menus, tooltips) inherit the dark token set too. */
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    (typeof localStorage !== "undefined" && localStorage.getItem("iris:theme") === "dark")
+      ? "dark" : "light");
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try { localStorage.setItem("iris:theme", theme); } catch { /* private mode */ }
+  }, [theme]);
+  /* which top-bar dropdown is open; closes on outside-click (a backdrop) or Escape. */
+  const [openMenu, setOpenMenu] = useState<null | "add" | "export" | "overflow">(null);
+  const importRef = useRef<ImportWizardHandle>(null);
+  const dataEntryRef = useRef<DataEntryHandle>(null);
+  useEffect(() => {
+    if (!openMenu) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenMenu(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [openMenu]);
   const didInit = useRef(false);
   /* The .iris file the document is bound to: a real OS file handle (File System
      Access API) so Save writes back to the same file, tagged with the table id it
@@ -618,31 +657,81 @@ export default function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1 className="brand">
-          <img className="brand-mark" src={irisMark} alt="" width="26" height="26" />
-          Iris <span className="tag">tier 2</span>
-        </h1>
-        <div className="mode-toggle">
-          <button data-tour="mode-data" className={viewMode === "data" ? "active" : ""} onClick={() => setViewMode("data")}>Data</button>
-          <button data-tour="mode-workbench" className={viewMode === "workbench" ? "active" : ""} onClick={() => setViewMode("workbench")}>Workbench</button>
-          <button className={viewMode === "guide" ? "active" : ""} onClick={() => setViewMode("guide")}>Guide</button>
+      <header className="topbar">
+        <div className="tb-brand">
+          <span className="tb-mark"><img src={irisMark} alt="" width="27" height="27" /></span>
+          <span className="tb-word">Iris</span>
         </div>
-        <div className="controls">
-          <ImportWizard />
-          <DataEntry />
+        <div className="tb-div" />
+        <nav className="tb-modes">
+          <div className="tb-seg">
+            <button data-tour="mode-data" className={viewMode === "data" ? "active" : ""}
+              onClick={() => setViewMode("data")}><DataGlyph />Data</button>
+            <button data-tour="mode-workbench" className={viewMode === "workbench" ? "active" : ""}
+              onClick={() => setViewMode("workbench")}><WorkbenchGlyph />Workbench</button>
+            <button className={viewMode === "guide" ? "active" : ""}
+              onClick={() => setViewMode("guide")}><GuideGlyph />Guide</button>
+          </div>
+        </nav>
+        <div className="tb-actions">
           <RenderIndicator dataLoading={dataLoading} />
-          <span className="spacer" />
-          <button onClick={() => doExport("svg")}>SVG</button>
-          <button onClick={() => doExport("pdf")}>PDF</button>
-          <button onClick={() => doExport("png")}>PNG</button>
-          <button onClick={() => doExportMethods("md")} title="Methods paragraph + stats table (Markdown)">Methods</button>
-          <button onClick={() => doExportMethods("csv")} title="Statistics table (CSV)">Stats</button>
-          <button onClick={doLoad}>Load .iris</button>
-          <button className="primary" onClick={doSave}>Save .iris</button>
-          <button onClick={doSaveAs}>Save As…</button>
+          <div className="tb-div sm" />
+          <div className="tb-menuwrap">
+            <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "add" ? null : "add")}>
+              + Add data <span className="caret">▾</span></button>
+            {openMenu === "add" && (
+              <div className="tb-menu">
+                <button onClick={() => { setOpenMenu(null); importRef.current?.open(); }}>Import…</button>
+                <button onClick={() => { setOpenMenu(null); dataEntryRef.current?.open(); }}>Enter data…</button>
+              </div>
+            )}
+          </div>
+          <div className="tb-menuwrap">
+            <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
+              Export <span className="caret">▾</span></button>
+            {openMenu === "export" && (
+              <div className="tb-menu">
+                <button onClick={() => { setOpenMenu(null); void doExport("svg"); }}>SVG</button>
+                <button onClick={() => { setOpenMenu(null); void doExport("pdf"); }}>PDF</button>
+                <button onClick={() => { setOpenMenu(null); void doExport("png"); }}>PNG</button>
+                <div className="tb-menu-sep" />
+                <button onClick={() => { setOpenMenu(null); void doExportMethods("md"); }}
+                  title="Methods paragraph + stats table (Markdown)">Methods (.md)</button>
+                <button onClick={() => { setOpenMenu(null); void doExportMethods("csv"); }}
+                  title="Statistics table (CSV)">Statistics (.csv)</button>
+              </div>
+            )}
+          </div>
+          <button className="tb-ghost" onClick={doLoad}>Load</button>
+          <button className="tb-primary" onClick={doSave}>Save</button>
+          <div className="tb-menuwrap">
+            <button className="tb-icon" aria-label="More actions"
+              onClick={() => setOpenMenu((m) => m === "overflow" ? null : "overflow")}>⋯</button>
+            {openMenu === "overflow" && (
+              <div className="tb-menu tb-menu-right">
+                <div className="tb-menu-label">Appearance</div>
+                <button className={`tb-menu-item ${theme === "light" ? "active" : ""}`}
+                  onClick={() => { setTheme("light"); setOpenMenu(null); }}>
+                  <SunGlyph /><span className="grow">Light</span>
+                  {theme === "light" && <span className="check">✓</span>}</button>
+                <button className={`tb-menu-item ${theme === "dark" ? "active" : ""}`}
+                  onClick={() => { setTheme("dark"); setOpenMenu(null); }}>
+                  <MoonGlyph /><span className="grow">Dark</span>
+                  {theme === "dark" && <span className="check">✓</span>}</button>
+                <div className="tb-menu-sep" />
+                <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void doSaveAs(); }}>
+                  <span style={{ width: 15 }} /><span className="grow">Save As…</span></button>
+                <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowSpec((s) => !s); }}>
+                  <span style={{ width: 15 }} /><span className="grow">{showSpec ? "Hide" : "Show"} analysis spec</span></button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
+      {openMenu && <div className="tb-backdrop" onClick={() => setOpenMenu(null)} />}
+      {/* mounted (hidden triggers) so the "+ Add data" menu can open their modals */}
+      <ImportWizard ref={importRef} hideTrigger />
+      <DataEntry ref={dataEntryRef} hideTrigger />
       {recoveryPending && recovery && (
         <div className="recovery-bar">
           <span>
@@ -683,12 +772,11 @@ export default function App() {
           </div>
         )}
       </main>
-      <footer>
-        <button className="link" onClick={() => setShowSpec((s) => !s)}>
-          {showSpec ? "Hide" : "Show"} analysis spec
-        </button>
-        {showSpec && <pre>{JSON.stringify(spec, null, 2)}</pre>}
-      </footer>
+      {showSpec && (
+        <footer>
+          <pre>{JSON.stringify(spec, null, 2)}</pre>
+        </footer>
+      )}
       <TutorialOverlay />
     </div>
   );

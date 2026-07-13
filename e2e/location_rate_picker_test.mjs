@@ -26,7 +26,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
 if (await page.locator(".engine-down").count() > 0) fail("engine down on 8765");
 
 async function importCsv(name, csv) {
-  await page.click("button:has-text('Import data…')");
+  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
   await page.setInputFiles("input[type=file]", {
     name, mimeType: "text/csv", buffer: Buffer.from(csv),
   });
@@ -67,7 +67,7 @@ async function statsText() {
   const rows = ["grp,value"];
   for (let i = 0; i < 12; i++) rows.push(`g${i % 2},${4 + (i % 5) * 0.5}`);
   await importCsv("loc.csv", rows.join("\n"));
-  await page.click(".mode-toggle button:has-text('Workbench')");
+  await page.click(".tb-seg button:has-text('Workbench')");
 
   await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
   await page.click(".txw-add-plot");
@@ -123,7 +123,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
       rows.push(`${g},${Math.round(rate * hrs)},${hrs}`);
     }
   await importCsv("rate.csv", rows.join("\n"));
-  await page.click(".mode-toggle button:has-text('Workbench')");
+  await page.click(".tb-seg button:has-text('Workbench')");
 
   await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
   await page.click(".txw-add-plot");

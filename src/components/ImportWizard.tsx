@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { loadTableAtom } from "../state";
 import { engine, fileToBase64, tableFromColumnar } from "../types";
@@ -13,12 +13,18 @@ const TYPE_LABELS: Record<ColumnDef["type"], string> = {
   bool: "bool (T/F)",
 };
 
+/** Imperative handle: the top-bar "+ Add data" menu opens the wizard's file
+ *  picker without rendering its own trigger button (hideTrigger). */
+export interface ImportWizardHandle { open: () => void }
+
 /** "Import data…" button plus the preview/confirm dialog. Parsing happens in
  *  the engine (pandas); this component only edits the options and column
  *  types, re-previewing on every change so what you see is what loads. */
-export function ImportWizard() {
+export const ImportWizard = forwardRef<ImportWizardHandle, { hideTrigger?: boolean }>(
+    function ImportWizard({ hideTrigger }, ref) {
   const loadTable = useSetAtom(loadTableAtom);
   const fileRef = useRef<HTMLInputElement>(null);
+  useImperativeHandle(ref, () => ({ open: () => fileRef.current?.click() }), []);
   const [file, setFile] = useState<{ name: string; token: string } | null>(null);
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [opts, setOpts] = useState<ImportOptions>({});
@@ -122,7 +128,8 @@ export function ImportWizard() {
   const o = preview?.options;
   return (
     <>
-      <button onClick={() => fileRef.current?.click()}>Import data…</button>
+      {!hideTrigger &&
+        <button onClick={() => fileRef.current?.click()}>Import data…</button>}
       <input ref={fileRef} type="file" hidden
         accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls"
         onChange={(e) => e.target.files?.[0] && void onPick(e.target.files[0])} />
@@ -281,4 +288,4 @@ export function ImportWizard() {
       )}
     </>
   );
-}
+});

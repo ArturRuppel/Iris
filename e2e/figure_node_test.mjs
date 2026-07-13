@@ -21,7 +21,7 @@ if (await page.locator(".engine-down").count() > 0) fail("engine down");
 
 const rows = ["group,value"];
 for (const [g,b] of [["ctrl",10],["drug",14]]) for (let i=0;i<6;i++) rows.push(`${g},${b+i}`);
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", { name:"f.csv", mimeType:"text/csv", buffer:Buffer.from(rows.join("\n")) });
 await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
@@ -29,7 +29,7 @@ await page.waitForSelector(".modal-overlay", { state:"detached", timeout: 15000 
 
 // Workbench (the analysis graph) — the "Analyses" mode was removed; the figure
 // terminal renders directly here.
-await page.click(".mode-toggle button:has-text('Workbench')");
+await page.click(".tb-seg button:has-text('Workbench')");
 const figure = page.locator(".txw-node.figure").first();
 await figure.waitFor({ state: "visible", timeout: 15000 });
 

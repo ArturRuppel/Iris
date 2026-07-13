@@ -29,7 +29,7 @@ const csv = [
   "b,p,5", "b,p,6", "b,q,7", "b,q,8",
 ].join("\n");
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "aesthetics_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -37,7 +37,7 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-await page.click(".mode-toggle button:has-text('Analyses')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 
 // Map X/Y, then add a Box layer (aggregates → never point-capped).

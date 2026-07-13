@@ -68,7 +68,7 @@ function installPickerStub(seedBase64) {
 }
 
 async function importCsv(page, name, csv) {
-  await page.click("button:has-text('Import data…')");
+  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
   await page.setInputFiles("input[type=file]", {
     name, mimeType: "text/csv", buffer: Buffer.from(csv),
   });
@@ -129,7 +129,7 @@ if (authored.joinRight !== annotId)
 console.log("authored 2 analyses: A1 cells⋈annot on key (x=label,y=value), A2 annot (x=label,y=score)");
 
 // ── Phase 2: both main tables render — no error bar on either ──────────────────
-await page.click(".mode-toggle button:has-text('Workbench')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".workbench-mode", { timeout: 60000 });
 await page.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
 
@@ -156,7 +156,7 @@ if (await page.locator(".error-bar").count() > 0)
 console.log("analysis 2 (annot main table) rendered, no error bar");
 
 // ── Phase 3: save to .iris ─────────────────────────────────────────────────────
-await page.click("header button:has-text('Save .iris')");
+await page.click("header .tb-primary");
 await page.waitForFunction(() => window.__writeCount === 1, null, { timeout: 60000 });
 if (await page.locator(".error-bar").count() > 0)
   fail("error bar after save: " + await page.locator(".error-bar").innerText());
@@ -193,7 +193,7 @@ await page2.addInitScript(installPickerStub, saved);
 await page2.goto(URL, { waitUntil: "domcontentloaded" });
 await page2.waitForSelector(".app", { timeout: 30000 });
 
-await page2.click("header button:has-text('Load .iris')");
+await page2.click("header .tb-ghost");
 await page2.waitForSelector(".workbench-mode", { timeout: 60000 });
 await page2.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
 await page2.waitForTimeout(3000);

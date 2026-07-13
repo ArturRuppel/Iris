@@ -59,15 +59,15 @@ function installPickerStub(seedBase64) {
 }
 
 async function importFixture(page) {
-  await page.click("button:has-text('Import data…')");
+  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
   await page.setInputFiles("input[type=file]", {
     name: "save_load_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
   });
   await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
   await page.click(".modal-foot button.primary");
   await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
-  await page.click(".mode-toggle button:has-text('Analyses')");
-  await page.waitForSelector(".analyses-mode", { timeout: 60000 });
+  await page.click(".tb-seg button:has-text('Workbench')");
+  await page.waitForSelector(".workbench-mode", { timeout: 60000 });
   await page.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
 }
 
@@ -81,12 +81,12 @@ await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 await importFixture(page);
 
-await page.click("header button:has-text('Save .iris')");
+await page.click("header .tb-primary");
 await page.waitForFunction(() => window.__writeCount === 1, null, { timeout: 30000 });
 console.log("first Save wrote the file");
 
 // The regression: a SECOND Save must write again (not silently no-op).
-await page.click("header button:has-text('Save .iris')");
+await page.click("header .tb-primary");
 await page.waitForFunction(() => window.__writeCount === 2, null, { timeout: 30000 });
 console.log("second Save wrote again (once-only bug is gone)");
 
@@ -104,7 +104,7 @@ console.log("saved bytes are a valid .iris archive (PK magic), length", atob(sav
 
 // Save As… must also write (always prompts, here the stub just returns a handle).
 const beforeSaveAs = await page.evaluate(() => window.__writeCount);
-await page.click("header button:has-text('Save As')");
+await page.click(".tb-icon"); await page.click(".tb-menu-right button:has-text('Save As')");
 await page.waitForFunction((n) => window.__writeCount === n + 1, beforeSaveAs, { timeout: 30000 });
 console.log("Save As… wrote a file");
 await page.close();
@@ -116,10 +116,10 @@ await page2.addInitScript(installPickerStub, saved);   // seed the saved bytes
 await page2.goto(URL, { waitUntil: "domcontentloaded" });
 await page2.waitForSelector(".app", { timeout: 30000 });
 
-await page2.click("header button:has-text('Load .iris')");
+await page2.click("header .tb-ghost");
 // A successful load switches to analyses mode and shows the plottable + the
 // loaded data (engine /document/load rebuilt the session from the saved bytes).
-await page2.waitForSelector(".analyses-mode", { timeout: 60000 });
+await page2.waitForSelector(".workbench-mode", { timeout: 60000 });
 await page2.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
 if (await page2.locator(".error-bar").count() > 0)
   fail("error bar after load: " + await page2.locator(".error-bar").innerText());

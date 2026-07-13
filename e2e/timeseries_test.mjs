@@ -31,7 +31,7 @@ for (const [cond, base] of [["ctrl", 0], ["ko", 10]])
     rows.push(`${cond},${frame},${base + frame}`);
 const csv = rows.join("\n");
 
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "timeseries_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -51,7 +51,7 @@ await page.waitForSelector(".modal-foot button.primary:not([disabled])", { timeo
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-await page.click(".mode-toggle button:has-text('Analyses')");
+await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".layer-rail", { timeout: 15000 });
 
 // Map numeric X (frame) + numeric Y (area) — the otherwise-correlation pair.

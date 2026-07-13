@@ -30,7 +30,7 @@ if (await page.locator(".engine-down").count() > 0)
   fail("engine not reachable — start the engine on 8765");
 
 // ── import dataset ────────────────────────────────────────────────────────────
-await page.click("button:has-text('Import data…')");
+await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "wl_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -40,7 +40,7 @@ await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000
 console.log("dataset imported");
 
 // ── navigate to Workbench ─────────────────────────────────────────────────────
-await page.click(".mode-toggle button:has-text('Workbench')");
+await page.click(".tb-seg button:has-text('Workbench')");
 // The structured trio now seeds the stash; the plot slot is the add-plot entry.
 await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
 console.log("workbench landed");

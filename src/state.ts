@@ -82,10 +82,10 @@ export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
    key set must stay in sync with ColumnDef["type"]. */
 export type ColumnType = ColumnDef["type"];
 export const DEFAULT_TYPE_COLORS: Record<ColumnType, string> = {
-  numeric: "#0e7490",      // teal — measurements
-  categorical: "#9333ea",  // purple — classifiers
-  identifier: "#64748b",   // slate — nesting keys
-  bool: "#c2410c",         // rust — stochastic-event flags (true/false)
+  numeric: "#3f8f68",      // sage — measurements (--t-num)
+  categorical: "#6d3ab0",  // iris-violet — classifiers (--t-cat)
+  identifier: "#a99fb0",   // muted lilac-grey — nesting keys (--t-id)
+  bool: "#b07d2a",         // amber — stochastic-event flags (--t-bool)
 };
 export const typeColorsAtom = atomWithStorage<Record<ColumnType, string>>(
   "iris.typeColors", DEFAULT_TYPE_COLORS);
