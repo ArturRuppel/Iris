@@ -1,6 +1,6 @@
 # Grouped sheet — a spreadsheet lens for entering and editing tidy data (epic)
 
-**Status:** design, awaiting review
+**Status:** landed — all slices (0–5) shipped 2026-07-13
 **Date:** 2026-07-13
 **Builds on:** the `DataEntry` merged-header rework landed this session (working tree,
 uncommitted) — `src/components/DataEntry.tsx`. Extends its wide grouped grid from a
@@ -50,7 +50,7 @@ reads from it and writes back to it through engine ops.**
 
 The wide grouped grid serves two jobs that look identical on screen but differ underneath:
 
-| | **Entry** (`DataEntry` modal, exists) | **Lens** (this epic) |
+| | **Entry** (`DataEntry`, inline — Slice 5) | **Lens** (this epic) |
 |---|---|---|
 | Data behind it | none yet — being typed/pasted | a live, server-owned tidy table |
 | Header semantics | **free-form merge**: merging cells *defines* factors that don't exist yet | **factor nesting**: pick and order factor columns that *already exist* |
@@ -225,10 +225,24 @@ Each slice is independently shippable and never puts the canonical table at risk
     not the factor's labels), so it'd be an un-actionable band. It waits for a real
     split-a-factor gesture (or belongs in the tidy/Data tab, where per-row factor editing
     already lives).
-- **Slice 5 — unify entry into the lens (optional).** Treat an empty grouped sheet as an
-  uncommitted table: typing/pasting into the lens with no table loaded creates the engine
-  session on first commit, collapsing the `DataEntry` modal and the lens into one surface.
-  Only worth doing if Slices 1–4 prove the shared renderer carries both roles cleanly.
+- **Slice 5 — unify entry into the lens (DONE, landed 2026-07-13).** The grouped-sheet
+  pane, when there is no table, *is* the entry surface: `DataEntry` lost its modal chrome
+  and now renders inline as `GroupedSheet`'s empty state (`.de-inline`). Typing/pasting and
+  hitting **Create** melts the header hierarchy → tidy through the unchanged import pipeline
+  and `loadTableAtom` mints the session; the instant a handle exists the entry surface
+  unmounts and the *same pane* shows the live lens — entry → lens is one continuous surface,
+  one write path (invariant 5). `DataView` routes a table-less Data tab to the grouped pane
+  (nothing to tabulate yet); `DataViewToggle` forces **Grouped** on and disables **Table**
+  while empty; the "+ Add data → Enter data" menu now reveals this surface (Data tab +
+  grouped view) instead of opening a modal. The modal — overlay, `open`/`close`, the
+  `forwardRef` handle, the hidden App mount — was deleted outright (no legacy path kept).
+  The two-faces split still holds under the shared container: entry keeps its **free-form
+  merge** header machinery (defining factors that don't exist yet), the lens keeps **factor
+  nesting** (ordering columns that do) — Slices 1–4 proved the shared renderer (`.de-grid`)
+  carries both roles. Verified: full unit suite (493) + tsc + build clean, and the rewritten
+  `e2e/data_entry_test.mjs` (reveal inline surface — no `.de-modal`; the Slice-0 merge/delete
+  toolbar works inline; fill values → Create mints the session and the pane flips to the live
+  `.gs-grid`, shape 2 × 2, no engine error).
 
 ## Out of scope
 
@@ -254,5 +268,7 @@ Each slice is independently shippable and never puts the canonical table at risk
   `relabel_category` reports the merge; `add_level` appends blanks across every other-factor
   combination (a full-height new column); `drop_column` confirms first and keeps every row
   while removing the factor; all bump the version and recompute downstream.
+- **Slice 5:** the inline entry surface replaces the empty grouped pane (no modal); its
+  Create melts → mints the session and the *same* pane hands off to the live lens.
 - **Honesty:** no path in the lens mutates the table except through an engine op + version
   bump (no client-only table state).

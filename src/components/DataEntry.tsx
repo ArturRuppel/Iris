@@ -1,4 +1,4 @@
-import { forwardRef, useImperativeHandle, useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useSetAtom } from "jotai";
 import { loadTableAtom } from "../state";
 import { engine, fileToBase64, tableFromColumnar } from "../types";
@@ -82,19 +82,19 @@ function shrinkBand(row: Cell[], startCol: number, count: number): Cell[] {
   return out;
 }
 
-/** "Enter data…": a spreadsheet with nested, merged headers — the wide grouped
+/** "Enter data": a spreadsheet with nested, merged headers — the wide grouped
  *  layout people keep in their heads and their Excel sheets (repeating columns
  *  under a merged grouping band, nestable to any depth). Type or paste like a
  *  spreadsheet; on create the engine melts the header hierarchy into a tidy
  *  table (one categorical column per band level + one value column), reusing the
- *  import pipeline so parsing, decimal commas, and type inference come for free. */
-export interface DataEntryHandle { open: () => void }
-
-export const DataEntry = forwardRef<DataEntryHandle, { hideTrigger?: boolean }>(
-    function DataEntry({ hideTrigger }, ref) {
+ *  import pipeline so parsing, decimal commas, and type inference come for free.
+ *
+ *  Rendered *inline* as the empty state of the grouped-sheet lens (Slice 5): with
+ *  no table loaded, the grouped pane IS this entry surface, and Create mints the
+ *  session — the moment a handle exists GroupedSheet unmounts this and shows the
+ *  live lens. Entry and lens are one continuous surface, one write path. */
+export function DataEntry() {
   const loadTable = useSetAtom(loadTableAtom);
-  const [open, setOpen] = useState(false);
-  useImperativeHandle(ref, () => ({ open: () => setOpen(true) }), []);
   const [bands, setBands] = useState<Cell[][]>([]);
   const [columnLabels, setColumnLabels] = useState<string[]>(freshColumns);
   const [rows, setRows] = useState<string[][]>(() => freshRows(2));
@@ -115,7 +115,6 @@ export const DataEntry = forwardRef<DataEntryHandle, { hideTrigger?: boolean }>(
     setValueName("Value");
     setSel(null); setNote(null);
   };
-  const close = () => { setOpen(false); setError(null); setNote(null); setSel(null); setBusy(false); };
 
   /* ---- selection ---- */
   /* the row a selection points at (a band, or the value columns) */
@@ -336,7 +335,6 @@ export const DataEntry = forwardRef<DataEntryHandle, { hideTrigger?: boolean }>(
         long.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
       loadTable({ ...tableFromColumnar(ct), token: ct.token });
       reset();
-      close();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setBusy(false);
@@ -346,18 +344,12 @@ export const DataEntry = forwardRef<DataEntryHandle, { hideTrigger?: boolean }>(
   const colRow = bands.length;   // the value-column row's index in the selection model
 
   return (
-    <>
-      {!hideTrigger &&
-        <button onClick={() => setOpen(true)}>Enter data…</button>}
-      {open && (
-        <div className="modal-overlay" onClick={close}>
-          <div className="modal de-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <h2>Enter data</h2>
-              <span className="provenance">
-                a grouped sheet — melted to a tidy table on create
-              </span>
-            </div>
+    <div className="de-inline">
+            <p className="de-hint">
+              Type or paste your data — replicates run down, conditions across.
+              Add grouping rows to nest conditions; on create this melts to one
+              tidy table.
+            </p>
 
             <div className="de-scroll">
               <table className="de-grid">
@@ -438,17 +430,13 @@ export const DataEntry = forwardRef<DataEntryHandle, { hideTrigger?: boolean }>(
             </div>
 
             {error && <p className="warn">{error}</p>}
-            <div className="modal-foot">
-              <button onClick={close}>Cancel</button>
+            <div className="de-foot">
               <button className="primary"
                 disabled={busy || filledCols < 2}
                 onClick={() => void create()}>
                 {busy ? "Working…" : `Create table (${nValues} values)`}
               </button>
             </div>
-          </div>
-        </div>
-      )}
-    </>
+    </div>
   );
-});
+}

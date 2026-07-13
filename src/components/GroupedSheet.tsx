@@ -10,6 +10,7 @@ import {
   type GroupedSheet as Sheet,
 } from "../grouped";
 import { DataViewToggle } from "./DataViewToggle";
+import { DataEntry } from "./DataEntry";
 
 /* The grouped-sheet lens: the active tidy table projected into the wide,
    merged-header layout — repeating condition columns under merged group bands,
@@ -200,7 +201,10 @@ export function GroupedSheet() {
   );
 
   const body = (() => {
-    if (!schema || !handle) return <Empty>Import or enter data to start.</Empty>;
+    // no table yet: the grouped pane IS the entry surface (Slice 5). Typing here
+    // and hitting Create mints the session; the moment a handle exists this
+    // unmounts and the live lens below takes over.
+    if (!schema || !handle) return <DataEntry />;
     if (!avail.ok) return <Empty>{avail.reason}</Empty>;
     if (fetchError) return <Empty>Couldn’t load the table: {fetchError}</Empty>;
     if (!sheet) return <Empty>Loading…</Empty>;
@@ -221,7 +225,9 @@ export function GroupedSheet() {
         <h2>Data</h2>
         <DataViewToggle />
         <span className="provenance">
-          {avail.ok && sheet ? `${sheet.nRows} × ${sheet.nCols}` : `${handle?.n ?? 0} rows`}
+          {!handle ? "new table"
+            : avail.ok && sheet ? `${sheet.nRows} × ${sheet.nCols}`
+            : `${handle.n} rows`}
         </span>
       </div>
       {avail.ok && orderedFactors.length >= 1 && (

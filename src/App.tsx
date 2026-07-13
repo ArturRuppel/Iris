@@ -1,7 +1,6 @@
 import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import irisMark from "./assets/iris-mark.svg";
-import { DataEntry, type DataEntryHandle } from "./components/DataEntry";
 import { DataView } from "./components/DataView";
 import { HierarchyPanel } from "./components/HierarchyPanel";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
@@ -20,7 +19,7 @@ import {
   hierarchyAtom, loadDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
-  touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
+  touchAnalysisAtom, viewModeAtom, dataViewAtom, effectivePlanAtom, effectiveTestGrainAtom,
   tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
   resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
   autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom,
@@ -117,7 +116,7 @@ export default function App() {
   /* which top-bar dropdown is open; closes on outside-click (a backdrop) or Escape. */
   const [openMenu, setOpenMenu] = useState<null | "add" | "export" | "overflow">(null);
   const importRef = useRef<ImportWizardHandle>(null);
-  const dataEntryRef = useRef<DataEntryHandle>(null);
+  const setDataView = useSetAtom(dataViewAtom);
   useEffect(() => {
     if (!openMenu) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenMenu(null); };
@@ -682,7 +681,7 @@ export default function App() {
             {openMenu === "add" && (
               <div className="tb-menu">
                 <button onClick={() => { setOpenMenu(null); importRef.current?.open(); }}>Import…</button>
-                <button onClick={() => { setOpenMenu(null); dataEntryRef.current?.open(); }}>Enter data…</button>
+                <button onClick={() => { setOpenMenu(null); setViewMode("data"); setDataView("grouped"); }}>Enter data…</button>
               </div>
             )}
           </div>
@@ -729,9 +728,9 @@ export default function App() {
         </div>
       </header>
       {openMenu && <div className="tb-backdrop" onClick={() => setOpenMenu(null)} />}
-      {/* mounted (hidden triggers) so the "+ Add data" menu can open their modals */}
+      {/* the import modal is opened from the "+ Add data" menu; "Enter data" now
+          reveals the inline entry surface in the grouped-sheet pane (Slice 5). */}
       <ImportWizard ref={importRef} hideTrigger />
-      <DataEntry ref={dataEntryRef} hideTrigger />
       {recoveryPending && recovery && (
         <div className="recovery-bar">
           <span>
