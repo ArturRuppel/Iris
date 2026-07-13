@@ -76,7 +76,7 @@ if (await createBtn.isDisabled()) fail("create should be enabled with two filled
 await createBtn.click();
 
 // the session mints and the SAME pane hands off to the live grouped lens
-await page.waitForSelector(".gs-grid", { timeout: 15000 });
+await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 if (await page.locator(".de-inline").count() > 0)
   fail("after create the entry surface should be gone (handed off to the lens)");
 const prov = (await page.locator(".table-pane .provenance").innerText()).trim();
