@@ -60,7 +60,7 @@ function installPickerStub(seedBase64) {
 }
 
 async function importCsv(page, name, csv) {
-  await page.click(".tb-btn:has-text('Add data')");
+  await page.click(".tb-btn:has-text('Import')");
   await page.setInputFiles("input[type=file]", {
     name, mimeType: "text/csv", buffer: Buffer.from(csv),
   });

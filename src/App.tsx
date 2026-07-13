@@ -689,7 +689,7 @@ export default function App() {
             <button className="tb-ghost" onClick={doLoad}>Load</button>
             <button className="tb-primary" onClick={doSave}>Save</button>
             <div className="tb-div sm" />
-            <button className="tb-btn" onClick={() => importRef.current?.open()}>+ Add data</button>
+            <button className="tb-btn" onClick={() => importRef.current?.open()}>Import</button>
             <div className="tb-menuwrap">
               <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
                 Export <span className="caret">▾</span></button>
@@ -746,7 +746,7 @@ export default function App() {
         </div>
       </header>
       {openMenu && <div className="tb-backdrop" onClick={() => setOpenMenu(null)} />}
-      {/* the import modal is opened directly from the "+ Add data" button. */}
+      {/* the import modal is opened directly from the "Import" button. */}
       <ImportWizard ref={importRef} hideTrigger />
       {recoveryPending && recovery && (
         <div className="recovery-bar">

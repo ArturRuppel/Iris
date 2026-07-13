@@ -29,7 +29,7 @@ const csv = [
   "drug_a,5", "drug_a,6", "drug_a,7", "drug_a,8",
 ].join("\n");
 
-await page.click(".tb-btn:has-text('Add data')");
+await page.click(".tb-btn:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "horizontal_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

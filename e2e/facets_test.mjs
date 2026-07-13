@@ -31,7 +31,7 @@ const csv = [
   "b,south,10", "b,south,11", "b,south,12",
 ].join("\n");
 
-await page.click(".tb-btn:has-text('Add data')");
+await page.click(".tb-btn:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "facets_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

@@ -30,7 +30,7 @@ if (await page.locator(".engine-down").count() > 0)
   fail("engine not reachable — start the engine on 8765");
 
 // ── import dataset ────────────────────────────────────────────────────────────
-await page.click(".tb-btn:has-text('Add data')");
+await page.click(".tb-btn:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "wl_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

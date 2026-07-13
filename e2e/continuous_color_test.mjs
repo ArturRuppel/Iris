@@ -27,7 +27,7 @@ const csv = [
   "b,5,40", "b,6,50", "b,7,60",
 ].join("\n");
 
-await page.click(".tb-btn:has-text('Add data')");
+await page.click(".tb-btn:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "continuous_color_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

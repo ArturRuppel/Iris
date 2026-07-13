@@ -28,7 +28,7 @@ const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click(".tb-btn:has-text('Add data')");
+await page.click(".tb-btn:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "factor_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

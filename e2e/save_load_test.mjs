@@ -59,7 +59,7 @@ function installPickerStub(seedBase64) {
 }
 
 async function importFixture(page) {
-  await page.click(".tb-btn:has-text('Add data')");
+  await page.click(".tb-btn:has-text('Import')");
   await page.setInputFiles("input[type=file]", {
     name: "save_load_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
   });
