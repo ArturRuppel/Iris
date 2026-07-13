@@ -84,8 +84,14 @@ export type Geom =
    `hierarchy`, shared by every consumer. */
 /* `id` is a client-only stable key for React lists (reorderable layers); the
    engine ignores it. Optional so older .viz layers without one still parse.
-   Geom knobs live in style.overrides.geoms.<geom>, never on the layer. */
-export interface Layer { id?: string; geom: Geom; level: string }
+   Geom knobs live in style.overrides.geoms.<geom>, never on the layer.
+
+   `nodeId` (spec 2.3) pins the layer to a node in the reduce DAG — the frame it
+   draws. Absent = the DAG output (every pre-2.3 layer, so older docs load
+   unchanged). A pinned non-output node draws at its raw grain in Stage 1;
+   `level` continues to select a collapse grain within the OUTPUT's lineage (the
+   superplot mechanism), which is why the two coordinates stay independent. */
+export interface Layer { id?: string; geom: Geom; level: string; nodeId?: string }
 
 /* How finer rows aggregate into a coarser grain — the set the engine's
    `materialize_levels` honors (hierarchy._AGG). This is the only aggregation

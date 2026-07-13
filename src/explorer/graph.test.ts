@@ -92,6 +92,54 @@ describe("buildGraph", () => {
     expect(edge(g, "source:0", "step:0", "join")).toBeTruthy();
   });
 
+  it("a layer pinned to a non-output node roots its geom edge at that node (2.3 Stage 1)", () => {
+    // src -> filter(output). A raw layer pins to the PRE-filter source; a box
+    // draws the filtered output. Two lineages overlaid on one figure — the
+    // reported raw-vs-filtered case.
+    const dag = linearDag([{ kind: "filter", conditions: [] }]); // output = "k0" -> step:0
+    const layers: Layer[] = [
+      { geom: "dot", level: RAW_LEVEL, nodeId: "src" },  // raw pre-filter dots
+      { geom: "box", level: RAW_LEVEL },                 // filtered output (nodeId absent = output)
+    ];
+    const g = buildGraph(dag, SPINE, PLAN, layers, SCHEMA, null);
+    expect(edge(g, "source", "figure", "geom")?.label).toBe("dots");   // pinned to the source
+    expect(edge(g, "step:0", "figure", "geom")?.label).toBe("box");    // output's raw grain
+  });
+
+  it("a layer pinned to a deleted node drops its edge rather than mis-rooting to the source", () => {
+    const dag = linearDag([{ kind: "filter", conditions: [] }]);
+    // "ghost" names no node in the dag — the pinned node was removed.
+    const layers: Layer[] = [{ geom: "dot", level: RAW_LEVEL, nodeId: "ghost" }];
+    const g = buildGraph(dag, SPINE, PLAN, layers, SCHEMA, null);
+    // the orphaned layer roots nowhere; the plain output fallback fires (one edge),
+    // and crucially it is NOT mis-rooted to the source node.
+    expect(g.edges.filter((e) => e.kind === "geom" && e.toId === "figure").length).toBe(1);
+    expect(edge(g, "source", "figure", "geom")).toBeUndefined();       // not silently rerouted to source
+  });
+
+  it("stamps pinSource on the source and column-preserving upstream steps, not the output or shape-changers", () => {
+    // src -> filter(compatible) -> pivot(shape-changer, output). The source and
+    // the filter can be overlaid; the pivot (and the output) cannot.
+    const dag: ReduceDag = {
+      sources: [{ id: "src", tableId: "t" }],
+      steps: [
+        { kind: "filter", conditions: [], id: "f", inputs: ["src"] },
+        { kind: "pivot", column: "k", names: [["a", "a"]], id: "pv", inputs: ["f"] },
+      ] as unknown as ReduceDag["steps"],
+      output: "pv",
+    };
+    const g = buildGraph(dag, SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    const pin = (id: string) => g.nodes.find((n) => n.id === id)?.pinSource;
+    expect(pin("source")).toBe("src");   // the raw table overlays
+    expect(pin("step:0")).toBe("f");     // the filter (column-preserving) overlays
+    expect(pin("step:1")).toBeUndefined(); // the pivot is the output AND a shape-changer
+  });
+
+  it("does not stamp pinSource on the source when it IS the output (a no-step DAG)", () => {
+    const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
+    expect(g.nodes.find((n) => n.id === "source")?.pinSource).toBeUndefined();
+  });
+
   it("collapse nodes are keyed by grain; chain runs full-spine -> coarsest", () => {
     const g = buildGraph(linearDag([{ kind: "drop", columns: ["area"] }]), SPINE, PLAN,
       [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);

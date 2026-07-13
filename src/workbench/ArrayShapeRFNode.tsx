@@ -4,7 +4,7 @@ import { Handle, Position } from "@xyflow/react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
 import { reduceStepInEdgeId, type EdgeKind, type ExplorerNode } from "../explorer/graph";
-import { insertStepAtom, activePlottableAtom } from "../state";
+import { insertStepAtom, activePlottableAtom, addLayerAtNodeAtom } from "../state";
 import { openCardAtom, pushStashAtom, stashAtom } from "./state";
 import { nodeTableName } from "./nodeName";
 import type { NodeDelta } from "./nodeDelta";
@@ -93,6 +93,7 @@ export function ArrayShapeRFNode(
   const insertStep = useSetAtom(insertStepAtom);
   const active = useAtomValue(activePlottableAtom);
   const openCard = useSetAtom(openCardAtom);
+  const addLayerAtNode = useSetAtom(addLayerAtNodeAtom);
   const pushStash = useSetAtom(pushStashAtom);
   // the add menu is positioned in screen space and portalled to <body>, not
   // nested in this node: each React Flow node is its own stacking context, so a
@@ -138,6 +139,11 @@ export function ArrayShapeRFNode(
       insertStep({ afterId, kind: d.arg.kind });
       const index = d.arg.afterIndex + 1;
       openCard({ target: { kind: "edge", id: reduceStepInEdgeId(index) }, cardKind: "op-editor" });
+    } else if (d.atom === "addLayerAtNode") {
+      // pin a new (raw) layer to this upstream node, then open the plot editor so
+      // the geom/style is immediately tweakable — the raw-vs-filtered overlay.
+      addLayerAtNode({ nodeId: d.arg.nodeId });
+      openCard({ target: { kind: "edge", id: "g:plain" }, cardKind: "geom-editor" });
     } else openCard(d.arg);
   };
 

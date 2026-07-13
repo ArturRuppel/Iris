@@ -703,11 +703,14 @@ def _build_grid(width_mm: float, height_mm: float, n_rows: int, n_cols: int,
 
 
 def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
-                 level_tables: dict | None = None):
+                 level_tables: dict | None = None, node_frames: dict | None = None):
     """Dispatch on the inferred stat_model family. Returns the matplotlib figure.
 
     `level_tables` (the data hierarchy's per-level tables) is consumed only by
-    the group-comparison path, where each layer draws from its bound level."""
+    the group-comparison path, where each layer draws from its bound level.
+    `node_frames` ({node_id: (df, schema)}) lets a layer pinned to a non-output
+    reduce-DAG node (spec 2.3) draw from that node's frame; only the comparison
+    path honours it in Stage 1."""
     family = spec["stat_model"]["family"]
     if family == "correlation":
         return build_scatter_figure(df, schema, spec, stats)
@@ -717,7 +720,7 @@ def build_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
         return build_histogram_figure(df, schema, spec, stats)
     if family == "contingency":
         return build_tile_figure(df, schema, spec, stats)
-    return build_comparison_figure(df, schema, spec, stats, level_tables)
+    return build_comparison_figure(df, schema, spec, stats, level_tables, node_frames)
 
 
 def _cat_levels(df, schema, cat_col):
@@ -1102,7 +1105,8 @@ _COMPARISON_GEOMS = {"violin": _geom_violin, "box": _geom_box, "bar": _geom_bar,
 
 
 def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict,
-                            level_tables: dict | None = None):
+                            level_tables: dict | None = None,
+                            node_frames: dict | None = None):
     """Group comparison as ordered geom layers, each drawing from the data
     *level* it is bound to (`layer.level`). The shared `_layout` fixes the x axis
     once; per layer, that layer's level table (from `level_tables`, keyed by
@@ -1110,6 +1114,12 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     `_groups`. A dot at the raw level is the faint replicate cloud; a dot at a
     coarse level is one bold mark per grain; a summary at a coarse level shows
     mean ± error of that level's spread — composing a superplot with no preset.
+
+    A layer pinned to a non-output reduce-DAG node (`layer.nodeId`, spec 2.3)
+    draws from that node's frame in `node_frames` at its raw grain — the
+    raw-vs-filtered overlay. The x axis stays fixed by the PRIMARY (output)
+    lineage's `_layout`; a pinned layer's rows in categories absent from that
+    axis are dropped by `_groups`, so the primary source defines the frame.
 
     Stats are deferred (the redesign), so no significance bracket or n label is
     drawn here; the figure no longer depends on the inferential `stats` result.
@@ -1120,6 +1130,18 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     style = resolve_style(spec)
     if not level_tables:
         level_tables = {hierarchy_mod.RAW: (df, schema)}
+    node_frames = node_frames or {}
+    output_id = (spec.get("reduce") or {}).get("output")
+
+    def _layer_frame(layer):
+        """The frame a layer draws. A layer pinned to a present non-output node
+        draws that node's frame at its raw grain (Stage 1); otherwise it draws
+        the output's collapse grain via `level` (the superplot path)."""
+        nid = layer.get("nodeId")
+        if nid and nid != output_id and nid in node_frames:
+            return node_frames[nid][0]
+        return hierarchy_mod.resolve_level(level_tables, layer.get("level"))[0]
+
     cat_col, val_col, h_orient = resolve_cat_val(spec["encodings"], schema)
     sc_global = scales_mod.resolve_scales(
         spec["encodings"], df[df[val_col].notna()] if val_col in df else df,
@@ -1160,7 +1182,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     render = _COMPARISON_GEOMS.get(layer["geom"])
                     if render is None:
                         continue
-                    ldf, _ = hierarchy_mod.resolve_level(level_tables, layer.get("level"))
+                    ldf = _layer_frame(layer)
                     cell_df = _facet_cell_df(ldf, row_col, col_col, rlevel, clevel)
                     ctx["groups"] = _groups(cell_df, layout)
                     render(ax, ctx, layer)
@@ -1200,6 +1222,13 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         grains = []
                         for layer in layers:
                             if layer["geom"] not in _COMPARISON_GEOMS:
+                                continue
+                            # n describes the PRIMARY (output) lineage — the one a
+                            # test names. A layer pinned to another node draws from
+                            # a different frame; counting its rows under a primary
+                            # grain would be a wrong n, so it contributes none.
+                            nid = layer.get("nodeId")
+                            if nid and nid != output_id and nid in node_frames:
                                 continue
                             lv = layer.get("level") or hierarchy_mod.RAW
                             if lv not in level_tables:

@@ -298,6 +298,47 @@ def test_analyze_endpoint_accepts_a_dag_reduce():
     assert s["summaries"][0]["n"] == 18           # two control rows dropped
 
 
+def test_analyze_renders_a_node_pinned_layer_end_to_end():
+    # spec 2.3 Stage 1 through the real endpoint: a modern (2.2) spec with a DAG
+    # reduce (src -> filter) and a dot layer PINNED to the raw source overlays the
+    # pre-filter frame under a filtered box. Guards that normalize preserves
+    # `nodeId` (a modern spec passes layers through) and that render.py's traced
+    # eval feeds the pinned layer its own node frame.
+    table = make_table()
+    table["schema"] = {**document.SAMPLE_SCHEMA, "columns": [
+        *document.SAMPLE_SCHEMA["columns"],
+        {"name": "flag", "type": "bool", "label": "Flag"}]}
+    for i, row in enumerate(table["rows"]):
+        row["flag"] = i < 4                       # flag drops some control rows on filter
+    spec = {
+        "spec_version": "2.2", "id": "an_test", "title": "t",
+        "encodings": {"x": {"column": "treatment"}, "y": {"column": "response"},
+                      "color": None, "size": None, "shape": None},
+        "facet": {"row": None, "col": None, "share_x": True, "share_y": True},
+        "hierarchy": {"spine": [], "fn": {}},
+        "layers": [
+            {"id": "raw", "geom": "dot", "level": "", "nodeId": "src"},  # raw pre-filter dots
+            {"id": "box", "geom": "box", "level": ""}],                  # filtered output box
+        "reduce": {"nodes": [
+            {"id": "src", "kind": "source"},
+            {"id": "n0", "kind": "step", "inputs": ["src"],
+             "step": {"kind": "filter", "conditions": [
+                 {"column": "flag", "op": "==", "value": False}]}}],
+            "output": "n0"},
+        "stats": {"family": "group_comparison", "test": "welch_t", "alpha": 0.05},
+        "style": {"preset": "demo_default", "overrides": {}},
+    }
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "<svg" in body["figure"]["svg"]
+    assert "<use" in body["figure"]["svg"]        # the dot layer drew glyphs
+    # the test is bound to the OUTPUT lineage (filtered), not the raw overlay:
+    # control lost 4 rows -> 16, drug_a keeps 20.
+    ns = {s["group"]: s["n"] for s in body["stats"]["summaries"]}
+    assert ns.get("control") == 16 and ns.get("drug_a") == 20
+
+
 def test_pdf_export_has_exact_mm_size():
     spec = make_spec()
     spec["style"]["overrides"] = {"width_mm": 89, "height_mm": 70}
@@ -600,6 +641,44 @@ def test_repeated_dot_layers_draw_at_different_sizes():
                     sizes.add(round(float(s), 1))
     assert 6.0 in sizes and 80.0 in sizes  # both layers drew, at their own sizes
     compiler.close(fig)
+
+
+def test_layer_pinned_to_a_node_draws_that_nodes_frame():
+    # spec 2.3 Stage 1: a layer pinned to a non-output reduce-DAG node draws THAT
+    # node's frame (the raw pre-filter rows), not the output. The reported
+    # raw-vs-filtered overlay: the pinned dot must draw the source's 8 rows, while
+    # the same layer left unpinned draws only the filtered output's 4.
+    import matplotlib
+    matplotlib.use("Agg")
+    from matplotlib.collections import PathCollection
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "grp", "type": "categorical", "label": "G", "levels": ["a", "b"]},
+        {"name": "y", "type": "numeric", "label": "Y"}]}
+    src_df = pd.DataFrame([{"id": f"{g}{i}", "grp": g, "y": float(i)}
+                           for g in ("a", "b") for i in range(4)])   # 8 rows, both grps
+    out_df = src_df.iloc[[0, 1, 4, 5]].reset_index(drop=True)         # "filtered": 4 rows, both grps
+    node_frames = {"src": (src_df, schema), "out": (out_df, schema)}
+    base = {
+        "encodings": {"x": {"column": "grp"}, "y": {"column": "y"},
+                      "color": None, "size": None, "shape": None},
+        "reduce": {"output": "out"},
+        "style": {"overrides": {}}}
+
+    def n_points(layers):
+        spec = {**base, "layers": layers}
+        # df/schema passed in is the OUTPUT frame (4 rows); a pinned layer must
+        # ignore it in favour of its node frame.
+        fig = compiler.build_comparison_figure(
+            out_df, schema, spec, {"result": {}}, None, node_frames)
+        n = sum(len(c.get_offsets()) for ax in fig.axes for c in ax.collections
+                if isinstance(c, PathCollection))
+        compiler.close(fig)
+        return n
+
+    pinned = n_points([{"id": "raw", "geom": "dot", "level": "", "nodeId": "src"}])
+    plain = n_points([{"id": "raw", "geom": "dot", "level": ""}])
+    assert pinned == 8   # drew the pinned source frame, not the 4-row output
+    assert plain == 4    # unpinned still draws the output
 
 
 def test_repeated_dot_layers_honor_per_layer_layout():

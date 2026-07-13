@@ -54,6 +54,22 @@ describe("affordances — the phase-keyed add menu", () => {
   it("every option carries a non-empty label", () => {
     for (const o of affordances(tableNode("source"))) expect(o.label).toBeTruthy();
   });
+
+  it("an overlay-compatible upstream node (pinSource) offers 'Add to plot' carrying its node id", () => {
+    const node = { ...tableNode("step:0"), pinSource: "k0" };
+    const opts = affordances(node);
+    const geom = opts.find((o) => o.action.kind === "geom");
+    expect(geom?.label).toBe("Add to plot");
+    expect(geom?.action).toEqual({ kind: "geom", pinNodeId: "k0" });
+    // collapse/stats stay the primary-editing terminals (a test names one node)
+    expect(opts.find((o) => o.action.kind === "collapse")?.label).toBe("Collapse");
+  });
+
+  it("a node without a pinSource still offers the plain 'Plot (geom)' primary editor", () => {
+    const geom = affordances(tableNode("step:0")).find((o) => o.action.kind === "geom");
+    expect(geom?.label).toBe("Plot (geom)");
+    expect(geom?.action).toEqual({ kind: "geom" });
+  });
 });
 
 describe("authorDispatch — a +-pick resolves to its atom call", () => {
@@ -72,5 +88,9 @@ describe("authorDispatch — a +-pick resolves to its atom call", () => {
       .toMatchObject({ atom: "openCard", arg: { cardKind: "collapse-editor" } });
     expect(authorDispatch(0, { kind: "test" }))
       .toMatchObject({ atom: "openCard", arg: { cardKind: "test-editor" } });
+  });
+  it("a geom action carrying a pinNodeId adds a layer pinned to that node", () => {
+    expect(authorDispatch(0, { kind: "geom", pinNodeId: "k0" }))
+      .toEqual({ atom: "addLayerAtNode", arg: { nodeId: "k0" } });
   });
 });

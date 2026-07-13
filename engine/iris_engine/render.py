@@ -69,6 +69,7 @@ def render(table: dict, spec: dict, *, memo=None):
     spec = specnorm.normalize(spec)
     df, schema = _load_frame(table)
     reduce_block = spec.get("reduce") or {}
+    node_frames = None  # {node_id: (df, schema)} for the DAG path; None for the linear fold
     if "nodes" in reduce_block:
         # spec 2.2: reduce is a DAG (nodes+output), not the linear fold below.
         # A source node with no inline `table`/`table_id` never carries the
@@ -81,9 +82,14 @@ def render(table: dict, spec: dict, *, memo=None):
                  and "table" not in n and "table_id" not in n else n
                  for n in reduce_block["nodes"]]
         try:
-            df, schema = dag_mod.evaluate_dag({**reduce_block, "nodes": nodes})
+            # Trace every node's (df, schema), not just the output: a layer pinned
+            # to a non-output node (spec 2.3) draws from that node's frame. The
+            # output is one entry in the cache; the linear-fold path below has no
+            # DAG and so no node_frames (its layers can only pin to the output).
+            node_frames, _ = dag_mod.evaluate_dag_traced({**reduce_block, "nodes": nodes})
         except dag_mod.DagError as e:
             raise RenderError(f"reduction failed: {e}") from e
+        df, schema = node_frames[reduce_block["output"]]
     else:
         steps = reduce_block.get("steps") or []
         try:
@@ -315,5 +321,5 @@ def render(table: dict, spec: dict, *, memo=None):
     # from the picker anyway.
     if "error" in res and not res.get("recoverable"):
         raise RenderError(res["error"])
-    fig = compiler.build_figure(df, schema, spec, res, level_tables)
+    fig = compiler.build_figure(df, schema, spec, res, level_tables, node_frames)
     return fig, res, df, schema, model, issues, level_tables

@@ -1479,6 +1479,16 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) =>
   updateActive(get, set, (p) =>
     ({ ...p, layers: [...p.layers, { id: nextLayerId(), geom, level: RAW_LEVEL }] })));
 
+/* add a layer PINNED to a reduce-DAG node (spec 2.3 Stage 1): the raw-vs-filtered
+   overlay. `nodeId` names an upstream node in the active plottable's reduce DAG;
+   the layer draws that node's frame (its raw grain) rather than the output's. A
+   dot is the canonical overlay (the raw replicate cloud under the filtered plot);
+   the user re-geoms it in the plot editor. */
+export const addLayerAtNodeAtom = atom(null,
+  (get, set, arg: { nodeId: string; geom?: Layer["geom"] }) =>
+    updateActive(get, set, (p) => ({ ...p, layers: [...p.layers,
+      { id: nextLayerId(), geom: arg.geom ?? "dot", level: RAW_LEVEL, nodeId: arg.nodeId }] })));
+
 /* ---- table-level hierarchy: column roles + spine order (Data tab) ---- */
 
 /* Assign a column a role: "identifier" (a nesting/spine level) or "classifier"

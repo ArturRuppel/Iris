@@ -61,6 +61,12 @@ export interface ExplorerNode {
      kept distinct so the node renders two labeled sections. Set only on the
      terminal; absent elsewhere. */
   sections?: { kind: "plot" | "stats"; facts: string[] }[];
+  /* the DAG node id a `+`→Plot on this node pins a new layer to (spec 2.3 Stage
+     1). Present only on an UPSTREAM, overlay-compatible node (the raw source or a
+     column-preserving step, never the output or a shape-changing op) — its
+     presence is the compatibility gate. Absent -> `+`→Plot edits the primary
+     plot, as before. */
+  pinSource?: string;
 }
 
 export interface Edge {
@@ -132,6 +138,13 @@ const STEP_NODE_LABEL: Record<string, string> = {
   recode: "recoded", join: "joined",
   pivot: "pivoted", grid_complete: "counted",
 };
+
+/* reduce step kinds whose output still carries the plot's mapped columns on a
+   compatible scale, so the node can be overlaid as a layer (spec 2.3 Stage 1's
+   structural compatibility gate). Row-preserving/column-superset kinds only;
+   shape-changing kinds (drop / pivot / grid_complete) are excluded — the finer
+   "did THIS mapped column survive a drop" check is a deferred refinement. */
+const OVERLAY_COMPATIBLE_KINDS = new Set(["filter", "derive", "recode", "join"]);
 
 const condText = (c: { column: string; op: string; value?: unknown; bound?: string },
                   schema: Schema | null): string =>
@@ -222,6 +235,9 @@ export function buildGraph(
     id: mapId(s.id), kind: "table", phase: "source",
     stepIndex: si === 0 ? -1 : undefined,
     label: si === 0 ? "Source" : s.tableId,
+    // the primary source is always overlay-compatible (the raw table), unless it
+    // IS the output (a no-step DAG — then it's the primary plot, not an overlay).
+    ...(si === 0 && s.id !== dag.output ? { pinSource: s.id } : {}),
     table: { via: "at_step", at_step: -1 } }));
   const edges: Edge[] = [];
 
@@ -230,6 +246,10 @@ export function buildGraph(
     nodes.push({ id, kind: "table", phase: "reduce", stepIndex: i,
       label: STEP_NODE_LABEL[step.kind] ?? step.kind,
       table: { via: "at_step", at_step: i },
+      // an upstream column-preserving step can be overlaid as a layer; the output
+      // itself is the primary plot, so it never advertises a pin source.
+      ...(step.id !== dag.output && OVERLAY_COMPATIBLE_KINDS.has(step.kind)
+        ? { pinSource: step.id } : {}),
       ...(step.kind === "join" ? { acceptsRightInput: true } : {}) });
     if (step.kind === "join") {
       const onLabel = step.on.join(", ");
@@ -302,7 +322,15 @@ export function buildGraph(
   // number of grains. § Topology / Settled decisions #3.
   const geomByNode = new Map<string, string[]>();
   for (const layer of layers) {
-    const fromId = levelGrainNode(layer.level, plan, rawNodeId);
+    // A layer pinned to a non-output DAG node (2.3 Stage 1) roots at that node
+    // directly (its raw grain); an unpinned layer, or one pinned to the output,
+    // roots at the output's collapse grain via `level` (the superplot path). A
+    // pin to a node that no longer exists (deleted upstream) drops the edge —
+    // honest orphaning, not a silent reroute to the source.
+    const pinned = layer.nodeId;
+    const fromId = pinned && pinned !== dag.output
+      ? (graphId.has(pinned) ? mapId(pinned) : null)
+      : levelGrainNode(layer.level, plan, rawNodeId);
     if (!fromId) continue;
     const label = geomLabel(layer.geom);
     const list = geomByNode.get(fromId) ?? [];
