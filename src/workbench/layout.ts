@@ -11,7 +11,7 @@ export const ROW_GAP = 150;
 export interface PositionedNode { id: string; x: number; y: number; node: ExplorerNode }
 export interface LayoutEdge {
   id: string; source: string; target: string;
-  kind: EdgeKind; label: string; guards?: Edge["guards"];
+  kind: EdgeKind; label: string; guards?: Edge["guards"]; panel?: number;
 }
 export interface GraphLayout { nodes: PositionedNode[]; edges: LayoutEdge[] }
 
@@ -86,7 +86,7 @@ export function layoutGraph(graph: ExplorerGraph): GraphLayout {
   }));
   const edges: LayoutEdge[] = graph.edges.map((e) => ({
     id: e.id, source: e.fromId, target: e.toId,
-    kind: e.kind, label: e.label, guards: e.guards,
+    kind: e.kind, label: e.label, guards: e.guards, panel: e.panel,
   }));
   return { nodes, edges };
 }

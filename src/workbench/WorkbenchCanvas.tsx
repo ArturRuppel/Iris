@@ -88,7 +88,8 @@ export function toRF(
       // test wire the Stats, so they target the section-specific handles (see
       // ArrayShapeRFNode) instead of stacking on one point as a single line.
       sourceHandle: "out",
-      targetHandle: e.kind === "geom" ? "in-plot" : e.kind === "test" ? "in-test" : "in",
+      targetHandle: e.kind === "geom" ? (e.panel ? `in-plot-${e.panel}` : "in-plot")
+        : e.kind === "test" ? "in-test" : "in",
       data: { kind: e.kind, label: e.label, guards: e.guards },
     })),
   };

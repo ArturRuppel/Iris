@@ -211,6 +211,27 @@ describe("buildGraph", () => {
     expect(edge(g, "grain:experiment", "figure", "geom")?.label).toBe("box");
   });
 
+  it("panels (2.3 Stage 2): each panel is its own plot section, geom edges carry the panel", () => {
+    const layers: Layer[] = [
+      { geom: "box", level: RAW_LEVEL, panel: 0 },   // primary panel
+      { geom: "dot", level: RAW_LEVEL, panel: 1 },   // second panel, same source node
+    ];
+    const g = buildGraph(linearDag([]), SPINE, PLAN, layers, SCHEMA,
+      { test: "Welch's t-test", describeOnly: false });
+    const fig = g.nodes.find((n) => n.id === "figure")!;
+    // two plot sections (one per panel) + the single stats section
+    expect(fig.sections).toEqual([
+      { kind: "plot", panel: 0, facts: ["box"] },
+      { kind: "plot", panel: 1, facts: ["dots"] },
+      { kind: "stats", facts: ["Welch's t-test"] },
+    ]);
+    // two geom edges from the SAME source node, one per panel, distinct ids
+    const geoms = g.edges.filter((e) => e.kind === "geom");
+    expect(geoms).toHaveLength(2);
+    expect(geoms.find((e) => e.panel === 0)).toMatchObject({ id: "g:source", label: "box" });
+    expect(geoms.find((e) => e.panel === 1)).toMatchObject({ id: "g:p1:source", label: "dots" });
+  });
+
   it("two geoms at the same grain collapse to one comma-joined edge", () => {
     const layers: Layer[] = [
       { geom: "dot", level: RAW_LEVEL },
@@ -344,7 +365,7 @@ describe("buildGraph", () => {
     const fig = g.nodes.find((n) => n.id === "figure")!;
     expect(fig.kind).toBe("figure");
     expect(fig.sections).toEqual([
-      { kind: "plot", facts: ["dots"] },
+      { kind: "plot", panel: 0, facts: ["dots"] },
       { kind: "stats", facts: ["Welch's t-test"] },
     ]);
     expect(g.edges.some((e) => (e.kind as string) === "annotate")).toBe(false);

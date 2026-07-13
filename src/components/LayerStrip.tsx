@@ -14,10 +14,11 @@ import { LayerCard } from "./LayerCards";
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
    violin) without removing and re-adding it. Geoms incompatible with the current
    encoding types appear disabled-with-reason rather than hidden. */
-function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, onMove, onRemove, onChange }: {
+function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, maxPanel, faceted, onMove, onRemove, onChange }: {
   layer: Layer; registry: Registry; i: number; last: boolean; retypeGeoms: Geom[];
   gateReason: (g: Geom) => string | null;
   levels: { value: string; label: string }[];
+  maxPanel: number; faceted: boolean;
   onMove: (dir: -1 | 1) => void; onRemove: () => void;
   onChange: (l: Layer) => void;
 }) {
@@ -56,7 +57,7 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
         </span>
       </div>
       {open && <LayerCard layer={layer}
-        levels={levels} onChange={onChange} />}
+        levels={levels} maxPanel={maxPanel} faceted={faceted} onChange={onChange} />}
     </li>
   );
 }
@@ -80,6 +81,11 @@ export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
   };
   const allGeoms = Object.keys(registry.geoms) as Geom[];
   const layers = active.layers;
+  // panel authoring (spec 2.3 Stage 2): the highest panel any layer uses, so the
+  // card can offer the existing panels plus one "New panel". Suppressed under
+  // faceting — the engine defers the panels×faceting combo (faceting wins).
+  const maxPanel = Math.max(0, ...layers.map((l) => l.panel ?? 0));
+  const faceted = !!(active.facetRow || active.facetCol);
 
   return (
     <div className="layer-strip" data-testid="layer-strip">
@@ -89,6 +95,7 @@ export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
           <LayerItem key={layer.id ?? i} layer={layer} registry={registry} i={i}
             last={i === layers.length - 1} retypeGeoms={allGeoms}
             gateReason={gateReason} levels={levelOptions(hierarchy, schema)}
+            maxPanel={maxPanel} faceted={faceted}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}
             onChange={(l) => updateLayer({ index: i, layer: l })} />

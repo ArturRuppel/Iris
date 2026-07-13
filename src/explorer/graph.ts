@@ -60,7 +60,7 @@ export interface ExplorerNode {
   /* terminal (figure) sections: the plot's geom chips and the stats' test chip,
      kept distinct so the node renders two labeled sections. Set only on the
      terminal; absent elsewhere. */
-  sections?: { kind: "plot" | "stats"; facts: string[]; caution?: boolean }[];
+  sections?: { kind: "plot" | "stats"; facts: string[]; caution?: boolean; panel?: number }[];
   /* the DAG node id a `+`→Plot on this node pins a new layer to (spec 2.3 Stage
      1). Present only on an UPSTREAM, overlay-compatible node (the raw source or a
      column-preserving step, never the output or a shape-changing op) — its
@@ -77,6 +77,9 @@ export interface Edge {
   toId: string;
   guards?: GuardVerdict[];
   onKeys?: string[];   // raw join-key column names (join edges only), for keyhi matching
+  /* which figure panel a geom edge feeds (spec 2.3 Stage 2); absent/0 = the
+     primary panel. The canvas routes the wire to that panel's sink handle. */
+  panel?: number;
 }
 
 export interface ExplorerGraph {
@@ -302,10 +305,20 @@ export function buildGraph(
   // test, kept as two sections on ONE figure node. A `stats` "on figure" marker
   // replaces the old Stats->Plot annotate back-edge when a real test is drawn
   // onto the figure. Derived here, where layers + stats are in hand.
-  const geomFacts: string[] = [];
+  // Panels (spec 2.3 Stage 2): layers group into side-by-side plot panels by
+  // `layer.panel` (absent = 0). Each panel becomes its own plot section on the
+  // figure, with its own distinct geoms (first-seen order); a single panel is the
+  // one "Plot" section exactly as before. The stats section stays one — the test
+  // binds to the primary (output) lineage, unchanged.
+  const panelOf = (l: Layer): number => l.panel ?? 0;
+  const panels = [...new Set(layers.map(panelOf))].sort((a, b) => a - b);
+  const panelList = panels.length ? panels : [0];
+  const factsByPanel = new Map<number, string[]>();
   for (const layer of layers) {
+    const list = factsByPanel.get(panelOf(layer)) ?? [];
     const g = geomLabel(layer.geom);
-    if (!geomFacts.includes(g)) geomFacts.push(g);
+    if (!list.includes(g)) list.push(g);
+    factsByPanel.set(panelOf(layer), list);
   }
   const testFact = stats?.describeOnly ? "describe"
     : (stats?.test ? testLabel(stats.test) : "describe");
@@ -313,14 +326,15 @@ export function buildGraph(
   nodes.push({ id: FIGURE_ID, kind: "figure", phase: "terminal", label: "Figure",
     table: { via: "none" },
     sections: [
-      { kind: "plot", facts: geomFacts },
-      { kind: "stats", facts: [testFact, ...(annotated ? ["on figure"] : [])] },
+      ...panelList.map((p) => ({ kind: "plot" as const, panel: p, facts: factsByPanel.get(p) ?? [] })),
+      { kind: "stats" as const, facts: [testFact, ...(annotated ? ["on figure"] : [])] },
     ] });
 
-  // one edge per grain the plot reads, labelled with the geom(s) at that grain
-  // (distinct, in first-seen order, comma-joined). A plot is composable over any
-  // number of grains. § Topology / Settled decisions #3.
-  const geomByNode = new Map<string, string[]>();
+  // one edge per (panel, grain) the plot reads, labelled with the geom(s) that
+  // panel draws at that grain (distinct, first-seen order, comma-joined). The
+  // edge carries `panel` so the canvas lands it on that panel's sink; the panel-0
+  // edge id stays `g:<from>` for back-compat, higher panels namespace as `g:pN:`.
+  const geomByKey = new Map<string, { panel: number; fromId: string; labels: string[] }>();
   for (const layer of layers) {
     // A layer pinned to a non-output DAG node (2.3 Stage 1) roots at that node
     // directly (its raw grain); an unpinned layer, or one pinned to the output,
@@ -332,16 +346,18 @@ export function buildGraph(
       ? (graphId.has(pinned) ? mapId(pinned) : null)
       : levelGrainNode(layer.level, plan, rawNodeId);
     if (!fromId) continue;
+    const p = panelOf(layer);
+    const key = `${p}:${fromId}`;
+    const entry = geomByKey.get(key) ?? { panel: p, fromId, labels: [] };
     const label = geomLabel(layer.geom);
-    const list = geomByNode.get(fromId) ?? [];
-    if (!list.includes(label)) list.push(label);
-    geomByNode.set(fromId, list);
+    if (!entry.labels.includes(label)) entry.labels.push(label);
+    geomByKey.set(key, entry);
   }
-  for (const [fromId, labels] of geomByNode) {
-    edges.push({ id: `g:${fromId}`, kind: "geom", label: labels.join(", "),
-      fromId, toId: FIGURE_ID });
+  for (const { panel, fromId, labels } of geomByKey.values()) {
+    edges.push({ id: panel === 0 ? `g:${fromId}` : `g:p${panel}:${fromId}`,
+      kind: "geom", label: labels.join(", "), fromId, toId: FIGURE_ID, panel });
   }
-  if (geomByNode.size === 0) {
+  if (geomByKey.size === 0) {
     edges.push({ id: "g:plain", kind: "geom", label: "", fromId: rawNodeId, toId: FIGURE_ID });
   }
 

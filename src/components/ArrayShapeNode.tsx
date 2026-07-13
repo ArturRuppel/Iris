@@ -8,11 +8,12 @@ export type NodeVariant = "source" | "table" | "grain" | "hub" | "figure";
 
 export interface FigureSection {
   kind: "plot" | "stats";
-  label: string;          // "Plot" | "Stats"
+  label: string;          // "Plot" / "Panel N" | "Stats"
   facts: string[];        // geom chips / test chip
   onView?: () => void;    // left-click → pin this facet's card
   slotNum?: number | null;// stash slot badge when this facet is pinned
   caution?: boolean;      // a guard flagged the test feeding this section
+  panel?: number;         // which figure panel a plot section is (spec 2.3 Stage 2)
 }
 
 export interface ArrayShapeNodeProps {
@@ -93,7 +94,7 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
         <div className="txw-nbody txw-figsections">
           {props.sections.map((sec) => (
             <button
-              key={sec.kind}
+              key={sec.kind === "plot" ? `plot-${sec.panel ?? 0}` : sec.kind}
               type="button"
               className={`txw-figsec k-${sec.kind === "plot" ? "geom" : "test"}${sec.slotNum ? " pinned" : ""}`}
               aria-label={`${sec.label} summary`}

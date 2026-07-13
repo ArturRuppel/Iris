@@ -150,7 +150,13 @@ export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
   const h = get(hierarchyAtom);
   const plan = get(effectivePlanAtom);
   void get(effectiveTestGrainAtom);   // keep the test grain in the dep graph
-  const g = buildGraph(dag, h.spine, plan, p.layers,
+  // Honesty guard (spec 2.3 Stage 2): panels and faceting are both small-multiple
+  // mechanisms, and the engine defers the combo (faceting wins, panel tags
+  // ignored). Mirror that here so the canvas never shows panels the render won't
+  // draw — under faceting, collapse every layer to the primary panel.
+  const faceted = !!(p.facetRow || p.facetCol);
+  const layers = faceted ? p.layers.map((l) => ({ ...l, panel: 0 })) : p.layers;
+  const g = buildGraph(dag, h.spine, plan, layers,
     get(effectiveSchemaAtom), get(statsInputAtom));
   const counts = get(shapeCountsAtom);
   const guards = get(guardsAtom);

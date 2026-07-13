@@ -62,14 +62,18 @@ export function nodeShapeProps(
   node: ExplorerNode, delta?: NodeDelta, sourceName = "Table",
 ): RFNodeData {
   const c = node.count;
+  // a single plot section is just "Plot"; several panels label as "Panel 1/2/…"
+  const plotCount = node.sections?.filter((s) => s.kind === "plot").length ?? 0;
   return {
     variant: variantOf(node),
     kind: accentKind(node, delta),
     eyebrow: nodeTableName(node, sourceName),
     detail: "",
     sections: node.sections?.map((s): FigureSection => ({
-      kind: s.kind, label: s.kind === "plot" ? "Plot" : "Stats", facts: s.facts,
-      caution: s.caution,
+      kind: s.kind,
+      label: s.kind === "plot"
+        ? (plotCount > 1 ? `Panel ${(s.panel ?? 0) + 1}` : "Plot") : "Stats",
+      facts: s.facts, caution: s.caution, panel: s.panel,
     })),
     spine: delta?.spine ?? [], live: delta?.live ?? [], shed: delta?.shed ?? [],
     values: c?.values ?? [], newValues: delta?.newValues ?? [],
@@ -157,20 +161,21 @@ export function ArrayShapeRFNode(
         className={missing ? "txw-handle-missing" : undefined}
         style={missing ? undefined : { opacity: 0 }}
       />
-      {/* the figure's two sections (Plot + Stats) are distinct sinks: geom wires
-          feed the Plot, the test wire feeds the Stats — and the two can even read
-          different grains. Give each section its own left-edge target handle so the
-          wires land at the section they feed instead of stacking on one point and
-          reading as a single edge. geom -> in-plot (upper), test -> in-test (lower);
-          see toRF's targetHandle mapping. */}
-      {shape.variant === "figure" && (
-        <>
-          <Handle id="in-plot" type="target" position={Position.Left}
-            style={{ top: "30%", opacity: 0 }} />
-          <Handle id="in-test" type="target" position={Position.Left}
-            style={{ top: "76%", opacity: 0 }} />
-        </>
-      )}
+      {/* the figure's sections are distinct sinks: each plot PANEL's geom wires
+          feed that panel, the test wire feeds the Stats — and each can read a
+          different grain. Give every section its own left-edge target handle,
+          spaced down the edge, so wires land at the section they feed instead of
+          stacking on one point. A plot panel's handle is `in-plot` (panel 0, back-
+          compat) or `in-plot-<panel>`; the test's is `in-test`. See toRF's
+          targetHandle mapping. */}
+      {shape.variant === "figure" && (shape.sections ?? []).map((sec, i, all) => {
+        const id = sec.kind === "stats" ? "in-test"
+          : (sec.panel ? `in-plot-${sec.panel}` : "in-plot");
+        return (
+          <Handle key={id} id={id} type="target" position={Position.Left}
+            style={{ top: `${((i + 0.5) / all.length) * 100}%`, opacity: 0 }} />
+        );
+      })}
       {/* a join's right (slot 1) input: a distinct drop target, lower on the left
           edge, that a dragged wire fills — the second path in beside the picker. */}
       {acceptsRightInput && (
