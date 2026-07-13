@@ -1,7 +1,9 @@
-import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
+import { useRef, useState } from "react";
 import { useSetAtom } from "jotai";
 import { loadTableAtom, dataViewAtom } from "../state";
 import { engine, fileToBase64, tableFromColumnar } from "../types";
+import { type Cell as GridCell, type Rect } from "../gridSelect";
+import { useGridSelection } from "../useGridSelection";
 
 /* The header is a stack of grouping rows over a row of value columns — exactly
    the merged-cell layout people build in Excel. `bands[0]` is the topmost
@@ -104,6 +106,11 @@ export function DataEntry() {
   const [error, setError] = useState<string | null>(null);   // create failures (footer)
   const [note, setNote] = useState<string | null>(null);      // refused-action explanation
   const [busy, setBusy] = useState(false);
+  // the single active cell editor (Excel-like: click selects, type/dbl-click edits)
+  const [edit, setEdit] = useState<{ r: number; c: number } | null>(null);
+  const [draft, setDraft] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const focusScroll = () => scrollRef.current?.focus();
 
   const nCols = columnLabels.length;
   const depth = bands.length + 1;
@@ -149,12 +156,19 @@ export function DataEntry() {
       return next;
     });
 
-  /* spill a pasted TSV/CSV block across cells starting at (r0,c0), growing rows
-     (and columns, joining the rightmost group) to fit — the Excel paste. */
-  const spill = (r0: number, c0: number, text: string) => {
-    const grid = text.replace(/\r/g, "").replace(/\n+$/, "")
-      .split("\n").map((line) => line.split("\t"));
-    const need = c0 + Math.max(...grid.map((g) => g.length));
+  /* ---- Excel-like editing (shared model via useGridSelection) ---- */
+  const beginEdit = (r: number, c: number, initial?: string) => {
+    setNote(null);
+    setDraft(initial ?? cell(r, c));
+    setEdit({ r, c });   // the cell is already the selection focus in every entry path
+  };
+  const cancelEdit = () => { setEdit(null); focusScroll(); };
+
+  /* paste a clipboard block anchored at the selection's top-left, growing rows
+     (and columns, joining the rightmost group) to fit — the Excel paste. Entry has
+     no holes and grows freely, so nothing is skipped. */
+  const pasteBlock = (anchor: GridCell, block: string[][]) => {
+    const need = anchor.c + Math.max(...block.map((g) => g.length));
     if (need > nCols) addColumns(need - nCols);
     setRows((rs) => {
       const width = Math.max(nCols, need);
@@ -163,30 +177,41 @@ export function DataEntry() {
         while (cp.length < width) cp.push("");
         return cp;
       });
-      grid.forEach((line, dr) => {
-        const r = r0 + dr;
+      block.forEach((line, dr) => {
+        const r = anchor.r + dr;
         while (next.length <= r) next.push(Array(width).fill(""));
-        line.forEach((val, dc) => { next[r][c0 + dc] = val.trim(); });
+        line.forEach((val, dc) => { next[r][anchor.c + dc] = val.trim(); });
       });
       return next;
     });
   };
-  const onPaste = (r: number, c: number) => (e: ClipboardEvent) => {
-    const text = e.clipboardData.getData("text");
-    if (!/[\t\n]/.test(text)) return;   // a single cell — let the input handle it
-    e.preventDefault();
-    spill(r, c, text);
+  const clearRect = (x: Rect) => setRows((rs) =>
+    rs.map((row, r) => (r < x.r0 || r > x.r1 ? row
+      : row.map((v, c) => (c >= x.c0 && c <= x.c1 ? "" : v)))));
+
+  const ensureVisible = (c: GridCell) => queueMicrotask(() =>
+    scrollRef.current?.querySelector(`td[data-r="${c.r}"][data-c="${c.c}"]`)
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" }));
+
+  const gsel = useGridSelection({
+    nRows: rows.length, nCols, values: rows,
+    isEditable: () => true, beginEdit, pasteBlock, clearRect, ensureVisible,
+  });
+
+  /* commit the active edit and (on Enter/Tab) step the active cell on, growing a
+     row at the bottom like Excel; keep the keyboard alive by refocusing the grid. */
+  const commit = (dr = 0, dc = 0) => {
+    if (!edit) return;
+    const { r, c } = edit;
+    setCell(r, c, draft);
+    setEdit(null);
+    if (dr || dc) {
+      const R = r + dr;
+      if (dr > 0 && R >= rows.length) addRow();
+      gsel.selectCell(Math.max(0, R), Math.max(0, Math.min(c + dc, nCols - 1)), false);
+      focusScroll();
+    }
   };
-  /* Enter walks down a column (adding a row at the bottom), the spreadsheet feel. */
-  const onKey = (r: number, c: number) => (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== "Enter") return;
-    e.preventDefault();
-    if (r + 1 >= rows.length) addRow();
-    focusCell(r + 1, c);
-  };
-  const focusCell = (r: number, c: number) =>
-    queueMicrotask(() =>
-      document.querySelector<HTMLInputElement>(`[data-cell="${r}:${c}"]`)?.focus());
 
   /* ---- row / column structure ---- */
   const addRow = () => setRows((rs) => [...rs, Array(nCols).fill("")]);
@@ -356,7 +381,13 @@ export function DataEntry() {
               tidy table.
             </p>
 
-            <div className="de-scroll">
+            <div className="de-scroll" ref={scrollRef} tabIndex={0}
+              onKeyDown={(e) => {
+                if (edit) return;
+                // header label inputs (band/column names) keep their own keys
+                if ((e.target as HTMLElement).tagName === "INPUT") return;
+                gsel.onKeyDown(e);
+              }}>
               <table className="de-grid">
                 <thead>
                   {bands.map((row, level) => (
@@ -402,14 +433,34 @@ export function DataEntry() {
                         <button className="de-icon" title="delete row"
                           onClick={() => removeRow(r)}>{r + 1}</button>
                       </td>
-                      {columnLabels.map((_, c) => (
-                        <td key={c} className={colSelected(c) ? "de-selcol" : undefined}>
-                          <input className="de-cell" data-cell={`${r}:${c}`}
-                            value={cell(r, c)} spellCheck={false}
-                            onChange={(e) => setCell(r, c, e.target.value)}
-                            onPaste={onPaste(r, c)} onKeyDown={onKey(r, c)} />
-                        </td>
-                      ))}
+                      {columnLabels.map((_, c) => {
+                        const editing = edit?.r === r && edit?.c === c;
+                        const cls = [
+                          "de-body",
+                          colSelected(c) ? "de-selcol" : "",
+                          gsel.isSelected(r, c) ? "de-sel" : "",
+                          gsel.isActive(r, c) ? "de-active" : "",
+                        ].filter(Boolean).join(" ");
+                        return (
+                          <td key={c} data-r={r} data-c={c} className={cls}
+                            onMouseDown={editing ? undefined
+                              : (e) => { gsel.onCellMouseDown(r, c, e.shiftKey); focusScroll(); }}
+                            onMouseEnter={() => gsel.onCellMouseEnter(r, c)}
+                            onDoubleClick={() => beginEdit(r, c)}>
+                            {editing
+                              ? <input className="de-cell" autoFocus data-cell={`${r}:${c}`}
+                                  value={draft} spellCheck={false}
+                                  onChange={(e) => setDraft(e.target.value)}
+                                  onBlur={() => commit()}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") { e.preventDefault(); commit(1, 0); }
+                                    else if (e.key === "Tab") { e.preventDefault(); commit(0, e.shiftKey ? -1 : 1); }
+                                    else if (e.key === "Escape") { e.preventDefault(); cancelEdit(); }
+                                  }} />
+                              : <span className="de-celltext">{cell(r, c)}</span>}
+                          </td>
+                        );
+                      })}
                       {bands.length === 0 && <td />}
                     </tr>
                   ))}

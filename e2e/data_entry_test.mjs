@@ -68,8 +68,14 @@ console.log("delete-selected-columns left", cols1, "column");
 await page.click(".de-tools button:has-text('Column')");
 await page.waitForFunction(() =>
   document.querySelectorAll(".de-heads .de-colcell").length === 2, null, { timeout: 5000 });
-for (const [cell, v] of [["0:0", "1"], ["1:0", "2"], ["0:1", "3"], ["1:1", "4"]])
-  await page.fill(`[data-cell="${cell}"]`, v);
+// value cells are select-first now (Excel-like): double-click to open the editor,
+// type the value, Enter to commit. (Single click selects; typing also overwrites.)
+for (const [rc, v] of [["0:0", "1"], ["1:0", "2"], ["0:1", "3"], ["1:1", "4"]]) {
+  const [r, c] = rc.split(":");
+  await page.locator(`td[data-r="${r}"][data-c="${c}"]`).dblclick();
+  await page.fill(`[data-cell="${rc}"]`, v);
+  await page.keyboard.press("Enter");
+}
 
 const createBtn = page.locator(".de-foot button.primary");
 if (await createBtn.isDisabled()) fail("create should be enabled with two filled columns");

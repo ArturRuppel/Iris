@@ -378,6 +378,13 @@ dd.strong { font-weight: 600; }
   padding: 4px 7px; box-sizing: border-box; }
 .de-grid input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .de-cell { min-width: 84px; font-variant-numeric: tabular-nums; }
+/* body data cells: select-first, like the grouped lens. The cell shows text; a
+   click selects, double-click / typing edits (an input replaces the text). */
+.de-body { min-width: 84px; cursor: cell; }
+.de-celltext { display: block; padding: 4px 7px; min-height: 22px;
+  font-variant-numeric: tabular-nums; white-space: pre; overflow: hidden; }
+.de-grid td.de-sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.de-grid td.de-active { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* header bands: coarser groups sit higher and read bolder */
 .de-band th { background: var(--panel2); }
 .de-groupcell input, .de-colcell input { font-weight: 600; text-align: center; }
