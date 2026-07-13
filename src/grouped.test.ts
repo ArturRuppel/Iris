@@ -52,6 +52,28 @@ describe("groupedSpec — layout roles from the spine", () => {
   });
 });
 
+describe("groupedSpec — spine order is the nesting control (Slice 3)", () => {
+  // the same columns, two spine orders. The finest spine level is the vertical
+  // axis and the rest are the bands in spine order, so reordering the spine
+  // re-picks the vertical axis and re-nests the bands. This is the whole point of
+  // retiring factorOrderAtom: nesting order lives on the spine and nowhere else.
+  const s = schema(
+    col("experiment_id", "identifier"), col("cell_id", "identifier"),
+    col("frame", "identifier"), col("value", "numeric"));
+
+  it("finest spine level is the vertical axis; the rest are bands, in spine order", () => {
+    const spec = groupedSpec(s, ["experiment_id", "cell_id", "frame"]);
+    expect(spec.vertical?.name).toBe("frame");
+    expect(spec.bandCols.map((c) => c.name)).toEqual(["experiment_id", "cell_id"]);
+  });
+
+  it("reordering the spine re-picks the vertical axis and re-nests the bands", () => {
+    const spec = groupedSpec(s, ["frame", "experiment_id", "cell_id"]);
+    expect(spec.vertical?.name).toBe("cell_id");   // the new finest level
+    expect(spec.bandCols.map((c) => c.name)).toEqual(["frame", "experiment_id"]);
+  });
+});
+
 describe("pivotability — availability from the spine", () => {
   it("a non-empty spine is pivotable", () => {
     const a = pivotability(cellSizeSchema, cellSizeSpine);

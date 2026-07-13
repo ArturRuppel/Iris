@@ -10,7 +10,7 @@ import {
   schemaAtom, hierarchyAtom, tableHandleAtom, plottablesAtom, activePlottableAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
   setCollapsePlanAtom, setTestGrainAtom, resetCollapseAtom,
-  loadTableAtom, setColumnRoleAtom,
+  loadTableAtom, setColumnRoleAtom, moveSpineAtom,
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, resolveSaveDag, saveTablesFor, materializedTablesAtom,
   tablesNeedingMaterialize, dagFromLinear,
@@ -639,6 +639,41 @@ describe("selectedNodeIdAtom", () => {
     expect(store.get(selectedNodeIdAtom)).toBeNull();
     store.set(selectedNodeIdAtom, "flatten:experiment");
     expect(store.get(selectedNodeIdAtom)).toBe("flatten:experiment");
+  });
+});
+
+describe("moveSpineAtom — the single spine-reorder control (Slice 3)", () => {
+  // the HierarchyPanel ↑/↓ buttons are the only nesting control now (factorOrderAtom
+  // is gone). Each button drives this atom, which swaps two adjacent spine levels on
+  // the active table. Reordering the spine is what re-picks the grouped lens's
+  // vertical axis (groupedSpec: vertical = spine[last]).
+  const S3: Schema = { schema_version: "1.0", columns: [
+    { name: "a", type: "identifier", label: "a" },
+    { name: "b", type: "identifier", label: "b" },
+    { name: "c", type: "identifier", label: "c" },
+    { name: "v", type: "numeric", label: "v" },
+  ] };
+  const mk = (spine: string[]) => ({
+    id: "t", name: "t", schema: S3,
+    hierarchy: { spine, fn: { a: "median" as const } },
+    handle: { id: "h_t", n: 1, version: 0, schema: S3, counts: {} as never },
+  });
+
+  it("swaps a spine level with its finer neighbour, persisting on the active table and keeping fn", () => {
+    const store = createStore();
+    store.set(tablesAtom, [mk(["a", "b", "c"])]);
+    store.set(activeTableIdAtom, "t");
+    store.set(moveSpineAtom, { index: 0, dir: 1 });   // a ↔ b
+    expect(store.get(activeTableAtom)?.hierarchy.spine).toEqual(["b", "a", "c"]);
+    expect(store.get(activeTableAtom)?.hierarchy.fn).toEqual({ a: "median" });
+  });
+
+  it("a move past the finest edge is a no-op, not a crash or a truncation", () => {
+    const store = createStore();
+    store.set(tablesAtom, [mk(["a", "b", "c"])]);
+    store.set(activeTableIdAtom, "t");
+    store.set(moveSpineAtom, { index: 2, dir: 1 });   // c is last; nowhere finer
+    expect(store.get(activeTableAtom)?.hierarchy.spine).toEqual(["a", "b", "c"]);
   });
 });
 
