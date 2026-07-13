@@ -60,7 +60,7 @@ function installPickerStub(seedBase64) {
 }
 
 async function importCsv(page, name, csv) {
-  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+  await page.click(".tb-btn:has-text('Add data')");
   await page.setInputFiles("input[type=file]", {
     name, mimeType: "text/csv", buffer: Buffer.from(csv),
   });
@@ -174,7 +174,7 @@ await page2.addInitScript(installPickerStub, saved);
 await page2.goto(URL, { waitUntil: "domcontentloaded" });
 await page2.waitForSelector(".app", { timeout: 30000 });
 
-await page2.click("header .tb-ghost");
+await page2.click("header .tb-ghost:has-text('Load')");
 await page2.waitForSelector(".workbench-mode", { timeout: 60000 });
 await page2.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
 await page2.waitForTimeout(3000);

@@ -25,7 +25,7 @@ const csv = [
   "a,1", "a,2", "a,3", "b,4", "b,5", "b,6",
 ].join("\n");
 
-await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+await page.click(".tb-btn:has-text('Add data')");
 await page.setInputFiles("input[type=file]", {
   name: "zoom_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

@@ -59,7 +59,7 @@ function installPickerStub(seedBase64) {
 }
 
 async function importFixture(page) {
-  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+  await page.click(".tb-btn:has-text('Add data')");
   await page.setInputFiles("input[type=file]", {
     name: "save_load_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
   });
@@ -116,7 +116,7 @@ await page2.addInitScript(installPickerStub, saved);   // seed the saved bytes
 await page2.goto(URL, { waitUntil: "domcontentloaded" });
 await page2.waitForSelector(".app", { timeout: 30000 });
 
-await page2.click("header .tb-ghost");
+await page2.click("header .tb-ghost:has-text('Load')");
 // A successful load switches to analyses mode and shows the plottable + the
 // loaded data (engine /document/load rebuilt the session from the saved bytes).
 await page2.waitForSelector(".workbench-mode", { timeout: 60000 });

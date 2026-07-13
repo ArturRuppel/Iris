@@ -1150,6 +1150,23 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
     set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
 });
 
+/* New document: wipe the workspace back to its initial empty state — no tables,
+   no analyses, no pipelines, caches cleared — and rebaseline autosave so the
+   blank slate isn't itself treated as unsaved work. The bound OS file handle and
+   the on-disk autosave slot are the caller's (App) to clear; those live outside
+   the atom graph. */
+export const newDocumentAtom = atom(null, (get, set) => {
+  set(tablesAtom, []);
+  set(activeTableIdAtom, null);
+  set(materializedTablesAtom, {});
+  set(plottablesAtom, []);
+  set(activePlottableIdAtom, null);
+  set(reduceStoreAtom, {});
+  set(engineErrorAtom, null);
+  set(clearAnalysisCachesAtom);
+  set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
+});
+
 function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
   // Load REPLACES the workspace: clear the pool + materialized cache first so a
   // prior import/load leaves no orphan tables and no stale rows (spec §6.2 — one

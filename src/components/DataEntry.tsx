@@ -1,6 +1,6 @@
 import { useState, type ClipboardEvent, type KeyboardEvent } from "react";
 import { useSetAtom } from "jotai";
-import { loadTableAtom } from "../state";
+import { loadTableAtom, dataViewAtom } from "../state";
 import { engine, fileToBase64, tableFromColumnar } from "../types";
 
 /* The header is a stack of grouping rows over a row of value columns — exactly
@@ -95,6 +95,7 @@ function shrinkBand(row: Cell[], startCol: number, count: number): Cell[] {
  *  live lens. Entry and lens are one continuous surface, one write path. */
 export function DataEntry() {
   const loadTable = useSetAtom(loadTableAtom);
+  const setDataView = useSetAtom(dataViewAtom);
   const [bands, setBands] = useState<Cell[][]>([]);
   const [columnLabels, setColumnLabels] = useState<string[]>(freshColumns);
   const [rows, setRows] = useState<string[][]>(() => freshRows(2));
@@ -334,6 +335,10 @@ export function DataEntry() {
       const ct = await engine.importCommit(src, opts,
         long.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
       loadTable({ ...tableFromColumnar(ct), token: ct.token });
+      // Entry and lens are one continuous surface: the moment the session mints,
+      // the SAME pane must flip to the live grouped lens — so land the view on
+      // "grouped" (the reveal path no longer sets it, and the default is "table").
+      setDataView("grouped");
       reset();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

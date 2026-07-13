@@ -30,7 +30,6 @@ if (await page.locator(".engine-down").count() > 0)
 
 // --- load a small two-group table via the in-memory import buffer ---
 await page.click(".tb-btn:has-text('Add data')");
-await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "panels_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

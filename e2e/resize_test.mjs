@@ -19,7 +19,7 @@ page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 await page.goto(process.env.APP_URL ?? "http://localhost:5173");
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+await page.click(".tb-btn:has-text('Add data')");
 await page.setInputFiles("input[type=file]", {
   name: "resize_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

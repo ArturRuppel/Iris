@@ -30,7 +30,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
 if (await page.locator(".engine-down").count() > 0)
   fail("engine not reachable — start the engine on 8765");
 
-await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+await page.click(".tb-btn:has-text('Add data')");
 await page.setInputFiles("input[type=file]", {
   name: "layers_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

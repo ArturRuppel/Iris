@@ -20,9 +20,10 @@ const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-// "Enter data" reveals the inline entry surface in the grouped-sheet pane — no modal
-await page.click(".tb-btn:has-text('Add data')");
-await page.click(".tb-menu button:has-text('Enter data…')");
+// With no table yet, the Data view's grouped-sheet pane IS the inline entry
+// surface (no modal, and no top-bar shortcut — that was removed). Data is the
+// default view; click the mode button anyway to be explicit.
+await page.click(".tb-seg button:has-text('Data')");
 await page.waitForSelector(".de-inline .de-grid", { timeout: 10000 });
 if (await page.locator(".de-modal").count() > 0)
   fail("entry should be inline now, not a modal (.de-modal must be gone)");

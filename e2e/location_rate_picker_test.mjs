@@ -30,7 +30,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
 if (await page.locator(".engine-down").count() > 0) fail("engine down on 8765");
 
 async function importCsv(name, csv) {
-  await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+  await page.click(".tb-btn:has-text('Add data')");
   await page.setInputFiles("input[type=file]", {
     name, mimeType: "text/csv", buffer: Buffer.from(csv),
   });

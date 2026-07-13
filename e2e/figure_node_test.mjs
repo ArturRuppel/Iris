@@ -21,7 +21,7 @@ if (await page.locator(".engine-down").count() > 0) fail("engine down");
 
 const rows = ["group,value"];
 for (const [g,b] of [["ctrl",10],["drug",14]]) for (let i=0;i<6;i++) rows.push(`${g},${b+i}`);
-await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+await page.click(".tb-btn:has-text('Add data')");
 await page.setInputFiles("input[type=file]", { name:"f.csv", mimeType:"text/csv", buffer:Buffer.from(rows.join("\n")) });
 await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");

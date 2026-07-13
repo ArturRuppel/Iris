@@ -26,7 +26,6 @@ await page.waitForSelector(".app", { timeout: 30000 });
 
 // import the fixture through the wizard's hidden file input
 await page.click(".tb-btn:has-text('Add data')");
-await page.click(".tb-menu button:has-text('Import…')");
 await page.setInputFiles("input[type=file]", {
   name: "grouped_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

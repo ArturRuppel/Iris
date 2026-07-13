@@ -38,7 +38,7 @@ for (const [grp, base] of [["ctrl", 10], ["drug", 14]])
       rows.push(`${grp},${grp}_s${s},${r},${base + s + r * 0.1}`);
 const csv = rows.join("\n");
 
-await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+await page.click(".tb-btn:has-text('Add data')");
 await page.setInputFiles("input[type=file]", {
   name: "superplot_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

@@ -49,16 +49,21 @@ body { margin: 0; background: var(--bg); color: var(--ink);
    positioned dropdown menus) into its own stacking context above <main> — so a
    menu overflowing down over the workbench React Flow canvas paints on top of it,
    and the header's own buttons stay above the open-menu backdrop. */
-.topbar { display:flex; align-items:center; gap:16px; height:62px; padding:0 18px;
-  background:var(--panel); border-bottom:1px solid var(--line); flex:none; flex-wrap:nowrap;
-  position:relative; z-index:55; }   /* above the workbench overlay's own z-index:50 context */
+/* three columns: 1fr | auto | 1fr keeps the centre column (the mode switcher)
+   optically centred in the bar no matter how wide the left/right clusters get. */
+.topbar { display:grid; grid-template-columns:1fr auto 1fr; align-items:center; gap:16px;
+  height:62px; padding:0 18px; background:var(--panel); border-bottom:1px solid var(--line);
+  flex:none; position:relative; z-index:55; }   /* above the workbench overlay's own z-index:50 context */
+.tb-left { display:flex; align-items:center; gap:14px; min-width:0; justify-self:start; }
+.tb-fileactions { display:flex; align-items:center; gap:8px; }
+.tb-right { display:flex; align-items:center; gap:10px; justify-self:end; }
 .tb-brand { display:flex; align-items:center; gap:10px; flex:none; }
 .tb-mark { width:34px; height:34px; border-radius:9px; background:var(--brandbox);
   display:inline-flex; align-items:center; justify-content:center; flex:none; }
 .tb-word { font:600 19px/1 'IBM Plex Sans'; letter-spacing:-.015em; color:var(--ink); }
 .tb-div { width:1px; height:26px; background:var(--line); flex:none; }
 .tb-div.sm { height:24px; }
-.tb-modes { flex:1; display:flex; justify-content:center; min-width:0; }
+.tb-modes { display:flex; justify-content:center; min-width:0; }
 .tb-seg { display:inline-flex; gap:3px; background:var(--seg-bg);
   border:1px solid var(--seg-line); border-radius:11px; padding:3px; }
 .tb-seg button { display:inline-flex; align-items:center; gap:7px; border:none;
@@ -68,7 +73,6 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tb-seg button.active { font-weight:600; background:var(--primary);
   color:var(--primary-fg); box-shadow:0 2px 6px -1px var(--primary-shadow); }
 .tb-seg button svg { flex:none; }
-.tb-actions { display:flex; align-items:center; gap:10px; flex:none; }
 .tb-menuwrap { position:relative; display:inline-flex; }
 .tb-btn { display:inline-flex; align-items:center; gap:6px; font:500 12px/1 'IBM Plex Sans';
   border:1px solid var(--btn-line); border-radius:9px; padding:8px 12px;

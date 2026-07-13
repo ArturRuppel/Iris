@@ -28,7 +28,7 @@ const csv = [
   "drug_a,pass", "drug_a,pass", "drug_a,fail",
 ].join("\n");
 
-await page.click(".tb-btn:has-text('Add data')"); await page.click(".tb-menu button:has-text('Import…')");
+await page.click(".tb-btn:has-text('Add data')");
 await page.setInputFiles("input[type=file]", {
   name: "tile_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });

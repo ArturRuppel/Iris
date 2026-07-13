@@ -16,10 +16,10 @@ import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, cacheKeysFingerprintAtom, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
-  hierarchyAtom, loadDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
+  hierarchyAtom, loadDocumentAtom, newDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
-  touchAnalysisAtom, viewModeAtom, dataViewAtom, effectivePlanAtom, effectiveTestGrainAtom,
+  touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
   tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
   resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
   autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom,
@@ -117,9 +117,9 @@ export default function App() {
     try { localStorage.setItem("iris:theme", theme); } catch { /* private mode */ }
   }, [theme]);
   /* which top-bar dropdown is open; closes on outside-click (a backdrop) or Escape. */
-  const [openMenu, setOpenMenu] = useState<null | "add" | "export" | "overflow">(null);
+  const [openMenu, setOpenMenu] = useState<null | "export" | "overflow">(null);
   const importRef = useRef<ImportWizardHandle>(null);
-  const setDataView = useSetAtom(dataViewAtom);
+  const newDocument = useSetAtom(newDocumentAtom);
   useEffect(() => {
     if (!openMenu) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpenMenu(null); };
@@ -577,6 +577,22 @@ export default function App() {
       await markSaved();
     } catch (e) { surfaceUnlessAbort(e); }
   };
+  /* Start a fresh, empty document. Discards the current one, so guard real
+     unsaved work first (same dirty test the autosave loop uses: the semantic
+     key has diverged from the baseline AND the pool actually holds something).
+     Resets the workspace atoms, drops the bound file handle so the next Save
+     prompts for a location, empties the on-disk autosave slot, and lands in the
+     Data view ready for an import. */
+  const doNew = async () => {
+    const dirty = store.get(autosaveKeyAtom) !== autosaveBaseline && pool.length > 0;
+    if (dirty && !window.confirm(
+      "Start a new document? Unsaved changes to the current one will be lost.")) return;
+    newDocument();
+    clearWorkbench(); clearSpecHistory();
+    fileHandleRef.current = null;
+    setViewMode("data");
+    await engine.autosaveClear().catch(() => {});
+  };
   const doLoad = async () => {
     try {
       // Prefer the FS Access API (lets a later Save write back to the same file);
@@ -660,11 +676,38 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="tb-brand">
-          <span className="tb-mark"><img src={irisMark} alt="" width="27" height="27" /></span>
-          <span className="tb-word">Iris</span>
+        <div className="tb-left">
+          <div className="tb-brand">
+            <span className="tb-mark"><img src={irisMark} alt="" width="27" height="27" /></span>
+            <span className="tb-word">Iris</span>
+          </div>
+          <div className="tb-div" />
+          {/* File-manipulation cluster, next to the logo: document lifecycle
+              (New / Load / Save), then a divider, then data in / figure out. */}
+          <div className="tb-fileactions">
+            <button className="tb-ghost" onClick={doNew}>New</button>
+            <button className="tb-ghost" onClick={doLoad}>Load</button>
+            <button className="tb-primary" onClick={doSave}>Save</button>
+            <div className="tb-div sm" />
+            <button className="tb-btn" onClick={() => importRef.current?.open()}>+ Add data</button>
+            <div className="tb-menuwrap">
+              <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
+                Export <span className="caret">▾</span></button>
+              {openMenu === "export" && (
+                <div className="tb-menu">
+                  <button onClick={() => { setOpenMenu(null); void doExport("svg"); }}>SVG</button>
+                  <button onClick={() => { setOpenMenu(null); void doExport("pdf"); }}>PDF</button>
+                  <button onClick={() => { setOpenMenu(null); void doExport("png"); }}>PNG</button>
+                  <div className="tb-menu-sep" />
+                  <button onClick={() => { setOpenMenu(null); void doExportMethods("md"); }}
+                    title="Methods paragraph + stats table (Markdown)">Methods (.md)</button>
+                  <button onClick={() => { setOpenMenu(null); void doExportMethods("csv"); }}
+                    title="Statistics table (CSV)">Statistics (.csv)</button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-        <div className="tb-div" />
         <nav className="tb-modes">
           <div className="tb-seg">
             <button data-tour="mode-data" className={viewMode === "data" ? "active" : ""}
@@ -675,37 +718,9 @@ export default function App() {
               onClick={() => setViewMode("guide")}><GuideGlyph />Guide</button>
           </div>
         </nav>
-        <div className="tb-actions">
+        <div className="tb-right">
           <RenderIndicator dataLoading={dataLoading} />
           <div className="tb-div sm" />
-          <div className="tb-menuwrap">
-            <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "add" ? null : "add")}>
-              + Add data <span className="caret">▾</span></button>
-            {openMenu === "add" && (
-              <div className="tb-menu">
-                <button onClick={() => { setOpenMenu(null); importRef.current?.open(); }}>Import…</button>
-                <button onClick={() => { setOpenMenu(null); setViewMode("data"); setDataView("grouped"); }}>Enter data…</button>
-              </div>
-            )}
-          </div>
-          <div className="tb-menuwrap">
-            <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
-              Export <span className="caret">▾</span></button>
-            {openMenu === "export" && (
-              <div className="tb-menu">
-                <button onClick={() => { setOpenMenu(null); void doExport("svg"); }}>SVG</button>
-                <button onClick={() => { setOpenMenu(null); void doExport("pdf"); }}>PDF</button>
-                <button onClick={() => { setOpenMenu(null); void doExport("png"); }}>PNG</button>
-                <div className="tb-menu-sep" />
-                <button onClick={() => { setOpenMenu(null); void doExportMethods("md"); }}
-                  title="Methods paragraph + stats table (Markdown)">Methods (.md)</button>
-                <button onClick={() => { setOpenMenu(null); void doExportMethods("csv"); }}
-                  title="Statistics table (CSV)">Statistics (.csv)</button>
-              </div>
-            )}
-          </div>
-          <button className="tb-ghost" onClick={doLoad}>Load</button>
-          <button className="tb-primary" onClick={doSave}>Save</button>
           <div className="tb-menuwrap">
             <button className="tb-icon" aria-label="More actions"
               onClick={() => setOpenMenu((m) => m === "overflow" ? null : "overflow")}>⋯</button>
@@ -731,8 +746,7 @@ export default function App() {
         </div>
       </header>
       {openMenu && <div className="tb-backdrop" onClick={() => setOpenMenu(null)} />}
-      {/* the import modal is opened from the "+ Add data" menu; "Enter data" now
-          reveals the inline entry surface in the grouped-sheet pane (Slice 5). */}
+      {/* the import modal is opened directly from the "+ Add data" button. */}
       <ImportWizard ref={importRef} hideTrigger />
       {recoveryPending && recovery && (
         <div className="recovery-bar">
