@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { pivotability, groupedSpec, longToWide } from "./grouped";
+import { pivotability, groupedSpec, longToWide,
+  pivotCost, pivotOverflow, GROUPED_CELL_CAP } from "./grouped";
 import type { ColumnDef, Row, Schema, Hierarchy } from "./types";
 
 // "identifier" is shorthand for a categorical column carrying the identifier
@@ -176,5 +177,55 @@ describe("longToWide — aligned pivot on the spine", () => {
     const sheet = longToWide([], spec);
     expect(sheet.nCols).toBe(0);
     expect(sheet.nRows).toBe(0);
+  });
+});
+
+describe("pivotOverflow — refuse the near-diagonal blow-up", () => {
+  // Mark the measurement `value` an identifier: it becomes the finest grain, so the
+  // pivot is one row per distinct value × one column per (exp,pos,cell,frame,subpop)
+  // group — a near-diagonal, ~all-holes grid. longToWide would allocate nRows × nCols
+  // densely and OOM the tab; the guard refuses first. (cell_size in the field is a
+  // 7,452 × 82,241 = 612M-cell, ~5 GB grid — "Aw, Snap! Error code 5".)
+  const valueAsId = schema(
+    col("experiment_id", "identifier"), col("position_id", "identifier"),
+    col("cell_id", "identifier"), col("frame", "identifier"),
+    col("subpopulation", "categorical"), col("value", "identifier"),   // <- mismarked
+  );
+  const valueAsIdSpine = ["experiment_id", "position_id", "cell_id", "frame", "value"];
+
+  it("pivotCost mirrors longToWide's dimensions exactly, without allocating the grid", () => {
+    const s = groupedSpec(valueAsId, valueAsIdSpine);
+    expect(s.vertical?.name).toBe("value");   // the mismarked measure IS the finest grain
+    const rows: Row[] = [];
+    for (let i = 0; i < 40; i++)
+      rows.push(rid(String(i), { experiment_id: "e1", position_id: "p1",
+        cell_id: i % 10, frame: i % 4, subpopulation: "VimentinKO", value: i }));
+    const cost = pivotCost(rows, s);
+    const sheet = longToWide(rows, s);        // small enough to build and compare
+    expect(cost.nRows).toBe(sheet.nRows);
+    expect(cost.nCols).toBe(sheet.nCols);
+    expect(cost.cells).toBe(sheet.nRows * sheet.nCols);
+  });
+
+  it("a near-diagonal pivot over the cap is refused, naming the finest grain and the fix", () => {
+    const s = groupedSpec(valueAsId, valueAsIdSpine);
+    const rows: Row[] = [];
+    for (let i = 0; i < 1500; i++)            // 1500 unique (group, value) pairs -> ~2.25M cells
+      rows.push(rid(String(i), { experiment_id: "e1", position_id: "p1",
+        cell_id: i, frame: 0, subpopulation: "VimentinKO", value: i + 0.5 }));
+    const over = pivotOverflow(rows, s);
+    expect(over).not.toBeNull();
+    expect(over!.cost.cells).toBeGreaterThan(GROUPED_CELL_CAP);
+    expect(over!.reason).toContain("value");    // names the offending grain (its label)
+    expect(over!.reason).toContain("measure");  // guides toward re-typing it
+  });
+
+  it("the correctly-typed cell_size pivot (value a measure) is never refused", () => {
+    const s = groupedSpec(cellSizeSchema, cellSizeSpine.spine);
+    const rows: Row[] = [];
+    for (let i = 0; i < 1500; i++)            // vertical = frame (≤50), bands modest -> tiny grid
+      rows.push(rid(String(i), { experiment_id: "e1", position_id: "p1",
+        cell_id: i % 20, frame: i % 50, subpopulation: "VimentinKO", value: i + 0.5 }));
+    expect(pivotOverflow(rows, s)).toBeNull();
   });
 });

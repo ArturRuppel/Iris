@@ -90,6 +90,64 @@ function levelOf(row: Row, name: string): string {
   return v == null ? "" : String(v);
 }
 
+/* The largest dense grid longToWide will build before it's refused. longToWide
+   materializes the full nRows x nCols body eagerly (holes and all), *before* the
+   windowed renderer trims it — so a near-diagonal pivot (a near-unique column as
+   the finest grain: distinct-values rows x one-column-per-group) allocates
+   distinct x groups cells, almost all null, and OOMs the renderer tab. Kin to the
+   engine's point_cap / facet_cell_cap: an honest refusal, not a silent freeze. */
+export const GROUPED_CELL_CAP = 2_000_000;
+
+export interface PivotCost { nRows: number; nCols: number; cells: number }
+
+/* The size of the grid longToWide WOULD allocate, computed without allocating it:
+   one O(rows) pass, two Sets — never the O(nRows x nCols) arrays themselves. Mirrors
+   longToWide's own dimensioning exactly (band combos x value sub-columns for the
+   width; distinct vertical grain values, or the deepest ragged stack, for the
+   height) so the guard and the builder can't disagree on the cost. */
+export function pivotCost(rows: Row[], spec: GroupedSpec): PivotCost {
+  const { bandCols, vertical, values } = spec;
+  const bandNames = bandCols.map((c) => c.name);
+  const vPer = Math.max(1, values.length);
+  const combos = new Set<string>();
+  const verticals = new Set<string>();
+  const ragged = new Map<string, number>();
+  let raggedMax = 0;
+  for (const row of rows) {
+    const key = bandNames.map((n) => levelOf(row, n)).join(" ");
+    combos.add(key);
+    if (vertical) {
+      verticals.add(levelOf(row, vertical.name));
+    } else {
+      const n = (ragged.get(key) ?? 0) + 1;
+      ragged.set(key, n);
+      if (n > raggedMax) raggedMax = n;
+    }
+  }
+  const nCols = combos.size * vPer;
+  const nRows = vertical ? (rows.length ? verticals.size : 0) : raggedMax;
+  return { nRows, nCols, cells: nRows * nCols };
+}
+
+/* legible refusal when a pivot exceeds GROUPED_CELL_CAP, else null. Names the
+   finest grain and its cardinality, because the usual cause is a measurement column
+   mis-marked an identifier (which makes it the finest grain) — the same value-under-
+   test-as-a-key mistake the figure guards already block, surfaced here for the lens. */
+export function pivotOverflow(rows: Row[], spec: GroupedSpec): { cost: PivotCost; reason: string } | null {
+  const cost = pivotCost(rows, spec);
+  if (cost.cells <= GROUPED_CELL_CAP) return null;
+  const dims = `${cost.nCols.toLocaleString()} × ${cost.nRows.toLocaleString()}`;
+  const grain = spec.vertical;
+  const reason = grain
+    ? `This pivot is too large to lay out — ${dims} = ${cost.cells.toLocaleString()} cells. ` +
+      `“${grain.label}” is the finest grain and has ${cost.nRows.toLocaleString()} distinct values, so every ` +
+      `value becomes its own row and every group its own column. If “${grain.label}” is a measurement, mark it ` +
+      `a measure (not an identifier) in the Data hierarchy panel; otherwise pick a coarser grain.`
+    : `This pivot is too large to lay out — ${dims} = ${cost.cells.toLocaleString()} cells. ` +
+      `Group by fewer or coarser levels.`;
+  return { cost, reason };
+}
+
 /* long -> wide, aligned by the vertical grain. Pure: no engine, no fetch.
    Columns = distinct band combinations (ordered so bands nest cleanly), each
    expanded by the value columns. Rows = the vertical grain's distinct values in

@@ -6,7 +6,7 @@ import {
 } from "../state";
 import { engine, type Row } from "../types";
 import {
-  pivotability, longToWide, type GroupedSheet as Sheet,
+  pivotability, pivotOverflow, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
 import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
 import { clampCell, cellText, edgesOf, type Cell, type Rect } from "../gridSelect";
@@ -153,11 +153,20 @@ export function GroupedSheet() {
   // gone; drop the stale confirmation so we never act on a moved target.
   useEffect(() => { setPending(null); }, [handle?.id, handle?.version]);
 
-  const sheet = useMemo<Sheet | null>(
-    () => (rows && avail.ok ? longToWide(rows, avail.spec) : null),
-    // re-pivot on new data/availability or a spine re-order
+  // A near-diagonal pivot (a near-unique column as the finest grain) would make
+  // longToWide allocate a multi-GB, ~all-holes grid and OOM the tab. Cost it first
+  // (one O(rows) pass, no allocation); over the cap, refuse instead of building.
+  const overflow = useMemo(
+    () => (rows && avail.ok ? pivotOverflow(rows, avail.spec) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [rows, avail.ok, JSON.stringify(hierarchy.spine)],
+  );
+
+  const sheet = useMemo<Sheet | null>(
+    () => (rows && avail.ok && !overflow ? longToWide(rows, avail.spec) : null),
+    // re-pivot on new data/availability or a spine re-order
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rows, avail.ok, overflow, JSON.stringify(hierarchy.spine)],
   );
 
   const body = (() => {
@@ -167,6 +176,7 @@ export function GroupedSheet() {
     if (!schema || !handle) return <DataEntry />;
     if (!avail.ok) return <Empty>{avail.reason}</Empty>;
     if (fetchError) return <Empty>Couldn’t load the table: {fetchError}</Empty>;
+    if (overflow) return <Empty>{overflow.reason}</Empty>;
     if (!sheet) return <Empty>Loading…</Empty>;
     return (
       <Grid sheet={sheet} onCommit={commitEdit} onApply={applyEdits}
