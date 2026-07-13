@@ -127,6 +127,91 @@ def test_delete_rows_ignores_unknown_ids_and_is_a_noop_when_empty():
     assert t.version == 1
 
 
+SCHEMA2 = {"schema_version": "1.0", "columns": [
+    {"name": "g", "type": "categorical", "label": "G", "levels": ["a", "b"]},
+    {"name": "d", "type": "categorical", "label": "D", "levels": ["D1", "D2"]},
+    {"name": "y", "type": "numeric", "label": "Y"},
+]}
+
+
+def _df2():
+    # balanced 2 (g) × 2 (d) × 2 reps = 8 rows
+    rows, k = [], 0
+    for g in ["a", "b"]:
+        for d in ["D1", "D2"]:
+            for _ in range(2):
+                rows.append({"id": str(k + 1), "g": g, "d": d, "y": float(k)})
+                k += 1
+    return pd.DataFrame(rows)
+
+
+def test_add_level_single_factor_appends_full_height_column():
+    # One factor: "add a column" appends `depth` blank rows for the new level,
+    # depth = the current tallest group so the new column is full-height.
+    store = session.SessionStore()
+    df = _df(4)
+    df["g"] = ["a", "a", "b", "b"]        # depth 2 per level
+    t = store.get(store.create(SCHEMA, df))
+    info = t.add_level("g", "c")
+    assert info == {"added": 2, "combos": 1, "depth": 2}
+    assert t.version == 1
+    win = t.window(0, 99)
+    added = [r for r in win if r["g"] == "c"]
+    assert len(added) == 2
+    assert all(r["y"] is None for r in added)     # blank values
+    assert len({r["id"] for r in win}) == 6       # fresh, unique ids
+    assert t.schema["columns"][0]["levels"] == ["a", "b", "c"]   # level list grows
+
+
+def test_add_level_lays_blanks_across_every_other_combination():
+    # Two factors: adding a "d" level fills it in under *every* existing g, blank.
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA2, _df2()))
+    info = t.add_level("d", "D3")
+    assert info == {"added": 4, "combos": 2, "depth": 2}   # 2 groups × depth 2
+    win = t.window(0, 99)
+    new = [r for r in win if r["d"] == "D3"]
+    assert sorted(r["g"] for r in new) == ["a", "a", "b", "b"]   # under both groups
+    assert all(r["y"] is None for r in new)
+    assert t.schema["columns"][1]["levels"] == ["D1", "D2", "D3"]
+
+
+def test_add_level_rejects_existing_level_and_non_factor():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df(4)))
+    with pytest.raises(KeyError):
+        t.add_level("g", "a")             # "a" already a level → would pad, not add
+    with pytest.raises(KeyError):
+        t.add_level("y", "z")             # y is the value column, not a factor
+    with pytest.raises(KeyError):
+        t.add_level("nope", "z")
+    assert t.version == 0                  # rejected: no partial mutation
+
+
+def test_drop_column_removes_factor_and_syncs_schema():
+    # Dropping a factor removes its column (and schema entry) but keeps every row.
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA2, _df2()))
+    info = t.drop_column("d")
+    assert info == {"dropped": "d"}
+    assert t.version == 1
+    assert t.n == 8                                    # no rows dropped
+    win = t.window(0, 99)
+    assert "d" not in win[0]                           # column gone from the frame
+    assert [c["name"] for c in t.schema["columns"]] == ["g", "y"]   # and the schema
+    assert win[0]["y"] == 0.0                          # values untouched
+
+
+def test_drop_column_rejects_value_or_unknown_column():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA2, _df2()))
+    with pytest.raises(KeyError):
+        t.drop_column("y")               # the value column is not a factor
+    with pytest.raises(KeyError):
+        t.drop_column("nope")
+    assert t.version == 0                  # rejected: no partial mutation
+
+
 def test_set_schema_retypes_in_place_and_bumps_version():
     # The Data-tab role change: retype a column without touching the data. The
     # bumped version invalidates result caches keyed on it.

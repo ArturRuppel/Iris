@@ -125,8 +125,9 @@ how lossy they are (lossy moves must be **surfaced**, never silent):
 | delete columns | **delete every row** in that factor combination | new `delete_rows` | **yes** — it drops data; must read as dropping N rows |
 | add / delete a grouping row (band) | add / drop a **factor column** | new `add_column` / `drop_column` (+ `set_schema`) | delete drops a factor; must be explicit |
 
-`edit_cell`, `set_schema`, `relabel_category`, and `delete_rows` exist today (the last two
-added in Slice 4a/4b); `add_rows`, `add_column`, and `drop_column` remain new surface. All
+`edit_cell`, `set_schema`, `relabel_category`, `delete_rows`, `add_level`, and `drop_column`
+exist today (the four structural ops added across Slice 4a–4d); only `add_column` (add a
+whole *new* factor to the design) remains new surface. All
 follow the same pattern: the session owns the DataFrame, the op mutates it and bumps
 `version`, the client refetches. The lossy ones (`delete_rows`, collision-merging
 `relabel_category`, `drop_column`) return enough for the UI to state the consequence before
@@ -199,9 +200,31 @@ Each slice is independently shippable and never puts the canonical table at risk
     full unit suite (493) + tsc + build clean, and `e2e/grouped_structural_test.mjs`
     (delete states 2 rows → 2×4→2×3; rename Control→Ctrl no-confirm; Ctrl→Treatment
     warns-then-merges → 4×2).
-  - **4c/4d — `add_rows` (add a column = new combination) + `add_column`/`drop_column`
-    (add/delete a grouping row = a factor).** Not yet built: these need new UI for naming
-    the new level/factor (the two above reuse the existing headers), so they follow.
+  - **4c/4d — `add_level` + `drop_column` (DONE, landed 2026-07-13).** The two gestures
+    that reshape the *design* rather than a cell/row, so they live in a factor strip above
+    the grid (kept apart from the in-grid cell/row/label gestures — "reshape the design" vs
+    "edit these values"). The strip now shows at ≥1 factor; each factor chip carries ◄/►
+    (re-nest), a **＋** (add a level) and an **✕** (drop the factor, disabled at the last
+    one). `SessionTable.add_level(factor, level)` appends `depth` blank rows (depth = the
+    tallest full-combination group today) for the new level across **every** combination of
+    the *other* factors, so the new grouped column arrives full-height and editable — pure
+    addition, no confirm; a client pre-check states a duplicate level rather than 422-ing;
+    an explicit schema level list grows with it. `SessionTable.drop_column(column)` removes
+    a factor column + its schema entry — lossy (its labels vanish, rows that differed only
+    by it become undifferentiated replicates; **no rows are dropped, only the column**), so
+    the ✕ **confirms first**; the returned schema shrinks the factor list (self-heals the
+    saved nesting). Routes `/table/{id}/add_level` and `/table/{id}/drop_column`; client
+    `engine.addLevel`/`engine.dropColumn`; both ride `applyTableEditAtom` (schema + counts).
+    Verified: `test_session.py` (+5 cases: full-height add, cross-combination blanks, add
+    rejects existing/non-factor, drop syncs schema + keeps rows, drop rejects value/unknown),
+    full unit suite (493) + tsc + build clean, and `e2e/grouped_factor_test.mjs` (add
+    day=D3 → 2×4→2×6 across both groups; drop day → 6×2, strip collapses to one factor, no
+    error). **Deferred: `add_column`** (add a whole *new* factor). Unlike these two it has no
+    honest home in the lens yet — a new factor would be a single degenerate level spanning
+    everything, and the grouped sheet offers no way to *subdivide* it (its cells are numeric,
+    not the factor's labels), so it'd be an un-actionable band. It waits for a real
+    split-a-factor gesture (or belongs in the tidy/Data tab, where per-row factor editing
+    already lives).
 - **Slice 5 — unify entry into the lens (optional).** Treat an empty grouped sheet as an
   uncommitted table: typing/pasting into the lens with no table loaded creates the engine
   session on first commit, collapsing the `DataEntry` modal and the lens into one surface.
@@ -228,7 +251,8 @@ Each slice is independently shippable and never puts the canonical table at risk
   and bumps the version; the downstream figure recomputes.
 - **Slice 3:** re-nesting factors changes the header/layout and issues **no** engine op.
 - **Slice 4 (per op):** `delete_rows` reports the row count it will drop; a colliding
-  `relabel_category` reports the merge; `add_rows` appends blanks addressable by the new
-  combination; all bump the version and recompute downstream.
+  `relabel_category` reports the merge; `add_level` appends blanks across every other-factor
+  combination (a full-height new column); `drop_column` confirms first and keeps every row
+  while removing the factor; all bump the version and recompute downstream.
 - **Honesty:** no path in the lens mutates the table except through an engine op + version
   bump (no client-only table state).

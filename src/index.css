@@ -421,6 +421,18 @@ dd.strong { font-weight: 600; }
   padding: 1px 3px; font-size: 10px; line-height: 1; border-radius: 4px; }
 .gs-fmove:hover:not(:disabled) { color: var(--accent); }
 .gs-fmove:disabled { opacity: 0.3; cursor: default; }
+/* per-factor structural ops (Slice 4c/4d): ＋ adds a level to this factor, ✕ drops
+   the whole factor. Separated from the ◄► re-nest so "reshape the design" reads
+   apart from "reorder the view". */
+.gs-faction { border: none; background: none; cursor: pointer; padding: 1px 3px;
+  font-size: 11px; line-height: 1; border-radius: 4px; margin-left: 1px; }
+.gs-fadd { color: var(--dim); }
+.gs-fadd:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.gs-fdrop { color: var(--dim); font-size: 10px; }
+.gs-fdrop:hover:not(:disabled) { color: var(--false); background: color-mix(in srgb, var(--false) 12%, transparent); }
+.gs-fdrop:disabled { opacity: 0.3; cursor: default; }
+.gs-factor-add { width: 88px; text-align: left; font-weight: 600; font-size: 11px;
+  padding: 1px 4px; outline-offset: -2px; }
 .gs-grid { min-width: 100%; }
 /* header cells carry the structural gestures (Slice 4): double-click a label to
    rename it, hover for a × that deletes that column/band. */

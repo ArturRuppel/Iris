@@ -775,6 +775,18 @@ export const engine = {
   deleteRows: (id: string, ids: string[]) =>
     post<{ version: number; counts: TableCounts; removed: number }>(
       `/table/${id}/delete_rows`, { ids }),
+  /* add a new level to a categorical factor, blank across the design
+     (grouped-sheet add-column). Not lossy; `added` is how many blank rows it
+     appended (combos × depth). Schema rides back (its level list may have grown). */
+  addLevel: (id: string, factor: string, level: string) =>
+    post<{ version: number; schema: Schema; counts: TableCounts; added: number; combos: number; depth: number }>(
+      `/table/${id}/add_level`, { factor, level }),
+  /* drop a categorical factor column (grouped-sheet grouping-row delete). Lossy:
+     the factor's labels are gone (rows aren't dropped, only the column). Schema
+     rides back with the factor removed. */
+  dropColumn: (id: string, column: string) =>
+    post<{ version: number; schema: Schema; counts: TableCounts; dropped: string }>(
+      `/table/${id}/drop_column`, { column }),
   /* retype the session's columns (Data-tab role change) so the engine's test
      inference sees the new types — data is untouched, only the schema swaps */
   setSchema: (id: string, schema: Schema) =>

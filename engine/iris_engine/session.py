@@ -110,6 +110,76 @@ class SessionTable:
                 self.version += 1
             return n
 
+    def add_level(self, factor: str, level: str) -> dict:
+        """Add a new level to a categorical factor, blank across the design — the
+        tidy effect of adding a column in the grouped sheet. For every existing
+        combination of the *other* factors it appends `depth` fresh rows (depth =
+        the current max replicate count per full factor combination), each
+        carrying the new level and a blank value, so the new grouped column
+        arrives full-height and immediately editable. Pure addition (not lossy).
+        Rejects a level that already exists (that would silently pad existing
+        columns, not add one). If the factor carries an explicit schema level
+        list, the new level is appended to it. Bumps `version`; returns how many
+        rows were appended and their layout (combinations × depth)."""
+        with self._lock:
+            if factor not in self._df.columns:
+                raise KeyError(f"unknown column {factor!r}")
+            cats = [c["name"] for c in self.schema["columns"]
+                    if c.get("type") == "categorical" and c["name"] in self._df.columns]
+            if factor not in cats:
+                raise KeyError(f"{factor!r} is not a categorical factor")
+            level = str(level)
+            if (self._df[factor].astype(str) == level).any():
+                raise KeyError(f"level {level!r} already exists in {factor!r}")
+            value_cols = [c["name"] for c in self.schema["columns"]
+                          if c.get("type") == "numeric"]
+            others = [c for c in cats if c != factor]
+            # replicate depth = tallest full-combination group today, so the new
+            # column runs the full height of the grid rather than a lone cell.
+            depth = 1 if self._df.empty else max(
+                int(self._df.groupby(cats, dropna=False).size().max()), 1)
+            combos = (self._df[others].drop_duplicates().to_dict(orient="records")
+                      if others else [{}])
+            new_rows = []
+            for combo in combos:
+                for _ in range(depth):
+                    row = {**combo, factor: level}
+                    for v in value_cols:
+                        row[v] = float("nan")
+                    row["id"] = uuid.uuid4().hex
+                    new_rows.append(row)
+            add_df = pd.DataFrame(new_rows).reindex(columns=self._df.columns)
+            self._df = pd.concat([self._df, add_df], ignore_index=True)
+            # keep an explicit level list in sync (append, never mutating caller's)
+            def _add_level(c: dict) -> dict:
+                if c["name"] != factor or c.get("levels") is None:
+                    return c
+                return {**c, "levels": [*c["levels"], level]}
+            self.schema = {**self.schema,
+                           "columns": [_add_level(c) for c in self.schema["columns"]]}
+            self.version += 1
+            return {"added": len(new_rows), "combos": len(combos), "depth": depth}
+
+    def drop_column(self, column: str) -> dict:
+        """Remove a categorical factor column entirely — the tidy effect of
+        deleting a grouping row in the grouped sheet. Lossy: the factor's labels
+        are gone and rows that differed only by it become undifferentiated
+        replicates (no rows are dropped, only the column). Refuses to drop the
+        value column or the id (only a categorical factor). Keeps the schema in
+        sync (a copy, never mutating the caller's). Bumps `version`."""
+        with self._lock:
+            if column not in self._df.columns:
+                raise KeyError(f"unknown column {column!r}")
+            col_def = next((c for c in self.schema["columns"] if c["name"] == column), None)
+            if col_def is None or col_def.get("type") != "categorical":
+                raise KeyError(f"{column!r} is not a categorical factor")
+            self._df = self._df.drop(columns=[column])
+            self.schema = {**self.schema,
+                           "columns": [c for c in self.schema["columns"]
+                                       if c["name"] != column]}
+            self.version += 1
+            return {"dropped": column}
+
     def set_schema(self, schema: dict) -> None:
         """Replace the column schema in place (types, labels, levels) without
         touching the data — the Data tab retypes a column (identifier↔classifier)

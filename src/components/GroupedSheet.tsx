@@ -33,9 +33,15 @@ export function GroupedSheet() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   // a structural edit awaiting confirmation (it would lose data), and the last
-  // outcome message — the honesty surface for delete_rows / relabel_category.
+  // outcome message — the honesty surface for delete_rows / relabel_category /
+  // drop_column. add_level is pure addition (no confirm, just a notice).
   const [pending, setPending] = useState<Pending | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // an add-a-level input open in the factor strip (keyed by factor name), with
+  // the Enter/blur double-commit guard the header rename uses.
+  const [adding, setAdding] = useState<string | null>(null);
+  const [addDraft, setAddDraft] = useState("");
+  const addDone = useRef(false);
 
   const avail = pivotability(schema, handle?.n ?? 0);
   const tableId = handle?.id ?? null;
@@ -87,6 +93,33 @@ export function GroupedSheet() {
     setNotice(`Deleted ${res.removed} ${res.removed === 1 ? "row" : "rows"} in “${label}”.`);
   };
 
+  /* add a new level to a factor (a new grouped column, blank down its rows). Pure
+     addition — no confirm; a client-side pre-check keeps a duplicate level from
+     round-tripping to a 422, stating it instead. The engine lays the blanks out
+     across every combination of the other factors. */
+  const doAddLevel = async (factor: string, level: string) => {
+    if (!handle || !avail.ok) return;
+    const idx = orderedFactors.findIndex((x) => x.name === factor);
+    const f = orderedFactors[idx];
+    const exists = idx < 0 ? false
+      : idx < (sheet?.bands.length ?? 0)
+        ? (sheet?.bands[idx].some((c) => c.label === level) ?? false)
+        : (sheet?.columnLabels.includes(level) ?? false);
+    if (exists) { setNotice(`“${level}” already exists in ${f?.label ?? factor}.`); return; }
+    const res = await engine.addLevel(handle.id, factor, level);
+    applyEdit({ version: res.version, counts: res.counts, schema: res.schema });
+    setNotice(`Added “${level}” to ${f?.label ?? factor} — ${res.added} blank ${res.added === 1 ? "row" : "rows"}.`);
+  };
+
+  /* drop a whole factor column. Lossy (its labels vanish; rows that differed only
+     by it become undifferentiated replicates), so it's confirmed first. */
+  const doDrop = async (column: string, label: string) => {
+    if (!handle) return;
+    const res = await engine.dropColumn(handle.id, column);
+    applyEdit({ version: res.version, counts: res.counts, schema: res.schema });
+    setNotice(`Removed the ${label} grouping.`);
+  };
+
   /* a header rename at factor `level` (0 = outer band … last = leaf columns).
      Renaming to a name a sibling already carries *merges* the two levels — that's
      lossy, so we warn and confirm first; a fresh name is applied immediately. */
@@ -110,12 +143,34 @@ export function GroupedSheet() {
     if (ids.length > 0) setPending({ kind: "delete", ids, label });
   };
 
+  /* dropping a factor is always lossy, so always confirmed. */
+  const requestDrop = (column: string, label: string) => {
+    setNotice(null); setAdding(null);
+    setPending({ kind: "drop", column, label });
+  };
+
   const confirmPending = () => {
     const p = pending; setPending(null);
     if (!p) return;
     if (p.kind === "delete") void doDelete(p.ids, p.label);
+    else if (p.kind === "drop") void doDrop(p.column, p.label);
     else void doRelabel(p.column, p.from, p.to);
   };
+
+  /* the add-a-level input in the factor strip: open, commit (guarded against the
+     Enter+blur double), cancel. */
+  const startAdd = (factor: string) => {
+    setNotice(null); setPending(null);
+    addDone.current = false; setAddDraft(""); setAdding(factor);
+  };
+  const commitAdd = () => {
+    if (adding == null || addDone.current) return;
+    addDone.current = true;
+    const factor = adding, level = addDraft.trim();
+    setAdding(null);
+    if (level !== "") void doAddLevel(factor, level);
+  };
+  const cancelAdd = () => { addDone.current = true; setAdding(null); };
 
   /* materialize the whole table; refetch when the table or its version changes */
   useEffect(() => {
@@ -131,8 +186,9 @@ export function GroupedSheet() {
   }, [handle?.id, handle?.version, handle?.n, avail.ok]);
 
   // a version/id change means the pivot the pending edit was framed against is
-  // gone; drop the stale confirmation so we never act on a moved target.
-  useEffect(() => { setPending(null); }, [handle?.id, handle?.version]);
+  // gone; drop the stale confirmation (and any open add-input) so we never act
+  // on a moved target.
+  useEffect(() => { setPending(null); setAdding(null); }, [handle?.id, handle?.version]);
 
   const sheet = useMemo<Sheet | null>(
     () => (rows && avail.ok
@@ -168,16 +224,31 @@ export function GroupedSheet() {
           {avail.ok && sheet ? `${sheet.nRows} × ${sheet.nCols}` : `${handle?.n ?? 0} rows`}
         </span>
       </div>
-      {avail.ok && orderedFactors.length >= 2 && (
+      {avail.ok && orderedFactors.length >= 1 && (
         <div className="gs-controls">
-          <span className="gs-controls-label">Grouping · outer → inner</span>
+          <span className="gs-controls-label">
+            {orderedFactors.length >= 2 ? "Factors · outer → inner" : "Factor"}
+          </span>
           {orderedFactors.map((f, i) => (
             <span key={f.name} className="gs-factor">
-              <button className="gs-fmove" disabled={i === 0}
+              <button className="gs-fmove" disabled={orderedFactors.length < 2 || i === 0}
                 title="Move outward (coarser)" onClick={() => moveFactor(i, i - 1)}>◄</button>
-              <span className="gs-factor-name">{f.label}</span>
-              <button className="gs-fmove" disabled={i === orderedFactors.length - 1}
+              {adding === f.name
+                ? <input className="gs-input gs-factor-add" autoFocus value={addDraft}
+                    placeholder={`new ${f.label}`} spellCheck={false}
+                    onChange={(e) => setAddDraft(e.target.value)}
+                    onBlur={commitAdd}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); commitAdd(); }
+                      else if (e.key === "Escape") { e.preventDefault(); cancelAdd(); }
+                    }} />
+                : <span className="gs-factor-name">{f.label}</span>}
+              <button className="gs-fmove" disabled={orderedFactors.length < 2 || i === orderedFactors.length - 1}
                 title="Move inward (finer)" onClick={() => moveFactor(i, i + 1)}>►</button>
+              <button className="gs-faction gs-fadd" title={`Add a ${f.label} level`}
+                onClick={() => startAdd(f.name)}>＋</button>
+              <button className="gs-faction gs-fdrop" title={`Remove the ${f.label} grouping`}
+                disabled={orderedFactors.length < 2} onClick={() => requestDrop(f.name, f.label)}>✕</button>
             </span>
           ))}
         </div>
@@ -187,10 +258,12 @@ export function GroupedSheet() {
           <span className="gs-confirm-msg">
             {pending.kind === "delete"
               ? `Delete ${pending.ids.length} ${pending.ids.length === 1 ? "row" : "rows"} under “${pending.label}”? This drops the data.`
+              : pending.kind === "drop"
+              ? `Remove the “${pending.label}” grouping? Its rows keep their values but lose that distinction. This can't be undone.`
               : `“${pending.to}” already exists — renaming “${pending.from}” merges the two levels. This can't be undone.`}
           </span>
           <button className="gs-confirm-go" onClick={confirmPending}>
-            {pending.kind === "delete" ? "Delete" : "Merge"}
+            {pending.kind === "delete" ? "Delete" : pending.kind === "drop" ? "Remove" : "Merge"}
           </button>
           <button className="gs-confirm-cancel" onClick={() => setPending(null)}>Cancel</button>
         </div>
@@ -208,7 +281,8 @@ export function GroupedSheet() {
 
 type Pending =
   | { kind: "delete"; ids: string[]; label: string }
-  | { kind: "relabel"; column: string; from: string; to: string };
+  | { kind: "relabel"; column: string; from: string; to: string }
+  | { kind: "drop"; column: string; label: string };
 
 function Empty({ children }: { children: ReactNode }) {
   return <div className="gs-empty"><span>{children}</span></div>;

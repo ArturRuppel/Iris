@@ -180,6 +180,15 @@ class DeleteRowsRequest(BaseModel):
     ids: list[str]
 
 
+class AddLevelRequest(BaseModel):
+    factor: str
+    level: str
+
+
+class DropColumnRequest(BaseModel):
+    column: str
+
+
 class DistinctRequest(BaseModel):
     column: str
 
@@ -632,6 +641,32 @@ def table_delete_rows(tid: str, req: DeleteRowsRequest):
     t = _session_or_409(tid)
     removed = t.delete_rows(req.ids)
     return {"version": t.version, "counts": t.counts(), "removed": removed}
+
+
+@app.post("/table/{tid}/add_level")
+def table_add_level(tid: str, req: AddLevelRequest):
+    """Add a new level to a categorical factor, blank across the design
+    (grouped-sheet add-column). Not lossy; returns how many rows it appended and
+    the new schema (its level list may have grown)."""
+    t = _session_or_409(tid)
+    try:
+        info = t.add_level(req.factor, req.level)
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"version": t.version, "schema": t.schema, "counts": t.counts(), **info}
+
+
+@app.post("/table/{tid}/drop_column")
+def table_drop_column(tid: str, req: DropColumnRequest):
+    """Drop a categorical factor column (grouped-sheet grouping-row delete).
+    Lossy — the factor's labels are gone — so the UI confirms first. Returns the
+    new schema (the factor list changed) for the client to sync."""
+    t = _session_or_409(tid)
+    try:
+        info = t.drop_column(req.column)
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"version": t.version, "schema": t.schema, "counts": t.counts(), **info}
 
 
 @app.post("/table/{tid}/distinct")
