@@ -7,7 +7,8 @@ import type {
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
   ReduceDag, ReduceStepNode, ReduceSource, EngineReduceDag,
 } from "./types";
-import { RAW_LEVEL, engine } from "./types";
+import { RAW_LEVEL, engine, tableFromColumnar } from "./types";
+import { type EntryCell, freshColumns, freshRows, buildEntryImport } from "./entryMelt";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
 import { familyForMappingsRef, type RateOpts } from "./channels";
 import type { StyleSheet } from "./style/sheet";
@@ -977,6 +978,42 @@ export const loadTableAtom = atom(null, async (get, set,
   const first = makeDefaultPlottable(id);
   set(plottablesAtom, [...get(plottablesAtom), first]);
   set(activePlottableIdAtom, first.id);
+});
+
+/* ---- tidy entry-grid document (the empty-state spreadsheet) ----
+   Hoisted out of the DataEntry component so it survives the component unmounting
+   on a mode switch, which is what lets "go to Workbench" mint the table from
+   whatever was typed. Only the document lives here; transient UI (the cell editor,
+   header selection, refusal notes) stays local to the component. */
+export const entryBandsAtom = atom<EntryCell[][]>([]);
+export const entryColumnsAtom = atom<string[]>(freshColumns());
+export const entryRowsAtom = atom<string[][]>(freshRows(2));
+export const entryValueNameAtom = atom<string>("Value");
+
+/* is there anything worth minting? — at least one non-blank value cell. Drives the
+   Data→Workbench auto-mint (and replaces the old ≥2-filled-columns Create gate). */
+export const entryHasContentAtom = atom((get) => {
+  const rows = get(entryRowsAtom);
+  const nCols = get(entryColumnsAtom).length;
+  return rows.some((row) => row.slice(0, nCols).some((v) => (v ?? "").trim()));
+});
+
+/* mint the entered sheet into a real table: melt → import → load → land on the
+   grouped lens, then reset the entry document to fresh. The single write path for
+   entry, used by the Data→Workbench switch (continuous, no explicit Create step).
+   Throws on an import/engine failure so the caller can surface it and stay put. */
+export const mintFromEntryAtom = atom(null, async (get, set) => {
+  const { src, opts } = buildEntryImport(
+    get(entryBandsAtom), get(entryColumnsAtom), get(entryRowsAtom), get(entryValueNameAtom));
+  const long = await engine.importPreview(src, opts);
+  const ct = await engine.importCommit(src, opts,
+    long.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
+  await set(loadTableAtom, { ...tableFromColumnar(ct), token: ct.token });
+  set(dataViewAtom, "grouped");
+  set(entryBandsAtom, []);
+  set(entryColumnsAtom, freshColumns());
+  set(entryRowsAtom, freshRows(2));
+  set(entryValueNameAtom, "Value");
 });
 
 /* Inverse of buildSpec: reconstruct the editable Plottable from a saved analysis

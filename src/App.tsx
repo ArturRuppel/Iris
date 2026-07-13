@@ -24,6 +24,7 @@ import {
   resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
   autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom,
   activeReduceDagAtom, reduceStoreAtom,
+  mintFromEntryAtom, entryHasContentAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { AutosaveStatus, NodeShape } from "./types";
@@ -91,6 +92,8 @@ export default function App() {
   const reducePreviews = useAtomValue(reducePreviewByIdAtom);
   const setReducePreviewById = useSetAtom(setReducePreviewByIdAtom);
   const handle = useAtomValue(tableHandleAtom);
+  const mintFromEntry = useSetAtom(mintFromEntryAtom);
+  const entryHasContent = useAtomValue(entryHasContentAtom);
   const setError = useSetAtom(engineErrorAtom);
   const setSnapshot = useSetAtom(engineSnapshotAtom);
   const effectiveSchema = useAtomValue(effectiveSchemaAtom);
@@ -107,6 +110,17 @@ export default function App() {
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
+
+  /* Continuous entry: going to Workbench with no table but a filled entry grid
+     mints the table first (no explicit Create step). A mint failure surfaces and
+     keeps us in Data so nothing is lost. */
+  const goWorkbench = async () => {
+    if (!handle && entryHasContent) {
+      try { await mintFromEntry(); }
+      catch (e) { setError(e instanceof Error ? e.message : String(e)); return; }
+    }
+    setViewMode("workbench");
+  };
   /* Appearance: light default, persisted, applied as data-theme on the document
      root so portalled popovers (menus, tooltips) inherit the dark token set too. */
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -713,7 +727,7 @@ export default function App() {
             <button data-tour="mode-data" className={viewMode === "data" ? "active" : ""}
               onClick={() => setViewMode("data")}><DataGlyph />Data</button>
             <button data-tour="mode-workbench" className={viewMode === "workbench" ? "active" : ""}
-              onClick={() => setViewMode("workbench")}><WorkbenchGlyph />Workbench</button>
+              onClick={() => void goWorkbench()}><WorkbenchGlyph />Workbench</button>
             <button className={viewMode === "guide" ? "active" : ""}
               onClick={() => setViewMode("guide")}><GuideGlyph />Guide</button>
           </div>

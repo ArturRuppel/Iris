@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { useSetAtom } from "jotai";
-import { loadTableAtom, dataViewAtom } from "../state";
-import { engine, fileToBase64, tableFromColumnar } from "../types";
+import { useAtom } from "jotai";
+import { entryBandsAtom, entryColumnsAtom, entryRowsAtom, entryValueNameAtom } from "../state";
+import { type EntryCell as Cell, coverAt } from "../entryMelt";
 import { type Cell as GridCell, type Rect } from "../gridSelect";
 import { useGridSelection } from "../useGridSelection";
 
@@ -17,29 +17,12 @@ import { useGridSelection } from "../useGridSelection";
    Editing is select-then-act, like a spreadsheet: click a header cell to select
    it (a group cell selects all its columns), shift-click to extend within that
    row, then Merge / Unmerge / Delete from the toolbar. */
-interface Cell { span: number; label: string }
 /* a run of adjacent cells [a..b] in one header row; `row` is a band level, or
    `bands.length` for the value-column row */
 interface Sel { row: number; a: number; b: number }
 
-const START_ROWS = 8;
-
-/* the default sheet: two flat conditions, no grouping — the layout most people
-   reach for. Bands are added on demand. */
-const freshColumns = (): string[] => ["Control", "Treatment"];
-const freshRows = (nCols: number): string[][] =>
-  Array.from({ length: START_ROWS }, () => Array(nCols).fill(""));
-
-/* Auto-names for the categorical columns the header levels melt into. People
-   rarely care what these are called (they can rename after), so the flat case
-   gets the domain-obvious "condition" and nested cases get generic band names. */
-function levelNames(depth: number): string[] {
-  if (depth <= 1) return ["condition"];
-  const base = ["group", "subgroup", "subsubgroup"];
-  return Array.from({ length: depth }, (_, i) => base[i] ?? `level_${i + 1}`);
-}
-
-/* ---- pure header helpers (operate on band rows) ---- */
+/* ---- pure header helpers (operate on band rows; defaults + coverAt + the melt
+   live in entryMelt.ts, shared with the mint action) ---- */
 
 /* starting column index of each cell in a band row */
 function starts(row: Cell[]): number[] {
@@ -48,19 +31,9 @@ function starts(row: Cell[]): number[] {
   for (const c of row) { s.push(a); a += c.span; }
   return s;
 }
-/* index of the cell covering column `col` */
-function coverAt(row: Cell[], col: number): number {
-  let a = 0;
-  for (let i = 0; i < row.length; i++) { a += row[i].span; if (col < a) return i; }
-  return Math.max(0, row.length - 1);
-}
 /* the atomic column partition — the finest level, sitting below the last band */
 function colCells(nCols: number): Cell[] {
   return Array.from({ length: nCols }, () => ({ span: 1, label: "" }));
-}
-/* a leaf column's full chain of labels, coarse → fine, incl. its own header */
-function pathOf(bands: Cell[][], columnLabels: string[], c: number): string[] {
-  return [...bands.map((row) => row[coverAt(row, c)].label), columnLabels[c]];
 }
 /* collapse cells [a..b] of a band row into one (first non-blank label wins) */
 function mergeRange(row: Cell[], a: number, b: number): Cell[] {
@@ -87,25 +60,23 @@ function shrinkBand(row: Cell[], startCol: number, count: number): Cell[] {
 /** "Enter data": a spreadsheet with nested, merged headers — the wide grouped
  *  layout people keep in their heads and their Excel sheets (repeating columns
  *  under a merged grouping band, nestable to any depth). Type or paste like a
- *  spreadsheet; on create the engine melts the header hierarchy into a tidy
- *  table (one categorical column per band level + one value column), reusing the
- *  import pipeline so parsing, decimal commas, and type inference come for free.
+ *  spreadsheet; the header hierarchy melts into a tidy table (one categorical
+ *  column per band level + one value column) via the import pipeline, so parsing,
+ *  decimal commas, and type inference come for free.
  *
- *  Rendered *inline* as the empty state of the grouped-sheet lens (Slice 5): with
- *  no table loaded, the grouped pane IS this entry surface, and Create mints the
- *  session — the moment a handle exists GroupedSheet unmounts this and shows the
- *  live lens. Entry and lens are one continuous surface, one write path. */
+ *  Rendered *inline* as the empty state of the grouped-sheet lens: with no table
+ *  loaded, the grouped pane IS this entry surface. There is no explicit Create
+ *  step — switching to Workbench mints the table from whatever was typed
+ *  (mintFromEntryAtom), after which GroupedSheet unmounts this and shows the live
+ *  lens. The entry document lives in atoms (entry*Atom) so it survives that mode
+ *  switch; only the cell editor, header selection, and refusal notes are local. */
 export function DataEntry() {
-  const loadTable = useSetAtom(loadTableAtom);
-  const setDataView = useSetAtom(dataViewAtom);
-  const [bands, setBands] = useState<Cell[][]>([]);
-  const [columnLabels, setColumnLabels] = useState<string[]>(freshColumns);
-  const [rows, setRows] = useState<string[][]>(() => freshRows(2));
+  const [bands, setBands] = useAtom(entryBandsAtom);
+  const [columnLabels, setColumnLabels] = useAtom(entryColumnsAtom);
+  const [rows, setRows] = useAtom(entryRowsAtom);
+  const [valueName, setValueName] = useAtom(entryValueNameAtom);
   const [sel, setSel] = useState<Sel | null>(null);
-  const [valueName, setValueName] = useState("Value");
-  const [error, setError] = useState<string | null>(null);   // create failures (footer)
   const [note, setNote] = useState<string | null>(null);      // refused-action explanation
-  const [busy, setBusy] = useState(false);
   // the single active cell editor (Excel-like: click selects, type/dbl-click edits)
   const [edit, setEdit] = useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = useState("");
@@ -115,14 +86,6 @@ export function DataEntry() {
   const nCols = columnLabels.length;
   const depth = bands.length + 1;
   const cell = (r: number, c: number) => rows[r]?.[c] ?? "";
-
-  const reset = () => {
-    setBands([]);
-    setColumnLabels(freshColumns());
-    setRows(freshRows(2));
-    setValueName("Value");
-    setSel(null); setNote(null);
-  };
 
   /* ---- selection ---- */
   /* the row a selection points at (a band, or the value columns) */
@@ -317,68 +280,14 @@ export function DataEntry() {
     setSel(null); setNote(null);
   };
 
-  /* ---- create ---- */
-  const filledCols = columnLabels
-    .map((_, c) => rows.some((row) => (row[c] ?? "").trim())).filter(Boolean).length;
-  const nValues = rows.reduce((a, row) =>
-    a + row.slice(0, nCols).filter((v) => v.trim()).length, 0);
-
-  const create = async () => {
-    setBusy(true); setError(null);
-    try {
-      /* synthetic unique headers (c0…cN) so repeated leaf labels — "Day 1"
-         under both Control and Treatment — never collide; the header hierarchy
-         travels in `groups`, not in the CSV header. */
-      const headers = columnLabels.map((_, i) => `c${i}`);
-      const scrub = (s: string) => s.replace(/[;\n"]/g, " ").trim();
-      const lines = [headers.join(";")];
-      for (let r = 0; r < rows.length; r++) {
-        const cells = headers.map((_, c) => scrub(cell(r, c)));
-        if (cells.some(Boolean)) lines.push(cells.join(";"));
-      }
-      const b64 = fileToBase64(
-        new TextEncoder().encode(lines.join("\n")).buffer as ArrayBuffer);
-
-      const names = levelNames(depth);
-      const groups: Record<string, string[]> = {};
-      columnLabels.forEach((_, i) => {
-        groups[headers[i]] = pathOf(bands, columnLabels, i)
-          .map((s, k) => s.trim() || `${names[k]}_${k + 1}`);
-      });
-
-      const src = { filename: "entered.csv", data_base64: b64 };
-      const opts = {
-        delimiter: ";",
-        reshape: {
-          value_columns: headers,
-          value_name: valueName.trim() || "Value",
-          level_names: names,
-          groups,
-        },
-      };
-      const long = await engine.importPreview(src, opts);
-      const ct = await engine.importCommit(src, opts,
-        long.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
-      loadTable({ ...tableFromColumnar(ct), token: ct.token });
-      // Entry and lens are one continuous surface: the moment the session mints,
-      // the SAME pane must flip to the live grouped lens — so land the view on
-      // "grouped" (the reveal path no longer sets it, and the default is "table").
-      setDataView("grouped");
-      reset();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-    }
-  };
-
   const colRow = bands.length;   // the value-column row's index in the selection model
 
   return (
     <div className="de-inline">
             <p className="de-hint">
               Type or paste your data — replicates run down, conditions across.
-              Add grouping rows to nest conditions; on create this melts to one
-              tidy table.
+              Add grouping rows to nest conditions. Switch to Workbench to plot;
+              your entries become one tidy table automatically.
             </p>
 
             <div className="de-scroll" ref={scrollRef} tabIndex={0}
@@ -483,15 +392,6 @@ export function DataEntry() {
                 <input type="text" value={valueName}
                   onChange={(e) => setValueName(e.target.value)} />
               </label>
-            </div>
-
-            {error && <p className="warn">{error}</p>}
-            <div className="de-foot">
-              <button className="primary"
-                disabled={busy || filledCols < 2}
-                onClick={() => void create()}>
-                {busy ? "Working…" : `Create table (${nValues} values)`}
-              </button>
             </div>
     </div>
   );

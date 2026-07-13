@@ -63,8 +63,9 @@ const cols1 = await page.locator(".de-heads .de-colcell").count();
 if (cols1 !== 1) fail(`after deleting one column, expected 1 left, got ${cols1}`);
 console.log("delete-selected-columns left", cols1, "column");
 
-/* --- Part B: mint on create, then the pane flips to the live lens --- */
-// back to two columns, then type a couple of values in each so create is enabled
+/* --- Part B: no Create button — switching to Workbench mints the table from
+   whatever was typed (continuous), then Data shows the live lens. --- */
+// back to two columns, then type a couple of values in each
 await page.click(".de-tools button:has-text('Column')");
 await page.waitForFunction(() =>
   document.querySelectorAll(".de-heads .de-colcell").length === 2, null, { timeout: 5000 });
@@ -76,22 +77,26 @@ for (const [rc, v] of [["0:0", "1"], ["1:0", "2"], ["0:1", "3"], ["1:1", "4"]]) 
   await page.fill(`[data-cell="${rc}"]`, v);
   await page.keyboard.press("Enter");
 }
+if (await page.locator(".de-foot").count() > 0)
+  fail("the explicit Create button/gate should be gone (minting is continuous now)");
 
-const createBtn = page.locator(".de-foot button.primary");
-if (await createBtn.isDisabled()) fail("create should be enabled with two filled columns");
-await createBtn.click();
+// switch to Workbench: with no table but a filled entry grid, this mints first
+await page.click(".tb-seg button:has-text('Workbench')");
+await page.waitForSelector(".workbench-mode", { timeout: 15000 });
+if (await page.locator(".analyses-empty").count() > 0)
+  fail("Workbench should have data after the auto-mint, not the 'No data yet' empty state");
+if (await page.locator(".error-bar").count() > 0)
+  fail("auto-mint must not raise an engine error: " + await page.locator(".error-bar").innerText());
+console.log("switching to Workbench auto-minted the table (no Create step)");
 
-// the session mints and the SAME pane hands off to the live grouped lens
+// back to Data: the entry surface is gone; the live grouped lens shows the data
+await page.click(".tb-seg button:has-text('Data')");
 await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 if (await page.locator(".de-inline").count() > 0)
-  fail("after create the entry surface should be gone (handed off to the lens)");
+  fail("with a table minted, Data should show the live lens, not the entry surface");
 const prov = (await page.locator(".table-pane .provenance").innerText()).trim();
-if (!/^\d+ × \d+$/.test(prov))
-  fail("after create the pane should show a grouped shape, got: " + prov);
-if (await page.locator(".error-bar").count() > 0)
-  fail("mint-on-create must not raise an engine error: "
-    + await page.locator(".error-bar").innerText());
-console.log("create minted the session → live lens, shape", prov);
+if (!/^\d+ × \d+$/.test(prov)) fail("the pane should show a grouped shape, got: " + prov);
+console.log("Data now shows the live grouped lens, shape", prov);
 
-console.log("PASS: inline entry surface — structural edits + mint-on-create hand off to the lens");
+console.log("PASS: inline entry — structural edits + continuous mint on the Workbench switch");
 await browser.close();
