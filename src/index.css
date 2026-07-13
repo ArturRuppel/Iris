@@ -386,6 +386,19 @@ dd.strong { font-weight: 600; }
   font-variant-numeric: tabular-nums; white-space: pre; overflow: hidden; }
 .de-grid td.de-sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .de-grid td.de-active { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* "prepared for cut" (Ctrl+X): a dashed contour around the staged block. The
+   per-edge classes (cut-t/r/b/l) are set only where the neighbour is NOT also cut,
+   so a multi-cell cut reads as one outline (Excel's marching-ants rectangle) rather
+   than a grid of dashes. Painted on an overlay (::after) so it rides above the
+   selection wash and leaves the cell's own 1px gridlines intact. Shared verbatim by
+   the grouped lens (.gs-cell.gs-cut), whose cells are already position:absolute. */
+.de-grid td.de-cut { position: relative; }
+.de-grid td.de-cut::after, .gs-cell.gs-cut::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.de-grid td.de-cut.cut-t::after, .gs-cell.gs-cut.cut-t::after { border-top: 2px dashed var(--accent); }
+.de-grid td.de-cut.cut-r::after, .gs-cell.gs-cut.cut-r::after { border-right: 2px dashed var(--accent); }
+.de-grid td.de-cut.cut-b::after, .gs-cell.gs-cut.cut-b::after { border-bottom: 2px dashed var(--accent); }
+.de-grid td.de-cut.cut-l::after, .gs-cell.gs-cut.cut-l::after { border-left: 2px dashed var(--accent); }
 /* header bands: coarser groups sit higher and read bolder */
 .de-band th { background: var(--panel2); }
 /* a header is select-first like a body cell: the label shows as text (de-headtext)

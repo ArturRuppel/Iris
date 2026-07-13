@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAtom } from "jotai";
 import { entryBandsAtom, entryColumnsAtom, entryRowsAtom, entryValueNameAtom } from "../state";
 import { type EntryCell as Cell, coverAt } from "../entryMelt";
-import { inRect, type Cell as GridCell, type Rect } from "../gridSelect";
+import { inRect, edgesOf, type Cell as GridCell, type Rect } from "../gridSelect";
 import { useGridSelection } from "../useGridSelection";
 
 /* The header is a stack of grouping rows over a row of value columns — exactly
@@ -151,13 +151,38 @@ export function DataEntry() {
     rs.map((row, r) => row.map((v, c) =>
       (rects.some((x) => inRect(r, c, x)) ? "" : v))));
 
+  /* Ctrl+X then Ctrl+V: blank the cut source and write the block at the anchor in a
+     single update (one undo step) — target wins where the two overlap, because the
+     paste runs after the clear. Same growth rules as pasteBlock. */
+  const moveCut = (source: Rect[], anchor: GridCell, block: string[][]) => {
+    const need = anchor.c + Math.max(...block.map((g) => g.length));
+    if (need > nCols) addColumns(need - nCols);
+    setRows((rs) => {
+      const width = Math.max(nCols, need);
+      const next = rs.map((row) => {
+        const cp = row.slice();
+        while (cp.length < width) cp.push("");
+        return cp;
+      });
+      for (const x of source)
+        for (let r = x.r0; r <= x.r1 && r < next.length; r++)
+          for (let c = x.c0; c <= x.c1 && c < width; c++) next[r][c] = "";
+      block.forEach((line, dr) => {
+        const r = anchor.r + dr;
+        while (next.length <= r) next.push(Array(width).fill(""));
+        line.forEach((val, dc) => { next[r][anchor.c + dc] = val.trim(); });
+      });
+      return next;
+    });
+  };
+
   const ensureVisible = (c: GridCell) => queueMicrotask(() =>
     scrollRef.current?.querySelector(`td[data-r="${c.r}"][data-c="${c.c}"]`)
       ?.scrollIntoView({ block: "nearest", inline: "nearest" }));
 
   const gsel = useGridSelection({
     nRows: rows.length, nCols, values: rows,
-    isEditable: () => true, beginEdit, pasteBlock, clearRect, ensureVisible,
+    isEditable: () => true, beginEdit, pasteBlock, moveCut, clearRect, ensureVisible,
   });
 
   /* the value columns the body selection fully spans — only full-height (whole-
@@ -435,10 +460,14 @@ export function DataEntry() {
                       </td>
                       {columnLabels.map((_, c) => {
                         const editing = edit?.r === r && edit?.c === c;
+                        const cut = gsel.isCut(r, c);
+                        const e = cut ? edgesOf(r, c, gsel.cutRects) : null;
                         const cls = [
                           "de-body",
                           gsel.isSelected(r, c) ? "de-sel" : "",
                           gsel.isActive(r, c) ? "de-active" : "",
+                          cut ? "de-cut" : "",
+                          e?.t ? "cut-t" : "", e?.r ? "cut-r" : "", e?.b ? "cut-b" : "", e?.l ? "cut-l" : "",
                         ].filter(Boolean).join(" ");
                         return (
                           <td key={c} data-r={r} data-c={c} className={cls}

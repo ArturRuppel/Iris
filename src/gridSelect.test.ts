@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rectOf, inRect, clampCell, cellText, rectToTSV, rectsToTSV, parseTSV } from "./gridSelect";
+import { rectOf, inRect, edgesOf, clampCell, cellText, rectToTSV, rectsToTSV, parseTSV } from "./gridSelect";
 
 describe("rectOf — normalise anchor/focus into an inclusive rect", () => {
   it("orders the corners regardless of drag direction", () => {
@@ -25,6 +25,26 @@ describe("inRect — membership (inclusive on all edges)", () => {
     expect(inRect(0, 2, x)).toBe(false);
     expect(inRect(1, 1, x)).toBe(false);
     expect(inRect(4, 4, x)).toBe(false);
+  });
+});
+
+describe("edgesOf — the boundary of a cut region (marching-ants outline)", () => {
+  const block = [{ r0: 1, r1: 2, c0: 1, c1: 2 }];   // a 2×2 cut block
+  it("a lone cell is bounded on all four sides", () => {
+    expect(edgesOf(0, 0, [{ r0: 0, r1: 0, c0: 0, c1: 0 }]))
+      .toEqual({ t: true, r: true, b: true, l: true });
+  });
+  it("the top-left cell of a block draws only its outer (top+left) edges", () => {
+    expect(edgesOf(1, 1, block)).toEqual({ t: true, r: false, b: false, l: true });
+  });
+  it("the bottom-right cell draws only its outer (bottom+right) edges", () => {
+    expect(edgesOf(2, 2, block)).toEqual({ t: false, r: true, b: true, l: false });
+  });
+  it("a discontiguous region outlines each area on its own", () => {
+    // two disjoint columns: the gap between them is a real boundary on both sides
+    const cols = [{ r0: 0, r1: 1, c0: 0, c1: 0 }, { r0: 0, r1: 1, c0: 2, c1: 2 }];
+    expect(edgesOf(0, 0, cols)).toEqual({ t: true, r: true, b: false, l: true });
+    expect(edgesOf(0, 2, cols)).toEqual({ t: true, r: true, b: false, l: true });
   });
 });
 

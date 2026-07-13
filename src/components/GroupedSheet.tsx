@@ -9,7 +9,7 @@ import {
   pivotability, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
 import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
-import { clampCell, cellText, type Cell, type Rect } from "../gridSelect";
+import { clampCell, cellText, edgesOf, type Cell, type Rect } from "../gridSelect";
 import { useGridSelection } from "../useGridSelection";
 import { DataViewToggle } from "./DataViewToggle";
 import { DataEntry } from "./DataEntry";
@@ -61,7 +61,7 @@ export function GroupedSheet() {
      reported, not silently absorbed. */
   const applyEdits = async (
     edits: { row_id: string; column: string; value: number | null }[],
-    report: { wrote: number; skipped: number; kind: "paste" | "clear" },
+    report: { wrote: number; skipped: number; kind: "paste" | "clear" | "move" },
   ) => {
     if (!handle) return;
     setNotice(null);
@@ -76,7 +76,7 @@ export function GroupedSheet() {
         : `Nothing to ${report.kind}.`);
       return;
     }
-    const verb = report.kind === "clear" ? "Cleared" : "Pasted";
+    const verb = report.kind === "clear" ? "Cleared" : report.kind === "move" ? "Moved" : "Pasted";
     setNotice(`${verb} ${report.wrote} ${report.wrote === 1 ? "cell" : "cells"}`
       + (n > 0 ? ` — ${n} ${n === 1 ? "cell" : "cells"} outside the data ${n === 1 ? "was" : "were"} skipped.` : "."));
   };
@@ -255,7 +255,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
   onCommit: (rowId: string, colName: string, value: number | null) => void;
   onApply: (
     edits: { row_id: string; column: string; value: number | null }[],
-    report: { wrote: number; skipped: number; kind: "paste" | "clear" },
+    report: { wrote: number; skipped: number; kind: "paste" | "clear" | "move" },
   ) => void;
   onRelabel: (level: number, from: string, to: string) => void;
   onDelete: (ids: string[], label: string) => void;
@@ -370,10 +370,38 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
     onApply(edits, { wrote: edits.length, skipped, kind: "paste" });
   };
 
-  // the shared Excel selection/nav/copy/paste/clear model (see useGridSelection)
+  // Ctrl+X then Ctrl+V: blank the cut source and write the block at the anchor as ONE
+  // batch — one version bump, one re-pivot, one notice. Source clears and target
+  // writes are keyed by (tidy row, value column); the paste is applied last so it
+  // wins where the two overlap. Holes have no tidy row: they can't be cleared and
+  // can't receive, so a target hole (or overflow) is skipped and reported, exactly
+  // like a plain paste — the grain is fixed by the spine, so a move never invents rows.
+  const moveCut = (source: Rect[], anchor: Cell, block: string[][]) => {
+    const writes = new Map<string, Edit>();
+    for (const x of source)
+      for (let r = x.r0; r <= x.r1; r++)
+        for (let c = x.c0; c <= x.c1; c++) {
+          const id = rowIds[r]?.[c];
+          if (id == null) continue;
+          writes.set(`${id}\0${valueOfCol[c]}`, { row_id: id, column: valueOfCol[c], value: null });
+        }
+    let wrote = 0, skipped = 0;
+    for (let i = 0; i < block.length; i++)
+      for (let j = 0; j < block[i].length; j++) {
+        const r = anchor.r + i, c = anchor.c + j;
+        if (r >= nRows || c >= nCols) { skipped++; continue; }
+        const id = rowIds[r]?.[c];
+        if (id == null) { skipped++; continue; }
+        writes.set(`${id}\0${valueOfCol[c]}`, { row_id: id, column: valueOfCol[c], value: coerce(block[i][j]) });
+        wrote++;
+      }
+    onApply([...writes.values()], { wrote, skipped, kind: "move" });
+  };
+
+  // the shared Excel selection/nav/copy/cut/paste/clear model (see useGridSelection)
   const gsel = useGridSelection({
     nRows, nCols, values,
-    isEditable: canEditCell, beginEdit: startEdit, pasteBlock, clearRect, ensureVisible,
+    isEditable: canEditCell, beginEdit: startEdit, pasteBlock, moveCut, clearRect, ensureVisible,
   });
 
   // a header is "selected" when some selected area is a full-height column block
@@ -475,9 +503,14 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
             const editing = !!edit && edit.r === r && edit.c === c;
             const active = gsel.isActive(r, c);
             const selected = gsel.isSelected(r, c);
+            const cut = gsel.isCut(r, c);
+            const ce = cut ? edgesOf(r, c, gsel.cutRects) : null;
+            const cutCls = cut
+              ? ` gs-cut${ce?.t ? " cut-t" : ""}${ce?.r ? " cut-r" : ""}${ce?.b ? " cut-b" : ""}${ce?.l ? " cut-l" : ""}`
+              : "";
             return (
               <div key={`${r}:${c}`} data-r={r} data-c={c}
-                className={`gs-cell${canEdit ? "" : " gs-blank"}${selected ? " gs-sel" : ""}${active ? " gs-active" : ""}${editing ? " gs-editing" : ""}`}
+                className={`gs-cell${canEdit ? "" : " gs-blank"}${selected ? " gs-sel" : ""}${active ? " gs-active" : ""}${editing ? " gs-editing" : ""}${cutCls}`}
                 style={{ left: ROWHEAD_W + offsets[c], top: headerH + r * ROW_H, width: widths[c], height: ROW_H }}
                 onMouseDown={editing ? undefined : (e) => { gsel.onCellMouseDown(r, c, e.shiftKey, e.ctrlKey || e.metaKey); scrollRef.current?.focus(); }}
                 onMouseEnter={() => gsel.onCellMouseEnter(r, c)}

@@ -34,6 +34,19 @@ export function inRect(r: number, c: number, x: Rect): boolean {
   return r >= x.r0 && r <= x.r1 && c >= x.c0 && c <= x.c1;
 }
 
+/* which edges of a cell lie on the boundary of a region (a set of rects) — an
+   edge is drawn when the neighbour across it is NOT itself in the region. Used to
+   paint a cut ("prepared for cut") selection as one dashed outline around the
+   block, Excel's marching-ants rectangle, rather than a busy grid of per-cell
+   dashes. Only meaningful for a cell that is itself in the region; callers guard
+   on membership. A cell at the sheet edge has no neighbour there, so that edge is
+   on the boundary and is drawn. */
+export interface Edges { t: boolean; r: boolean; b: boolean; l: boolean; }
+export function edgesOf(r: number, c: number, rects: Rect[]): Edges {
+  const has = (rr: number, cc: number) => rects.some((x) => inRect(rr, cc, x));
+  return { t: !has(r - 1, c), r: !has(r, c + 1), b: !has(r + 1, c), l: !has(r, c - 1) };
+}
+
 /* clamp a (possibly out-of-bounds) cell back onto a grid of nRows×nCols. Arrow /
    Tab / Enter navigation walks by ±1 then clamps, so the active cell never leaves
    the sheet (Excel stops at the edge, it does not wrap). */

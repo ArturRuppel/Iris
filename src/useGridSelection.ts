@@ -28,6 +28,11 @@ export interface GridSelectionOps {
   beginEdit: (r: number, c: number, initial?: string) => void;
   // write a pasted block anchored at `anchor` — the grid owns coercion/growth/report
   pasteBlock: (anchor: Cell, block: string[][]) => void;
+  // move a cut block: blank every cell in `source`, then write `block` at `anchor`,
+  // as ONE write (one undo step, one notice) — target wins where they overlap. This
+  // is Ctrl+X then Ctrl+V. Optional; if a grid omits it, a cut-paste falls back to
+  // clearRect(source) + pasteBlock(anchor) (two writes, same result).
+  moveCut?: (source: Rect[], anchor: Cell, block: string[][]) => void;
   // clear the cells in every rect — the grid owns the write. A discontiguous
   // (Ctrl+click) selection hands over several areas at once; the grid dedups any
   // overlap and writes/reports them as one batch.
@@ -40,8 +45,10 @@ export interface GridSelection {
   sel: { anchor: Cell; focus: Cell } | null;
   rect: Rect | null;                 // the live (drag-extendable) range
   rects: Rect[];                     // every selected area — live range + Ctrl+click extras
+  cutRects: Rect[];                  // the block staged for cut (Ctrl+X), or [] — for the dashed outline
   isActive: (r: number, c: number) => boolean;
   isSelected: (r: number, c: number) => boolean;
+  isCut: (r: number, c: number) => boolean;   // in a cut-staged area — draws the "prepared for cut" contour
   selectCell: (r: number, c: number, extend: boolean) => void;
   selectRange: (anchor: Cell, focus: Cell) => void;
   clearSel: () => void;
@@ -59,11 +66,17 @@ export interface GridSelection {
 }
 
 export function useGridSelection(ops: GridSelectionOps): GridSelection {
-  const { nRows, nCols, values, isEditable, beginEdit, pasteBlock, clearRect, ensureVisible } = ops;
+  const { nRows, nCols, values, isEditable, beginEdit, pasteBlock, moveCut, clearRect, ensureVisible } = ops;
   const [sel, setSel] = useState<{ anchor: Cell; focus: Cell } | null>(null);
   // committed disjoint areas from Ctrl+click; the live range (`sel`) is the one
   // still being dragged/extended. Together they are the selection (`rects`).
   const [extras, setExtras] = useState<Rect[]>([]);
+  // the block staged for a cut (Ctrl+X): its content is already on the clipboard;
+  // these rects draw the dashed "prepared for cut" contour and mark the source to
+  // blank on the next paste (the move). Cleared by Escape / editing / a new copy /
+  // Delete / a completed paste, and whenever the grid's shape changes underfoot.
+  const [cutRects, setCutRects] = useState<Rect[]>([]);
+  useEffect(() => { setCutRects([]); }, [nRows, nCols]);
   const dragging = useRef(false);                        // a body cell-range drag
   const colDragging = useRef(false);                     // a column drag across headers
   const colDragOrigin = useRef<[number, number] | null>(null);  // the origin header's [c0,c1]
@@ -105,7 +118,16 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
   };
 
   const copy = () => {
+    setCutRects([]);   // a fresh copy supersedes any pending cut (Excel drops the ants)
     if (rects.length) void navigator.clipboard?.writeText(rectsToTSV(values as (string | number | boolean | null)[][], rects));
+  };
+  // Ctrl+X: the content goes on the clipboard exactly as copy does, and the block is
+  // banked as the cut source — the dashed contour, and the cells the next paste will
+  // blank (the move). A cut with no selection is a no-op.
+  const cut = () => {
+    if (!rects.length) return;
+    void navigator.clipboard?.writeText(rectsToTSV(values as (string | number | boolean | null)[][], rects));
+    setCutRects(rects);
   };
   const paste = async () => {
     if (!sel) return;
@@ -113,7 +135,12 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
     const block = parseTSV(text ?? "");
     if (block.length === 0) return;
     const { r0, c0 } = rectOf(sel.anchor, sel.focus);
-    pasteBlock({ r: r0, c: c0 }, block);
+    // a pending cut turns paste into a MOVE: blank the source, write at the target.
+    // moveCut does both as one write; without it, fall back to clear-then-paste.
+    if (cutRects.length && moveCut) moveCut(cutRects, { r: r0, c: c0 }, block);
+    else if (cutRects.length) { clearRect(cutRects); pasteBlock({ r: r0, c: c0 }, block); }
+    else pasteBlock({ r: r0, c: c0 }, block);
+    setCutRects([]);
     // highlight what landed (Excel selects the pasted block), clamped to the grid,
     // as one contiguous area (paste collapses any multi-area selection).
     const focus = clampCell(r0 + block.length - 1, c0 + (block[0]?.length ?? 1) - 1, nRows, nCols);
@@ -173,6 +200,7 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
   const onKeyDown = (e: React.KeyboardEvent) => {
     const meta = e.ctrlKey || e.metaKey;
     if (meta && (e.key === "c" || e.key === "C")) { e.preventDefault(); copy(); return; }
+    if (meta && (e.key === "x" || e.key === "X")) { e.preventDefault(); cut(); return; }
     if (meta && (e.key === "v" || e.key === "V")) { e.preventDefault(); void paste(); return; }
     if (meta || e.altKey) return;
     const shift = e.shiftKey;
@@ -182,20 +210,21 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
       case "ArrowLeft": e.preventDefault(); step(0, -1, shift); return;
       case "ArrowRight": e.preventDefault(); step(0, 1, shift); return;
       case "Tab": e.preventDefault(); step(0, shift ? -1 : 1, false); return;
-      case "Enter": e.preventDefault(); if (sel && isEditable(sel.focus.r, sel.focus.c)) beginEdit(sel.focus.r, sel.focus.c); return;
-      case "Escape": e.preventDefault(); setExtras([]); if (sel) setSel({ anchor: sel.focus, focus: sel.focus }); return;
-      case "Delete": case "Backspace": e.preventDefault(); if (rects.length) clearRect(rects); return;
+      case "Enter": e.preventDefault(); setCutRects([]); if (sel && isEditable(sel.focus.r, sel.focus.c)) beginEdit(sel.focus.r, sel.focus.c); return;
+      case "Escape": e.preventDefault(); setCutRects([]); setExtras([]); if (sel) setSel({ anchor: sel.focus, focus: sel.focus }); return;
+      case "Delete": case "Backspace": e.preventDefault(); setCutRects([]); if (rects.length) clearRect(rects); return;
     }
     // a printable character overwrites the active cell (Excel type-to-replace)
     if (e.key.length === 1 && sel && isEditable(sel.focus.r, sel.focus.c)) {
-      e.preventDefault(); beginEdit(sel.focus.r, sel.focus.c, e.key);
+      e.preventDefault(); setCutRects([]); beginEdit(sel.focus.r, sel.focus.c, e.key);
     }
   };
 
   return {
-    sel, rect, rects,
+    sel, rect, rects, cutRects,
     isActive: (r, c) => !!sel && sel.focus.r === r && sel.focus.c === c,
     isSelected: (r, c) => rects.some((x) => inRect(r, c, x)),
+    isCut: (r, c) => cutRects.some((x) => inRect(r, c, x)),
     selectCell, selectRange, clearSel,
     onCellMouseDown, onCellMouseEnter, onColMouseDown, onColMouseEnter, onKeyDown,
   };
