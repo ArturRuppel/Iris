@@ -107,27 +107,35 @@ console.log("pool ids:", cellsId, "(cells),", annotId, "(annot)");
 // window.__iris seam, so it's replicated inline here (one linear step, or
 // none) — same construction, just not importable outside the app bundle.
 const authored = await page.evaluate(({ cellsId, annotId }) => {
-  const { store, atoms, makeStep } = window.__iris;
+  const { store, atoms, makeStep, fns } = window.__iris;
+  // Stage 2: the pipeline is table-scoped. Each analysis pins an `output` into
+  // its table's shared pool (reduceStoreAtom); the nodes live in the pool, not on
+  // the plottable. Author the cells join into the cells pool; annot stays raw.
+  const joinStep = { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: annotId,
+    id: "n0", inputs: ["src"] };
+  const reduceStore = {
+    [cellsId]: { sources: [{ id: "src", tableId: cellsId }], steps: [joinStep] },
+    [annotId]: { sources: [{ id: "src", tableId: annotId }], steps: [] },
+  };
   const next = store.get(atoms.plottablesAtom).map((p) => {
-    if (p.tableId === cellsId) {
-      const joinStep = { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: annotId,
-        id: "n0", inputs: ["src"] };
-      return { ...p, tableId: cellsId,
-        mappings: { x: "label", y: "value" },
-        reduce: { sources: [{ id: "src", tableId: cellsId }], steps: [joinStep], output: "n0" } };
-    }
+    if (p.tableId === cellsId)
+      return { ...p, tableId: cellsId, mappings: { x: "label", y: "value" }, output: "n0" };
     if (p.tableId === annotId)
-      return { ...p, tableId: annotId, mappings: { x: "label", y: "score" },
-        reduce: { sources: [{ id: "src", tableId: annotId }], steps: [], output: "src" } };
+      return { ...p, tableId: annotId, mappings: { x: "label", y: "score" }, output: "src" };
     return p;
   });
   store.set(atoms.plottablesAtom, next);
+  store.set(atoms.reduceStoreAtom, reduceStore);
   // remember which plottable id is which main table, for the render passes.
   const cellsPid = next.find((p) => p.tableId === cellsId)?.id ?? null;
   const annotPid = next.find((p) => p.tableId === annotId)?.id ?? null;
+  const cellsP = next.find((p) => p.id === cellsPid);
+  const joinRight = cellsP
+    ? fns.dagView(fns.poolFor(reduceStore, cellsP.tableId), cellsP).steps
+        .find((s) => s.kind === "join")?.rightTableId ?? null
+    : null;
   return { count: next.length, cellsPid, annotPid,
-    tableIds: next.map((p) => p.tableId),
-    joinRight: next.find((p) => p.id === cellsPid)?.reduce.steps.find((s) => s.kind === "join")?.rightTableId ?? null };
+    tableIds: next.map((p) => p.tableId), joinRight };
 }, { cellsId, annotId });
 
 if (authored.count !== 2)
@@ -217,7 +225,8 @@ const after = await page2.evaluate(() => {
   const { store, atoms } = window.__iris;
   const pool = store.get(atoms.tablesAtom);
   const ps = store.get(atoms.plottablesAtom);
-  const join = ps.flatMap((p) => p.reduce.steps).find((s) => s.kind === "join");
+  const join = Object.values(store.get(atoms.reduceStoreAtom))
+    .flatMap((pl) => pl.steps).find((s) => s.kind === "join");
   return {
     poolLen: pool.length,
     poolIds: pool.map((t) => t.id),

@@ -5,7 +5,7 @@ import {
   AllCommunityModule, ModuleRegistry, type ColDef, type ColGroupDef,
 } from "ag-grid-community";
 import {
-  activePlottableAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
+  activePlottableAtom, activeReduceDagAtom, hierarchyAtom, reducePreviewAtom, tableHandleAtom,
   materializedTablesAtom, materializedVersionKeyAtom, resolveEngineSteps,
   effectivePlanAtom,
 } from "../state";
@@ -105,6 +105,7 @@ function Grid(
 export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles?: boolean }) {
   const axisNames = (node.count?.axes ?? []).map((a) => a.name);
   const active = useAtomValue(activePlottableAtom);
+  const activeSteps = useAtomValue(activeReduceDagAtom)?.steps ?? [];
   const hierarchy = useAtomValue(hierarchyAtom);
   // Use the EFFECTIVE plan (default prefix chain when the analysis carries no
   // explicit collapse), matching the graph + /shape_counts. Reading active.collapse
@@ -134,7 +135,7 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
 
   const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const fetchKey = node.table.via !== "none"
-    ? JSON.stringify([active?.id, node.table, active?.reduce.steps, collapse, hierarchy, materializedKey])
+    ? JSON.stringify([active?.id, node.table, activeSteps, collapse, hierarchy, materializedKey])
     : null;
 
   useEffect(() => {
@@ -144,7 +145,7 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
     let cancelled = false;
     // inline filled joins from the materialized cache so an intermediate node's
     // /reduce sees the right table's rows (mirrors the live preview + specAtom).
-    const steps = resolveEngineSteps(active.reduce.steps, materialized);
+    const steps = resolveEngineSteps(activeSteps, materialized);
     setTable(null); setLoading(true); setErr(null);
     void (async () => {
       try {

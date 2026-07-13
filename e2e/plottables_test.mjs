@@ -100,8 +100,7 @@ console.log("prefix-group toggle now drops:", metaAfter.replace(/\s+/g, " "));
 // this same seam).
 const droppedCount = await page.evaluate(() => {
   const { store, atoms } = window.__iris;
-  const id = store.get(atoms.activePlottableIdAtom);
-  return store.get(atoms.plottablesAtom).find((p) => p.id === id).reduce.steps[0].columns.length;
+  return store.get(atoms.activeReduceDagAtom).steps[0].columns.length;
 });
 if (droppedCount === 0) fail("toggling a prefix group should mark at least one column for dropping");
 console.log("drop step now marks", droppedCount, "column(s) — pipeline wiring confirmed live");
@@ -117,8 +116,7 @@ const count = await page.locator(".plottable-sidebar li").count();
 if (count !== 2) fail(`expected 2 plottables, got ${count}`);
 const stepsOnNew = await page.evaluate(() => {
   const { store, atoms } = window.__iris;
-  const id = store.get(atoms.activePlottableIdAtom);
-  return store.get(atoms.plottablesAtom).find((p) => p.id === id).reduce.steps.length;
+  return store.get(atoms.activeReduceDagAtom).steps.length;
 });
 if (stepsOnNew !== 0) fail(`new plottable should have 0 steps, got ${stepsOnNew}`);
 
@@ -128,8 +126,7 @@ await page.locator(".plottable-sidebar li").first().click({ position: { x: 2, y:
 await page.waitForTimeout(300);
 const stepsOnFirst = await page.evaluate(() => {
   const { store, atoms } = window.__iris;
-  const id = store.get(atoms.activePlottableIdAtom);
-  return store.get(atoms.plottablesAtom).find((p) => p.id === id).reduce.steps.length;
+  return store.get(atoms.activeReduceDagAtom).steps.length;
 });
 if (stepsOnFirst !== 1) fail(`first plottable should keep 1 step, got ${stepsOnFirst}`);
 

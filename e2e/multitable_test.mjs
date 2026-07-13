@@ -120,15 +120,17 @@ console.log("pool ids:", ids.join(", "));
 await page.evaluate((ids) => {
   const { store, atoms, makeStep } = window.__iris;
   const aid = store.get(atoms.activePlottableIdAtom);
-  const next = store.get(atoms.plottablesAtom).map((p) => {
-    if (p.id !== aid) return p;
-    const joinStep = { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: ids[1],
-      id: "n0", inputs: ["src"] };
-    return { ...p, tableId: ids[0],
-      mappings: { x: "label", y: "value" },
-      reduce: { sources: [{ id: "src", tableId: ids[0] }], steps: [joinStep], output: "n0" } };
-  });
+  const joinStep = { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: ids[1],
+    id: "n0", inputs: ["src"] };
+  const next = store.get(atoms.plottablesAtom).map((p) =>
+    p.id !== aid ? p
+      : { ...p, tableId: ids[0], mappings: { x: "label", y: "value" }, output: "n0" });
   store.set(atoms.plottablesAtom, next);
+  // Stage 2: the join node lives in the table's shared pool, keyed by tableId.
+  store.set(atoms.reduceStoreAtom, {
+    ...store.get(atoms.reduceStoreAtom),
+    [ids[0]]: { sources: [{ id: "src", tableId: ids[0] }], steps: [joinStep] },
+  });
   store.set(atoms.activeTableIdAtom, ids[0]);
 }, ids);
 console.log("authored join: cells ⋈ annot on key (inner), mapped x=label y=value");
@@ -146,9 +148,7 @@ console.log("join rendered with no error bar (materialized + computed)");
 // Sanity: the join step is present with the annot rightTableId in the live store.
 const joinOk = await page.evaluate((ids) => {
   const { store, atoms } = window.__iris;
-  const aid = store.get(atoms.activePlottableIdAtom);
-  const p = store.get(atoms.plottablesAtom).find((x) => x.id === aid);
-  const j = p?.reduce.steps.find((s) => s.kind === "join");
+  const j = store.get(atoms.activeReduceDagAtom)?.steps.find((s) => s.kind === "join");
   return !!j && j.rightTableId === ids[1];
 }, ids);
 if (!joinOk) fail("active analysis lost its join step / rightTableId before save");
@@ -188,7 +188,8 @@ const after = await page2.evaluate(() => {
   const { store, atoms } = window.__iris;
   const pool = store.get(atoms.tablesAtom);
   const ps = store.get(atoms.plottablesAtom);
-  const join = ps.flatMap((p) => p.reduce.steps).find((s) => s.kind === "join");
+  const join = Object.values(store.get(atoms.reduceStoreAtom))
+    .flatMap((pl) => pl.steps).find((s) => s.kind === "join");
   return {
     poolLen: pool.length,
     poolIds: pool.map((t) => t.id),

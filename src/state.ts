@@ -191,12 +191,21 @@ export interface Plottable {
   rate: RateOpts | null;
   describeOnly: boolean;    // user asked to render without a test
   style: StyleOverrides;
-  reduce: ReduceDag;
+  /* this plottable's terminal into its table's SHARED reduce pipeline
+     (reduceStoreAtom[tableId]): `output` is the node its stats + unpinned layers
+     read; `post` is its own post-collapse chain. The pipeline NODES are shared
+     across every plottable on the table — see the "table-scoped" block below and
+     dagView, which reconstructs the classic {sources, steps, output, post} view
+     from the pool + this pin. */
+  output: string;
+  post?: ReduceStep[];
   /* un-forcing the nesting: per-analysis collapse plan + chosen test grain.
      Absent -> the default chain generated from the table-level spine. */
   collapse?: CollapsePlan;
   testGrain?: GrainKey;
 }
+/* the whole plottable satisfies PlottablePin (tableId + output + post), so it can
+   be passed straight to dagView. */
 
 let _pid = 0;
 const nextId = () => `pt_${Date.now().toString(36)}_${_pid++}`;
@@ -239,16 +248,18 @@ export const materializedVersionKeyAtom = atom((get) =>
 
 /* derived view of the above, for the App materialization effect to read directly. */
 export const tablesNeedingMaterializeAtom = atom((get) =>
-  tablesNeedingMaterialize(get(tablesAtom), get(plottablesAtom), get(materializedTablesAtom)));
+  tablesNeedingMaterialize(get(tablesAtom), get(reduceStoreAtom), get(materializedTablesAtom)));
 
 /* pool tables referenced by some analysis's join that are absent from the
    materialized cache or stale (handle version moved) — these must be fetched so
-   the engine boundary can inline their full rows. Pure over its inputs. */
+   the engine boundary can inline their full rows. Pure over its inputs. Reads the
+   join steps straight from the shared reduce pools (table-scoped, Stage 2), so a
+   join in any table's pipeline is covered exactly once. */
 export function tablesNeedingMaterialize(
-  pool: WorkspaceTable[], plottables: Plottable[], cache: RightCache): WorkspaceTable[] {
+  pool: WorkspaceTable[], store: Record<string, SharedPipeline>, cache: RightCache): WorkspaceTable[] {
   const referenced = new Set<string>();
-  for (const p of plottables)
-    for (const s of p.reduce.steps)
+  for (const pipe of Object.values(store))
+    for (const s of pipe.steps)
       if (s.kind === "join" && s.rightTableId) referenced.add(s.rightTableId);
   return pool.filter((t) => referenced.has(t.id)
     && (!cache[t.id] || cache[t.id].version !== t.handle.version));
@@ -426,21 +437,99 @@ export function resolveSaveDag(dag: ReduceDag): EngineReduceDag {
    references through a filled join, once each, in first-seen order. The engine
    reads each table's FULL rows from its live session (`handle.id`) and writes them
    under the pool id (`name`), so a saved .iris carries the whole pool by reference. */
-export function saveTablesFor(plottables: Plottable[], pool: WorkspaceTable[]): SaveTable[] {
+export function saveTablesFor(
+  plottables: Plottable[], store: Record<string, SharedPipeline>, pool: WorkspaceTable[],
+): SaveTable[] {
   const ids = new Set<string>();
-  for (const p of plottables) {
-    if (p.tableId) ids.add(p.tableId);
-    for (const s of p.reduce.steps)
+  for (const p of plottables) if (p.tableId) ids.add(p.tableId);
+  for (const pipe of Object.values(store))
+    for (const s of pipe.steps)
       if (s.kind === "join" && s.rightTableId) ids.add(s.rightTableId);
-  }
   return [...ids]
     .map((id) => pool.find((t) => t.id === id))
     .filter((t): t is WorkspaceTable => !!t)
     .map((t) => ({ name: t.id, table_id: t.handle.id, hierarchy: t.hierarchy }));
 }
 
+/* ---- Stage 2: the reduce pipeline is TABLE-SCOPED, not plottable-owned ----
+   The nodes of a table's reduce pipeline (its source + steps) are SHARED by
+   every plottable rooted in that table; each plottable pins its own terminal
+   (`output`) and post-collapse chain (`post`) into that shared pool. Two
+   plottables on one table whose pipelines diverge simply pin to different tips
+   of the same pool (disjoint branches); real cross-plot sharing emerges when
+   they pin into common nodes (a later slice). A table's pool always has exactly
+   one canonical source, id SHARED_SRC — a join's right input is dissolved into a
+   synthetic source only at engine-resolve time (resolveReduceDag), never stored
+   here, so every stored pool is single-source. The store is populated lazily:
+   a table with no steps has no entry, and `dagView` returns the empty-pool
+   default for it. */
+export const SHARED_SRC = "src";
+export interface SharedPipeline { sources: ReduceSource[]; steps: ReduceStepNode[]; }
+export const reduceStoreAtom = atom<Record<string, SharedPipeline>>({});
+
+/* the empty pool for a table with no authored steps: the degenerate single-
+   source pipeline (no steps) == the full table, today's default. */
+export const emptyPipeline = (tableId: string): SharedPipeline =>
+  ({ sources: [{ id: SHARED_SRC, tableId }], steps: [] });
+export const poolFor = (store: Record<string, SharedPipeline>, tableId: string): SharedPipeline =>
+  store[tableId] ?? emptyPipeline(tableId);
+
+/* the steps upstream-reachable from `output` (walking `inputs` toward the
+   source), in the pool's own order. A plottable's view is exactly its own
+   branch of the shared pool — so a sibling plottable's disjoint branch, and any
+   orphaned (unconsumed) node, are excluded from what this plottable renders,
+   sends to the engine, and saves. */
+export function reachableFrom(steps: ReduceStepNode[], output: string): ReduceStepNode[] {
+  const byId = new Map(steps.map((s) => [s.id, s]));
+  const keep = new Set<string>();
+  const stack = [output];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (keep.has(id) || !byId.has(id)) continue;   // a source id or unknown ends the walk
+    keep.add(id);
+    for (const i of byId.get(id)!.inputs) stack.push(i);
+  }
+  return steps.filter((s) => keep.has(s.id));
+}
+
+/* reconstruct the classic per-plottable ReduceDag view from the shared pool +
+   this plottable's pin, so every read-only consumer (resolveEngineDag,
+   resolveSaveDag, buildGraph, …) keeps seeing one {sources, steps, output,
+   post}. `steps` is the reachable slice, so the view is this plottable's private
+   branch even though the pool is shared. */
+export function dagView(pool: SharedPipeline, p: PlottablePin): ReduceDag {
+  return {
+    sources: pool.sources,
+    steps: reachableFrom(pool.steps, p.output),
+    output: p.output,
+    ...(p.post?.length ? { post: p.post } : {}),
+  };
+}
+/* the minimal pin a plottable presents into its table's pool. */
+export interface PlottablePin { tableId: string; output: string; post?: ReduceStep[]; }
+
+/* fold a freshly-adopted per-analysis ReduceDag into a table's shared pool on
+   load: canonicalize its source id to SHARED_SRC (every stored DAG is single-
+   source), then union its steps in by node id (ids are globally minted, so two
+   analyses' distinct branches stay distinct; an id already present — the same
+   node shared across analyses — is kept once). Returns the grown pool and the
+   analysis's pin (its output, remapped if it named the old source). */
+export function mergeIntoPool(
+  pool: SharedPipeline, dag: ReduceDag,
+): { pool: SharedPipeline; output: string; post?: ReduceStep[] } {
+  const oldSrc = dag.sources[0]?.id ?? SHARED_SRC;
+  const remap = (id: string) => (id === oldSrc ? SHARED_SRC : id);
+  const incoming = dag.steps.map((s) => ({ ...s, inputs: s.inputs.map(remap) }));
+  const have = new Set(pool.steps.map((s) => s.id));
+  const steps = [...pool.steps, ...incoming.filter((s) => !have.has(s.id))];
+  return { pool: { sources: pool.sources, steps }, output: remap(dag.output),
+    ...(dag.post?.length ? { post: dag.post } : {}) };
+}
+
 /* a brand-new plottable starts completely blank: no preselected mapping, no
-   preselected geom. The user picks x/y and adds layers explicitly. */
+   preselected geom. The user picks x/y and adds layers explicitly. Its pin sits
+   at the table's canonical source (the full table) with no post chain — it adds
+   no nodes to the shared pool until the user authors a step. */
 export function makeDefaultPlottable(tableId = ""): Plottable {
   return {
     id: nextId(), name: "Analysis 1", tableId,
@@ -450,10 +539,7 @@ export function makeDefaultPlottable(tableId = ""): Plottable {
     layers: [],
     override: null, reference: null, rate: null, describeOnly: false,
     style: {},
-    /* a fresh reduce per plottable — never share a singleton, so an in-place
-       mutation could never alias across plottables. The degenerate single-
-       source DAG (no steps) == the full table (today's default). */
-    reduce: dagFromLinear(tableId, []),
+    output: SHARED_SRC,
   };
 }
 
@@ -485,13 +571,32 @@ export const guideAnchorAtom = atom<GuideTarget | null>(null);
    tagged by id; undo/redo restore by writing plottablesAtom DIRECTLY so they never
    re-enter this capture. The stacks clear on a switch of active analysis. */
 const HISTORY_LIMIT = 50;
-export const specHistoryAtom = atom<Plottable[]>([]);
-export const specRedoAtom = atom<Plottable[]>([]);
+/* an undo point is the prior plottable PLUS its table's reduce pool — since the
+   pipeline nodes live in reduceStoreAtom (table-scoped), not on the plottable, a
+   snapshot has to carry the pool or undoing a step edit (which mutates the pool,
+   sometimes without changing the plottable at all) would silently lose it. The
+   pool captured is the WHOLE table pool (bounded, small); restore rewrites both
+   plottablesAtom and reduceStoreAtom[tableId]. */
+export interface SpecSnapshot { p: Plottable; pool: SharedPipeline; }
+export const specHistoryAtom = atom<SpecSnapshot[]>([]);
+export const specRedoAtom = atom<SpecSnapshot[]>([]);
 
-/* a change touching anything but `p.style` is a spec mutation. Both sides are
-   built by spreading the same prior plottable, so the key order is stable and a
-   style-blanked JSON compare is a reliable structural diff for this heuristic. */
-const specSignature = (p: Plottable): string => JSON.stringify({ ...p, style: null });
+/* a change touching anything but `p.style` is a spec mutation. The signature
+   folds in the plottable's reduce BRANCH (its reachable slice of the pool) so a
+   step-content edit — which changes the pool but not the plottable object —
+   still registers as a structural change. style is blanked (style edits are not
+   undo points); key order is stable because both sides spread the same prior. */
+const specSignature = (p: Plottable, pool: SharedPipeline): string =>
+  JSON.stringify({ ...p, style: null, _branch: dagView(pool, p).steps });
+
+/* append an undo point (prior plottable + prior table pool) and prune the redo
+   branch. Shared by activePlottableAtom's setter (encoding/stats/layer edits)
+   and editActiveDag (reduce-step edits), so both kinds of edit land one coherent
+   snapshot shape on the same stack. */
+function pushSpecSnapshot(get: Getter, set: Setter, prev: Plottable, pool: SharedPipeline) {
+  set(specHistoryAtom, [...get(specHistoryAtom).slice(-(HISTORY_LIMIT - 1)), { p: prev, pool }]);
+  set(specRedoAtom, []);
+}
 
 export const activePlottableAtom = atom(
   (get): Plottable | null => {
@@ -500,22 +605,38 @@ export const activePlottableAtom = atom(
   },
   (get, set, next: Plottable) => {
     const prev = get(plottablesAtom).find((p) => p.id === next.id);
-    if (prev && prev !== next && specSignature(prev) !== specSignature(next)) {
-      set(specHistoryAtom, [...get(specHistoryAtom).slice(-(HISTORY_LIMIT - 1)), prev]);
-      set(specRedoAtom, []);   // a fresh edit prunes the redo branch
-    }
+    // the pool is unchanged on this path (encoding/stats/layer/style edits never
+    // touch reduceStoreAtom), so the same pool feeds both signatures.
+    const pool = prev ? poolFor(get(reduceStoreAtom), prev.tableId) : emptyPipeline("");
+    if (prev && prev !== next && specSignature(prev, pool) !== specSignature(next, pool))
+      pushSpecSnapshot(get, set, prev, pool);
     set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === next.id ? next : p)));
   },
 );
 
-/* restore the active plottable to its previous spec. Writes plottablesAtom
-   directly (bypassing the capture above) and moves the current state onto the
-   redo stack. canUndo/canRedo are the read halves, for the toolbar buttons. */
+/* restore the active plottable to its previous spec AND its table's prior pool.
+   Writes plottablesAtom + reduceStoreAtom directly (bypassing the capture above)
+   and moves the current state onto the redo stack. canUndo/canRedo are the read
+   halves, for the toolbar buttons. */
 /* restore the snapshot's SPEC but keep the CURRENT style — undo moves structure,
    never styling, so a colour/legend tweak made after a step survives undoing the
    step. (style is excluded from capture, so it has no undo timeline of its own.) */
 const restoreSpec = (target: Plottable, cur: Plottable | undefined): Plottable =>
   cur ? { ...target, style: cur.style } : target;
+
+/* the counterpart snapshot to move onto the opposite stack: the CURRENT plottable
+   + current table pool, so a subsequent undo/redo can return here exactly. */
+const currentSnapshot = (get: Getter, id: string, tableId: string): SpecSnapshot | null => {
+  const cur = get(plottablesAtom).find((p) => p.id === id);
+  return cur ? { p: cur, pool: poolFor(get(reduceStoreAtom), tableId) } : null;
+};
+/* write a snapshot back into the live atoms (both the plottable and its pool). */
+const applySnapshot = (get: Getter, set: Setter, snap: SpecSnapshot, cur: Plottable | undefined) => {
+  const restored = restoreSpec(snap.p, cur);
+  set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === snap.p.id ? restored : p)));
+  set(reduceStoreAtom, { ...get(reduceStoreAtom), [snap.p.tableId]: snap.pool });
+  set(activePlottableIdAtom, snap.p.id);
+};
 
 export const undoSpecAtom = atom(
   (get) => get(specHistoryAtom).length > 0,
@@ -523,12 +644,11 @@ export const undoSpecAtom = atom(
     const hist = get(specHistoryAtom);
     const prev = hist[hist.length - 1];
     if (!prev) return;
-    const cur = get(plottablesAtom).find((p) => p.id === prev.id);
+    const cur = get(plottablesAtom).find((p) => p.id === prev.p.id);
     set(specHistoryAtom, hist.slice(0, -1));
-    if (cur) set(specRedoAtom, [...get(specRedoAtom), cur]);
-    const restored = restoreSpec(prev, cur);
-    set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === prev.id ? restored : p)));
-    set(activePlottableIdAtom, prev.id);
+    const here = currentSnapshot(get, prev.p.id, prev.p.tableId);
+    if (here) set(specRedoAtom, [...get(specRedoAtom), here]);
+    applySnapshot(get, set, prev, cur);
   },
 );
 export const redoSpecAtom = atom(
@@ -537,17 +657,27 @@ export const redoSpecAtom = atom(
     const redo = get(specRedoAtom);
     const target = redo[redo.length - 1];
     if (!target) return;
-    const cur = get(plottablesAtom).find((p) => p.id === target.id);
+    const cur = get(plottablesAtom).find((p) => p.id === target.p.id);
     set(specRedoAtom, redo.slice(0, -1));
-    if (cur) set(specHistoryAtom, [...get(specHistoryAtom), cur]);
-    const restored = restoreSpec(target, cur);
-    set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === target.id ? restored : p)));
-    set(activePlottableIdAtom, target.id);
+    const here = currentSnapshot(get, target.p.id, target.p.tableId);
+    if (here) set(specHistoryAtom, [...get(specHistoryAtom), here]);
+    applySnapshot(get, set, target, cur);
   },
 );
 export const clearSpecHistoryAtom = atom(null, (_get, set) => {
   set(specHistoryAtom, []);
   set(specRedoAtom, []);
+});
+
+/* the active plottable's reduce DAG VIEW — its reachable branch of the table's
+   shared pool plus its output/post pin, reconstructed as the classic {sources,
+   steps, output, post} shape. The single read-only entry point the workbench UI
+   (canvas node-id resolution, node preview, op editor, graph projection) and the
+   App render effects use in place of the removed `active.reduce`. Null when no
+   analysis is active. */
+export const activeReduceDagAtom = atom((get): ReduceDag | null => {
+  const p = get(activePlottableAtom);
+  return p ? dagView(poolFor(get(reduceStoreAtom), p.tableId), p) : null;
 });
 
 /* the workspace pool: every loaded input table (design §4.1). Import accumulates
@@ -897,9 +1027,16 @@ function adoptReduceDag(spec: AnalysisSpec, tableId: string): ReduceDag {
   };
 }
 
-export function plottableFromSpec(spec: AnalysisSpec): Plottable {
+/* rebuild an editable Plottable from a saved analysis, plus the analysis's
+   adopted reduce DAG (`dag`) which the caller (applyLoadedDoc) merges into the
+   table's SHARED pool — the plottable's provisional pin (output/post) here comes
+   straight from that DAG and is re-canonicalized to the shared source when merged.
+   Returned as a pair so the pure rebuild stays pure and the pool write stays in
+   the atom. */
+export function plottableFromSpec(spec: AnalysisSpec): { p: Plottable; dag: ReduceDag } {
   const s = spec.stats;
   const tableId = (spec as { table_id?: string }).table_id ?? "";
+  const dag = adoptReduceDag(spec, tableId);
   const style: StyleOverrides = { ...(spec.style?.overrides ?? {}) };
   // tolerate (and drop) a vestigial `params` key on a layer — no spec carries geom
   // knobs there anymore; they ride in style.overrides.geoms.
@@ -907,7 +1044,7 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
     const { params: _drop, ...rest } = l as Layer & { params?: unknown };
     return { ...rest, id: rest.id ?? nextLayerId() };
   });
-  return {
+  const p: Plottable = {
     id: spec.id || nextId(),
     name: spec.title || "Analysis",
     tableId,
@@ -936,16 +1073,19 @@ export function plottableFromSpec(spec: AnalysisSpec): Plottable {
       : null,
     describeOnly: s?.describe_only ?? false,
     style,
-    /* a saved join step's right rides as a synthesized source node referencing
-       its pool table by id (table_id); adoptReduceDag undoes that dissolution
-       back into the internal rightTableId (an absent id starts "" — an unfilled
-       or hand-edited join). Key every step for React. The post-collapse phase
-       (reduce.post) is adopted too — the UI can't author it yet, but a loaded
-       doc that carries one must round-trip, not silently lose it. */
-    reduce: adoptReduceDag(spec, tableId),
+    /* the plottable's terminal into its table's shared pool: `output` and `post`
+       come from the adopted DAG below (a saved join step's right rides as a
+       synthesized source node referencing its pool table by id; adoptReduceDag
+       undoes that dissolution back into rightTableId). applyLoadedDoc merges the
+       DAG's steps into the pool and re-canonicalizes this pin to the shared
+       source, so a loaded doc round-trips — including a post-collapse chain the
+       UI can't yet author. */
+    output: dag.output,
+    ...(dag.post?.length ? { post: dag.post } : {}),
     collapse: spec.collapse,
     testGrain: spec.test_grain,
   };
+  return { p, dag };
 }
 
 export interface LoadedDoc {
@@ -963,9 +1103,9 @@ export interface LoadedDoc {
    The baseline is the state key at the last moment everything was persisted:
    app start (empty workspace), a document load, an explicit Save. The autosave
    loop in App runs only while the live key differs from it. */
-export const autosaveBaselineAtom = atom<string>(snapshotStateKey([], []));
+export const autosaveBaselineAtom = atom<string>(snapshotStateKey([], [], {}));
 export const autosaveKeyAtom = atom((get) =>
-  snapshotStateKey(get(plottablesAtom), get(tablesAtom)));
+  snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
 export const dataFingerprintAtom = atom((get) => dataFingerprint(get(tablesAtom)));
 
 /* swap in a loaded .iris: like loadTableAtom but rebuilds the FULL table pool from
@@ -978,7 +1118,7 @@ export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
      until the user edits. Captured after the body so every exit path (empty
      doc, no analyses, full restore) rebaselines consistently. */
   if (!doc.keepDirty)
-    set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom)));
+    set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
 });
 
 function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
@@ -1017,6 +1157,7 @@ function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
   if (!doc.analyses.length) {
     const first = makeDefaultPlottable(doc.tables[0].name);
     set(plottablesAtom, [first]);
+    set(reduceStoreAtom, {});   // drop any pool from a previously-open document
     set(activePlottableIdAtom, first.id);
     return;
   }
@@ -1024,26 +1165,34 @@ function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
   // plottableFromSpec into rightTableId, pointing at a pool table seeded above),
   // so analyses bind by reference — no row migration.
   const restored: Plottable[] = [];
+  // build up the table-scoped shared pools as each analysis is restored, unioning
+  // every analysis rooted in a table into that table's one shared pipeline.
+  let store: Record<string, SharedPipeline> = {};
   for (const spec of doc.analyses) {
-    const p = plottableFromSpec(spec);
+    const { p, dag } = plottableFromSpec(spec);
     // bind to the saved table_id when it names a real pool table. A non-empty
     // table_id that is NOT in the pool is a dangling reference — bind to pool[0]
     // so the doc still opens, but warn loudly (integrity via guidance, not a wall).
-    const pool = get(tablesAtom);
-    let tableId = pool[0].id;
+    const tablePool = get(tablesAtom);
+    let tableId = tablePool[0].id;
     if (p.tableId) {
-      if (pool.some((t) => t.id === p.tableId)) tableId = p.tableId;
-      else console.warn(`analysis "${p.name}" references unknown table "${p.tableId}"; binding to "${pool[0].id}"`);
+      if (tablePool.some((t) => t.id === p.tableId)) tableId = p.tableId;
+      else console.warn(`analysis "${p.name}" references unknown table "${p.tableId}"; binding to "${tablePool[0].id}"`);
     }
     // a join may reference a right table that isn't in the pool (a hand-edited or
     // partial file): the live path degrades gracefully (the cache never holds it,
     // so the join is dropped), but surface it so the missing right isn't silent.
-    for (const s of p.reduce.steps)
-      if (s.kind === "join" && s.rightTableId && !pool.some((t) => t.id === s.rightTableId))
+    for (const s of dag.steps)
+      if (s.kind === "join" && s.rightTableId && !tablePool.some((t) => t.id === s.rightTableId))
         console.warn(`analysis "${p.name}" joins unknown table "${s.rightTableId}"; the join will be skipped until it is present`);
-    restored.push({ ...p, tableId });
+    // union this analysis's DAG into its (final) table pool; the merge canonicalizes
+    // the source id and hands back this plottable's pin (output/post).
+    const merged = mergeIntoPool(poolFor(store, tableId), dag);
+    store = { ...store, [tableId]: merged.pool };
+    restored.push({ ...p, tableId, output: merged.output, post: merged.post });
   }
   set(plottablesAtom, restored);
+  set(reduceStoreAtom, store);
   set(activePlottableIdAtom, restored[0].id);
 }
 
@@ -1056,7 +1205,8 @@ export function buildSpec(p: Plottable, family: StatsFamily,
                           rec: TestName | undefined,
                           snapshot: Record<string, string>,
                           hierarchy: Hierarchy,
-                          cache: RightCache): AnalysisSpec {
+                          cache: RightCache,
+                          pool: SharedPipeline): AnalysisSpec {
   const tests = TEST_BY_FAMILY[family];
   const recOk = rec && tests.includes(rec) ? rec : undefined;
   const test = (p.override && tests.includes(p.override) ? p.override : null)
@@ -1072,7 +1222,7 @@ export function buildSpec(p: Plottable, family: StatsFamily,
     spec_version: "2.2",
     id: p.id,
     title: p.name,
-    reduce: resolveEngineDag(p.reduce, cache),
+    reduce: resolveEngineDag(dagView(pool, p), cache),
     encodings: {
       /* x is simply "mapped or not" now — an empty x is the descriptive case
          (histogram), no longer a special family branch. */
@@ -1121,13 +1271,14 @@ export function buildSpec(p: Plottable, family: StatsFamily,
    reference. `cache` is unused here (kept so buildAllSpecs can call buildSpec and
    specForSave through one builder signature). */
 export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | undefined,
-  snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache): AnalysisSpec {
+  snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache,
+  pool: SharedPipeline): AnalysisSpec {
   void cache;
-  const base = buildSpec(p, family, rec, snapshot, hierarchy, {});
+  const base = buildSpec(p, family, rec, snapshot, hierarchy, {}, pool);
   return {
     ...base,
     table_id: p.tableId,
-    reduce: resolveSaveDag(p.reduce),
+    reduce: resolveSaveDag(dagView(pool, p)),
   };
 }
 
@@ -1143,14 +1294,17 @@ export const specAtom = atom<AnalysisSpec | null>((get) => {
   const recRaw = get(analysisAtom)?.stats.recommendation.test as TestName | undefined;
   const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
   return buildSpec(p, family, rec, get(engineSnapshotAtom) ?? {}, get(hierarchyAtom),
-    get(materializedTablesAtom));
+    get(materializedTablesAtom), poolFor(get(reduceStoreAtom), p.tableId));
 });
 
 /* shared core of allSpecsAtom / allSaveSpecsAtom: build a spec per plottable,
-   each with its own derived family/recommended-test, via the given builder. */
+   each with its own derived family/recommended-test, via the given builder. Each
+   plottable's shared table pool is looked up and passed so the builder can
+   project this plottable's reduce VIEW (dagView) out of it. */
 function buildAllSpecs(get: Getter,
   build: (p: Plottable, family: StatsFamily, rec: TestName | undefined,
-          snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache) => AnalysisSpec
+          snapshot: Record<string, string>, hierarchy: Hierarchy, cache: RightCache,
+          pool: SharedPipeline) => AnalysisSpec
 ): AnalysisSpec[] {
   const schema = get(schemaAtom);
   if (!schema) return [];
@@ -1158,6 +1312,7 @@ function buildAllSpecs(get: Getter,
   const hierarchy = get(hierarchyAtom);
   const byId = get(analysisByIdAtom);
   const cache = get(materializedTablesAtom);
+  const store = get(reduceStoreAtom);
   // mirror specAtom: derive each plottable's family from ITS post-reduction
   // schema (the reduce preview, when present) so the saved family/test matches
   // what the live spec computes, falling back to the master schema.
@@ -1168,7 +1323,7 @@ function buildAllSpecs(get: Getter,
     const tests = TEST_BY_FAMILY[family];
     const recRaw = byId[p.id]?.stats.recommendation.test as TestName | undefined;
     const rec = recRaw && tests.includes(recRaw) ? recRaw : undefined;
-    return build(p, family, rec, snap, hierarchy, cache);
+    return build(p, family, rec, snap, hierarchy, cache, poolFor(store, p.tableId));
   });
 }
 
@@ -1233,6 +1388,16 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
         return nk ? [[nk, v] as const] : [];
       }));
   }
+  /* duplicate keeps today's INDEPENDENT semantics: clone the source's branch (its
+     reachable slice of the table pool) with fresh node ids and add it to the same
+     table's pool, so an edit to the copy's pipeline can't alias the original's.
+     (A later slice may offer a "share the pipeline" duplicate; for now, copy =
+     independent branch, matching pre-Stage-2 behaviour.) */
+  const store = get(reduceStoreAtom);
+  const pool = poolFor(store, src.tableId);
+  const cloned = cloneReduceDag(dagView(pool, src));
+  set(reduceStoreAtom, { ...store,
+    [src.tableId]: { sources: pool.sources, steps: [...pool.steps, ...cloned.steps] } });
   const copy: Plottable = {
     ...src, id: nextId(), name: `${src.name} copy`,
     tableId: src.tableId,
@@ -1240,7 +1405,8 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
     rate: src.rate ? { ...src.rate } : null,
     layers,
     style,
-    reduce: cloneReduceDag(src.reduce),
+    output: cloned.output,
+    post: cloned.post,
   };
   set(plottablesAtom, [...get(plottablesAtom), copy]);
   set(activePlottableIdAtom, copy.id);
@@ -1309,12 +1475,41 @@ const reorder = <T>(arr: T[], index: number, dir: -1 | 1): T[] | null => {
   return out;
 };
 
+/* edit the ACTIVE plottable's branch of its table's SHARED reduce pool
+   (reduceStoreAtom[tableId]). `fn` gets the plottable's current ReduceDag VIEW —
+   its reachable slice of the pool plus its output/post pin — and returns the next
+   view, EXACTLY as the pre-Stage-2 writers transformed `p.reduce`. The wrapper
+   then: records one undo point (prior plottable + prior pool), splices the
+   returned branch back into the pool while leaving every SIBLING plottable's
+   branch (any pool step not reachable from this plottable's output) untouched,
+   and updates this plottable's output pin (writing plottablesAtom directly so it
+   never double-captures undo). A transform that returns its argument is a no-op.
+   Slice-1 note: sibling branches are disjoint, so the reachable-set splice never
+   disturbs another plottable; once plots share nodes (a later slice) this splice
+   must be revisited. */
+const editActiveDag = (get: Getter, set: Setter, fn: (dag: ReduceDag) => ReduceDag) => {
+  const p = get(activePlottableAtom);
+  if (!p) return;
+  const store = get(reduceStoreAtom);
+  const pool = poolFor(store, p.tableId);
+  const view = dagView(pool, p);
+  const next = fn(view);
+  if (next === view) return;                       // no-op transform
+  pushSpecSnapshot(get, set, p, pool);
+  const branchIds = new Set(view.steps.map((s) => s.id));
+  const steps = [...pool.steps.filter((s) => !branchIds.has(s.id)), ...next.steps];
+  set(reduceStoreAtom, { ...store, [p.tableId]: { sources: pool.sources, steps } });
+  if (next.output !== p.output || next.post !== p.post)
+    set(plottablesAtom, get(plottablesAtom).map(
+      (q) => (q.id === p.id ? { ...q, output: next.output, post: next.post } : q)));
+};
+
 /* append a new node chained onto the current tip (the DAG's `output`) and
    promote it to the new output — "add a step" always extends the pipeline. */
 export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) =>
-  updateActive(get, set, (p) => {
-    const node: ReduceStepNode = { ...makeStep(kind), id: nextNodeId(), inputs: [p.reduce.output] };
-    return { ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, node], output: node.id } };
+  editActiveDag(get, set, (dag) => {
+    const node: ReduceStepNode = { ...makeStep(kind), id: nextNodeId(), inputs: [dag.output] };
+    return { ...dag, steps: [...dag.steps, node], output: node.id };
   }));
 
 /* splice a new step so it consumes `afterId` (a node id: a step's id, or a
@@ -1327,41 +1522,41 @@ export const addStepAtom = atom(null, (get, set, kind: ReduceStepKind) =>
    C) reads true adjacency, not array order. */
 export const insertStepAtom = atom(null,
   (get, set, arg: { afterId: string; kind: ReduceStepKind }) =>
-    updateActive(get, set, (p) => {
+    editActiveDag(get, set, (dag) => {
       const node: ReduceStepNode = { ...makeStep(arg.kind), id: nextNodeId(), inputs: [arg.afterId] };
-      const consumers = p.reduce.steps.filter((s) => s.inputs.includes(arg.afterId));
-      const steps = p.reduce.steps.map((s) =>
+      const consumers = dag.steps.filter((s) => s.inputs.includes(arg.afterId));
+      const steps = dag.steps.map((s) =>
         consumers.includes(s)
           ? { ...s, inputs: s.inputs.map((i) => (i === arg.afterId ? node.id : i)) }
           : s);
-      const output = p.reduce.output === arg.afterId && consumers.length === 0
-        ? node.id : p.reduce.output;
+      const output = dag.output === arg.afterId && consumers.length === 0
+        ? node.id : dag.output;
       const afterIdx = steps.findIndex((s) => s.id === arg.afterId);
       const insertAt = afterIdx === -1 ? steps.length : afterIdx + 1;
       const nextSteps = [...steps.slice(0, insertAt), node, ...steps.slice(insertAt)];
-      return { ...p, reduce: { ...p.reduce, steps: nextSteps, output } };
+      return { ...dag, steps: nextSteps, output };
     }));
 
 /* edit a step's own fields (kind/columns/…) in place — its id and chain
    wiring (inputs) are untouched, only its content is replaced. */
 export const updateStepAtom = atom(null,
   (get, set, arg: { index: number; step: ReduceStep }) =>
-    updateActive(get, set, (p) => ({ ...p, reduce: { ...p.reduce, steps:
-      p.reduce.steps.map((s, i) => (i === arg.index ? { ...arg.step, id: s.id, inputs: s.inputs } : s)) } })));
+    editActiveDag(get, set, (dag) => ({ ...dag, steps:
+      dag.steps.map((s, i) => (i === arg.index ? { ...arg.step, id: s.id, inputs: s.inputs } : s)) })));
 
 /* drop a node by id, rewiring every consumer (another step's `inputs`, or the
    DAG's own `output`) onto the removed node's own (sole, Phase-B) input — the
    chain auto-heals, exactly like the old index-based splice. */
 export const removeStepAtom = atom(null, (get, set, nodeId: string) =>
-  updateActive(get, set, (p) => {
-    const removed = p.reduce.steps.find((s) => s.id === nodeId);
-    if (!removed) return p;
-    const feeder = removed.inputs[0] ?? p.reduce.sources[0]?.id ?? "src";
-    const steps = p.reduce.steps
+  editActiveDag(get, set, (dag) => {
+    const removed = dag.steps.find((s) => s.id === nodeId);
+    if (!removed) return dag;
+    const feeder = removed.inputs[0] ?? dag.sources[0]?.id ?? "src";
+    const steps = dag.steps
       .filter((s) => s.id !== nodeId)
       .map((s) => ({ ...s, inputs: s.inputs.map((i) => (i === nodeId ? feeder : i)) }));
-    const output = p.reduce.output === nodeId ? feeder : p.reduce.output;
-    return { ...p, reduce: { ...p.reduce, steps, output } };
+    const output = dag.output === nodeId ? feeder : dag.output;
+    return { ...dag, steps, output };
   }));
 
 /* does `start` reach `goal` walking `inputs` upward (toward the sources)? Used to
@@ -1386,10 +1581,10 @@ function reaches(dag: ReduceDag, start: string, goal: string): boolean {
    path in. */
 export const connectInputAtom = atom(null,
   (get, set, arg: { targetId: string; sourceId: string; slot: number }) =>
-    updateActive(get, set, (p) => {
-      if (arg.sourceId === arg.targetId) return p;
-      if (reaches(p.reduce, arg.sourceId, arg.targetId)) return p;   // would cycle
-      const steps = p.reduce.steps.map((s) => {
+    editActiveDag(get, set, (dag) => {
+      if (arg.sourceId === arg.targetId) return dag;
+      if (reaches(dag, arg.sourceId, arg.targetId)) return dag;   // would cycle
+      const steps = dag.steps.map((s) => {
         if (s.id !== arg.targetId) return s;
         const inputs = [...s.inputs];
         inputs[arg.slot] = arg.sourceId;
@@ -1397,7 +1592,7 @@ export const connectInputAtom = atom(null,
           ? { ...s, inputs, rightTableId: "" }
           : { ...s, inputs };
       });
-      return { ...p, reduce: { ...p.reduce, steps } };
+      return { ...dag, steps };
     }));
 
 /* create a new step consuming `fromId` as an ADDITIONAL consumer — a fan-out
@@ -1406,9 +1601,9 @@ export const connectInputAtom = atom(null,
    wired back into a join (fan-in). */
 export const branchStepAtom = atom(null,
   (get, set, arg: { fromId: string; kind: ReduceStepKind }) =>
-    updateActive(get, set, (p) => {
+    editActiveDag(get, set, (dag) => {
       const node: ReduceStepNode = { ...makeStep(arg.kind), id: nextNodeId(), inputs: [arg.fromId] };
-      return { ...p, reduce: { ...p.reduce, steps: [...p.reduce.steps, node] } };
+      return { ...dag, steps: [...dag.steps, node] };
     }));
 
 /* swap two adjacent nodes IN THE CHAIN (via `inputs`, not raw array
@@ -1433,16 +1628,13 @@ function swapAdjacentSteps(dag: ReduceDag, upId: string, downId: string): Reduce
 
 export const moveStepAtom = atom(null,
   (get, set, arg: { index: number; dir: -1 | 1 }) =>
-    updateActive(get, set, (p) => {
-      const a = p.reduce.steps[arg.index];
-      if (!a) return p;
-      if (arg.dir === -1) {
-        const next = swapAdjacentSteps(p.reduce, a.inputs[0], a.id);
-        return next === p.reduce ? p : { ...p, reduce: next };
-      }
-      const down = p.reduce.steps.find((s) => s.inputs[0] === a.id);
-      if (!down) return p;   // a feeds the output directly: nothing downstream
-      return { ...p, reduce: swapAdjacentSteps(p.reduce, a.id, down.id) };
+    editActiveDag(get, set, (dag) => {
+      const a = dag.steps[arg.index];
+      if (!a) return dag;
+      if (arg.dir === -1) return swapAdjacentSteps(dag, a.inputs[0], a.id);
+      const down = dag.steps.find((s) => s.inputs[0] === a.id);
+      if (!down) return dag;   // a feeds the output directly: nothing downstream
+      return swapAdjacentSteps(dag, a.id, down.id);
     }));
 
 /* ---- live /reduce preview ---- */

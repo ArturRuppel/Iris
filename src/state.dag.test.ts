@@ -2,7 +2,8 @@ import { describe, it, expect } from "vitest";
 import { createStore } from "jotai";
 import {
   linearizeReduce, dagFromLinear, plottablesAtom, activePlottableIdAtom,
-  insertStepAtom, activePlottableAtom, makeDefaultPlottable,
+  insertStepAtom, activePlottableAtom, activeReduceDagAtom, reduceStoreAtom,
+  makeDefaultPlottable, dagView, poolFor, SHARED_SRC,
   connectInputAtom, branchStepAtom, resolveSaveDag, plottableFromSpec,
 } from "./state";
 import type { ReduceStepNode, ReduceDag, AnalysisSpec } from "./types";
@@ -43,10 +44,13 @@ describe("reduce DAG adapters", () => {
   });
 });
 
-describe("Plottable.reduce is a DAG", () => {
-  it("a fresh plottable carries the degenerate single-source DAG", () => {
+describe("a plottable's reduce is a VIEW onto its table's shared pool", () => {
+  it("a fresh plottable pins to the source; its view is the degenerate single-source DAG", () => {
     const p = makeDefaultPlottable("tbl");
-    expect(p.reduce).toEqual({ sources: [{ id: "src", tableId: "tbl" }], steps: [], output: "src" });
+    expect(p.output).toBe(SHARED_SRC);
+    // with no pool entry yet, the reconstructed view is the full table (no steps).
+    expect(dagView(poolFor({}, "tbl"), p)).toEqual(
+      { sources: [{ id: "src", tableId: "tbl" }], steps: [], output: "src" });
   });
 
   it("insertStep appends a node chained to its predecessor", () => {
@@ -55,19 +59,25 @@ describe("Plottable.reduce is a DAG", () => {
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
     store.set(insertStepAtom, { afterId: "src", kind: "filter" });
-    const dag = store.get(activePlottableAtom)!.reduce;
+    const dag = store.get(activeReduceDagAtom)!;
     expect(dag.steps).toHaveLength(1);
     expect(dag.steps[0].inputs).toEqual(["src"]);
     expect(dag.output).toBe(dag.steps[0].id);
+    // the node physically lives in the table's shared pool.
+    expect(store.get(reduceStoreAtom)["tbl"].steps).toHaveLength(1);
   });
 });
 
 describe("Phase D authoring: connect, branch, round-trip", () => {
+  // seed the plottable's pin (output/post) plus its table's shared pool from a
+  // whole ReduceDag, mirroring how a loaded doc lands in the store.
   function seed(reduce: ReduceDag) {
     const store = createStore();
-    const p = { ...makeDefaultPlottable("t"), reduce };
+    const p = { ...makeDefaultPlottable("t"), output: reduce.output,
+      ...(reduce.post?.length ? { post: reduce.post } : {}) };
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
+    store.set(reduceStoreAtom, { t: { sources: reduce.sources, steps: reduce.steps } });
     return store;
   }
 
@@ -82,7 +92,7 @@ describe("Phase D authoring: connect, branch, round-trip", () => {
       output: "j",
     });
     store.set(connectInputAtom, { targetId: "j", sourceId: "branch", slot: 1 });
-    const j = store.get(activePlottableAtom)!.reduce.steps.find((s) => s.id === "j")!;
+    const j = store.get(activeReduceDagAtom)!.steps.find((s) => s.id === "j")!;
     expect(j.inputs).toEqual(["src", "branch"]);
     expect((j as { rightTableId: string }).rightTableId).toBe("");   // wire supersedes picker
   });
@@ -92,21 +102,25 @@ describe("Phase D authoring: connect, branch, round-trip", () => {
     // branch already depends (via src) on nothing downstream of j; but wiring
     // branch's input to j WOULD cycle (j depends on branch).
     store.set(connectInputAtom, { targetId: "branch", sourceId: "j", slot: 0 });
-    const branch = store.get(activePlottableAtom)!.reduce.steps.find((s) => s.id === "branch")!;
+    const branch = store.get(activeReduceDagAtom)!.steps.find((s) => s.id === "branch")!;
     expect(branch.inputs).toEqual(["src"]);   // unchanged
   });
 
-  it("branchStep adds a second consumer without rewiring the first or moving output", () => {
+  it("branchStep adds a fan-out node to the shared pool without moving output", () => {
     const store = seed({
       sources: [{ id: "src", tableId: "t" }],
       steps: [{ kind: "derive", column: "a", expr: "x", id: "a", inputs: ["src"], _key: "ka" }] as unknown as ReduceStepNode[],
       output: "a",
     });
     store.set(branchStepAtom, { fromId: "src", kind: "filter" });
-    const dag = store.get(activePlottableAtom)!.reduce;
-    expect(dag.steps).toHaveLength(2);
-    expect(dag.steps.filter((s) => s.inputs[0] === "src")).toHaveLength(2);   // fan-out
-    expect(dag.output).toBe("a");                                            // unchanged
+    // the fan-out node lands in the table POOL, but — being unreachable from this
+    // plottable's output ("a") — it's a dead branch invisible to the reduce VIEW
+    // until a later slice wires it back in (Stage-2 reachable-slice semantics).
+    const pool = store.get(reduceStoreAtom)["t"];
+    expect(pool.steps).toHaveLength(2);
+    expect(pool.steps.filter((s) => s.inputs[0] === "src")).toHaveLength(2);   // fan-out in the pool
+    expect(store.get(activeReduceDagAtom)!.steps).toHaveLength(1);             // view excludes the dead branch
+    expect(store.get(activePlottableAtom)!.output).toBe("a");                  // unchanged
   });
 
   it("resolveSaveDag emits a wired join with two real inputs and no synthetic right source", () => {
@@ -131,7 +145,7 @@ describe("Phase D authoring: connect, branch, round-trip", () => {
       { id: "branch", kind: "step", inputs: ["src"], step: { kind: "derive", column: "b", expr: "x*2" } },
       { id: "j", kind: "step", inputs: ["src", "branch"], step: { kind: "join", on: ["cell"], how: "inner" } },
     ], "j");
-    const dag = plottableFromSpec(spec).reduce;
+    const dag = plottableFromSpec(spec).dag;
     const j = dag.steps.find((s) => s.id === "j")!;
     expect(j.inputs).toEqual(["src", "branch"]);
     expect((j as { rightTableId: string }).rightTableId).toBe("");
@@ -144,7 +158,7 @@ describe("Phase D authoring: connect, branch, round-trip", () => {
       { id: "j__right", kind: "source", table_id: "other" },
       { id: "j", kind: "step", inputs: ["src", "j__right"], step: { kind: "join", on: ["cell"], how: "inner" } },
     ], "j");
-    const dag = plottableFromSpec(spec).reduce;
+    const dag = plottableFromSpec(spec).dag;
     expect(dag.sources).toEqual([{ id: "src", tableId: "t" }]);   // synthetic right dropped
     const j = dag.steps.find((s) => s.id === "j")!;
     expect(j.inputs).toEqual(["src"]);

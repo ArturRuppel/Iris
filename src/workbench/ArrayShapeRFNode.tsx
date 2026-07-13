@@ -4,7 +4,7 @@ import { Handle, Position } from "@xyflow/react";
 import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
 import { reduceStepInEdgeId, type EdgeKind, type ExplorerNode } from "../explorer/graph";
-import { insertStepAtom, activePlottableAtom, addLayerAtNodeAtom } from "../state";
+import { insertStepAtom, activeReduceDagAtom, addLayerAtNodeAtom } from "../state";
 import { openCardAtom, pushStashAtom, stashAtom } from "./state";
 import { nodeTableName } from "./nodeName";
 import type { NodeDelta } from "./nodeDelta";
@@ -92,7 +92,7 @@ export function ArrayShapeRFNode(
 ) {
   const { missing, options, inEdge, stepIndex, acceptsRightInput, ...shape } = data;
   const insertStep = useSetAtom(insertStepAtom);
-  const active = useAtomValue(activePlottableAtom);
+  const activeDag = useAtomValue(activeReduceDagAtom);
   const openCard = useSetAtom(openCardAtom);
   const addLayerAtNode = useSetAtom(addLayerAtNodeAtom);
   const pushStash = useSetAtom(pushStashAtom);
@@ -135,8 +135,8 @@ export function ArrayShapeRFNode(
       // through real ids directly — array order still matches chain order for
       // Phase B's linear-only authoring, see insertStepAtom).
       const afterId = d.arg.afterIndex < 0
-        ? (active?.reduce.sources[0]?.id ?? "src")
-        : (active?.reduce.steps[d.arg.afterIndex]?.id ?? "src");
+        ? (activeDag?.sources[0]?.id ?? "src")
+        : (activeDag?.steps[d.arg.afterIndex]?.id ?? "src");
       insertStep({ afterId, kind: d.arg.kind });
       const index = d.arg.afterIndex + 1;
       openCard({ target: { kind: "edge", id: reduceStepInEdgeId(index) }, cardKind: "op-editor" });

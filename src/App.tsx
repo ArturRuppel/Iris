@@ -24,6 +24,7 @@ import {
   tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
   resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
   autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom,
+  activeReduceDagAtom, reduceStoreAtom,
 } from "./state";
 import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
 import type { AutosaveStatus, NodeShape } from "./types";
@@ -74,6 +75,8 @@ export default function App() {
   const [schema] = useAtom(schemaAtom);
   const [active] = useAtom(activePlottableAtom);
   const activeId = useAtomValue(activePlottableIdAtom);
+  // the active analysis's reduce steps (its branch of the shared table pool).
+  const activeSteps = useAtomValue(activeReduceDagAtom)?.steps ?? [];
   const [viewMode, setViewMode] = useAtom(viewModeAtom);
   const loadDocument = useSetAtom(loadDocumentAtom);
   const startTutorial = useSetAtom(startTutorialAtom);
@@ -177,7 +180,7 @@ export default function App() {
   const autosaveTimer = useRef<number>();
   const autosaveInFlight = useRef<Promise<unknown> | null>(null);
   const pushAutosave = (keepalive: boolean) => {
-    const tables = saveTablesFor(store.get(plottablesAtom), store.get(tablesAtom));
+    const tables = saveTablesFor(store.get(plottablesAtom), store.get(reduceStoreAtom), store.get(tablesAtom));
     // no referenced tables ⇒ nothing restorable (mirrors doSave's guard)
     if (tables.length === 0) return Promise.resolve();
     const p = engine.autosaveSnapshot(
@@ -333,7 +336,7 @@ export default function App() {
      without stringifying every joined row each render. */
   const materializedKey = useAtomValue(materializedVersionKeyAtom);
   const stepsKey = active
-    ? JSON.stringify([active.reduce.steps, hierarchy, materializedKey])
+    ? JSON.stringify([activeSteps, hierarchy, materializedKey])
     : null;
   useDebouncedAsync({
     when: !!(handle && active),
@@ -342,7 +345,7 @@ export default function App() {
     // an uncached/unset join is dropped until its rows land, so the preview never
     // ships a rightTableId the engine can't resolve.
     run: () => engine.reduce({ token: handle!.id },
-      resolveEngineSteps(active!.reduce.steps, materialized), hierarchy),
+      resolveEngineSteps(activeSteps, materialized), hierarchy),
     // the preview is id-routed (safe even when superseded); the global engine
     // error is written only while still fresh (mirrors the analyze loop).
     commit: (o) => { if (o.ok) setReducePreviewById({ id: active!.id, preview: o.value }); },
@@ -372,7 +375,7 @@ export default function App() {
     deps: [handle?.id, handle?.version, stepsKey, activeId, collapseKey],
     // inline filled joins from the materialized cache, as the reduce preview does.
     run: () => engine.shapeCounts({ token: handle!.id },
-      resolveEngineSteps(active!.reduce.steps, materialized), hierarchy,
+      resolveEngineSteps(activeSteps, materialized), hierarchy,
       { collapse: collapsePlan, test_grain: testGrain, qualifier }),
     // advisory + GLOBAL (not id-routed), so write via `status` (only-if-fresh): a
     // superseded fetch must never clobber a newer run's counts — the old effect
@@ -492,7 +495,7 @@ export default function App() {
     if (!schema) return;
     try {
       const f = await engine.exportMethods(
-        saveTablesFor(store.get(plottablesAtom), store.get(tablesAtom)),
+        saveTablesFor(store.get(plottablesAtom), store.get(reduceStoreAtom), store.get(tablesAtom)),
         store.get(allSpecsAtom), format);
       downloadBase64(f.filename, f.data_base64);
     } catch (e) {
@@ -519,7 +522,7 @@ export default function App() {
      session was evicted (409), which surfaces instead of being swallowed. */
   const saveDoc = () =>
     engine.saveDocument(
-      saveTablesFor(store.get(plottablesAtom), store.get(tablesAtom)),
+      saveTablesFor(store.get(plottablesAtom), store.get(reduceStoreAtom), store.get(tablesAtom)),
       store.get(allSaveSpecsAtom), {});
   const writeIris = async (fh: FileSystemFileHandle) => {
     const f = await saveDoc();

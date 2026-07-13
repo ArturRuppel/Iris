@@ -8,9 +8,9 @@
    (renders / reduce previews landing), and keying on them would leave a
    bogus snapshot — and a bogus launch-time restore offer — after a plain
    load-and-quit. */
-import type { Plottable } from "./state";
+import type { Plottable, SharedPipeline } from "./state";
 import type { WorkspaceTable } from "./tables";
-import type { ReduceStep } from "./types";
+import type { ReduceStep, ReduceStepNode } from "./types";
 
 /* session-only fields that must not count as unsaved work: a step's React
    list key is regenerated every load. */
@@ -20,17 +20,40 @@ const stripStep = (s: ReduceStep) => {
   return rest;
 };
 
+/* the steps upstream-reachable from a plottable's `output` — a local mirror of
+   state's reachableFrom, duplicated here so autosave keeps NO runtime dependency
+   on state.ts (which imports this module — importing back would form a cycle).
+   Fingerprinting the reachable branch, not the whole shared pool, means a
+   lingering orphaned node (e.g. left in the pool after an add-then-undo, or a
+   sibling analysis's disjoint branch) never registers as unsaved work for this
+   plottable — the key tracks exactly what this analysis would serialize. */
+function reachable(steps: ReduceStepNode[], output: string): ReduceStepNode[] {
+  const byId = new Map(steps.map((s) => [s.id, s]));
+  const keep = new Set<string>();
+  const stack = [output];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (keep.has(id) || !byId.has(id)) continue;
+    keep.add(id);
+    for (const i of byId.get(id)!.inputs) stack.push(i);
+  }
+  return steps.filter((s) => keep.has(s.id));
+}
+
 /** The semantic identity of everything a snapshot would persist. Equal keys
  *  mean "nothing worth snapshotting changed"; the autosave loop compares this
- *  against the baseline captured at load / explicit save. */
+ *  against the baseline captured at load / explicit save. The reduce pipeline is
+ *  table-scoped (Stage 2): each plottable's branch is projected out of its
+ *  table's shared pool by output-reachability, so the key mirrors the saved bytes. */
 export function snapshotStateKey(
-  plottables: Plottable[], tables: WorkspaceTable[]): string {
+  plottables: Plottable[], tables: WorkspaceTable[],
+  store: Record<string, SharedPipeline>): string {
   return JSON.stringify({
     plottables: plottables.map((p) => ({
       ...p,
       reduce: {
-        steps: p.reduce.steps.map(stripStep),
-        post: p.reduce.post?.map(stripStep) ?? null,
+        steps: reachable(store[p.tableId]?.steps ?? [], p.output).map(stripStep),
+        post: p.post?.map(stripStep) ?? null,
       },
     })),
     tables: tables.map((t) => ({

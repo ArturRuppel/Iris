@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import {
-  activePlottableAtom, hierarchyAtom, effectiveSchemaAtom, analysisAtom,
+  activePlottableAtom, activeReduceDagAtom, hierarchyAtom, effectiveSchemaAtom, analysisAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
 } from "../state";
 import { buildGraph, FIGURE_ID, type ExplorerGraph, type ExplorerNode, type StatsInput, type NodeCount, type Edge } from "./graph";
@@ -145,11 +145,12 @@ export function pruneIdentityGrains(
 
 export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
   const p = get(activePlottableAtom);
-  if (!p) return null;
+  const dag = get(activeReduceDagAtom);
+  if (!p || !dag) return null;
   const h = get(hierarchyAtom);
   const plan = get(effectivePlanAtom);
   void get(effectiveTestGrainAtom);   // keep the test grain in the dep graph
-  const g = buildGraph(p.reduce, h.spine, plan, p.layers,
+  const g = buildGraph(dag, h.spine, plan, p.layers,
     get(effectiveSchemaAtom), get(statsInputAtom));
   const counts = get(shapeCountsAtom);
   const guards = get(guardsAtom);
