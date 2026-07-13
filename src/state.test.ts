@@ -14,6 +14,7 @@ import {
   makeStep, addStepAtom, insertStepAtom, updateStepAtom,
   removeStepAtom, moveStepAtom, runnableSteps, resolveEngineSteps, specForSave, resolveSaveSteps, resolveSaveDag, saveTablesFor, materializedTablesAtom,
   tablesNeedingMaterialize, dagFromLinear,
+  reduceStoreAtom, activeReduceDagAtom, emptyPipeline, poolFor,
   tablesAtom, activeTableIdAtom, activeTableAtom, analysisTableAtom,
   activeSchemaAtom,
   addPlottableAtom, duplicatePlottableAtom, loadDocumentAtom,
@@ -97,22 +98,22 @@ describe("location (vs-reference) family round-trips through save/load", () => {
   });
 
   it("plottableFromSpec restores the reference opt-in (not a group comparison)", () => {
-    const p = plottableFromSpec(locationSpec());
+    const { p } = plottableFromSpec(locationSpec());
     expect(p.reference).toBe(0);
     // an ordinary group comparison must NOT acquire a reference
-    expect(plottableFromSpec(makeSpec("g", { xCol: "grp" })).reference).toBeNull();
+    expect(plottableFromSpec(makeSpec("g", { xCol: "grp" })).p.reference).toBeNull();
   });
 
   it("plottableFromSpec falls back to the reference line when stats.reference is absent", () => {
     const legacy = locationSpec();
     delete (legacy.stats as { reference?: number | null }).reference;
     legacy.style = { overrides: { reference_value: 0.5 } };
-    expect(plottableFromSpec(legacy).reference).toBe(0.5);
+    expect(plottableFromSpec(legacy).p.reference).toBe(0.5);
   });
 
   it("buildSpec re-emits family=location with the reference (no silent group_comparison)", () => {
     const p = { ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" }, reference: 0 };
-    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     expect(spec.stats.family).toBe("location");
     expect(spec.stats.reference).toBe(0);
     expect(spec.stats.test).toBe("one_sample_t");
@@ -121,8 +122,9 @@ describe("location (vs-reference) family round-trips through save/load", () => {
   });
 
   it("a full save→load→save cycle preserves the location family", () => {
-    const loaded = plottableFromSpec(locationSpec());
-    const resaved = buildSpec(loaded, "location", undefined, {}, EMPTY_HIERARCHY, {});
+    const { p, dag } = plottableFromSpec(locationSpec());
+    const resaved = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {},
+      { sources: dag.sources, steps: dag.steps });
     expect(resaved.stats.family).toBe("location");
     expect(resaved.stats.reference).toBe(0);
   });
@@ -140,10 +142,10 @@ describe("rate (count-regression) family round-trips through save/load", () => {
   });
 
   it("plottableFromSpec restores the rate opt-in (exposure + model)", () => {
-    const p = plottableFromSpec(rateSpec());
+    const { p } = plottableFromSpec(rateSpec());
     expect(p.rate).toEqual({ exposure: "hours", model: "nb" });
     // an ordinary group comparison must NOT acquire a rate opt-in
-    expect(plottableFromSpec(makeSpec("g", { xCol: "grp" })).rate).toBeNull();
+    expect(plottableFromSpec(makeSpec("g", { xCol: "grp" })).p.rate).toBeNull();
     // reference and rate are mutually exclusive — a rate doc has no reference
     expect(p.reference).toBeNull();
   });
@@ -152,7 +154,7 @@ describe("rate (count-regression) family round-trips through save/load", () => {
     const bare = rateSpec();
     delete (bare.stats as { exposure?: string | null }).exposure;
     delete (bare.stats as { model?: string }).model;
-    const p = plottableFromSpec(bare);
+    const { p } = plottableFromSpec(bare);
     expect(p.rate).toEqual({ exposure: "", model: "nb" });
   });
 
@@ -161,7 +163,7 @@ describe("rate (count-regression) family round-trips through save/load", () => {
       ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
       rate: { exposure: "hours", model: "auto" as const },
     };
-    const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     expect(spec.stats.family).toBe("rate");
     expect(spec.stats.exposure).toBe("hours");
     expect(spec.stats.model).toBe("auto");
@@ -172,14 +174,15 @@ describe("rate (count-regression) family round-trips through save/load", () => {
       ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
       rate: { exposure: "", model: "nb" as const },
     };
-    const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     expect(spec.stats.exposure).toBeNull();
     expect(spec.stats.model).toBe("nb");
   });
 
   it("a full save→load→save cycle preserves the rate family", () => {
-    const loaded = plottableFromSpec(rateSpec());
-    const resaved = buildSpec(loaded, "rate", undefined, {}, EMPTY_HIERARCHY, {});
+    const { p, dag } = plottableFromSpec(rateSpec());
+    const resaved = buildSpec(p, "rate", undefined, {}, EMPTY_HIERARCHY, {},
+      { sources: dag.sources, steps: dag.steps });
     expect(resaved.stats.family).toBe("rate");
     expect(resaved.stats.exposure).toBe("hours");
     expect(resaved.stats.model).toBe("nb");
@@ -214,33 +217,35 @@ describe("post-collapse reduce phase (reduce.post) round-trips", () => {
   });
 
   it("plottableFromSpec keeps the post phase (keyed like main steps)", () => {
-    const p = plottableFromSpec(postSpec());
-    expect(p.reduce.post).toHaveLength(1);
-    expect(p.reduce.post![0]).toMatchObject({ kind: "derive", column: "ratio" });
-    expect((p.reduce.post![0] as { _key?: string })._key).toBeTruthy();
+    const { p } = plottableFromSpec(postSpec());
+    expect(p.post).toHaveLength(1);
+    expect(p.post![0]).toMatchObject({ kind: "derive", column: "ratio" });
+    expect((p.post![0] as { _key?: string })._key).toBeTruthy();
     // a spec without post stays post-free (no empty array noise)
-    expect(plottableFromSpec(makeSpec("np")).reduce.post).toBeUndefined();
+    expect(plottableFromSpec(makeSpec("np")).p.post).toBeUndefined();
   });
 
   it("buildSpec and specForSave re-emit the post phase without keys", () => {
-    const p = plottableFromSpec(postSpec());
+    const { p, dag } = plottableFromSpec(postSpec());
+    const pool = { sources: dag.sources, steps: dag.steps };
     for (const build of [buildSpec, specForSave]) {
-      const out = build(p, "descriptive", undefined, {}, EMPTY_HIERARCHY, {});
+      const out = build(p, "descriptive", undefined, {}, EMPTY_HIERARCHY, {}, pool);
       expect(out.reduce.post).toEqual([{ kind: "derive", column: "ratio", expr: "val / 2" }]);
     }
   });
 
   it("editing a main step through the CRUD atoms leaves the post phase intact", () => {
     const store = createStore();
-    const p = plottableFromSpec(postSpec());
+    const { p, dag } = plottableFromSpec(postSpec());
     store.set(plottablesAtom, [p]); store.set(activePlottableIdAtom, p.id);
-    const step0 = p.reduce.steps[0].id;
+    store.set(reduceStoreAtom, { [p.tableId]: { sources: dag.sources, steps: dag.steps } });
+    const step0 = dag.steps[0].id;
     store.set(updateStepAtom, { index: 0, step: { kind: "drop", columns: ["val"] } });
     store.set(insertStepAtom, { afterId: step0, kind: "filter" });
-    const inserted = store.get(activePlottableAtom)!.reduce.steps.find((s) => s.kind === "filter")!;
+    const inserted = store.get(activeReduceDagAtom)!.steps.find((s) => s.kind === "filter")!;
     store.set(removeStepAtom, inserted.id);
     const after = store.get(activePlottableAtom)!;
-    expect(after.reduce.post).toHaveLength(1);
+    expect(after.post).toHaveLength(1);
   });
 });
 
@@ -249,7 +254,7 @@ describe("stats block stores decisions only (format redesign)", () => {
                         mappings: { x: "grp", y: "val" } });
 
   it("buildSpec emits no derived/process fields", () => {
-    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     const keys = Object.keys(spec.stats);
     for (const dead of ["chosen_by", "alternatives_offered", "assumption_checks", "report"]) {
       expect(keys).not.toContain(dead);
@@ -259,30 +264,31 @@ describe("stats block stores decisions only (format redesign)", () => {
 
   it("describe_only is a stored decision and round-trips", () => {
     const p = { ...base(), describeOnly: true };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     expect(spec.stats.describe_only).toBe(true);
-    expect(plottableFromSpec(spec).describeOnly).toBe(true);
+    expect(plottableFromSpec(spec).p.describeOnly).toBe(true);
   });
 
   it("describe_only is omitted (not false) when the user did not choose it", () => {
-    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(base(), "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     expect("describe_only" in spec.stats).toBe(false);
-    expect(plottableFromSpec(spec).describeOnly).toBe(false);
+    expect(plottableFromSpec(spec).p.describeOnly).toBe(false);
   });
 
   it("override round-trips independently of the recommendation", () => {
     const p = { ...base(), override: "mann_whitney" as const };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
     expect(spec.stats.override).toBe("mann_whitney");
-    expect(plottableFromSpec(spec).override).toBe("mann_whitney");
+    expect(plottableFromSpec(spec).p.override).toBe("mann_whitney");
   });
 });
 
 describe("specForSave — save joins by reference (Plan B 2.2)", () => {
   it("serializes a filled join as a right_table_id-referencing source node and sets table_id", () => {
-    const p = { ...makeDefaultPlottable("cells"),
-      reduce: dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]) };
-    const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, {});
+    const dag = dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]);
+    const p = { ...makeDefaultPlottable("cells"), output: dag.output };
+    const spec = specForSave(p, "group_comparison", "welch_t", {}, { spine: [], fn: {} }, {},
+      { sources: dag.sources, steps: dag.steps });
     // the analysis records which pool table it roots in
     expect(spec.table_id).toBe("cells");
     // the join is a genuine 2-input DAG node; its right is a source node
@@ -326,10 +332,11 @@ describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     const pool = [wt("cells"), wt("annot")];
     // two analyses both rooted in cells; the first also joins annot
-    const p1 = { ...makeDefaultPlottable("cells"),
-      reduce: dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]) };
+    const dag = dagFromLinear("cells", [{ ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]);
+    const p1 = { ...makeDefaultPlottable("cells"), output: dag.output };
     const p2 = makeDefaultPlottable("cells");
-    expect(saveTablesFor([p1, p2], pool)).toEqual([
+    const store = { cells: { sources: dag.sources, steps: dag.steps } };
+    expect(saveTablesFor([p1, p2], store, pool)).toEqual([
       { name: "cells", table_id: "h_cells", hierarchy: { spine: ["cells"], fn: {} } },
       { name: "annot", table_id: "h_annot", hierarchy: { spine: ["annot"], fn: {} } },
     ]);
@@ -341,9 +348,10 @@ describe("saveTablesFor — the save table pool (Plan B 2.1)", () => {
       handle: { id: `h_${id}`, n: 1, version: 0, schema: SCHEMA, counts: {} as never } });
     const pool = [wt("main"), wt("lookup")];
     // the only analysis roots in main and joins lookup; nothing ever roots in lookup.
-    const p = { ...makeDefaultPlottable("main"),
-      reduce: dagFromLinear("main", [{ ...makeStep("join"), rightTableId: "lookup", on: ["k"] } as ReduceStep]) };
-    const tables = saveTablesFor([p], pool);
+    const dag = dagFromLinear("main", [{ ...makeStep("join"), rightTableId: "lookup", on: ["k"] } as ReduceStep]);
+    const p = { ...makeDefaultPlottable("main"), output: dag.output };
+    const store = { main: { sources: dag.sources, steps: dag.steps } };
+    const tables = saveTablesFor([p], store, pool);
     // lookup must still be saved, else its join reference dangles on reload.
     expect(tables.map((t) => t.name)).toEqual(["main", "lookup"]);
     expect(tables.find((t) => t.name === "lookup")?.table_id).toBe("h_lookup");
@@ -815,16 +823,17 @@ describe("per-analysis collapse plan + test grain", () => {
     store.set(setCollapsePlanAtom, plan);
     store.set(setTestGrainAtom, "experiment/cell");
     const p = store.get(activePlottableAtom)!;
-    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom), {});
+    const spec = buildSpec(p, "group_comparison", undefined, {}, store.get(hierarchyAtom), {},
+      poolFor(store.get(reduceStoreAtom), p.tableId));
     expect(spec.collapse).toEqual(plan);
     expect(spec.test_grain).toBe("experiment/cell");
-    const back = plottableFromSpec(spec);
+    const back = plottableFromSpec(spec).p;
     expect(back.collapse).toEqual(plan);
     expect(back.testGrain).toBe("experiment/cell");
   });
 
   it("plottableFromSpec leaves collapse/testGrain undefined when the spec omits them", () => {
-    const back = plottableFromSpec(makeSpec("plain"));
+    const back = plottableFromSpec(makeSpec("plain")).p;
     expect(back.collapse).toBeUndefined();
     expect(back.testGrain).toBeUndefined();
   });
@@ -857,35 +866,33 @@ describe("step writers — insert, and reduce.post preservation", () => {
   /* an active plottable carrying both a steps chain and a post phase. */
   function makeStoreWithPost() {
     const store = createStore();
-    const p = {
-      ...makeDefaultPlottable(),
-      reduce: { ...dagFromLinear("", [makeStep("filter"), makeStep("drop")]),
-                post: [makeStep("derive")] },
-    };
+    const dag = dagFromLinear("", [makeStep("filter"), makeStep("drop")]);
+    const p = { ...makeDefaultPlottable(), output: dag.output, post: [makeStep("derive")] };
     store.set(plottablesAtom, [p]);
     store.set(activePlottableIdAtom, p.id);
+    store.set(reduceStoreAtom, { "": { sources: dag.sources, steps: dag.steps } });
     return store;
   }
 
   it("insertStepAtom splices after the given node", () => {
     const store = makeStoreWithPost();
-    const first = store.get(activePlottableAtom)!.reduce.steps[0];
+    const first = store.get(activeReduceDagAtom)!.steps[0];
     store.set(insertStepAtom, { afterId: first.id, kind: "filter" });
-    const steps = store.get(activePlottableAtom)!.reduce.steps;
+    const steps = store.get(activeReduceDagAtom)!.steps;
     expect(steps.map((s) => s.kind)).toEqual(["filter", "filter", "drop"]);
   });
 
   it("insertStepAtom after the last node appends", () => {
     const store = makeStoreWithPost();
-    const second = store.get(activePlottableAtom)!.reduce.steps[1];
+    const second = store.get(activeReduceDagAtom)!.steps[1];
     store.set(insertStepAtom, { afterId: second.id, kind: "derive" });
-    const steps = store.get(activePlottableAtom)!.reduce.steps;
+    const steps = store.get(activeReduceDagAtom)!.steps;
     expect(steps.map((s) => s.kind)).toEqual(["filter", "drop", "derive"]);
   });
 
   it("every step writer preserves reduce.post", () => {
     const post = (s: ReturnType<typeof createStore>) =>
-      s.get(activePlottableAtom)!.reduce.post?.map((x) => x.kind);
+      s.get(activePlottableAtom)!.post?.map((x) => x.kind);
 
     let store = makeStoreWithPost();
     store.set(addStepAtom, "drop");
@@ -893,7 +900,7 @@ describe("step writers — insert, and reduce.post preservation", () => {
 
     store = makeStoreWithPost();
     store.set(insertStepAtom,
-      { afterId: store.get(activePlottableAtom)!.reduce.steps[0].id, kind: "filter" });
+      { afterId: store.get(activeReduceDagAtom)!.steps[0].id, kind: "filter" });
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
@@ -901,7 +908,7 @@ describe("step writers — insert, and reduce.post preservation", () => {
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
-    store.set(removeStepAtom, store.get(activePlottableAtom)!.reduce.steps[1].id);
+    store.set(removeStepAtom, store.get(activeReduceDagAtom)!.steps[1].id);
     expect(post(store)).toEqual(["derive"]);
 
     store = makeStoreWithPost();
@@ -947,19 +954,21 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
     dag.nodes.filter((n) => n.kind === "step").map((n) => (n as { step: EngineReduceStep }).step.kind);
 
   it("buildSpec excludes an unset join and inlines a materialized one", () => {
+    const dag = dagFromLinear("", [makeStep("filter"), makeStep("join")]);
     const p = {
-      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
-      reduce: dagFromLinear("", [makeStep("filter"), makeStep("join")]),
+      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" }, output: dag.output,
     };
-    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {});
+    const spec = buildSpec(p, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, {},
+      { sources: dag.sources, steps: dag.steps });
     expect(stepKinds(spec.reduce)).toEqual(["filter"]);
 
+    const dagFilled = dagFromLinear("", [makeStep("filter"),
+      { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]);
     const pFilled = {
-      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" },
-      reduce: dagFromLinear("", [makeStep("filter"),
-        { ...makeStep("join"), rightTableId: "annot", on: ["k"] } as ReduceStep]),
+      ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" }, output: dagFilled.output,
     };
-    const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, cache);
+    const specFilled = buildSpec(pFilled, "group_comparison", "welch_t", {}, EMPTY_HIERARCHY, cache,
+      { sources: dagFilled.sources, steps: dagFilled.steps });
     expect(stepKinds(specFilled.reduce)).toEqual(["filter", "join"]);
     // the join is a genuine 2-input DAG node: its right is a synthesized source
     // node carrying the materialized table inline (no `right`/`right_table_id`
@@ -983,15 +992,15 @@ describe("runnableSteps / resolveEngineSteps — joins resolve at the engine bou
       handle: { id: `h_${id}`, n: 3, version, schema: SCHEMA, counts: {} as never } });
     const pool = [wt("cells", 1), wt("annot", 2)];
     const join = { ...makeStep("join"), rightTableId: "annot" };
-    const p = { ...makeDefaultPlottable("cells"),
-      reduce: dagFromLinear("cells", [join]) };
+    const dag = dagFromLinear("cells", [join]);
+    const store = { cells: { sources: dag.sources, steps: dag.steps } };
     // cache empty → annot needs fetch (cells is not referenced by a join)
-    expect(tablesNeedingMaterialize(pool, [p], {}).map((t) => t.id)).toEqual(["annot"]);
+    expect(tablesNeedingMaterialize(pool, store, {}).map((t) => t.id)).toEqual(["annot"]);
     // cache has annot at the WRONG version → still stale
-    expect(tablesNeedingMaterialize(pool, [p],
+    expect(tablesNeedingMaterialize(pool, store,
       { annot: { version: 1, table: { schema: SCHEMA, rows: [] } } }).map((t) => t.id)).toEqual(["annot"]);
     // cache has annot at the CURRENT version (2) → nothing needed
-    expect(tablesNeedingMaterialize(pool, [p],
+    expect(tablesNeedingMaterialize(pool, store,
       { annot: { version: 2, table: { schema: SCHEMA, rows: [] } } })).toEqual([]);
   });
 });
@@ -1017,7 +1026,7 @@ describe("loadDocumentAtom — full-pool rebuild, joins bound by reference", () 
     expect(pool.map((t) => t.id)).toEqual(["cells", "annot"]);     // the whole pool, rebuilt
     const ps = store.get(plottablesAtom);
     expect(ps[0].tableId).toBe("cells");
-    const join = ps[0].reduce.steps[0];
+    const join = store.get(reduceStoreAtom)[ps[0].tableId].steps[0];
     expect(join.kind === "join" && join.rightTableId).toBe("annot");
     expect(ps[1].tableId).toBe("annot");
     expect(createSession).not.toHaveBeenCalled();                  // references need no migration
@@ -1066,17 +1075,17 @@ describe("undo history — spec mutations only", () => {
   it("records a spec edit and undo restores it; redo reapplies", () => {
     const { store, p } = seedActive();
     store.set(addStepAtom, "filter");                       // a spec mutation
-    expect(store.get(activePlottableAtom)?.reduce.steps).toHaveLength(1);
+    expect(store.get(activeReduceDagAtom)?.steps).toHaveLength(1);
     expect(store.get(specHistoryAtom)).toHaveLength(1);
 
     store.set(undoSpecAtom);
-    expect(store.get(activePlottableAtom)?.reduce.steps).toHaveLength(0);
+    expect(store.get(activeReduceDagAtom)?.steps).toHaveLength(0);
     expect(store.get(activePlottableAtom)?.id).toBe(p.id);
     expect(store.get(specHistoryAtom)).toHaveLength(0);
     expect(store.get(specRedoAtom)).toHaveLength(1);
 
     store.set(redoSpecAtom);
-    expect(store.get(activePlottableAtom)?.reduce.steps).toHaveLength(1);
+    expect(store.get(activeReduceDagAtom)?.steps).toHaveLength(1);
     expect(store.get(specRedoAtom)).toHaveLength(0);
   });
 
@@ -1097,7 +1106,7 @@ describe("undo history — spec mutations only", () => {
       { ...afterStep, style: { overrides: { color: "red" } } } as never);
     store.set(undoSpecAtom);                                // undo the step
     const now = store.get(activePlottableAtom)!;
-    expect(now.reduce.steps).toHaveLength(0);               // structure reverted
+    expect(store.get(activeReduceDagAtom)!.steps).toHaveLength(0);   // structure reverted
     expect(now.style).toEqual({ overrides: { color: "red" } });  // styling preserved
   });
 

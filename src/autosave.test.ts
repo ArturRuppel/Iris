@@ -26,36 +26,53 @@ const plottable = (over: Partial<Plottable> = {}): Plottable =>
 afterEach(() => vi.restoreAllMocks());
 
 describe("snapshotStateKey — the autosave dirtiness signature", () => {
+  // Stage 2: the reduce pipeline is table-scoped, so build a plottable's pin
+  // (output) plus its table's shared pool from a linear step list, exactly as a
+  // load would land it in reduceStoreAtom.
+  const withReduce = (steps: unknown[]) => {
+    const dag = dagFromLinear("t1", steps as never);
+    return {
+      p: plottable({ output: dag.output }),
+      store: { t1: { sources: dag.sources, steps: dag.steps } },
+    };
+  };
+
   it("ignores session-only state: step _key", () => {
     // an explicit node id (not just _key) so both variants land on the SAME id —
     // a real reload preserves the saved DAG node id and only regenerates _key
     // (see adoptReduceDag), so this isolates the _key-only dimension.
     const step = { _key: "sk_1", kind: "drop" as const, columns: ["val"], id: "n0" };
-    const a = plottable({ reduce: dagFromLinear("t1", [step]) });
-    const b = plottable({
-      reduce: dagFromLinear("t1", [{ ...step, _key: "sk_other" }]),    // React list key
-    });
-    expect(snapshotStateKey([a], [table()])).toBe(snapshotStateKey([b], [table()]));
+    const a = withReduce([step]);
+    const b = withReduce([{ ...step, _key: "sk_other" }]);    // React list key
+    expect(snapshotStateKey([a.p], [table()], a.store))
+      .toBe(snapshotStateKey([b.p], [table()], b.store));
   });
 
   it("moves on a real spec edit (mapping, layer, style)", () => {
     const base = plottable();
-    const key = snapshotStateKey([base], [table()]);
-    expect(snapshotStateKey([plottable({ mappings: { x: "grp", y: "val" } })], [table()]))
+    const key = snapshotStateKey([base], [table()], {});
+    expect(snapshotStateKey([plottable({ mappings: { x: "grp", y: "val" } })], [table()], {}))
       .not.toBe(key);
     expect(snapshotStateKey(
-      [plottable({ layers: [{ id: "ly", geom: "dot", level: "" }] })], [table()]))
+      [plottable({ layers: [{ id: "ly", geom: "dot", level: "" }] })], [table()], {}))
       .not.toBe(key);
-    expect(snapshotStateKey([plottable({ style: { title: "T" } })], [table()]))
+    expect(snapshotStateKey([plottable({ style: { title: "T" } })], [table()], {}))
       .not.toBe(key);
+  });
+
+  it("moves when the shared reduce pool changes under a plottable", () => {
+    const base = plottable();                                 // pins to source, empty pool
+    const key = snapshotStateKey([base], [table()], {});
+    const edited = withReduce([{ kind: "drop", columns: ["val"], id: "n0", _key: "k" }]);
+    expect(snapshotStateKey([edited.p], [table()], edited.store)).not.toBe(key);
   });
 
   it("moves on a data edit (session version) and a hierarchy edit", () => {
     const p = [plottable()];
-    const key = snapshotStateKey(p, [table()]);
-    expect(snapshotStateKey(p, [table("t1", 1)])).not.toBe(key);
+    const key = snapshotStateKey(p, [table()], {});
+    expect(snapshotStateKey(p, [table("t1", 1)], {})).not.toBe(key);
     const reordered = { ...table(), hierarchy: { spine: ["grp"], fn: {} } };
-    expect(snapshotStateKey(p, [reordered])).not.toBe(key);
+    expect(snapshotStateKey(p, [reordered], {})).not.toBe(key);
   });
 });
 

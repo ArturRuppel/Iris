@@ -21,7 +21,7 @@ import { Stash, StashFocus } from "./Stash";
 import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
 import { clampStashH, TOPBAR } from "./paneTiling";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
-import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom } from "../state";
+import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom, activeReduceDagAtom } from "../state";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
@@ -202,18 +202,22 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const removeStep = useSetAtom(removeStepAtom);
   const connectInput = useSetAtom(connectInputAtom);
   const active = useAtomValue(activePlottableAtom);
+  // the active plottable's reduce VIEW (its branch of the shared table pool); the
+  // `step:<i>` presentation ids below index THIS array, exactly as buildGraph
+  // minted them from it.
+  const activeDag = useAtomValue(activeReduceDagAtom);
   const [menu, setMenu] = useState<NodeMenu | null>(null);
   // translate a graph node id to its DAG node id for wiring: the primary source
-  // is sources[0]; a `step:<i>` node is reduce.steps[i] (array index == the id's
-  // index, per buildGraph). Synthetic/terminal ids (source:<i>, grain:, figure)
-  // are not wireable and resolve to null.
+  // is sources[0]; a `step:<i>` node is steps[i] (array index == the id's index,
+  // per buildGraph). Synthetic/terminal ids (source:<i>, grain:, figure) are not
+  // wireable and resolve to null.
   const dagIdOf = useCallback((graphId: string): string | null => {
-    if (!active) return null;
-    if (graphId === "source") return active.reduce.sources[0]?.id ?? null;
+    if (!activeDag) return null;
+    if (graphId === "source") return activeDag.sources[0]?.id ?? null;
     const m = /^step:(\d+)$/.exec(graphId);
-    if (m) return active.reduce.steps[Number(m[1])]?.id ?? null;
+    if (m) return activeDag.steps[Number(m[1])]?.id ?? null;
     return null;
-  }, [active]);
+  }, [activeDag]);
   // removeStepAtom takes a DAG node id now (Phase B); array order still matches
   // chain order for Phase B's linear-only authoring (see insertStepAtom), so a
   // pipeline-step-index still resolves to the right node via this lookup —
@@ -221,7 +225,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const deletableStep = (n: Node): { id: string; label: string } | null => {
     const d = n.data as unknown as RFNodeData;
     const id = typeof d.stepIndex === "number" && d.stepIndex >= 0
-      ? active?.reduce.steps[d.stepIndex]?.id : undefined;
+      ? activeDag?.steps[d.stepIndex]?.id : undefined;
     return id ? { id, label: d.eyebrow ?? "step" } : null;
   };
   const onNodeContextMenu = useCallback((e: ReactMouseEvent, n: Node) => {

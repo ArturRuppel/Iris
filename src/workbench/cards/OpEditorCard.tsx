@@ -1,6 +1,6 @@
 import { useAtomValue, useSetAtom } from "jotai";
 import {
-  activePlottableAtom, reducePreviewAtom, schemaAtom, tablesAtom, updateStepAtom,
+  activePlottableAtom, activeReduceDagAtom, reducePreviewAtom, schemaAtom, tablesAtom, updateStepAtom,
 } from "../../state";
 import { explorerGraphAtom } from "../../explorer/graphAtom";
 import type { ExplorerGraph } from "../../explorer/graph";
@@ -55,15 +55,16 @@ const postStub = (
 export function OpEditorCard({ target }: CardBodyProps) {
   const graph = useAtomValue(explorerGraphAtom);
   const active = useAtomValue(activePlottableAtom);
+  const activeDag = useAtomValue(activeReduceDagAtom);
   const preview = useAtomValue(reducePreviewAtom);
   const schema = useAtomValue(schemaAtom);
   const tables = useAtomValue(tablesAtom);
   const updateStep = useSetAtom(updateStepAtom);
 
-  if (!graph || !active || !schema) return stale;
+  if (!graph || !active || !activeDag || !schema) return stale;
   if (edgeIsPostStep(graph, target.id)) return postStub;
   const index = edgeIdToStepIndex(graph, target.id);
-  if (index == null || index >= active.reduce.steps.length) return stale;
+  if (index == null || index >= activeDag.steps.length) return stale;
 
   /* input columns at step `index` = the previous step's output schema (from the
      live /reduce trace), or the master schema for the first step. */
@@ -71,7 +72,7 @@ export function OpEditorCard({ target }: CardBodyProps) {
     ? schema.columns
     : (preview?.trace[index - 1]?.schema_out?.columns ?? schema.columns);
 
-  const step = active.reduce.steps[index];
+  const step = activeDag.steps[index];
   const onChange = (s: ReduceStep) => updateStep({ index, step: s });
 
   let editor: JSX.Element;

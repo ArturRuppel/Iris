@@ -3,10 +3,26 @@ import { render, screen, fireEvent } from "@testing-library/react";
 import { Provider } from "jotai";
 import { OpEditorCard, edgeIdToStepIndex } from "./OpEditorCard";
 import { seedStore } from "./cardTestStore";
-import { activePlottableAtom, tablesAtom, dagFromLinear } from "../../state";
+import {
+  activePlottableAtom, activeReduceDagAtom, reduceStoreAtom, tablesAtom, dagFromLinear,
+} from "../../state";
 import type { JoinStep, Schema } from "../../types";
+import type { ReduceDag } from "../../types";
+import type { createStore } from "jotai";
+import type { Plottable } from "../../state";
 import { explorerGraphAtom } from "../../explorer/graphAtom";
 import type { ExplorerGraph } from "../../explorer/graph";
+
+/* Stage 2: a plottable's reduce is a VIEW onto its table's shared pool. Seed the
+   pool (sources+steps) and the plottable's pin (output/post) from a whole DAG,
+   the way a load lands it in reduceStoreAtom. */
+function setActive(
+  store: ReturnType<typeof createStore>, plottable: Plottable, dag: ReduceDag,
+) {
+  store.set(reduceStoreAtom, { [plottable.tableId]: { sources: dag.sources, steps: dag.steps } });
+  store.set(activePlottableAtom,
+    { ...plottable, output: dag.output, ...(dag.post?.length ? { post: dag.post } : {}) });
+}
 
 describe("edgeIdToStepIndex", () => {
   const graph: ExplorerGraph = {
@@ -40,10 +56,8 @@ describe("edgeIdToStepIndex", () => {
 describe("OpEditorCard", () => {
   it("renders the filter editor for a filter step-edge and persists edits", () => {
     const { store, plottable } = seedStore();
-    store.set(activePlottableAtom, {
-      ...plottable,
-      reduce: dagFromLinear(plottable.tableId, [{ kind: "filter", _key: "k1", conditions: [] }]),
-    });
+    setActive(store, plottable,
+      dagFromLinear(plottable.tableId, [{ kind: "filter", _key: "k1", conditions: [] }]));
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.kind === "filter")!;
     render(
@@ -54,7 +68,7 @@ describe("OpEditorCard", () => {
     const addBtn = screen.getByText("+ condition");
     expect(addBtn).toBeInTheDocument();
     fireEvent.click(addBtn);
-    const step = store.get(activePlottableAtom)!.reduce.steps[0];
+    const step = store.get(activeReduceDagAtom)!.steps[0];
     expect(step.kind).toBe("filter");
     expect((step as { conditions: unknown[] }).conditions.length).toBe(1);
   });
@@ -73,11 +87,8 @@ describe("OpEditorCard", () => {
         hierarchy: { spine: ["cell"], fn: {} },
         handle: { id: "h_annot", n: 0, version: 0, schema: annotSchema, counts: {} as never } },
     ]);
-    store.set(activePlottableAtom, {
-      ...plottable,
-      reduce: dagFromLinear(plottable.tableId,
-        [{ kind: "join", _key: "k1", on: [], how: "inner", rightTableId: "" }]),
-    });
+    setActive(store, plottable, dagFromLinear(plottable.tableId,
+      [{ kind: "join", _key: "k1", on: [], how: "inner", rightTableId: "" }]));
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.kind === "join")!;
     render(
@@ -89,22 +100,19 @@ describe("OpEditorCard", () => {
     // the picker offers annot but not the analysis's own table
     expect([...select.options].map((o) => o.value)).toEqual(["", "annot"]);
     fireEvent.change(select, { target: { value: "annot" } });
-    const step = store.get(activePlottableAtom)!.reduce.steps[0] as JoinStep;
+    const step = store.get(activeReduceDagAtom)!.steps[0] as JoinStep;
     expect(step.rightTableId).toBe("annot");
     expect(step.on).toEqual(["cell"]);
   });
 
   it("renders a stale-step notice when the index is gone", () => {
     const { store, plottable } = seedStore();
-    store.set(activePlottableAtom, {
-      ...plottable,
-      reduce: dagFromLinear(plottable.tableId, [{ kind: "filter", _key: "k1", conditions: [] }]),
-    });
+    setActive(store, plottable,
+      dagFromLinear(plottable.tableId, [{ kind: "filter", _key: "k1", conditions: [] }]));
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.kind === "filter")!;
     // now empty the pipeline so the resolved index is out of range
-    store.set(activePlottableAtom,
-      { ...plottable, reduce: dagFromLinear(plottable.tableId, []) });
+    setActive(store, plottable, dagFromLinear(plottable.tableId, []));
     render(
       <Provider store={store}>
         <OpEditorCard target={{ kind: "edge", id: edge.id }} />
@@ -118,11 +126,8 @@ describe("OpEditorCard", () => {
 describe("post-collapse edges", () => {
   it("shows the honest not-editable-yet stub, not the stale-step notice", () => {
     const { store, plottable } = seedStore();
-    store.set(activePlottableAtom, {
-      ...plottable,
-      reduce: { ...dagFromLinear(plottable.tableId, []),
-                post: [{ kind: "derive", _key: "k9", column: "q", expr: "a/b" }] },
-    });
+    setActive(store, plottable, { ...dagFromLinear(plottable.tableId, []),
+      post: [{ kind: "derive", _key: "k9", column: "q", expr: "a/b" }] } as ReduceDag);
     const graph = store.get(explorerGraphAtom)!;
     const edge = graph.edges.find((e) => e.toId === "post:0")!;
     render(
