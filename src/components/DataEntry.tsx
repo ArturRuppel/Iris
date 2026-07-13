@@ -1,8 +1,8 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAtom } from "jotai";
 import { entryBandsAtom, entryColumnsAtom, entryRowsAtom, entryValueNameAtom } from "../state";
 import { type EntryCell as Cell, coverAt } from "../entryMelt";
-import { type Cell as GridCell, type Rect } from "../gridSelect";
+import { inRect, type Cell as GridCell, type Rect } from "../gridSelect";
 import { useGridSelection } from "../useGridSelection";
 
 /* The header is a stack of grouping rows over a row of value columns — exactly
@@ -43,15 +43,16 @@ function mergeRange(row: Cell[], a: number, b: number): Cell[] {
   };
   return [...row.slice(0, a), merged, ...row.slice(b + 1)];
 }
-/* drop `count` columns starting at `startCol` from a band row, keeping spans in
-   sync and dropping any cell emptied by the cut */
-function shrinkBand(row: Cell[], startCol: number, count: number): Cell[] {
-  const end = startCol + count;
+/* drop the columns in `drop` from a band row, keeping each cell's span in sync and
+   dropping any cell all of whose columns were cut. Works for a discontiguous set,
+   so deleting a Ctrl+click column selection stays laminar. */
+function dropBandCols(row: Cell[], drop: Set<number>): Cell[] {
   const out: Cell[] = [];
   let s = 0;
   for (const cell of row) {
-    const overlap = Math.max(0, Math.min(s + cell.span, end) - Math.max(s, startCol));
-    if (cell.span - overlap > 0) out.push({ ...cell, span: cell.span - overlap });
+    let kept = 0;
+    for (let c = s; c < s + cell.span; c++) if (!drop.has(c)) kept++;
+    if (kept > 0) out.push({ ...cell, span: kept });
     s += cell.span;
   }
   return out;
@@ -80,33 +81,31 @@ export function DataEntry() {
   // the single active cell editor (Excel-like: click selects, type/dbl-click edits)
   const [edit, setEdit] = useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = useState("");
+  // the header-label editor — a header cell selects on click and edits on
+  // double-click, exactly like a body cell (row is a band level, or the value-
+  // column row; i is the cell index within that row).
+  const [hEdit, setHEdit] = useState<{ row: number; i: number } | null>(null);
+  const [hDraft, setHDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusScroll = () => scrollRef.current?.focus();
+  const bandDrag = useRef<number | null>(null);   // origin cell index of a grouping-row drag
+  useEffect(() => {
+    const up = () => { bandDrag.current = null; };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
 
   const nCols = columnLabels.length;
   const depth = bands.length + 1;
   const cell = (r: number, c: number) => rows[r]?.[c] ?? "";
 
-  /* ---- selection ---- */
-  /* the row a selection points at (a band, or the value columns) */
-  const selRow = (s: Sel): Cell[] => (s.row < bands.length ? bands[s.row] : colCells(nCols));
-  /* the value-column range [first, last] a selection covers */
-  const selCols = (): [number, number] | null => {
-    if (!sel) return null;
-    const row = selRow(sel), st = starts(row);
-    if (sel.b >= row.length) return null;   // stale (structure changed) — ignore
-    return [st[sel.a], st[sel.b] + row[sel.b].span - 1];
-  };
-  const pick = (row: number, i: number, shift: boolean) => {
-    setNote(null);
-    setSel((prev) => (shift && prev && prev.row === row
-      ? { row, a: Math.min(prev.a, i), b: Math.max(prev.b, i) }
-      : { row, a: i, b: i }));
-  };
-  const colSelected = (c: number): boolean => {
-    const r = selCols();
-    return !!r && c >= r[0] && c <= r[1];
-  };
+  /* ---- selection ----
+     Two coordinated layers. The crisp body range (`gsel`, defined below) is the
+     Excel selection and the single source of truth for copy / delete / the column
+     span. The header "pick" (`sel`) drives merge/unmerge on the grouping rows,
+     which have no body of their own. Every gesture clears the other layer, so the
+     two never double-paint — the bug this replaces. The gsel-derived helpers live
+     just below the hook; `cellSelected` (header pick) needs only `sel`. */
   const cellSelected = (row: number, i: number): boolean =>
     !!sel && sel.row === row && i >= sel.a && i <= sel.b;
 
@@ -148,9 +147,9 @@ export function DataEntry() {
       return next;
     });
   };
-  const clearRect = (x: Rect) => setRows((rs) =>
-    rs.map((row, r) => (r < x.r0 || r > x.r1 ? row
-      : row.map((v, c) => (c >= x.c0 && c <= x.c1 ? "" : v)))));
+  const clearRect = (rects: Rect[]) => setRows((rs) =>
+    rs.map((row, r) => row.map((v, c) =>
+      (rects.some((x) => inRect(r, c, x)) ? "" : v))));
 
   const ensureVisible = (c: GridCell) => queueMicrotask(() =>
     scrollRef.current?.querySelector(`td[data-r="${c.r}"][data-c="${c.c}"]`)
@@ -160,6 +159,64 @@ export function DataEntry() {
     nRows: rows.length, nCols, values: rows,
     isEditable: () => true, beginEdit, pasteBlock, clearRect, ensureVisible,
   });
+
+  /* the value columns the body selection fully spans — only full-height (whole-
+     column) areas count, which is exactly what a column-header click, a top-to-
+     bottom drag, or a Ctrl+click across headers produces. A discontiguous selection
+     yields several, so Delete can drop disjoint columns. Drives + Column / Delete
+     and the header/band highlight. */
+  const selectedCols = (): number[] => {
+    const cols = new Set<number>();
+    for (const x of gsel.rects)
+      if (x.r0 === 0 && x.r1 === rows.length - 1)
+        for (let c = x.c0; c <= x.c1; c++) cols.add(c);
+    return [...cols].sort((a, b) => a - b);
+  };
+  const colSel = selectedCols();
+  const colSelSet = new Set(colSel);
+  const colSelected = (c: number): boolean => colSelSet.has(c);
+  const spanSelected = (c0: number, c1: number): boolean => {
+    for (let c = c0; c <= c1; c++) if (!colSelSet.has(c)) return false;
+    return true;
+  };
+  /* press a grouping cell: pick it for merge/unmerge (header layer) and select the
+     body columns it spans (Excel layer), so the selection reads end to end. A drag
+     across grouping cells extends both — like dragging across leaf headers, one
+     grain up. `bandDrag` remembers the origin cell so the drag grows symmetrically. */
+  const bandMouseDown = (level: number, i: number, shift: boolean, additive: boolean) => {
+    setNote(null);
+    const row = bands[level], st = starts(row);
+    // Ctrl/Cmd: add this group's columns as a disjoint block. Merge needs one
+    // contiguous pick, so a discontiguous selection drops the header pick entirely.
+    if (additive) {
+      setSel(null);
+      bandDrag.current = null;
+      gsel.onColMouseDown(st[i], st[i] + row[i].span - 1, false, true);
+      focusScroll();
+      return;
+    }
+    const a = shift && sel && sel.row === level ? Math.min(sel.a, i) : i;
+    const b = shift && sel && sel.row === level ? Math.max(sel.b, i) : i;
+    setSel({ row: level, a, b });
+    bandDrag.current = shift ? null : i;
+    gsel.onColMouseDown(st[a], st[b] + row[b].span - 1, shift);
+    focusScroll();
+  };
+  const bandMouseEnter = (level: number, i: number) => {
+    if (bandDrag.current == null || !sel || sel.row !== level) return;
+    const a = Math.min(bandDrag.current, i), b = Math.max(bandDrag.current, i);
+    setSel({ row: level, a, b });
+    const row = bands[level], st = starts(row);
+    gsel.onColMouseEnter(st[a], st[b] + row[b].span - 1);
+  };
+  /* press a value-column header: select the whole column (Excel), drop any
+     grouping pick; dragging across headers (onColMouseEnter) extends the range. */
+  const colMouseDown = (c: number, shift: boolean, additive: boolean) => {
+    setNote(null);
+    setSel(null);
+    gsel.onColMouseDown(c, c, shift, additive);
+    focusScroll();
+  };
 
   /* commit the active edit and (on Enter/Tab) step the active cell on, growing a
      row at the bottom like Excel; keep the keyboard alive by refocusing the grid. */
@@ -197,14 +254,30 @@ export function DataEntry() {
     }));
     setSel(null);
   };
-  /* "+ Column": add one, into the selected group if there is a selection. */
-  const addColumn = () => { const r = selCols(); addColumns(1, r ? r[1] : nCols - 1); };
+  /* "+ Column": add one, after the last selected column if there is a selection. */
+  const addColumn = () => addColumns(1, colSel.length ? colSel[colSel.length - 1] : nCols - 1);
 
   const renameCell = (level: number, i: number, v: string) =>
     setBands((bs) => bs.map((row, L) =>
       (L === level ? row.map((c, k) => (k === i ? { ...c, label: v } : c)) : row)));
   const renameColumn = (c: number, v: string) =>
     setColumnLabels((ls) => ls.map((l, i) => (i === c ? v : l)));
+
+  /* double-click a header to rename it (single click already selected it) */
+  const beginHeadEdit = (row: number, i: number, current: string) => {
+    setNote(null);
+    setHDraft(current);
+    setHEdit({ row, i });
+  };
+  const commitHead = () => {
+    if (!hEdit) return;
+    const { row, i } = hEdit;
+    if (row < bands.length) renameCell(row, i, hDraft);
+    else renameColumn(i, hDraft);
+    setHEdit(null);
+    focusScroll();
+  };
+  const cancelHead = () => { setHEdit(null); focusScroll(); };
 
   /* ---- grouping rows (bands) ---- */
   /* add a coarser grouping row on top, cloned from the current top partition so
@@ -269,18 +342,26 @@ export function DataEntry() {
     setNote(null);
   };
 
-  const delRange = selCols();
-  const canDelete = !!delRange && (delRange[1] - delRange[0] + 1) < nCols;
+  const canDelete = colSel.length > 0 && colSel.length < nCols;
   const deleteSelectedColumns = () => {
-    if (!canDelete || !delRange) return;
-    const [s, e] = delRange, count = e - s + 1;
-    setBands((bs) => bs.map((row) => shrinkBand(row, s, count)));
-    setColumnLabels((ls) => ls.filter((_, i) => i < s || i > e));
-    setRows((rs) => rs.map((row) => row.filter((_, i) => i < s || i > e)));
-    setSel(null); setNote(null);
+    if (!canDelete) return;
+    const drop = colSelSet;
+    setBands((bs) => bs.map((row) => dropBandCols(row, drop)));
+    setColumnLabels((ls) => ls.filter((_, i) => !drop.has(i)));
+    setRows((rs) => rs.map((row) => row.filter((_, i) => !drop.has(i))));
+    setSel(null); gsel.clearSel(); setNote(null);
   };
 
-  const colRow = bands.length;   // the value-column row's index in the selection model
+  /* the inline header-label editor, shared by band cells and column headers */
+  const headInput = (
+    <input className="de-headinput" autoFocus value={hDraft} spellCheck={false}
+      onChange={(e) => setHDraft(e.target.value)}
+      onBlur={commitHead}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { e.preventDefault(); commitHead(); }
+        else if (e.key === "Escape") { e.preventDefault(); cancelHead(); }
+      }} />
+  );
 
   return (
     <div className="de-inline">
@@ -305,33 +386,43 @@ export function DataEntry() {
                         <button className="de-icon" title="delete grouping row"
                           onClick={() => removeBand(level)}>✕</button>
                       </th>
-                      {row.map((c, i) => (
-                        <th key={i} colSpan={c.span}
-                          className={`de-groupcell${cellSelected(level, i) ? " de-sel" : ""}`}
-                          onClick={(e) => pick(level, i, e.shiftKey)}>
-                          <div className="de-grouphead">
-                            <input value={c.label} spellCheck={false}
-                              placeholder="group"
-                              onChange={(e) => renameCell(level, i, e.target.value)} />
-                          </div>
-                        </th>
-                      ))}
+                      {row.map((c, i) => {
+                        const editing = hEdit?.row === level && hEdit?.i === i;
+                        return (
+                          <th key={i} colSpan={c.span}
+                            className={`de-groupcell${cellSelected(level, i) || spanSelected(starts(row)[i], starts(row)[i] + c.span - 1) ? " de-sel" : ""}`}
+                            onMouseDown={(e) => bandMouseDown(level, i, e.shiftKey, e.ctrlKey || e.metaKey)}
+                            onMouseEnter={() => bandMouseEnter(level, i)}
+                            onDoubleClick={() => beginHeadEdit(level, i, c.label)}>
+                            <div className="de-grouphead">
+                              {editing ? headInput
+                                : <span className={`de-headtext${c.label.trim() ? "" : " de-ph"}`}>
+                                    {c.label.trim() || "group"}</span>}
+                            </div>
+                          </th>
+                        );
+                      })}
                       {level === 0 && <th className="de-addcol" rowSpan={depth} />}
                     </tr>
                   ))}
                   <tr className="de-heads">
                     <th className="de-corner">#</th>
-                    {columnLabels.map((label, c) => (
-                      <th key={c}
-                        className={`de-colcell${colSelected(c) ? " de-sel" : ""}`}
-                        onClick={(e) => pick(colRow, c, e.shiftKey)}>
-                        <div className="de-colhead">
-                          <input value={label} spellCheck={false}
-                            placeholder="column"
-                            onChange={(e) => renameColumn(c, e.target.value)} />
-                        </div>
-                      </th>
-                    ))}
+                    {columnLabels.map((label, c) => {
+                      const editing = hEdit?.row === bands.length && hEdit?.i === c;
+                      return (
+                        <th key={c} data-colhead={c}
+                          className={`de-colcell${colSelected(c) ? " de-sel" : ""}`}
+                          onMouseDown={(e) => colMouseDown(c, e.shiftKey, e.ctrlKey || e.metaKey)}
+                          onMouseEnter={() => gsel.onColMouseEnter(c, c)}
+                          onDoubleClick={() => beginHeadEdit(bands.length, c, label)}>
+                          <div className="de-colhead">
+                            {editing ? headInput
+                              : <span className={`de-headtext${label.trim() ? "" : " de-ph"}`}>
+                                  {label.trim() || "column"}</span>}
+                          </div>
+                        </th>
+                      );
+                    })}
                     {bands.length === 0 && <th className="de-addcol" />}
                   </tr>
                 </thead>
@@ -346,14 +437,13 @@ export function DataEntry() {
                         const editing = edit?.r === r && edit?.c === c;
                         const cls = [
                           "de-body",
-                          colSelected(c) ? "de-selcol" : "",
                           gsel.isSelected(r, c) ? "de-sel" : "",
                           gsel.isActive(r, c) ? "de-active" : "",
                         ].filter(Boolean).join(" ");
                         return (
                           <td key={c} data-r={r} data-c={c} className={cls}
                             onMouseDown={editing ? undefined
-                              : (e) => { gsel.onCellMouseDown(r, c, e.shiftKey); focusScroll(); }}
+                              : (e) => { setSel(null); gsel.onCellMouseDown(r, c, e.shiftKey, e.ctrlKey || e.metaKey); focusScroll(); }}
                             onMouseEnter={() => gsel.onCellMouseEnter(r, c)}
                             onDoubleClick={() => beginEdit(r, c)}>
                             {editing

@@ -67,6 +67,27 @@ export function rectToTSV(values: CellValue[][], x: Rect): string {
   return lines.join("\n");
 }
 
+/* serialise a possibly-discontiguous selection (several Ctrl+click areas) to TSV.
+   Emits the bounding box of every rect; a cell inside any rect prints its value, a
+   cell in the gap between areas prints blank — so the clipboard mirrors what's
+   highlighted (two selected columns keep the gap between them). A single rect is
+   byte-for-byte rectToTSV. Overlapping rects are fine: membership is a union. */
+export function rectsToTSV(values: CellValue[][], rects: Rect[]): string {
+  if (rects.length <= 1) return rectToTSV(values, rects[0] ?? { r0: 0, r1: -1, c0: 0, c1: -1 });
+  const r0 = Math.min(...rects.map((x) => x.r0));
+  const r1 = Math.max(...rects.map((x) => x.r1));
+  const c0 = Math.min(...rects.map((x) => x.c0));
+  const c1 = Math.max(...rects.map((x) => x.c1));
+  const lines: string[] = [];
+  for (let r = r0; r <= r1; r++) {
+    const cells: string[] = [];
+    for (let c = c0; c <= c1; c++)
+      cells.push(rects.some((x) => inRect(r, c, x)) ? cellText(values[r]?.[c] ?? null) : "");
+    lines.push(cells.join("\t"));
+  }
+  return lines.join("\n");
+}
+
 /* the inverse of rectToTSV: parse clipboard text into a grid of string fields.
    Accepts the TSV a spreadsheet puts on the clipboard — tabs between columns,
    newlines between rows, CRLF or LF — and drops the single trailing newline

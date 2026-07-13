@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rectOf, inRect, clampCell, cellText, rectToTSV, parseTSV } from "./gridSelect";
+import { rectOf, inRect, clampCell, cellText, rectToTSV, rectsToTSV, parseTSV } from "./gridSelect";
 
 describe("rectOf — normalise anchor/focus into an inclusive rect", () => {
   it("orders the corners regardless of drag direction", () => {
@@ -75,6 +75,41 @@ describe("rectToTSV — a copied block is spreadsheet-pasteable TSV", () => {
   });
   it("a single cell is just its text, no separators", () => {
     expect(rectToTSV(values, { r0: 2, r1: 2, c0: 2, c1: 2 })).toBe("9");
+  });
+});
+
+describe("rectsToTSV — a discontiguous (Ctrl+click) selection copies as TSV", () => {
+  const values = [
+    [1, 2, 3],
+    [4, 5, 6],
+    [7, 8, 9],
+  ];
+  it("a single rect is identical to rectToTSV", () => {
+    const rect = { r0: 0, r1: 1, c0: 0, c1: 1 };
+    expect(rectsToTSV(values, [rect])).toBe(rectToTSV(values, rect));
+  });
+  it("two disjoint columns keep the gap between them as a blank field", () => {
+    // columns 0 and 2 selected, column 1 in the gap → blank, so paste reproduces it
+    const cols = [
+      { r0: 0, r1: 2, c0: 0, c1: 0 },
+      { r0: 0, r1: 2, c0: 2, c1: 2 },
+    ];
+    expect(rectsToTSV(values, cols)).toBe("1\t\t3\n4\t\t6\n7\t\t9");
+  });
+  it("emits the bounding box across rows too, blanks outside every area", () => {
+    // top-left cell and bottom-right cell → 3×3 bbox, only the two corners filled
+    const corners = [
+      { r0: 0, r1: 0, c0: 0, c1: 0 },
+      { r0: 2, r1: 2, c0: 2, c1: 2 },
+    ];
+    expect(rectsToTSV(values, corners)).toBe("1\t\t\n\t\t\n\t\t9");
+  });
+  it("overlapping areas print each cell once (union membership)", () => {
+    const overlap = [
+      { r0: 0, r1: 1, c0: 0, c1: 1 },
+      { r0: 1, r1: 2, c0: 1, c1: 2 },
+    ];
+    expect(rectsToTSV(values, overlap)).toBe("1\t2\t\n4\t5\t6\n\t8\t9");
   });
 });
 

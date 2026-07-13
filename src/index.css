@@ -372,10 +372,11 @@ dd.strong { font-weight: 600; }
 .de-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
 .de-scroll { max-height: 46vh; overflow: auto; border: 1px solid var(--line);
   border-radius: 8px; margin-top: 12px; }
-.de-grid { border-collapse: collapse; font-size: 12px; }
+.de-grid { border-collapse: collapse; font-size: 12px; user-select: none; }
 .de-grid th, .de-grid td { border: 1px solid var(--line); padding: 0; }
+/* an editor (or a header label being typed) is real text again */
 .de-grid input { border: none; background: none; font: inherit; width: 100%;
-  padding: 4px 7px; box-sizing: border-box; }
+  padding: 4px 7px; box-sizing: border-box; user-select: text; }
 .de-grid input:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
 .de-cell { min-width: 84px; font-variant-numeric: tabular-nums; }
 /* body data cells: select-first, like the grouped lens. The cell shows text; a
@@ -387,15 +388,20 @@ dd.strong { font-weight: 600; }
 .de-grid td.de-active { outline: 2px solid var(--accent); outline-offset: -2px; }
 /* header bands: coarser groups sit higher and read bolder */
 .de-band th { background: var(--panel2); }
-.de-groupcell input, .de-colcell input { font-weight: 600; text-align: center; }
-.de-band .de-groupcell input { font-weight: 700; }
+/* a header is select-first like a body cell: the label shows as text (de-headtext)
+   and a click selects the column; double-click swaps in the editor (de-headinput).
+   Both share one look so there's no jump between viewing and editing. */
+.de-headtext, .de-headinput { flex: 1; min-width: 0; font-weight: 600;
+  text-align: center; padding: 4px 7px; box-sizing: border-box; }
+.de-headtext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.de-headtext.de-ph { color: var(--faint); font-weight: 400; }
+.de-band .de-headtext, .de-band .de-headinput { font-weight: 700; }
 .de-grouphead, .de-colhead { display: flex; align-items: center; }
 .de-groupcell, .de-colcell { position: relative; cursor: pointer; }
 /* select-then-act: a clicked header cell (or whole group) tints; the columns it
-   covers tint fainter down the body, so the selection reads like a spreadsheet's. */
+   covers get the crisp body selection (de-sel), so it reads like a spreadsheet's. */
 .de-groupcell.de-sel, .de-colcell.de-sel {
   background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); }
-.de-selcol { background: color-mix(in srgb, var(--accent) 8%, transparent); }
 .de-note { margin: 8px 2px 0; }
 .de-heads th { background: var(--panel2); position: sticky; top: 0; z-index: 1; }
 .de-icon { font-size: 11px; color: var(--faint); padding: 2px 5px; line-height: 1;
@@ -454,10 +460,10 @@ dd.strong { font-weight: 600; }
    JS so they stay pinned to the viewport. */
 .gs-scroll { position: relative; width: 100%; height: 100%; overflow: auto; }
 .gs-scroll:focus { outline: none; }   /* the active-cell border is the focus cue */
-.gs-canvas { position: relative; font-size: 12px; }
+.gs-canvas { position: relative; font-size: 12px; user-select: none; }
 .gs-cell { position: absolute; box-sizing: border-box;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
-  padding: 4px 7px; text-align: right; color: var(--ink); cursor: text;
+  padding: 4px 7px; text-align: right; color: var(--ink); cursor: cell;
   font-variant-numeric: tabular-nums; overflow: hidden; white-space: nowrap; }
 .gs-cell.gs-blank { cursor: default;
   background: color-mix(in srgb, var(--panel2) 45%, transparent); }
@@ -471,7 +477,7 @@ dd.strong { font-weight: 600; }
 .gs-cell.gs-editing { padding: 0; }
 .gs-input { border: none; background: var(--panel); font: inherit;
   width: 100%; height: 100%; padding: 4px 7px; box-sizing: border-box;
-  text-align: right; font-variant-numeric: tabular-nums;
+  text-align: right; font-variant-numeric: tabular-nums; user-select: text;
   outline: 2px solid var(--accent); outline-offset: -2px; }
 
 /* pinned layers */
@@ -490,20 +496,22 @@ dd.strong { font-weight: 600; }
 
 /* header cells: double-click a label to rename it, hover for a × that deletes
    that column/band; a leaf carries a right-edge resize handle. */
-.gs-head { position: absolute; box-sizing: border-box; cursor: default;
-  background: var(--panel2); font-weight: 600;
+.gs-head { position: absolute; box-sizing: border-box; cursor: pointer;
+  background: var(--panel2); font-weight: 600; user-select: none;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
   display: flex; align-items: center; justify-content: center;
   padding: 0 7px; overflow: hidden; white-space: nowrap; }
 .gs-head.gs-band { font-weight: 700; }
-.gs-head > span { cursor: text; overflow: hidden; text-overflow: ellipsis; }
+/* a click selects the column; the label is renamed on double-click */
+.gs-head > span { overflow: hidden; text-overflow: ellipsis; }
+.gs-head.gs-sel { background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); }
 /* the delete × sits at the cell's trailing edge, revealed on hover */
 .gs-head-x { position: absolute; right: 7px; top: 50%; transform: translateY(-50%);
   border: none; background: none; padding: 0 3px; line-height: 1; cursor: pointer;
   color: var(--dim); font-size: 10px; opacity: 0; border-radius: 4px; }
 .gs-head:hover .gs-head-x { opacity: 1; }
 .gs-head-x:hover { color: var(--false); background: color-mix(in srgb, var(--false) 12%, transparent); }
-.gs-head-input { text-align: center; font-weight: 600; }
+.gs-head-input { text-align: center; font-weight: 600; user-select: text; }
 .gs-resize { position: absolute; top: 0; right: 0; width: 6px; height: 100%;
   cursor: col-resize; }
 .gs-resize:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }

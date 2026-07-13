@@ -331,18 +331,25 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
 
   type Edit = { row_id: string; column: string; value: number | null };
 
-  // clear every editable cell in `x` to NA (Delete). Holes have no tidy row so they
-  // are skipped; already-blank cells need no write.
-  const clearRect = (x: Rect) => {
+  // clear every editable cell in the selection to NA (Delete). Holes have no tidy
+  // row so they are skipped; already-blank cells need no write. A discontiguous
+  // (Ctrl+click) selection arrives as several rects — dedup where they overlap so a
+  // cell is written and counted once.
+  const clearRect = (rects: Rect[]) => {
     const edits: Edit[] = [];
     let skipped = 0;
-    for (let r = x.r0; r <= x.r1; r++)
-      for (let c = x.c0; c <= x.c1; c++) {
-        const id = rowIds[r][c];
-        if (id == null) { skipped++; continue; }
-        if (values[r][c] == null) continue;   // already NA — nothing to write
-        edits.push({ row_id: id, column: valueOfCol[c], value: null });
-      }
+    const seen = new Set<string>();
+    for (const x of rects)
+      for (let r = x.r0; r <= x.r1; r++)
+        for (let c = x.c0; c <= x.c1; c++) {
+          const id = rowIds[r][c];
+          if (id == null) { skipped++; continue; }
+          const key = `${id}\0${valueOfCol[c]}`;
+          if (seen.has(key)) continue;         // overlapping areas → count once
+          seen.add(key);
+          if (values[r][c] == null) continue;  // already NA — nothing to write
+          edits.push({ row_id: id, column: valueOfCol[c], value: null });
+        }
     onApply(edits, { wrote: edits.length, skipped, kind: "clear" });
   };
 
@@ -368,6 +375,20 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
     nRows, nCols, values,
     isEditable: canEditCell, beginEdit: startEdit, pasteBlock, clearRect, ensureVisible,
   });
+
+  // a header is "selected" when some selected area is a full-height column block
+  // that covers the columns it sits over — so clicking a header lights it and its
+  // body, and a Ctrl+click selection lights each disjoint block's headers.
+  const colBlockSelected = (c0: number, c1: number) =>
+    gsel.rects.some((rx) => rx.r0 === 0 && rx.r1 === nRows - 1 && c0 >= rx.c0 && c1 <= rx.c1);
+  // press a header to select the columns it covers; drag across headers extends
+  // the range (double-click renames). Every grain uses the same span-aware model:
+  // a leaf covers one column, a band covers its whole group. Ctrl/Cmd adds a
+  // disjoint column block instead of replacing the selection.
+  const colMouseDown = (c0: number, c1: number, shift: boolean, additive: boolean) => {
+    gsel.onColMouseDown(c0, c1, shift, additive);
+    scrollRef.current?.focus();
+  };
 
   const commit = (advance?: { dr: number; dc: number }) => {
     if (!edit || done.current) return;
@@ -458,7 +479,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
               <div key={`${r}:${c}`} data-r={r} data-c={c}
                 className={`gs-cell${canEdit ? "" : " gs-blank"}${selected ? " gs-sel" : ""}${active ? " gs-active" : ""}${editing ? " gs-editing" : ""}`}
                 style={{ left: ROWHEAD_W + offsets[c], top: headerH + r * ROW_H, width: widths[c], height: ROW_H }}
-                onMouseDown={editing ? undefined : (e) => { gsel.onCellMouseDown(r, c, e.shiftKey); scrollRef.current?.focus(); }}
+                onMouseDown={editing ? undefined : (e) => { gsel.onCellMouseDown(r, c, e.shiftKey, e.ctrlKey || e.metaKey); scrollRef.current?.focus(); }}
                 onMouseEnter={() => gsel.onCellMouseEnter(r, c)}
                 onDoubleClick={canEdit ? () => startEdit(r, c) : undefined}>
                 {editing
@@ -496,10 +517,13 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
               const key = `b${level}:${i}`;
               const editing = head?.key === key;
               return (
-                <div key={key} className="gs-head gs-band"
+                <div key={key} data-band data-c0={start} data-c1={start + cell.span - 1}
+                  className={`gs-head gs-band${colBlockSelected(start, start + cell.span - 1) ? " gs-sel" : ""}`}
                   title={factorLabels[level]}
                   style={{ left: ROWHEAD_W + offsets[start], top: level * HEAD_ROW_H,
                            width: offsets[start + cell.span] - offsets[start], height: HEAD_ROW_H }}
+                  onMouseDown={editing ? undefined : (e) => colMouseDown(start, start + cell.span - 1, e.shiftKey, e.ctrlKey || e.metaKey)}
+                  onMouseEnter={() => gsel.onColMouseEnter(start, start + cell.span - 1)}
                   onDoubleClick={() => startHead(key, level, cell.label)}>
                   {editing ? headInput : <span>{cell.label}</span>}
                   {!editing && (
@@ -516,9 +540,11 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
             const editing = head?.key === key;
             const label = columnLabels[c];
             return (
-              <div key={key} className="gs-head gs-leaf"
+              <div key={key} data-c={c} className={`gs-head gs-leaf${colBlockSelected(c, c) ? " gs-sel" : ""}`}
                 title={factorLabels[factorLabels.length - 1]}
                 style={{ left: ROWHEAD_W + offsets[c], top: bands.length * HEAD_ROW_H, width: widths[c], height: HEAD_ROW_H }}
+                onMouseDown={editing ? undefined : (e) => colMouseDown(c, c, e.shiftKey, e.ctrlKey || e.metaKey)}
+                onMouseEnter={() => gsel.onColMouseEnter(c, c)}
                 onDoubleClick={hasFactors ? () => startHead(key, leafLevel, label) : undefined}>
                 {editing ? headInput : <span>{label}</span>}
                 {hasFactors && !editing && (
@@ -526,7 +552,9 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={(e) => { e.stopPropagation(); onDelete(idsUnder(c, 1), label); }}>✕</button>
                 )}
-                <div className="gs-resize" title="Drag to resize" onMouseDown={(e) => startResize(c, e)} />
+                <div className="gs-resize" title="Drag to resize"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => startResize(c, e)} />
               </div>
             );
           })}
