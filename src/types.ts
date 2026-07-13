@@ -810,7 +810,8 @@ export const engine = {
   /* retype the session's columns (Data-tab role change) so the engine's test
      inference sees the new types — data is untouched, only the schema swaps */
   setSchema: (id: string, schema: Schema) =>
-    post<{ version: number; schema: Schema; counts: TableCounts }>(
+    post<{ version: number; schema: Schema; counts: TableCounts;
+           identifier_warning: string | null }>(
       `/table/${id}/schema`, { table_schema: schema }),
   analyze: (t: TableRef, spec: AnalysisSpec) =>
     post<AnalyzeResponse>("/analyze", { ...tableField(t), spec }),

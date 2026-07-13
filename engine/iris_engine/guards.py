@@ -38,6 +38,14 @@ def _issue(level, code, message, geom=None):
     return {"level": level, "code": code, "message": message, "geom": geom}
 
 
+def _label(schema: dict, name: str) -> str:
+    """The human label for a column (falls back to its name) — for messages."""
+    for c in schema.get("columns", []):
+        if c["name"] == name:
+            return c.get("label") or name
+    return name
+
+
 def drop_unrenderable_channels(schema: dict, spec: dict) -> list[dict]:
     """Warn about and remove mapped aesthetic channels the compiler can't render
     yet (UNRENDERABLE). Mutates spec["encodings"] in place so the channel is
@@ -115,6 +123,25 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     # and they don't also trip the "channel ignored" / "palette exhausted" checks
     issues: list[dict] = drop_unrenderable_channels(schema, spec)
     issues.extend(_facet_issues(df, spec))
+    # The value under test can't also be an identifier. The families here
+    # aggregate `val_col` to the inferential grain (materialize_levels treats a
+    # numeric identifier as a nesting key, never a measure), so a value column
+    # flagged identifier is dropped before the stats see it — the terminal test
+    # would KeyError on a missing column (an opaque 500). Marking the measured
+    # quantity as a nesting level is incoherent anyway: a column can't key the
+    # groups and be the number measured within them at once. Block it with a
+    # legible reason instead. Scoped to these families only: correlation and
+    # timeseries plot a numeric predictor (time, dose) that may legitimately be an
+    # identifier, and don't force it through this aggregation.
+    if stat_model and stat_model.get("family") in ("group_comparison", "location", "rate"):
+        _, val_col, _ = resolve_cat_val(spec["encodings"], schema)
+        if val_col and is_identifier(schema, val_col):
+            issues.append(_issue(
+                "blocking", "value_is_identifier",
+                f"“{_label(schema, val_col)}” is marked an identifier (a nesting "
+                f"level), so it can't also be the value under test — a column "
+                f"can't key the groups and be the number measured within them. "
+                f"Make it a measure, or map a different column to the value axis."))
     hier = spec.get("hierarchy") or {}
     spine = [s for s in (hier.get("spine") or []) if s in df.columns]
     # A `collapse` plan aggregates the raw rows to `test_grain` before they are

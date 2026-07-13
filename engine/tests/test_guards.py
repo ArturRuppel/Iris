@@ -44,6 +44,32 @@ def test_aggregating_geom_never_trips_the_point_cap():
     assert issues == []
 
 
+def test_value_marked_identifier_is_blocking():
+    # Flip the plotted/tested value to an identifier (a nesting key). It would be
+    # consumed into the grain and vanish before the stats see it — an opaque 500;
+    # the guard blocks it with a legible reason instead. Regression for the
+    # Data-tab role toggle that crashed the engine on a loaded document.
+    df = frame(5)
+    ident_val = {"schema_version": "1.0", "columns": [
+        {"name": "grp", "type": "categorical", "label": "Group",
+         "levels": ["a", "b"]},
+        {"name": "val", "type": "numeric", "label": "Value", "identifier": True},
+    ]}
+    issues = guards.evaluate(df, ident_val, spec("box"),
+                             stat_model={"family": "group_comparison"})
+    blocking = [i for i in issues if i["code"] == "value_is_identifier"]
+    assert blocking and blocking[0]["level"] == "blocking"
+    assert "Value" in blocking[0]["message"]  # the label, not the raw name
+
+
+def test_value_as_measure_is_not_blocked():
+    # The same plot with `val` left a measure raises no such block.
+    df = frame(5)
+    issues = guards.evaluate(df, SCHEMA, spec("box"),
+                             stat_model={"family": "group_comparison"})
+    assert [i for i in issues if i["code"] == "value_is_identifier"] == []
+
+
 def test_box_below_min_n_warns():
     df = frame(2)  # 2 per group, below the box minimum
     issues = guards.evaluate(df, SCHEMA, spec("box"), stat_model=None)

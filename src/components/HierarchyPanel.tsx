@@ -13,9 +13,10 @@ import { labelForCol } from "../levels";
    plots on an axis. A non-identifier column is a *classifier* (a categorical
    qualifier) or a *measure* (numeric). Identifiers form the ordered spine
    (coarsest → finest); classifiers attach at their *home level* — the coarsest
-   grain where they stay single-valued. The identifiers must jointly key the raw
-   table (each row uniquely identified); the engine rejects a role change that
-   would break that, and the reason is shown inline below. */
+   grain where they stay single-valued. Identifiers ideally jointly key the raw
+   table, but a coarse spine over replicate rows (a SuperPlot) is legitimate: the
+   engine allows it and just notes, inline below, that there is replication below
+   the finest level. */
 export function HierarchyPanel() {
   const schema = useAtomValue(activeSchemaAtom);
   const hierarchy = useAtomValue(activeHierarchyAtom);
@@ -25,6 +26,7 @@ export function HierarchyPanel() {
   const setLevelFn = useSetAtom(setLevelFnAtom);
   const [info, setInfo] = useState<HierarchyInfo | null>(null);
   const [roleError, setRoleError] = useState<string | null>(null);
+  const [roleWarning, setRoleWarning] = useState<string | null>(null);
   const timer = useRef<number>();
 
   const cols = schema?.columns ?? [];
@@ -33,12 +35,15 @@ export function HierarchyPanel() {
   const classifiers = cols.filter((c) => c.type === "categorical" && !c.identifier);
   const spine = hierarchy.spine;
 
-  // toggle a column's identifier role; on rejection (identifiers don't key the
-  // table) surface the engine's reason inline and leave the toggle unchanged.
+  // toggle a column's identifier role. The change always applies (non-unique
+  // identifiers are allowed); when they don't jointly key the table the engine
+  // returns a note about replication below the finest level, surfaced inline. A
+  // genuine failure (e.g. the column vanished) still throws and shows as an error.
   async function applyRole(name: string, identifier: boolean) {
     setRoleError(null);
+    setRoleWarning(null);
     try {
-      await setRole({ name, identifier });
+      setRoleWarning((await setRole({ name, identifier })) ?? null);
     } catch (e) {
       setRoleError(e instanceof Error ? e.message : String(e));
     }
@@ -115,6 +120,7 @@ export function HierarchyPanel() {
         )}
       </div>
       {roleError && <p className="hp-role-error error-bar">{roleError}</p>}
+      {roleWarning && <p className="hp-role-warning error-bar warn-bar">{roleWarning}</p>}
 
       {/* the visualization: spine (vertical) with classifiers branching at home */}
       {spine.length > 0 && (

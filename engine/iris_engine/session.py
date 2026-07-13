@@ -12,36 +12,44 @@ import uuid
 import pandas as pd
 
 
-class IdentifierError(ValueError):
-    """The identifier columns don't jointly key the raw table — two or more rows
-    share an identity with nothing to tell them apart. Carries enough to explain
-    the collision (which identifiers, how many rows, an example tuple)."""
+def identifier_collision(df: pd.DataFrame, schema: dict) -> dict | None:
+    """Info about identifier columns that DON'T jointly key the table, or None
+    when they do (or when nothing is claimed as an identifier).
 
-    def __init__(self, ids: list[str], n_rows: int, example: dict):
-        self.ids = ids
-        self.n_rows = n_rows
-        self.example = example
-        ex = ", ".join(f"{k}={v!r}" for k, v in example.items())
-        super().__init__(
-            f"Identifiers {ids} don't uniquely identify each row: "
-            f"{n_rows} rows share an identity (e.g. {ex}). Mark the column that "
-            f"distinguishes them as an identifier, or remove the duplicate rows.")
-
-
-def _validate_identifiers(df: pd.DataFrame, schema: dict) -> None:
-    """Assert the identifier columns jointly key the table (each row uniquely
-    identified). Raises IdentifierError on the first collision. A no-op when there
-    are no identifiers (nothing is being claimed). Adding an identifier can only
-    increase uniqueness, so this bites on demotion and on already-colliding data."""
+    Non-unique identifiers are legitimate, not an error: a coarse spine over
+    replicate observations (the SuperPlot idiom) names a nesting level without
+    reaching all the way down to unique rows — RAW is always the true leaf and may
+    be finer than the finest identifier. So this is a signal to surface ("there is
+    replication below your finest level"), not a rule to enforce. Carries enough to
+    explain the collision (which identifiers, how many rows, an example tuple).
+    Adding an identifier can only increase uniqueness, so this bites on demotion
+    and on already-colliding data."""
     ids = [c["name"] for c in schema.get("columns", [])
            if c.get("identifier") and c["name"] in df.columns]
     if not ids:
-        return
+        return None
     dup = df.duplicated(subset=ids, keep=False)
     n = int(dup.sum())
-    if n:
-        example = {k: _scalar(v) for k, v in df.loc[dup, ids].iloc[0].items()}
-        raise IdentifierError(ids, n, example)
+    if not n:
+        return None
+    example = {k: _scalar(v) for k, v in df.loc[dup, ids].iloc[0].items()}
+    return {"ids": ids, "n_rows": n, "example": example}
+
+
+def identifier_warning(collision: dict, schema: dict) -> str:
+    """A human message for a non-keying identifier set (see identifier_collision),
+    using column labels where available. Framed as a note, not a rejection — the
+    configuration is allowed; the user is being told there is replication below
+    their finest named level."""
+    labels = {c["name"]: (c.get("label") or c["name"])
+              for c in schema.get("columns", [])}
+    ids = [labels.get(i, i) for i in collision["ids"]]
+    ex = ", ".join(f"{labels.get(k, k)}={v!r}" for k, v in collision["example"].items())
+    return (f"Identifiers {ids} don't uniquely key the table: "
+            f"{collision['n_rows']:,} rows share an identity (e.g. {ex}). That's "
+            f"fine for a summary over replicates — there's just replication below "
+            f"your finest level. If each row should be distinct, add the "
+            f"identifier that tells them apart.")
 
 
 def _scalar(v):
@@ -242,25 +250,26 @@ class SessionTable:
             self.version += 1
             return {"dropped": column}
 
-    def set_schema(self, schema: dict) -> None:
+    def set_schema(self, schema: dict) -> str | None:
         """Replace the column schema in place (types, labels, levels, identifier
         roles) without touching the data — the Data tab retypes a column or flips
         its identifier role and the engine must see the change on the next analyze,
         or the frontend and engine silently disagree about which test ran. A
         schema-only change: the frame's values are unchanged, so no row is coerced
-        or dropped. Rejects (IdentifierError) a schema whose identifier columns
-        don't jointly key the table. Bumps `version` so every result cache keyed on
-        it invalidates."""
+        or dropped. Returns a warning message when the identifier columns don't
+        jointly key the table (non-unique identifiers are legitimate — a coarse
+        spine over replicates — so this is surfaced, never blocked), else None.
+        Bumps `version` so every result cache keyed on it invalidates."""
         with self._lock:
             missing = [c["name"] for c in schema["columns"]
                        if c["name"] not in self._df.columns]
             if missing:
                 raise KeyError(f"schema columns not in table: {missing!r}")
-            # reject a role change that leaves the identifiers not keying the table
-            # (raises IdentifierError) before committing — data is never touched.
-            _validate_identifiers(self._df, schema)
             self.schema = schema
             self.version += 1
+            # data untouched: the warning is computed against the unchanged frame.
+            collision = identifier_collision(self._df, schema)
+            return identifier_warning(collision, schema) if collision else None
 
     def distinct(self, column: str) -> list[str]:
         with self._lock:

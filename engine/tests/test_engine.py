@@ -171,10 +171,11 @@ def test_schema_patch_endpoint_rejects_unknown_column():
     assert r.status_code == 422
 
 
-def test_schema_patch_endpoint_rejects_non_keying_identifiers():
+def test_schema_patch_endpoint_warns_on_non_keying_identifiers():
     # the contract the frontend depends on: marking `treatment` (2 levels, 20 rows
-    # each) an identifier leaves rows indistinguishable → 422 with a clear message,
-    # and the toggle reverts because local state is only committed on success.
+    # each) the only identifier leaves rows sharing an identity — but that is a
+    # legitimate coarse-over-replicates spine, so the toggle COMMITS (200) and the
+    # response carries a non-blocking `identifier_warning` the Data tab surfaces.
     created = client.post("/table/create", json={"table": make_table()})
     tid = created.json()["id"]
     # treatment alone as the only identifier: subject demoted, so 2 levels × 20
@@ -186,9 +187,11 @@ def test_schema_patch_endpoint_rejects_non_keying_identifiers():
     bad = {**document.SAMPLE_SCHEMA,
            "columns": [_fix(c) for c in document.SAMPLE_SCHEMA["columns"]]}
     r = client.post(f"/table/{tid}/schema", json={"table_schema": bad})
-    assert r.status_code == 422
-    detail = r.json()["detail"]
-    assert "treatment" in detail and "uniquely identify" in detail
+    assert r.status_code == 200
+    warning = r.json()["identifier_warning"]
+    assert warning and "don't uniquely key" in warning
+    # committed: the session now carries the new role (version bumped)
+    assert r.json()["version"] == 1
 
 
 def _modern_spec_size_on_categorical(font_pt):

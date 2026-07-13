@@ -628,15 +628,16 @@ def table_edit_cells(tid: str, req: EditCellsRequest):
 @app.post("/table/{tid}/schema")
 def table_schema(tid: str, req: SchemaRequest):
     """Retype the session's columns in place (Data-tab role change) so the engine's
-    test inference sees the new types. Data-only invariant: no row changes."""
+    test inference sees the new types. Data-only invariant: no row changes.
+    `identifier_warning` is a non-blocking note when the identifiers don't jointly
+    key the table (a legitimate coarse-over-replicates spine), else null."""
     t = _session_or_409(tid)
     try:
-        t.set_schema(req.table_schema)
-    except session_mod.IdentifierError as e:
-        raise HTTPException(422, str(e)) from e
+        warning = t.set_schema(req.table_schema)
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
-    return {"version": t.version, "schema": t.schema, "counts": t.counts()}
+    return {"version": t.version, "schema": t.schema, "counts": t.counts(),
+            "identifier_warning": warning}
 
 
 @app.post("/table/{tid}/relabel")

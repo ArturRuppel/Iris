@@ -1802,8 +1802,9 @@ export const setColumnRoleAtom = atom(null,
       ...t.hierarchy, spine: reconcileSpine(t.hierarchy.spine, identifierCols(nextSchema)),
     };
     // Push to the engine session (data untouched) so its inference sees the new
-    // roles; the bumped version invalidates every result cache keyed on it. Throws
-    // (422) if the identifiers don't key the table — caught by the caller.
+    // roles; the bumped version invalidates every result cache keyed on it. Non-
+    // unique identifiers are allowed (a coarse spine over replicates) and come
+    // back as a warning, not a throw — returned to the caller to surface inline.
     const patched = handle ? await engine.setSchema(handle.id, nextSchema) : null;
     const nextHandle: TableHandle | undefined = handle && patched
       ? { ...handle, version: patched.version, schema: patched.schema }
@@ -1813,6 +1814,7 @@ export const setColumnRoleAtom = atom(null,
     const cur = byId(get(tablesAtom), tableId) ?? t;
     set(tablesAtom, upsertTable(get(tablesAtom),
       { ...cur, schema: nextSchema, hierarchy: nextHierarchy, handle: nextHandle }));
+    return patched?.identifier_warning ?? null;
   });
 
 /* reorder the spine (coarsest → finest). Table-level: shared by all analyses. */

@@ -774,7 +774,8 @@ describe("single-table globals derive off the active analysis's pool table", () 
     // the retyped schema is pushed to the engine session; the bumped version
     // flows onto the handle so the analyze cache invalidates and re-infers.
     const setSchema = vi.spyOn(engine, "setSchema").mockImplementation(
-      async (_id, schema) => ({ version: 1, schema, counts: {} as never }));
+      async (_id, schema) => ({ version: 1, schema, counts: {} as never,
+        identifier_warning: null }));
     // grp -> identifier: promotion only sets the role flag (value type unchanged)
     // and needs no engine.distinct re-fetch.
     await store.set(setColumnRoleAtom, { name: "grp", identifier: true });
