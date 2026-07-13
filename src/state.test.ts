@@ -1063,6 +1063,35 @@ describe("loadDocumentAtom — full-pool rebuild, joins bound by reference", () 
   });
 });
 
+describe("the hierarchy spine survives document open (pivot-across-grain)", () => {
+  // a table with an explicit grain: a, b are identifiers, val the measurement.
+  const idSchema: Schema = { schema_version: "1.0", columns: [
+    { name: "a", type: "identifier", label: "A" },
+    { name: "b", type: "identifier", label: "B" },
+    { name: "val", type: "numeric", label: "Value" },
+  ] };
+  const lt = (hierarchy: { spine: string[]; fn: Record<string, never> }) => ({
+    name: "cells", id: "h_cells", schema: idSchema,
+    hierarchy, n: 1, version: 0, counts: { total: 1 }, rows: [],
+  });
+
+  it("adopts a saved spine verbatim on open (persistence round-trips)", async () => {
+    const store = createStore();
+    await store.set(loadDocumentAtom,
+      { analyses: [], tables: [lt({ spine: ["a", "b"], fn: {} })] } as never);
+    const t = store.get(tablesAtom)[0];
+    expect(t.hierarchy.spine).toEqual(["a", "b"]);
+  });
+
+  it("seeds the spine from identifier columns when the saved spine is empty", async () => {
+    const store = createStore();
+    await store.set(loadDocumentAtom,
+      { analyses: [], tables: [lt({ spine: [], fn: {} })] } as never);
+    const t = store.get(tablesAtom)[0];
+    expect(t.hierarchy.spine).toEqual(["a", "b"]);
+  });
+});
+
 describe("undo history — spec mutations only", () => {
   const seedActive = () => {
     const store = createStore();
