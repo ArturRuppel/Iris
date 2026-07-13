@@ -91,7 +91,11 @@ export type Geom =
    unchanged). A pinned non-output node draws at its raw grain in Stage 1;
    `level` continues to select a collapse grain within the OUTPUT's lineage (the
    superplot mechanism), which is why the two coordinates stay independent. */
-export interface Layer { id?: string; geom: Geom; level: string; nodeId?: string }
+/* `panel` (spec 2.3 Stage 2): which side-by-side panel of the figure this layer
+   draws into. Absent/0 = the primary panel (today's single plot). Layers sharing
+   a panel share an axes; `nodeId` still says which pipeline node feeds the layer,
+   so a second panel can show a different stage of the same pipeline. */
+export interface Layer { id?: string; geom: Geom; level: string; nodeId?: string; panel?: number }
 
 /* How finer rows aggregate into a coarser grain — the set the engine's
    `materialize_levels` honors (hierarchy._AGG). This is the only aggregation
