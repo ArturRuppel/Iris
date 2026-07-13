@@ -41,22 +41,24 @@ const groupedBtn = page.locator(".dv-toggle button:has-text('Grouped sheet')");
 if (await groupedBtn.isDisabled()) fail("Grouped sheet toggle should be enabled for a pivotable table");
 await groupedBtn.click();
 
-await page.waitForSelector(".gs-grid", { timeout: 15000 });
+await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 
-// outer band: "Control" and "Treatment", each spanning its two days
-const control = page.locator(".gs-grid .de-band .de-groupcell", { hasText: "Control" });
+// outer band: "Control" and "Treatment". The grid is virtualised, so bands no
+// longer carry colspan — the band cell's rendered width spans its two day
+// columns (~2 default column widths of 84px).
+const control = page.locator(".gs-header .gs-band", { hasText: "Control" });
 await control.waitFor({ timeout: 5000 });
-const span = await control.getAttribute("colspan");
-if (span !== "2") fail(`"Control" band should span 2 leaf columns, got colspan=${span}`);
-console.log("merged band: Control spans", span, "columns");
+const box = await control.boundingBox();
+if (!box || box.width < 150 || box.width > 185)
+  fail(`"Control" band should span 2 columns (~168px), got width=${box?.width}`);
+console.log("merged band: Control spans ~2 columns, width", Math.round(box.width));
 
 // leaf headers: the inner factor "day" (D1, D2 under each group)
-const leafText = await page.locator(".gs-grid .de-heads").innerText();
+const leafText = (await page.locator(".gs-header .gs-leaf").allInnerTexts()).join(" ");
 if (!/D1/.test(leafText) || !/D2/.test(leafText)) fail("leaf headers missing D1/D2: " + leafText);
 
 // value body: first data row, first column = 1 (Control/D1, first replicate)
-const firstCell = await page.locator(".gs-grid tbody tr").first()
-  .locator("td.gs-cell").first().innerText();
+const firstCell = await page.locator(".gs-cell").first().innerText();
 if (firstCell.trim() !== "1") fail(`first value cell should be 1, got "${firstCell}"`);
 console.log("value body reads from tidy rows: first cell =", firstCell.trim());
 
@@ -68,14 +70,14 @@ console.log("shape:", prov);
 // Slice 2: edit a value cell in the grouped shape. Change Control/D1's first
 // replicate (1 → 42); the edit rides engine.editCell → version bump → refetch →
 // re-pivot, so the same cell must show 42 afterwards.
-const cell00 = page.locator(".gs-grid tbody tr").first().locator("td.gs-cell").first();
+const cell00 = page.locator(".gs-cell").first();
 await cell00.click();
 const editor = page.locator(".gs-input");
 await editor.waitFor({ timeout: 5000 });
 await editor.fill("42");
 await editor.press("Enter");
 await page.waitForFunction(() => {
-  const c = document.querySelector(".gs-grid tbody tr td.gs-cell");
+  const c = document.querySelector(".gs-cell");
   return c && c.textContent.trim() === "42";
 }, null, { timeout: 10000 });
 console.log("value edit round-tripped through the engine: 1 → 42");

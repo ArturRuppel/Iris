@@ -38,11 +38,11 @@ await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000
 
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
-await page.waitForSelector(".gs-grid", { timeout: 15000 });
+await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 
 const prov = () => page.locator(".table-pane .provenance").innerText();
-const leaves = () => page.locator(".gs-grid .de-heads .de-colcell");
-const bands = () => page.locator(".gs-grid .de-band .de-groupcell");
+const leaves = () => page.locator(".gs-header .gs-leaf");
+const bands = () => page.locator(".gs-header .gs-band");
 
 if ((await prov()).trim() !== "2 × 4") fail("expected a 2 × 4 start, got " + await prov());
 console.log("start:", (await prov()).trim());
@@ -72,7 +72,7 @@ await controlBand.dblclick();
 await page.locator(".gs-head-input").fill("Ctrl");
 await page.locator(".gs-head-input").press("Enter");
 await page.waitForFunction(() => {
-  const b = document.querySelector(".gs-grid .de-band .de-groupcell .de-grouphead span");
+  const b = document.querySelector(".gs-header .gs-band span");
   return b && b.textContent.trim() === "Ctrl";
 }, null, { timeout: 5000 });
 if (await page.locator(".gs-confirm").count() > 0)
@@ -94,7 +94,7 @@ if (!/merge/i.test(mergeMsg)) fail("merge confirm must warn it merges the levels
 await page.locator(".gs-confirm-go").click();
 // after the merge every row is "Treatment": one band spanning the two days
 await page.waitForFunction(() => {
-  const cells = document.querySelectorAll(".gs-grid .de-band .de-groupcell");
+  const cells = document.querySelectorAll(".gs-header .gs-band");
   return cells.length === 1 && cells[0].textContent.includes("Treatment");
 }, null, { timeout: 5000 });
 const mergeNotice = await page.locator(".gs-notice").innerText();
