@@ -1151,6 +1151,18 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
     layers = spec.get("layers", [])
+    # Panels (spec 2.3 Stage 2): layers tagged with a `panel` draw into side-by-
+    # side axes, each showing a different pipeline stage of the same comparison. A
+    # single panel (the default) is byte-for-byte today's single-axes path. Panels
+    # and faceting are two small-multiple mechanisms; combining them is deferred
+    # (the frontend prevents authoring the mix), so a faceted figure ignores panel
+    # tags. Panels flatten into the column loop as extra columns; grid_mode = "the
+    # chrome (title/value-label/legend) is figure-level" (faceted OR panels).
+    panels = sorted({int(l.get("panel", 0) or 0) for l in layers}) or [0]
+    n_panels = 1 if faceted else len(panels)
+    multi_panel = n_panels > 1
+    grid_mode = faceted or multi_panel
+    col_panel_cells = [(clevel, pi) for clevel in col_levels for pi in range(n_panels)]
     # Reference-line annotation (item N): an explicit `reference_value` knob, else
     # the location family's tested reference (authoring the one-sample test draws
     # the line). A general annotation drawn in every cell of the grid.
@@ -1169,16 +1181,23 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
 
     with plt.rc_context(_rc(style)):
         fig, axes = _build_grid(style["width_mm"], style["height_mm"],
-                                len(row_levels), len(col_levels),
+                                len(row_levels), len(col_levels) * n_panels,
                                 sharex=facet_cfg.get("share_x", True),
                                 sharey=facet_cfg.get("share_y", True))
-        cbar_mappable, last_ax = None, None
+        cbar_mappable, last_ax, primary_ax = None, None, None
         levels, h = layout["levels"], layout["h_orient"]
         for ri, rlevel in enumerate(row_levels):
-            for ci, clevel in enumerate(col_levels):
-                ax = axes[ri][ci]
+            for cj, (clevel, pi) in enumerate(col_panel_cells):
+                ax = axes[ri][cj]
+                if pi == 0:
+                    primary_ax = ax
+                # the layers this panel draws — all of them for the single-panel
+                # (or faceted) path; only this panel's tagged layers when split.
+                cell_layers = (layers if not multi_panel
+                               else [l for l in layers
+                                     if int(l.get("panel", 0) or 0) == panels[pi]])
                 ctx = {**layout, "cbar_mappable": None, "stats": stats}
-                for layer in layers:
+                for layer in cell_layers:
                     render = _COMPARISON_GEOMS.get(layer["geom"])
                     if render is None:
                         continue
@@ -1193,13 +1212,13 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                     ax.set_yticks(range(len(levels)))
                     ax.set_yticklabels(lv_labels)
                     ax.set_ylim(-0.55, len(levels) - 0.45)
-                    if not faceted:
+                    if not grid_mode:
                         ax.set_xlabel(val_label)
                 else:
                     ax.set_xticks(range(len(levels)))
                     ax.set_xticklabels(lv_labels)
                     ax.set_xlim(-0.55, len(levels) - 0.45)
-                    if not faceted:
+                    if not grid_mode:
                         ax.set_ylabel(val_label)
 
                 # for horizontal the value axis is X (numeric); grids follow accordingly
@@ -1220,7 +1239,7 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         grains = list(level_tables.keys())
                     else:
                         grains = []
-                        for layer in layers:
+                        for layer in cell_layers:
                             if layer["geom"] not in _COMPARISON_GEOMS:
                                 continue
                             # n describes the PRIMARY (output) lineage — the one a
@@ -1263,25 +1282,28 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         # reference; every other family stacks lane-to-lane brackets.
         # The rate family draws no significance markers — the inference is the
         # global LR test (in methods_text) plus the visible per-group CIs.
+        # Significance draws on the PRIMARY panel (panel 0 = the output lineage the
+        # test names); a split figure's other panels are visualization only, and a
+        # faceted figure is describe-only, so markers stay off both.
         if not faceted and style["show_significance"] and not is_rate:
             if is_location:
-                _draw_location_significance(last_ax, stats, layout["levels"],
+                _draw_location_significance(primary_ax, stats, layout["levels"],
                                             layout["h_orient"], style)
             else:
-                _draw_significance(last_ax, stats, layout["levels"],
+                _draw_significance(primary_ax, stats, layout["levels"],
                                    layout["h_orient"], style)
 
         cbar = sc_global.colorbar_spec()
         if cbar:
-            cbar_ax = axes.ravel().tolist() if faceted else last_ax
+            cbar_ax = axes.ravel().tolist() if grid_mode else last_ax
             _draw_colorbar(fig, cbar_ax, cbar_mappable, style, cbar["label"])
-        if faceted:
+        if grid_mode:
             if h:
                 style["x_label"] = style["x_label"] or val_label
             else:
                 style["y_label"] = style["y_label"] or val_label
-        _draw_legend(fig, last_ax, sc_global, style, cat_col, faceted=faceted)
-        _decorate(fig, last_ax, style, faceted=faceted)
+        _draw_legend(fig, last_ax, sc_global, style, cat_col, faceted=grid_mode)
+        _decorate(fig, last_ax, style, faceted=grid_mode)
     return fig
 
 
