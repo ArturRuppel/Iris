@@ -9,6 +9,7 @@ import {
   pivotability, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
 import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
+import { rectOf, inRect, clampCell, cellText, rectToTSV, type Cell } from "../gridSelect";
 import { DataViewToggle } from "./DataViewToggle";
 import { DataEntry } from "./DataEntry";
 
@@ -187,9 +188,6 @@ function Empty({ children }: { children: ReactNode }) {
   return <div className="gs-empty"><span>{children}</span></div>;
 }
 
-const fmt = (v: string | number | boolean | null): string =>
-  v == null ? "" : typeof v === "boolean" ? (v ? "true" : "false") : String(v);
-
 /* fixed layout metrics, in px. The grid is virtualised (only the visible window
    renders), so cells need known sizes: row height and header-row height are
    constants; column widths default uniform but are resized by hand (drag a leaf
@@ -212,9 +210,16 @@ const rng = (a: number, b: number): number[] => {
    absolutely positioned in canvas coordinates; the band header, the row-index
    column, and the corner are pinned to the viewport by translating each layer by
    the scroll offset (they sit above the body, opaque, masking rows that scroll
-   under them). Value cells backed by a tidy row are click-to-edit; holes stay
-   read-only. Header cells keep the structural gestures: double-click a label to
-   rename, hover for a × that deletes that column/band. Each leaf header has a
+   under them).
+
+   Editing is Excel-like. Single click selects a cell; click-drag or shift-click
+   extends a rectangular selection; arrows / Tab / Enter move the active cell
+   (shift+arrow grows the range), always clamped to the sheet. Double-click, Enter,
+   or just typing edits the active cell (typing overwrites). Ctrl/Cmd+C copies the
+   selection as TSV, so a block lifts straight into a spreadsheet. Selection lives
+   in data coordinates, so it survives the virtualised window. Holes (cells with no
+   tidy row) select and copy as blanks but never edit. Header cells keep the
+   structural gestures: double-click a label to rename, hover for a × that deletes that column/band. Each leaf header has a
    right-edge handle that resizes its column (drag; that column only). */
 function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   sheet: Sheet;
@@ -225,6 +230,11 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   const { bands, columnLabels, valueOfCol, factorLabels, values, rowIds, nRows, nCols } = sheet;
   const [edit, setEdit] = useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = useState("");
+  // the Excel-like selection: anchor is the fixed corner, focus the active/moving
+  // one; the highlighted block is the rect between them (rectOf). Data coordinates,
+  // so it rides the virtualised window. dragging tracks a mouse range-drag.
+  const [sel, setSel] = useState<{ anchor: Cell; focus: Cell } | null>(null);
+  const dragging = useRef(false);
   // a header rename in progress, keyed to disambiguate a band cell from a leaf.
   const [head, setHead] = useState<{ key: string; level: number; from: string } | null>(null);
   const [headDraft, setHeadDraft] = useState("");
@@ -250,6 +260,12 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // a range-drag ends wherever the mouse is released, even outside the grid
+  useEffect(() => {
+    const up = () => { dragging.current = false; };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
 
   const offsets = useMemo(() => colOffsets(widths), [widths]);
   const totalW = offsets[nCols] ?? 0;
@@ -258,13 +274,18 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   const vCols = visibleCols(offsets, scroll.left, port.w, OVERSCAN);
   // the body scrolls under the pinned header, so its scroll origin is offset by it
   const vRows = visibleRows(ROW_H, nRows, Math.max(0, scroll.top - headerH), port.h, OVERSCAN);
+  const rect = sel ? rectOf(sel.anchor, sel.focus) : null;
 
-  const startEdit = (r: number, c: number) => {
+  const canEditCell = (r: number, c: number) => rowIds[r]?.[c] != null;
+
+  const startEdit = (r: number, c: number, initial?: string) => {
+    if (!canEditCell(r, c)) return;   // holes have no tidy row; nothing to edit
     done.current = false;
-    setDraft(fmt(values[r][c]));
+    setSel({ anchor: { r, c }, focus: { r, c } });
+    setDraft(initial ?? cellText(values[r][c]));
     setEdit({ r, c });
   };
-  const commit = () => {
+  const commit = (advance?: { dr: number; dc: number }) => {
     if (!edit || done.current) return;
     done.current = true;
     const { r, c } = edit;
@@ -274,8 +295,67 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
     const value = raw === "" || Number.isNaN(Number(raw)) ? null : Number(raw);
     if (id != null && value !== values[r][c]) onCommit(id, valueOfCol[c], value);
     setEdit(null);
+    // Excel: Enter/Tab commit and step the active cell on; keep the keyboard alive
+    // by returning focus to the grid (the unmounting input would otherwise drop it).
+    if (advance) { step(advance.dr, advance.dc, false, { r, c }); scrollRef.current?.focus(); }
   };
-  const cancel = () => { done.current = true; setEdit(null); };
+  const cancel = () => { done.current = true; setEdit(null); scrollRef.current?.focus(); };
+
+  // --- selection + keyboard navigation (Excel-like) ---
+  const select = (r: number, c: number, extend: boolean) =>
+    setSel((s) => (extend && s ? { anchor: s.anchor, focus: { r, c } } : { anchor: { r, c }, focus: { r, c } }));
+
+  // move the active cell by (dr,dc), clamped to the sheet; `extend` keeps the anchor
+  // (shift+arrow grows the range), otherwise collapses to a single cell. `from`
+  // overrides the current focus (used just after a commit, before sel state flushes).
+  const step = (dr: number, dc: number, extend: boolean, from?: Cell) => {
+    const f = from ?? sel?.focus ?? { r: 0, c: 0 };
+    const next = clampCell(f.r + dr, f.c + dc, nRows, nCols);
+    setSel((s) => (extend && s ? { anchor: s.anchor, focus: next } : { anchor: next, focus: next }));
+    ensureVisible(next);
+  };
+
+  // scroll the port so the active cell clears the pinned header / row-index column.
+  const ensureVisible = (cell: Cell) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const left = ROWHEAD_W + offsets[cell.c];
+    const right = left + (widths[cell.c] ?? DEFAULT_COL_W);
+    const top = headerH + cell.r * ROW_H;
+    const bottom = top + ROW_H;
+    let sl = el.scrollLeft, st = el.scrollTop;
+    if (left < sl + ROWHEAD_W) sl = left - ROWHEAD_W;
+    else if (right > sl + el.clientWidth) sl = right - el.clientWidth;
+    if (top < st + headerH) st = top - headerH;
+    else if (bottom > st + el.clientHeight) st = bottom - el.clientHeight;
+    el.scrollTo({ left: Math.max(0, sl), top: Math.max(0, st) });
+  };
+
+  const copySelection = () => {
+    if (!sel) return;
+    void navigator.clipboard?.writeText(rectToTSV(values, rectOf(sel.anchor, sel.focus)));
+  };
+
+  // the grid's keyboard model, handled on the focused scroll container; skipped
+  // while a cell or header is being edited (the input owns its keys then).
+  const onGridKey = (e: React.KeyboardEvent) => {
+    if (edit || head) return;
+    const meta = e.ctrlKey || e.metaKey;
+    if (meta && (e.key === "c" || e.key === "C")) { e.preventDefault(); copySelection(); return; }
+    if (meta || e.altKey) return;
+    const shift = e.shiftKey;
+    switch (e.key) {
+      case "ArrowUp": e.preventDefault(); step(-1, 0, shift); return;
+      case "ArrowDown": e.preventDefault(); step(1, 0, shift); return;
+      case "ArrowLeft": e.preventDefault(); step(0, -1, shift); return;
+      case "ArrowRight": e.preventDefault(); step(0, 1, shift); return;
+      case "Tab": e.preventDefault(); step(0, shift ? -1 : 1, false); return;
+      case "Enter": e.preventDefault(); if (sel) startEdit(sel.focus.r, sel.focus.c); return;
+      case "Escape": e.preventDefault(); if (sel) setSel({ anchor: sel.focus, focus: sel.focus }); return;
+    }
+    // a printable character overwrites the active cell (Excel type-to-replace)
+    if (e.key.length === 1 && sel) { e.preventDefault(); startEdit(sel.focus.r, sel.focus.c, e.key); }
+  };
 
   const startHead = (key: string, level: number, from: string) => {
     headDone.current = false;
@@ -331,29 +411,36 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   );
 
   return (
-    <div className="gs-scroll" ref={scrollRef}
+    <div className="gs-scroll" ref={scrollRef} tabIndex={0} onKeyDown={onGridKey}
       onScroll={(e) => setScroll({ left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop })}>
       <div className="gs-canvas" style={{ width: ROWHEAD_W + totalW, height: headerH + bodyH }}>
         {/* body: only the visible window of value cells */}
         {rng(vRows.start, vRows.end).map((r) =>
           rng(vCols.start, vCols.end).map((c) => {
-            const editable = rowIds[r][c] != null;
+            const canEdit = rowIds[r][c] != null;
             const editing = !!edit && edit.r === r && edit.c === c;
+            const active = !!sel && sel.focus.r === r && sel.focus.c === c;
+            const selected = !!rect && inRect(r, c, rect);
             return (
-              <div key={`${r}:${c}`}
-                className={`gs-cell${editable ? "" : " gs-blank"}${editing ? " gs-editing" : ""}`}
+              <div key={`${r}:${c}`} data-r={r} data-c={c}
+                className={`gs-cell${canEdit ? "" : " gs-blank"}${selected ? " gs-sel" : ""}${active ? " gs-active" : ""}${editing ? " gs-editing" : ""}`}
                 style={{ left: ROWHEAD_W + offsets[c], top: headerH + r * ROW_H, width: widths[c], height: ROW_H }}
-                onClick={editable && !editing ? () => startEdit(r, c) : undefined}>
+                onMouseDown={editing ? undefined : (e) => {
+                  select(r, c, e.shiftKey); dragging.current = !e.shiftKey; scrollRef.current?.focus();
+                }}
+                onMouseEnter={() => { if (dragging.current) setSel((s) => (s ? { anchor: s.anchor, focus: { r, c } } : s)); }}
+                onDoubleClick={canEdit ? () => startEdit(r, c) : undefined}>
                 {editing
                   ? <input className="gs-input" autoFocus value={draft}
                       spellCheck={false} inputMode="decimal"
                       onChange={(e) => setDraft(e.target.value)}
-                      onBlur={commit}
+                      onBlur={() => commit()}
                       onKeyDown={(e) => {
-                        if (e.key === "Enter") { e.preventDefault(); commit(); }
+                        if (e.key === "Enter") { e.preventDefault(); commit({ dr: 1, dc: 0 }); }
+                        else if (e.key === "Tab") { e.preventDefault(); commit({ dr: 0, dc: e.shiftKey ? -1 : 1 }); }
                         else if (e.key === "Escape") { e.preventDefault(); cancel(); }
                       }} />
-                  : fmt(values[r][c])}
+                  : cellText(values[r][c])}
               </div>
             );
           }),

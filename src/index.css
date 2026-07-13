@@ -446,6 +446,7 @@ dd.strong { font-weight: 600; }
    above the body (higher z, opaque) and are translated by the scroll offset in
    JS so they stay pinned to the viewport. */
 .gs-scroll { position: relative; width: 100%; height: 100%; overflow: auto; }
+.gs-scroll:focus { outline: none; }   /* the active-cell border is the focus cue */
 .gs-canvas { position: relative; font-size: 12px; }
 .gs-cell { position: absolute; box-sizing: border-box;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
@@ -455,6 +456,10 @@ dd.strong { font-weight: 600; }
   background: color-mix(in srgb, var(--panel2) 45%, transparent); }
 .gs-cell:not(.gs-blank):hover {
   background: color-mix(in srgb, var(--accent) 7%, transparent); }
+/* the selected range (Excel-like): a translucent wash across the block, and a
+   solid 2px border on the single active cell that keyboard/typing acts on. */
+.gs-cell.gs-sel { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.gs-cell.gs-active { outline: 2px solid var(--accent); outline-offset: -2px; z-index: 1; }
 /* the active editor fills the cell (padding removed) — the entry grid's feel */
 .gs-cell.gs-editing { padding: 0; }
 .gs-input { border: none; background: var(--panel); font: inherit;

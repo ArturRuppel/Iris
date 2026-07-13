@@ -71,7 +71,7 @@ console.log("shape:", prov);
 // replicate (1 → 42); the edit rides engine.editCell → version bump → refetch →
 // re-pivot, so the same cell must show 42 afterwards.
 const cell00 = page.locator(".gs-cell").first();
-await cell00.click();
+await cell00.dblclick();   // single click selects (Excel); double-click edits
 const editor = page.locator(".gs-input");
 await editor.waitFor({ timeout: 5000 });
 await editor.fill("42");
