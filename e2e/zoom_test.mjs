@@ -34,13 +34,19 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".layer-rail", { timeout: 15000 });
-await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
-await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+const figureNode = page.locator(".txw-node.figure").first();
+await figureNode.waitFor({ state: "visible", timeout: 15000 });
+await figureNode.click({ button: "right" });
+await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
+await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
+const geomCard = page.locator("[data-testid='geom-card']");
+await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
+await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
+await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
 await page.waitForTimeout(400);
-await page.click(".add-layer-btn");
-await page.click(".add-layer-menu button:has-text('Box')");
-await page.waitForSelector(".iris svg", { timeout: 15000 });
+await geomCard.locator(".add-layer-btn").click();
+await geomCard.locator(".add-layer-menu button:has-text('Box')").click();
+await page.waitForSelector(".figure-host svg", { timeout: 15000 });
 await page.waitForTimeout(400);
 
 const svg = page.locator(".figure-host svg");

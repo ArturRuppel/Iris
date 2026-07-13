@@ -4,21 +4,11 @@ import { chromium } from "playwright";
    column, and adding an aggregating layer (Box — never point-capped) renders a
    multi-panel SVG grid instead of one pooled axes. No fixture CSV exists on
    disk, so the table is imported via an in-memory buffer through the
-   ImportWizard's hidden file input (the `.template-pick` dropdown and
-   auto-seeded layers/mappings were removed in 111243b — see TODO.md — so this
-   test follows its documented fix pattern: explicit import, explicit mapping,
-   explicit `.add-layer-btn` flow, rather than relying on any of that).
-
-   CAVEAT: written but NOT run in this sandbox — no Chromium is installable
-   here (`npx playwright install` is blocked by the sandbox's network proxy),
-   the same constraint already logged in TODO.md for the rest of e2e/. The
-   "multiple `id="axes_"` groups in the SVG" assertion below was validated
-   directly against the engine's matplotlib output (a 2-row faceted comparison
-   figure produced two `id="axes_N"` groups, one per cell) — see the Phase 4
-   plan/PR notes — but the browser-side wiring (click path through the
-   Encodings card, `.add-layer-btn` flow) is unverified end-to-end.
-
-   Needs the engine (8765) and the vite dev server (5173). */
+   ImportWizard's hidden file input. The workbench card reskin replaced the
+   always-visible `.layer-rail` with the geom-editor card (reached via the
+   figure node's right-click "Edit plot…"); Facet Row is now an optional
+   channel behind the "+ encoding" adder. Needs the engine (8765) and the vite
+   dev server (5173). */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
 const browser = await chromium.launch();
@@ -50,34 +40,45 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".layer-rail", { timeout: 15000 });
+const figureNode = page.locator(".txw-node.figure").first();
+await figureNode.waitFor({ state: "visible", timeout: 15000 });
+await figureNode.click({ button: "right" });
+await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
+await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
+const geomCard = page.locator("[data-testid='geom-card']");
+await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
 
 // Map X/Y: group on X, value on Y.
-await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
-await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
+await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
 await page.waitForTimeout(500);
 
 // Add a Box layer (aggregates → never point-capped).
-await page.click(".add-layer-btn");
-await page.click(".add-layer-menu button:has-text('Box')");
+await geomCard.locator(".add-layer-btn").click();
+await geomCard.locator(".add-layer-menu button:has-text('Box')").click();
 await page.waitForTimeout(1500);
 
-const figureBefore = await page.locator(".iris svg").count();
+const figureBefore = await page.locator(".figure-host svg").count();
 if (figureBefore === 0) fail("no figure rendered before faceting");
-const axesBefore = await page.locator('.iris svg g[id^="axes_"]').count();
+const axesBefore = await page.locator('.figure-host svg g[id^="axes_"]').count();
 if (axesBefore !== 1) fail(`expected a single axes before faceting, got ${axesBefore}`);
 
-// Map Facet Row — the figure should split into a 2-panel grid (north / south).
-const facetRow = page.locator(".enc-row", { hasText: "Facet Row" });
+// Facet Row is optional — reveal it, then map it. The figure should split into
+// a 2-panel grid (north / south).
+await geomCard.locator(".enc-add-btn").click();
+const facetRowAdder = geomCard.locator(".enc-add-menu button:has-text('Facet Row')");
+if (await facetRowAdder.count() === 0) fail("no Facet Row option in the + encoding adder");
+await facetRowAdder.click();
+const facetRow = geomCard.locator(".enc-row", { hasText: "Facet Row" });
 if (await facetRow.count() === 0) fail("no Facet Row picker in the encodings card");
 await facetRow.locator("select").selectOption("site");
 await page.waitForTimeout(1800);
 
 if (pageErrors.length) fail("page errors: " + pageErrors.slice(0, 4).join(" | "));
 
-const figureAfter = await page.locator(".iris svg").count();
+const figureAfter = await page.locator(".figure-host svg").count();
 if (figureAfter === 0) fail("no figure rendered after faceting");
-const axesAfter = await page.locator('.iris svg g[id^="axes_"]').count();
+const axesAfter = await page.locator('.figure-host svg g[id^="axes_"]').count();
 if (axesAfter < 2) fail(`expected a multi-panel grid after faceting, got ${axesAfter} axes group(s)`);
 
 console.log(`faceted grid rendered with ${axesAfter} axes groups`);

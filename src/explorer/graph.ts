@@ -60,7 +60,7 @@ export interface ExplorerNode {
   /* terminal (figure) sections: the plot's geom chips and the stats' test chip,
      kept distinct so the node renders two labeled sections. Set only on the
      terminal; absent elsewhere. */
-  sections?: { kind: "plot" | "stats"; facts: string[] }[];
+  sections?: { kind: "plot" | "stats"; facts: string[]; caution?: boolean }[];
   /* the DAG node id a `+`→Plot on this node pins a new layer to (spec 2.3 Stage
      1). Present only on an UPSTREAM, overlay-compatible node (the raw source or a
      column-preserving step, never the output or a shape-changing op) — its

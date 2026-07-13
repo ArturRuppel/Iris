@@ -69,6 +69,7 @@ export function nodeShapeProps(
     detail: "",
     sections: node.sections?.map((s): FigureSection => ({
       kind: s.kind, label: s.kind === "plot" ? "Plot" : "Stats", facts: s.facts,
+      caution: s.caution,
     })),
     spine: delta?.spine ?? [], live: delta?.live ?? [], shed: delta?.shed ?? [],
     values: c?.values ?? [], newValues: delta?.newValues ?? [],

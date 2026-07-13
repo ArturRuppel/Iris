@@ -149,9 +149,15 @@ console.log("no recovery offer after an explicit save");
 
 // ── Phase 4: a tab closed INSIDE the debounce window still snapshots ─────────
 // (the pagehide keepalive flush; the browser process stays alive, as in a real
-// accidental tab close — browser.close() would kill the request mid-flight)
+// accidental tab close — browser.close() would kill the request mid-flight).
+// Playwright's page.close() is a hard CDP target teardown — it does NOT dispatch
+// pagehide/visibilitychange the way a real tab close does (verified: neither
+// fires on close(), even with runBeforeUnload:true). A same-tab navigation away
+// DOES fire them (confirmed), so that's the fidelity-preserving way to drive
+// this from Playwright — the app can't tell the difference; both leave its
+// pagehide listener as the last chance to flush.
 await importFixture(page3);
-await page3.close();   // well within the ~1.5 s debounce
+await page3.goto("about:blank");   // well within the ~1.5 s debounce
 await waitForSlot(true, "populated (pagehide flush)", 20);
 console.log("pagehide flush snapshotted a tab closed inside the debounce");
 await fetch(`${ENGINE}/autosave/clear`, { method: "POST" });   // leave the slot clean

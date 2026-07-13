@@ -89,7 +89,7 @@ export function toRF(
       // ArrayShapeRFNode) instead of stacking on one point as a single line.
       sourceHandle: "out",
       targetHandle: e.kind === "geom" ? "in-plot" : e.kind === "test" ? "in-test" : "in",
-      data: { kind: e.kind, label: e.label },
+      data: { kind: e.kind, label: e.label, guards: e.guards },
     })),
   };
 }

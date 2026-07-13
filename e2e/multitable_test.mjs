@@ -110,15 +110,24 @@ console.log("pool ids:", ids.join(", "));
 // (ids[1]) on `key`. Also map x/label, y/value so the figure draws a joined column
 // (label only exists AFTER the join — strong proof the join computed). Then make
 // the active analysis the one we just edited and the active table cells.
+//
+// The reduce phase moved from a flat `steps[]` fold to a DAG (spec 2.2):
+// `reduce.steps` entries are now `ReduceStepNode`s carrying their own `id` +
+// `inputs`, converging on `reduce.output`, with `reduce.sources` naming the
+// root table. `dagFromLinear` (state.ts) builds that shape but isn't on the
+// window.__iris seam, so it's replicated inline here for one linear step —
+// same construction, just not importable outside the app bundle.
 await page.evaluate((ids) => {
   const { store, atoms, makeStep } = window.__iris;
   const aid = store.get(atoms.activePlottableIdAtom);
-  const next = store.get(atoms.plottablesAtom).map((p) => p.id === aid
-    ? { ...p, tableId: ids[0],
-        mappings: { x: "label", y: "value" },
-        reduce: { ...p.reduce, steps: [
-          { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: ids[1] }] } }
-    : p);
+  const next = store.get(atoms.plottablesAtom).map((p) => {
+    if (p.id !== aid) return p;
+    const joinStep = { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: ids[1],
+      id: "n0", inputs: ["src"] };
+    return { ...p, tableId: ids[0],
+      mappings: { x: "label", y: "value" },
+      reduce: { sources: [{ id: "src", tableId: ids[0] }], steps: [joinStep], output: "n0" } };
+  });
   store.set(atoms.plottablesAtom, next);
   store.set(atoms.activeTableIdAtom, ids[0]);
 }, ids);

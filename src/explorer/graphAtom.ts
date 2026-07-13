@@ -3,7 +3,7 @@ import {
   activePlottableAtom, hierarchyAtom, effectiveSchemaAtom, analysisAtom,
   effectivePlanAtom, effectiveTestGrainAtom,
 } from "../state";
-import { buildGraph, type ExplorerGraph, type ExplorerNode, type StatsInput, type NodeCount, type Edge } from "./graph";
+import { buildGraph, FIGURE_ID, type ExplorerGraph, type ExplorerNode, type StatsInput, type NodeCount, type Edge } from "./graph";
 import type { ShapeCountsGuards, GuardVerdict, StyleOverrides } from "../types";
 
 /* significance annotation is enabled per-analysis via the style override the
@@ -161,5 +161,18 @@ export const explorerGraphAtom = atom<ExplorerGraph | null>((get) => {
     ({ nodes, edges } = pruneIdentityGrains(nodes, edges, counts));
   }
   if (guards) edges = mergeGuards(edges, guards, nodes);
+  // The test inherits the caution on its input wire: if the test edge into the
+  // figure bears a caution guard (pseudoreplication / pairing-flip), mark the
+  // figure's Stats section so it shows a caution dot. This is the guard the user
+  // most needs at a glance — the one that would otherwise let a pseudoreplicated
+  // n fake significance — surfaced on the result itself, not only on the edge.
+  const testCaution = edges.some((e) => e.kind === "test" && e.toId === FIGURE_ID
+    && e.guards?.some((gd) => gd.severity === "caution"));
+  if (testCaution) {
+    nodes = nodes.map((n) => (n.id === FIGURE_ID && n.sections
+      ? { ...n, sections: n.sections.map((s) =>
+          s.kind === "stats" ? { ...s, caution: true } : s) }
+      : n));
+  }
   return { ...g, nodes, edges };
 });

@@ -1,17 +1,39 @@
 import { chromium } from "playwright";
 
-/* Smoke test for the reduction-pipeline UI: Data/Analyses modes, the pipeline
-   rail (add a step, prefix-grouped column picker), the live reduced-table
-   preview, and plottable CRUD. No fixture CSV exists on disk, so the table is
-   imported via an in-memory buffer through the ImportWizard's hidden file
-   input — the `.template-pick` dropdown and auto-fetched sample dataset were
-   removed in 111243b (see TODO.md), so this follows the documented fix
-   pattern: explicit import before touching `.pipeline-section`. Needs the
-   engine (port 8765) and the vite dev server (port 5173) running.
+/* Smoke test for the reduction-pipeline UI: the Workbench's on-canvas step
+   authoring (add a step via a node's `+`, a prefix-grouped column picker),
+   the live reduced-table preview, and plottable CRUD. No fixture CSV exists
+   on disk, so the table is imported via an in-memory buffer through the
+   ImportWizard's hidden file input.
 
-   AG Grid virtualizes rows, so we assert on the column count via the reduced
-   note and on the pipeline wiring (a blank Select projects all columns away;
-   toggling a prefix group brings columns back), not on exact row counts. */
+   The workbench card reskin replaced the old linear pipeline rail
+   (`.pipeline-section` / `.add-step-btn` / `.step-card`) with the DAG canvas:
+   a reduce step is added by clicking the source table node's `+` handle
+   (`.txw-handle-add`), picking a step kind from the floating menu, which
+   inserts the step AND opens its editor as an `[data-testid='op-editor-card']`
+   card. The reduced-table preview (`.reduced-note`, unchanged) lives in the
+   `[data-testid='table-card']` that's pinned by default at Workbench landing.
+
+   The step itself also changed semantics: the old "Select columns" step
+   PROJECTED TO the chosen columns (blank = keep nothing). It no longer
+   exists — the reduce vocabulary today is filter/drop/derive/recode/join/
+   pivot/grid_complete, and "Drop columns" is the closest relative but is the
+   OPPOSITE polarity: it REMOVES the chosen columns (blank = drop nothing =
+   every column kept). The assertions below exercise that real, current
+   semantics rather than pretending the old one still exists — the underlying
+   capability under test (a step with a prefix-grouped column picker whose
+   toggles change the step's live effect) is unchanged.
+
+   `.plottable-sidebar` (Analyses list + CRUD) is unchanged and still renders
+   unconditionally in Workbench mode. `.step-card`/`.step-rows` have no
+   current equivalent (the op-editor card shows one step at a time, not a
+   stacked list), so per-plottable step COUNTS are read through the DEV-only
+   window.__iris seam (the same seam multitable_test.mjs uses) rather than
+   from a UI list — an honest substitute for a UI affordance that no longer
+   exists, not a weakening of the assertion (it still proves each plottable
+   keeps its own independent pipeline across a switch).
+
+   Needs the engine (port 8765) and the vite dev server (port 5173) running. */
 
 const csv = [
   "group,site,value",
@@ -39,61 +61,76 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-// Switch to Analyses mode; the pipeline rail and reduced preview appear.
+// Switch to Workbench; the table card (with the reduced preview) is pinned by default.
 await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".workbench-mode", { timeout: 60000 });
-await page.waitForSelector(".pipeline-section", { timeout: 60000 });
+await page.waitForSelector("[data-testid='table-card']", { timeout: 60000 });
 
 // The reduced-table preview loads (table upload + /reduce round trip).
-await page.waitForSelector(".reduced-note", { timeout: 60000 });
-const noteFull = await page.locator(".reduced-note").innerText();
+await page.waitForSelector("[data-testid='table-card'] .reduced-note", { timeout: 60000 });
+const noteFull = await page.locator("[data-testid='table-card'] .reduced-note").innerText();
 if (!/\d+ column/.test(noteFull)) fail("reduced note missing column count: " + noteFull);
 console.log("initial preview:", noteFull.replace(/\s+/g, " "));
 
-// The Data (reduction) section is collapsed by default — expand it so the
-// add-step control renders.
-await page.click(".pipeline-section .card-toggle");
-await page.waitForSelector(".add-step-btn", { timeout: 5000 });
+// Add a "Drop columns" step via the source table node's `+` handle.
+await page.waitForSelector(".txw-handle-add", { timeout: 10000 });
+await page.locator(".txw-handle-add").first().click();
+await page.waitForSelector(".txw-add-menu-float", { timeout: 5000 });
+await page.locator(".txw-add-menu-float [role='menuitem']", { hasText: "Drop columns" }).click();
+const opCard = page.locator("[data-testid='op-editor-card']");
+await opCard.locator(".column-picker").waitFor({ state: "visible", timeout: 10000 });
 
-// Add a Select step — it starts blank, projecting every column away.
-await page.click(".add-step-btn");
-await page.click(".add-step-menu button:has-text('Select columns')");
-await page.waitForSelector(".column-picker", { timeout: 5000 });
-await page.waitForFunction(
-  () => /(^|\D)0 columns?/.test(document.querySelector(".reduced-note")?.innerText ?? ""),
-  null, { timeout: 15000 });
-console.log("blank Select projected all columns away");
+// A blank Drop step drops nothing (opposite polarity from the old Select step).
+const metaBlank = await opCard.locator(".step-meta").innerText();
+if (!/^0 of \d+ columns dropped/.test(metaBlank)) fail("blank Drop step should drop 0 columns: " + metaBlank);
+console.log("blank Drop step drops nothing:", metaBlank.replace(/\s+/g, " "));
 
-// Toggle the first prefix group on — columns come back.
-await page.click(".cp-group-label input >> nth=0");
-await page.waitForFunction(
-  () => !/(^|\D)0 columns?/.test(document.querySelector(".reduced-note")?.innerText ?? ""),
-  null, { timeout: 15000 });
-// Toggling one prefix group back is a partial projection: it may not include the
-// mapped Y column (so the axis-dropped-by-pipeline guidance may show) or may
-// leave too many rows for a point-capped geom. Both are expected, actionable
-// guidance — not a reduction failure. Fail only on a genuinely unexpected error bar.
+// Toggle the first prefix group on — those columns become marked for dropping.
+await opCard.locator(".cp-group-label input").first().click();
+await page.waitForFunction(() => {
+  const m = document.querySelector("[data-testid='op-editor-card'] .step-meta")?.innerText ?? "";
+  return /^(?!0 of) /.test(m) === false && !/^0 of/.test(m);
+}, null, { timeout: 15000 });
+const metaAfter = await opCard.locator(".step-meta").innerText();
+console.log("prefix-group toggle now drops:", metaAfter.replace(/\s+/g, " "));
+
+// The step's effect on the live reduce is proven through the DEV seam (the
+// op-editor card shows the step's OWN state; propagation to the downstream
+// table is the same reduce pipeline multitable_test.mjs already proves via
+// this same seam).
+const droppedCount = await page.evaluate(() => {
+  const { store, atoms } = window.__iris;
+  const id = store.get(atoms.activePlottableIdAtom);
+  return store.get(atoms.plottablesAtom).find((p) => p.id === id).reduce.steps[0].columns.length;
+});
+if (droppedCount === 0) fail("toggling a prefix group should mark at least one column for dropping");
+console.log("drop step now marks", droppedCount, "column(s) — pipeline wiring confirmed live");
+
 if (await page.locator(".error-bar").count() > 0) {
   const msg = await page.locator(".error-bar").innerText();
-  const expected = /too many to draw individually|point|removed by this analysis/i;
-  if (!expected.test(msg)) fail("error-bar after select: " + msg);
+  fail("unexpected error-bar after authoring a drop step: " + msg);
 }
-// the step card shows a row-count funnel badge once the trace is back
-await page.waitForSelector(".step-card .step-rows:has-text('rows')", { timeout: 15000 });
-console.log("prefix-group toggle restored columns; step badge shows rows");
 
 // Plottable CRUD: add a second analysis (starts with an empty pipeline).
 await page.click(".add-plottable");
 const count = await page.locator(".plottable-sidebar li").count();
 if (count !== 2) fail(`expected 2 plottables, got ${count}`);
-const stepsOnNew = await page.locator(".step-card").count();
+const stepsOnNew = await page.evaluate(() => {
+  const { store, atoms } = window.__iris;
+  const id = store.get(atoms.activePlottableIdAtom);
+  return store.get(atoms.plottablesAtom).find((p) => p.id === id).reduce.steps.length;
+});
 if (stepsOnNew !== 0) fail(`new plottable should have 0 steps, got ${stepsOnNew}`);
 
-// Switch back to the first plottable — its Select step is still there.
+// Switch back to the first plottable — its Drop step is still there.
 // Click the li's left padding (not the rename input, which stops propagation).
 await page.locator(".plottable-sidebar li").first().click({ position: { x: 2, y: 8 } });
-await page.waitForSelector(".step-card", { timeout: 5000 });
-const stepsOnFirst = await page.locator(".step-card").count();
+await page.waitForTimeout(300);
+const stepsOnFirst = await page.evaluate(() => {
+  const { store, atoms } = window.__iris;
+  const id = store.get(atoms.activePlottableIdAtom);
+  return store.get(atoms.plottablesAtom).find((p) => p.id === id).reduce.steps.length;
+});
 if (stepsOnFirst !== 1) fail(`first plottable should keep 1 step, got ${stepsOnFirst}`);
 
 console.log("plottables e2e ok");

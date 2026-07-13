@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   activePlottableAtom, analysisAtom, effectiveSchemaAtom, plotWizardOpenCountAtom,
   specAtom, viewModeAtom,
@@ -35,10 +35,22 @@ export function TutorialOverlay() {
 
   const step = TUTORIAL_STEPS[index];
   const [rect, setRect] = useState<DOMRect | null>(null);
+  // The coach card's own height, measured live, so we can dock it clear of the
+  // spotlight with a real gap instead of guessing from a fixed offset.
+  const cardRef = useRef<HTMLDivElement | null>(null);
+  const [cardH, setCardH] = useState(0);
+  // The spotlight tracks its target 1:1 every frame (no lag), and only *glides*
+  // during the brief window right after it jumps to a new target — see below.
+  const [gliding, setGliding] = useState(false);
 
-  /* Track the spotlight target's box. A light poll (not just resize) keeps the
-     cutout aligned through view switches, wizard open/close, and card drags —
-     cheap because the overlay only exists during the tutorial. */
+  /* Track the spotlight target's box. A per-frame measure (rAF) keeps the cutout
+     glued to its target through view switches, wizard open/close, scroll and card
+     drags — cheap because the overlay only exists during the tutorial. We only
+     re-render when the box actually moved, so a static target costs nothing. */
+  const rectRef = useRef<DOMRect | null>(null);
+  const lastElRef = useRef<Element | null>(null);
+  const rafRef = useRef<number | null>(null);
+  const glideTimerRef = useRef<number | null>(null);
   useEffect(() => {
     if (!active) return;
     const measure = () => {
@@ -52,42 +64,88 @@ export function TutorialOverlay() {
         el = document.querySelector(`[data-tour="${name}"]`);
         if (el) break;
       }
-      setRect(el ? el.getBoundingClientRect() : null);
+
+      // Glide only when hopping between two present targets (a step change or a
+      // mid-step control swap). Snapping in/out of nothing avoids animating from a
+      // stale position; tracking a *moving* same target stays lag-free (no glide).
+      if (el && lastElRef.current && el !== lastElRef.current) {
+        setGliding(true);
+        if (glideTimerRef.current != null) window.clearTimeout(glideTimerRef.current);
+        glideTimerRef.current = window.setTimeout(() => setGliding(false), 340);
+      }
+      lastElRef.current = el;
+
+      const next = el ? el.getBoundingClientRect() : null;
+      const prev = rectRef.current;
+      const moved = !prev || !next
+        ? prev !== next
+        : prev.top !== next.top || prev.left !== next.left
+          || prev.width !== next.width || prev.height !== next.height;
+      if (moved) { rectRef.current = next; setRect(next); }
+
+      rafRef.current = requestAnimationFrame(measure);
     };
     measure();
-    const id = window.setInterval(measure, 250);
-    window.addEventListener("resize", measure);
-    return () => { window.clearInterval(id); window.removeEventListener("resize", measure); };
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      if (glideTimerRef.current != null) window.clearTimeout(glideTimerRef.current);
+    };
   }, [active, step?.anchor]);
+
+  // Is the current step's goal satisfied right now? Computed once per render and
+  // reused by both the auto-advance logic and the Next button's gating.
+  const met = !step?.goal || step.goal(ctx);
 
   /* Auto-advance a step that opts in, the moment its goal flips from unmet to met.
      enteredMetRef remembers whether the goal already held on entry, so arriving via
-     Back on an already-satisfied step waits for a real Next instead of bouncing on. */
+     Back on an already-satisfied step waits for a real Next instead of bouncing on.
+     The deps are deliberately just [index, met, …]: this decision must react only to
+     a real goal flip or a step change, never to the overlay's own cosmetic re-renders
+     (spotlight tracking, card measuring), which would otherwise re-run it every frame
+     and could fire on a transient during a view-switch recompile. */
   const enteredMetRef = useRef(false);
   const prevIndexRef = useRef(-1);
   useEffect(() => {
     if (!active || !step) return;
-    const met = !step.goal || step.goal(ctx);
     if (prevIndexRef.current !== index) {
       prevIndexRef.current = index;
-      enteredMetRef.current = met;
+      enteredMetRef.current = met;   // baseline for this step; never advance on entry
+      return;
     }
     if (step.autoAdvance && met && !enteredMetRef.current) advance();
+  }, [active, index, met, step, advance]);
+
+  // Keep the measured card height in sync with its content (varies per step, and
+  // when a hint appears). Runs after layout, updates only on a real change.
+  useLayoutEffect(() => {
+    const h = cardRef.current?.offsetHeight ?? 0;
+    if (h && h !== cardH) setCardH(h);
   });
 
   if (!active || !step) return null;
 
-  const goalMet = !step.goal || step.goal(ctx);
+  const goalMet = met;
   const isLast = index === TUTORIAL_STEPS.length - 1;
-  // Keep the card clear of the spotlight: if the target sits in the top half of
-  // the viewport, dock the card at the bottom, and vice versa.
-  const dockBottom = !rect || rect.top + rect.height / 2 < window.innerHeight / 2;
+  // Dock the card clear of the spotlight with a real gap, keyed off the target's
+  // actual edges and the card's own height (not a fixed offset). Prefer below the
+  // target, fall back to above, and if neither half fits use the roomier one.
+  const cardTop = (() => {
+    const GAP = 16, EDGE = 12;
+    const vh = window.innerHeight;
+    if (!rect) return vh - cardH - 24; // no target: dock bottom
+    const below = vh - rect.bottom, above = rect.top;
+    const fitsBelow = below >= cardH + GAP;
+    const dockAbove = !fitsBelow && above > below;
+    return dockAbove
+      ? Math.max(EDGE, rect.top - GAP - cardH)
+      : Math.min(rect.bottom + GAP, vh - cardH - EDGE);
+  })();
 
   return (
     <div className="tutorial-root">
       {rect ? (
         <div
-          className="tutorial-spotlight"
+          className={`tutorial-spotlight${gliding ? " gliding" : ""}`}
           style={{
             top: rect.top - 6, left: rect.left - 6,
             width: rect.width + 12, height: rect.height + 12,
@@ -97,7 +155,7 @@ export function TutorialOverlay() {
         <div className="tutorial-spotlight tutorial-spotlight--none" />
       )}
 
-      <div className={`tutorial-card ${dockBottom ? "dock-bottom" : "dock-top"}`}
+      <div className="tutorial-card" ref={cardRef} style={{ top: cardTop }}
         role="dialog" aria-label={`Tutorial: ${step.title}`}>
         <div className="tutorial-card-head">
           <span className="tutorial-progress">Step {index + 1} of {TUTORIAL_STEPS.length}</span>

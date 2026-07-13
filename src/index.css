@@ -375,6 +375,17 @@ dd.strong { font-weight: 600; }
 .de-groupcell input, .de-colcell input { font-weight: 600; text-align: center; }
 .de-band .de-groupcell input { font-weight: 700; }
 .de-grouphead, .de-colhead { display: flex; align-items: center; }
+.de-groupcell { position: relative; }
+/* "merge with the next group" — a handle straddling the shared border */
+.de-join { position: absolute; top: 50%; right: -9px; transform: translateY(-50%);
+  z-index: 2; font-size: 10px; line-height: 1; padding: 1px 3px; border-radius: 4px;
+  border: 1px solid var(--line2); background: var(--panel); color: var(--dim);
+  cursor: pointer; }
+.de-join:hover { color: var(--accent); border-color: var(--accent); }
+/* a merge that would cross a parent group: shown, but refused with a note */
+.de-join-x { color: var(--faint); border-style: dashed; }
+.de-join-x:hover { color: var(--warn); border-color: var(--warn); }
+.de-note { margin: 8px 2px 0; }
 .de-heads th { background: var(--panel2); position: sticky; top: 0; z-index: 1; }
 .de-icon { font-size: 11px; color: var(--faint); padding: 2px 5px; line-height: 1;
   background: none; border: none; cursor: pointer; }
@@ -1433,7 +1444,19 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   border: 2px solid var(--accent);
   box-shadow: 0 0 0 9999px rgba(15, 23, 42, 0.45);
   pointer-events: none;
-  transition: top .15s ease, left .15s ease, width .15s ease, height .15s ease;
+}
+/* Only glide while hopping to a new target (toggled from JS). Tracking a moving
+   same target stays transition-free so the box never lags behind it. The eased
+   curve (easeOutQuint) makes the box settle onto its mark instead of snapping. */
+.tutorial-spotlight.gliding {
+  transition:
+    top .34s cubic-bezier(.22, 1, .36, 1),
+    left .34s cubic-bezier(.22, 1, .36, 1),
+    width .34s cubic-bezier(.22, 1, .36, 1),
+    height .34s cubic-bezier(.22, 1, .36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .tutorial-spotlight.gliding { transition: none; }
 }
 .tutorial-spotlight--none {
   inset: 0; width: auto; height: auto; border: none; border-radius: 0;
@@ -1446,8 +1469,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, .25);
   padding: 14px 18px 16px; pointer-events: auto; z-index: 9999;
 }
-.tutorial-card.dock-bottom { bottom: 24px; }
-.tutorial-card.dock-top { top: 84px; }
 .tutorial-card-head { display: flex; align-items: center; justify-content: space-between; }
 .tutorial-progress { font-size: 12px; color: var(--dim); letter-spacing: .02em; }
 .tutorial-exit {

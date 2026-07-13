@@ -5,10 +5,12 @@ import { chromium } from "playwright";
    legend (gid 'legend') rather than crashing. Seeds a Box (it aggregates, so it
    is never point-capped). No fixture CSV exists on disk, so the table is
    imported via an in-memory buffer through the ImportWizard's hidden file
-   input — the `.template-pick` dropdown and auto-seeded layers/mappings were
-   removed in 111243b (see TODO.md), so this follows the documented fix
-   pattern: explicit import, explicit mapping, explicit `.add-layer-btn` flow.
-   Needs the engine (8765) and the vite dev server (5173). */
+   input. The workbench card reskin replaced the always-visible `.layer-rail`
+   with the geom-editor card (reached via the figure node's right-click "Edit
+   plot…"), which hosts the same EncodingsCard + LayerStrip/add-layer-menu this
+   test always drove; Color is now an optional channel behind the "+ encoding"
+   adder rather than always shown. Needs the engine (8765) and the vite dev
+   server (5173). */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
 const browser = await chromium.launch();
@@ -38,18 +40,26 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".layer-rail", { timeout: 15000 });
+const figureNode = page.locator(".txw-node.figure").first();
+await figureNode.waitFor({ state: "visible", timeout: 15000 });
+await figureNode.click({ button: "right" });
+await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
+await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
+const geomCard = page.locator("[data-testid='geom-card']");
+await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
 
 // Map X/Y, then add a Box layer (aggregates → never point-capped).
-await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
-await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
+await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
 await page.waitForTimeout(500);
-await page.click(".add-layer-btn");
-await page.click(".add-layer-menu button:has-text('Box')");
+await geomCard.locator(".add-layer-btn").click();
+await geomCard.locator(".add-layer-menu button:has-text('Box')").click();
 await page.waitForTimeout(1500);
 
-// The Color picker must be offered (box accepts color).
-const colorRow = page.locator(".enc-row", { hasText: "Color" });
+// Color is an optional channel — reveal it via the "+ encoding" adder.
+await geomCard.locator(".enc-add-btn").click();
+await geomCard.locator(".enc-add-menu button:has-text('Color')").click();
+const colorRow = geomCard.locator(".enc-row", { hasText: "Color" });
 if (await colorRow.count() === 0) fail("no Color picker after seeding a box");
 const colorSelect = colorRow.locator("select");
 console.log("color picker present");
@@ -65,12 +75,12 @@ if (!enabled.includes("batch"))
   fail("expected the second categorical (batch) to be offered under Color");
 await colorSelect.selectOption("batch");
 await page.waitForTimeout(1800);
-const figure = await page.locator(".iris svg").count();
+const figure = await page.locator(".figure-host svg").count();
 const bar = await page.locator(".error-bar").count();
 if (figure === 0 && bar === 0)
   fail("color set: no figure and no status bar — rendered nothing");
 if (figure > 0) {
-  const legend = await page.locator('.iris svg g[id="legend"]').count();
+  const legend = await page.locator('.figure-host svg g[id="legend"]').count();
   if (legend === 0) fail("color mapped a second categorical but no legend drawn");
   console.log("dodged figure with legend rendered");
 } else {

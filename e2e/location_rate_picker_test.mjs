@@ -12,10 +12,14 @@ import { chromium } from "playwright";
    test from the stats card.
 
    Needs the engine (8765, with statsmodels for the rate GLM) and the vite dev
-   server (5173). Chromium runs from /opt/pw-browsers/chromium. */
+   server (5173). Uses Playwright's bundled Chromium by default; pass
+   CHROMIUM_PATH to use a system chromium instead (the hardcoded
+   /opt/pw-browsers/chromium path only existed on one machine). */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
-const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium" });
+const launchOpts = process.env.CHROMIUM_PATH
+  ? { executablePath: process.env.CHROMIUM_PATH } : {};
+const browser = await chromium.launch(launchOpts);
 const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(e.message));

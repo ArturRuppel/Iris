@@ -1,12 +1,16 @@
 import { chromium } from "playwright";
 
-/* Smoke for the composable layer rail: add/remove mutate the stack. No
+/* Smoke for the composable layer stack: add/remove mutate the stack. No
    fixture CSV exists on disk, so the table is imported via an in-memory
-   buffer through the ImportWizard's hidden file input — the `.template-pick`
-   dropdown and auto-seeded layers/mappings were removed in 111243b (see
-   TODO.md): a fresh plottable now starts with zero layers, so this test adds
-   one explicitly via the `.add-layer-btn` flow rather than assuming one is
-   seeded. Needs the engine (8765) and the vite dev server (5173). */
+   buffer through the ImportWizard's hidden file input. The workbench card
+   reskin replaced the always-visible `.layer-rail` with the geom-editor card
+   (reached via the figure node's right-click "Edit plot…"), which hosts the
+   same EncodingsCard + LayerStrip/add-layer-menu this test always drove — so
+   the flow below is the pre-reskin one, just entered through the new door,
+   and scoped to the geom-editor card (the Plot card, pinned in the stash by
+   default, ALSO renders a LayerStrip for the same layers — an unscoped
+   `.layer-card` would double-count). Needs the engine (8765) and the vite dev
+   server (5173). */
 
 const csv = [
   "group,value",
@@ -35,43 +39,49 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".layer-rail", { timeout: 15000 });
+const figureNode = page.locator(".txw-node.figure").first();
+await figureNode.waitFor({ state: "visible", timeout: 15000 });
+await figureNode.click({ button: "right" });
+await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
+await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
+const geomCard = page.locator("[data-testid='geom-card']");
+await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
 
 // A fresh plottable starts with zero layers — map X/Y, then add the first one.
-await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
-await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
-const initial = await page.locator(".layer-card").count();
+await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
+await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+const initial = await geomCard.locator(".layer-card").count();
 if (initial !== 0) fail(`expected a fresh plottable to start with 0 layers, got ${initial}`);
 
-await page.click(".add-layer-btn");
-await page.locator(".add-layer-menu button:not(.cancel)").first().click();
-const seeded = await page.locator(".layer-card").count();
+await geomCard.locator(".add-layer-btn").click();
+await geomCard.locator(".add-layer-menu button:not(.cancel)").first().click();
+const seeded = await geomCard.locator(".layer-card").count();
 if (seeded !== 1) fail(`expected 1 layer after the first add, got ${seeded}`);
 console.log("seeded layers:", seeded);
 
 // Add a second layer via the add menu (if any geom is still addable).
-await page.click(".add-layer-btn");
-const addable = await page.locator(".add-layer-menu button:not(.cancel)").count();
+await geomCard.locator(".add-layer-btn").click();
+const addable = await geomCard.locator(".add-layer-menu button:not(.cancel)").count();
 if (addable > 0) {
-  await page.locator(".add-layer-menu button:not(.cancel)").first().click();
-  const after = await page.locator(".layer-card").count();
+  await geomCard.locator(".add-layer-menu button:not(.cancel)").first().click();
+  const after = await geomCard.locator(".layer-card").count();
   if (after !== seeded + 1) fail(`add layer: expected ${seeded + 1}, got ${after}`);
   console.log("added a layer:", after);
 } else {
-  await page.click(".add-layer-menu .cancel");
+  await geomCard.locator(".add-layer-menu .cancel").click();
 }
 
 // Remove the last layer.
-const before = await page.locator(".layer-card").count();
-await page.locator(".layer-card .icon[title='Remove layer']").last().click();
-const removed = await page.locator(".layer-card").count();
+const before = await geomCard.locator(".layer-card").count();
+await geomCard.locator(".layer-card .icon[title='Remove layer']").last().click();
+const removed = await geomCard.locator(".layer-card").count();
 if (removed !== before - 1) fail(`remove layer: expected ${before - 1}, got ${removed}`);
 console.log("removed a layer:", removed);
 
 // The app responds gracefully: either a rendered figure, or an informative
 // bar (e.g. the point-cap guard on a large sample) — never a blank crash.
 await page.waitForTimeout(1500);
-const figure = await page.locator(".iris svg").count();
+const figure = await page.locator(".figure-host svg").count();
 const bar = await page.locator(".error-bar").count();
 if (figure === 0 && bar === 0)
   fail("no figure and no status bar — the app rendered nothing");

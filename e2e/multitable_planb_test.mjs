@@ -99,16 +99,26 @@ console.log("pool ids:", cellsId, "(cells),", annotId, "(annot)");
 
 // Author the two analyses (one per import-created plottable). The analysis rooted
 // in cells gets the join to annot; the one rooted in annot maps annot's own cols.
+//
+// The reduce phase moved from a flat `steps[]` fold to a DAG (spec 2.2):
+// `reduce.steps` entries are now `ReduceStepNode`s carrying their own `id` +
+// `inputs`, converging on `reduce.output`, with `reduce.sources` naming the
+// root table. `dagFromLinear` (state.ts) builds that shape but isn't on the
+// window.__iris seam, so it's replicated inline here (one linear step, or
+// none) — same construction, just not importable outside the app bundle.
 const authored = await page.evaluate(({ cellsId, annotId }) => {
   const { store, atoms, makeStep } = window.__iris;
   const next = store.get(atoms.plottablesAtom).map((p) => {
-    if (p.tableId === cellsId)
+    if (p.tableId === cellsId) {
+      const joinStep = { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: annotId,
+        id: "n0", inputs: ["src"] };
       return { ...p, tableId: cellsId,
         mappings: { x: "label", y: "value" },
-        reduce: { ...p.reduce, steps: [
-          { ...makeStep("join"), on: ["key"], how: "inner", rightTableId: annotId }] } };
+        reduce: { sources: [{ id: "src", tableId: cellsId }], steps: [joinStep], output: "n0" } };
+    }
     if (p.tableId === annotId)
-      return { ...p, tableId: annotId, mappings: { x: "label", y: "score" }, reduce: { steps: [] } };
+      return { ...p, tableId: annotId, mappings: { x: "label", y: "score" },
+        reduce: { sources: [{ id: "src", tableId: annotId }], steps: [], output: "src" } };
     return p;
   });
   store.set(atoms.plottablesAtom, next);

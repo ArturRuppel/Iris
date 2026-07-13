@@ -5,11 +5,13 @@ import { chromium } from "playwright";
    (Mean ± band) layer must break that tie toward the describe-only
    `timeseries` family and draw connected curves rather than crash the UI
    wiring (the TEST_BY_FAMILY/StatsFamily class of bug that only surfaces
-   through the UI — see tile_test.mjs). Follows the post-111243b pattern
-   (explicit import / mapping / add-layer). The geoms are offered on
+   through the UI — see tile_test.mjs). The geoms are offered on
    numeric/numeric like scatter (registry-driven, no offer-logic change).
    `frame` is an identifier token, so the test retypes it numeric in the import
-   wizard before mapping it to X (the real time-on-X workflow).
+   wizard before mapping it to X (the real time-on-X workflow). The workbench
+   card reskin replaced the always-visible `.layer-rail` with the geom-editor
+   card (reached via the figure node's right-click "Edit plot…"), and the
+   stats panel is reached by left-clicking the figure node's Stats section.
    Needs the engine (8765) and the vite dev server (5173). */
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
@@ -52,28 +54,34 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".layer-rail", { timeout: 15000 });
+const figureNode = page.locator(".txw-node.figure").first();
+await figureNode.waitFor({ state: "visible", timeout: 15000 });
+await figureNode.click({ button: "right" });
+await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
+await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
+const geomCard = page.locator("[data-testid='geom-card']");
+await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
 
 // Map numeric X (frame) + numeric Y (area) — the otherwise-correlation pair.
-await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("frame");
-await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("area");
+await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("frame");
+await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("area");
 await page.waitForTimeout(500);
 
 // Trajectories (line) and Mean ± band (trend) are offered on numeric/numeric.
-await page.click(".add-layer-btn");
-const lineBtn = page.locator(".add-layer-menu button:has-text('Trajectories')");
+await geomCard.locator(".add-layer-btn").click();
+const lineBtn = geomCard.locator(".add-layer-menu button:has-text('Trajectories')");
 if (await lineBtn.count() === 0)
   fail("Trajectories (line) not offered for numeric-x / numeric-y — timeseries gate regressed");
 await lineBtn.click();
 await page.waitForTimeout(1800);
 
-const figure = await page.locator(".iris svg").count();
+const figure = await page.locator(".figure-host svg").count();
 const bar = await page.locator(".error-bar").count();
 if (figure === 0 && bar === 0)
   fail("timeseries line: no figure and no status bar — rendered nothing");
 if (figure > 0) {
   // a connected trajectory is a <path> stroke, not scatter <use> point glyphs
-  const paths = await page.locator(".iris svg path").count();
+  const paths = await page.locator(".figure-host svg path").count();
   if (paths === 0) fail("line layer drew no path — trajectories did not render");
   console.log("timeseries line rendered", paths, "paths");
 } else {
@@ -81,22 +89,24 @@ if (figure > 0) {
 }
 
 // The stats panel must show the describe-only time-series model, not a test.
-const design = await page.locator(".stats-pane .reason").first().textContent().catch(() => "");
+await figureNode.locator(".txw-figsec", { hasText: "Stats" }).click();
+await page.waitForSelector("[data-testid='stats-card']", { timeout: 15000 });
+const design = await page.locator("[data-testid='stats-card'] .reason").first().textContent().catch(() => "");
 if (figure > 0 && !/over/.test(design))
   fail(`stats panel did not show the 'y over x' time-series design (got: ${design})`);
 
 // Layer the aggregate trend on top — the layered spaghetti+mean figure.
-await page.click(".add-layer-btn");
-const trendBtn = page.locator(".add-layer-menu button:has-text('Mean ± band')");
+await geomCard.locator(".add-layer-btn").click();
+const trendBtn = geomCard.locator(".add-layer-menu button:has-text('Mean ± band')");
 if (await trendBtn.count() > 0) {
   await trendBtn.click();
   await page.waitForTimeout(1500);
-  if (await page.locator(".iris svg").count() === 0
+  if (await page.locator(".figure-host svg").count() === 0
       && await page.locator(".error-bar").count() === 0)
     fail("layered line+trend rendered nothing");
   console.log("layered line + trend ok");
 } else {
-  await page.click(".add-layer-menu .cancel").catch(() => {});
+  await geomCard.locator(".add-layer-menu .cancel").click().catch(() => {});
 }
 
 if (pageErrors.length) fail("page errors: " + pageErrors.slice(0, 4).join(" | "));

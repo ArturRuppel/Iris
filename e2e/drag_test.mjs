@@ -29,11 +29,17 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".layer-rail", { timeout: 60000 });
+const figureNode = page.locator(".txw-node.figure").first();
+await figureNode.waitFor({ state: "visible", timeout: 60000 });
+await figureNode.click({ button: "right" });
+await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
+await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
+const geomCard = page.locator("[data-testid='geom-card']");
+await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
 
-await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
-await page.click(".add-layer-btn");
-await page.click(".add-layer-menu button:has-text('Distribution')");
+await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+await geomCard.locator(".add-layer-btn").click();
+await geomCard.locator(".add-layer-menu button:has-text('Distribution')").click();
 await page.waitForSelector(".figure-host svg", { timeout: 30000 });
 await page.waitForTimeout(800);
 

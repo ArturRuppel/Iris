@@ -3,6 +3,7 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useSetAtom } from "jotai";
 import type { EdgeKind } from "../explorer/graph";
+import type { GuardVerdict } from "../types";
 import { cannedExample } from "../explorer/cannedExamples";
 import { OpHoverExample } from "../components/OpHoverExample";
 import { COL_GAP } from "./layout";
@@ -10,7 +11,7 @@ import { openCardAtom } from "./state";
 import { EDGE_CARD } from "./cardRegistry";
 import { EDGE_TYPE } from "./edgeMeta";
 
-export interface WorkbenchEdgeData { kind: EdgeKind; label: string }
+export interface WorkbenchEdgeData { kind: EdgeKind; label: string; guards?: GuardVerdict[] }
 
 /* The geom/test wires feed the figure, whose Plot/Stats sections are their own
    editing surface — so only the table-producing steps (reduce/collapse/join/…)
@@ -132,6 +133,25 @@ export function WorkbenchEdge(props: EdgeProps) {
           )}
         </EdgeLabelRenderer>
       )}
+      {/* guard badges: the engine's honesty checks (pseudoreplication, identity-
+          merge, a post-aggregate derive, the info "what this collapse pools by")
+          ride the exact edge they belong to — ⚠ caution / ⓘ info, the verdict
+          text on hover. Rendered for ANY edge kind that carries a guard, not just
+          the self-naming steps, so the caution on the test/collapse wire shows.
+          Sits just above the wire's label point, clear of the step chip. */}
+      {data?.guards?.length ? (
+        <EdgeLabelRenderer>
+          <div className="tx-edge-badges"
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 18}px)`,
+                     pointerEvents: "all" }}>
+            {data.guards.map((g) => (
+              <span key={g.id} className={`edge-badge ${g.severity}`} title={g.text}>
+                {g.severity === "caution" ? "⚠" : "ⓘ"}
+              </span>
+            ))}
+          </div>
+        </EdgeLabelRenderer>
+      ) : null}
     </>
   );
 }

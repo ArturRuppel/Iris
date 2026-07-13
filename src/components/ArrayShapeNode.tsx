@@ -12,6 +12,7 @@ export interface FigureSection {
   facts: string[];        // geom chips / test chip
   onView?: () => void;    // left-click → pin this facet's card
   slotNum?: number | null;// stash slot badge when this facet is pinned
+  caution?: boolean;      // a guard flagged the test feeding this section
 }
 
 export interface ArrayShapeNodeProps {
@@ -102,6 +103,8 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
               <span className="txw-figsec-head">
                 <span className="txw-nicon" aria-hidden><NodeIcon variant={sec.kind} /></span>
                 <span className="txw-eyebrow-text">{sec.label}</span>
+                {sec.caution && <span className="node-caution-dot"
+                  title="A guard flagged this test — see the test edge." />}
               </span>
               <span className="txw-facts" role="list">
                 {sec.facts.map((f) => (
