@@ -9,6 +9,7 @@ import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAto
 import type { ColumnType } from "../state";
 import { engine, type Row } from "../types";
 import { gridTheme } from "./gridTheme";
+import { DataViewToggle } from "./DataViewToggle";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -111,6 +112,7 @@ export function DataTable() {
     <section className="pane table-pane">
       <div className="pane-head">
         <h2>Data</h2>
+        <DataViewToggle />
         <div className="type-legend" title="Data-type colours — click a swatch to recolour">
           {(Object.keys(typeColors) as ColumnType[]).map((t) => (
             <label key={t} className="type-chip" style={{ "--chip": typeColors[t] } as CSSProperties}>

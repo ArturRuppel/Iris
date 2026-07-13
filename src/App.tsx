@@ -2,7 +2,7 @@ import { useAtom, useAtomValue, useSetAtom, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 import irisMark from "./assets/iris-mark.svg";
 import { DataEntry, type DataEntryHandle } from "./components/DataEntry";
-import { DataTable } from "./components/DataTable";
+import { DataView } from "./components/DataView";
 import { HierarchyPanel } from "./components/HierarchyPanel";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
 import { PlottableSidebar } from "./components/PlottableSidebar";
@@ -753,7 +753,7 @@ export default function App() {
         {viewMode === "guide" ? (
           <div className="examples-mode"><Guide onOpen={handleOpenExample} onStartTutorial={handleStartTutorial} /></div>
         ) : viewMode === "data" ? (
-          <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataTable /></div>
+          <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataView /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />

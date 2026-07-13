@@ -149,21 +149,38 @@ the consequence before or as it happens.
 
 Each slice is independently shippable and never puts the canonical table at risk.
 
-- **Slice 0 — the entry-modal rework (done, uncommitted).** Merged-header data model
-  (laminar, arbitrary depth via grouping rows) + select-then-act UX (click to select,
-  toolbar Merge / Unmerge / Delete columns). Formalize, add the selection CSS, and land it.
-  *This is the shared renderer everything else reuses.* — verified: typecheck + build clean,
-  header math exercised; **not yet driven in-app**.
-- **Slice 1 — read-only grouped projection behind a Data-view toggle.** Add a
-  representation toggle inside the `data-mode` panel (next to `DataTable`): **Table** vs
-  **Grouped sheet**. Implement long→wide over `rowsWindow(0, n)`, the pivotability
-  predicate, and size gating. No write-back. Proves the pivot and the gates with zero risk.
-- **Slice 2 — value-cell editing.** Wire grouped value cells to `engine.editCell` (map
-  cell → tidy row id + value field). Rides existing rails; delivers "fix a mistyped value
-  in the shape I think in." Renaming a *leaf/group label* deferred to Slice 4.
-- **Slice 3 — re-nest / reorder factors.** Let the user choose which categorical column is
-  outer vs. inner (drives the header bands). Pure view respec — no engine change, no data
-  write. Cheap, high-value for reading the data different ways.
+- **Slice 0 — the entry-modal rework (DONE, landed 2026-07-13).** Merged-header data
+  model (laminar, arbitrary depth via grouping rows) + select-then-act UX (click to
+  select, toolbar Merge / Unmerge / Delete columns). Selection CSS added
+  (`.de-sel`/`.de-selcol`/`.de-sep`), dead join-handle CSS removed. *This is the shared
+  visual language the lens reuses (`.de-grid`).* — verified: typecheck + full unit suite
+  + production build clean; **driven in-app** via `e2e/data_entry_test.mjs` (add grouping
+  row → select two cells → merge → delete a column).
+- **Slice 1 — read-only grouped projection behind a Data-view toggle (DONE, landed
+  2026-07-13).** `dataViewAtom` + `DataViewToggle` (in both panes' heads) switch the
+  `data-mode` right pane between **Table** (`DataTable`) and **Grouped sheet**
+  (`GroupedSheet`), routed by `DataView`. The pivot lives in the pure module
+  `src/grouped.ts` (`pivotability` predicate + row/col size gating + `longToWide` over
+  `rowsWindow(0, n)`), unit-tested in `src/grouped.test.ts` (13 cases). No write-back.
+  Verified in-app via `e2e/grouped_sheet_test.mjs` (import → flip to grouped → merged
+  bands + value body + toggle round-trip).
+- **Slice 2 — value-cell editing (DONE, landed 2026-07-13).** Value cells backed by a
+  tidy row are click-to-edit in `GroupedSheet`; a commit calls `engine.editCell` on the
+  value column of the cell's `rowId` (carried by the pivot), bumps the handle, and the
+  existing effect refetches + re-pivots — one write path, no client-only table state
+  (invariant 5). Numeric coercion matches the tidy grid (blank/unparseable → NA). Blank
+  padding cells (ragged tails, no row behind them) stay read-only: creating a row is a
+  structural edit (Slice 4). Renaming a *leaf/group label* also deferred to Slice 4.
+  Verified in-app (`e2e/grouped_sheet_test.mjs`): edit 1 → 42 in the grouped shape,
+  confirm it re-pivots AND that the tidy table shows 42 (the edit is canonical).
+- **Slice 3 — re-nest / reorder factors (DONE, landed 2026-07-13).** A "Grouping ·
+  outer → inner" strip above the grid lets the user nudge each factor coarser/finer
+  (◄/►); the order drives the header bands. Stored per-table in the session-only
+  `factorOrderAtom` and reconciled on read (`grouped.applyFactorOrder` — self-heals
+  across role changes, empty = default schema-order nesting). Pure view respec:
+  `longToWide` re-pivots client-side, no engine op, no data write. Verified in-app
+  (`e2e/grouped_nesting_test.mjs`): flip "group" inward → "day" becomes the outer band
+  and "group" the leaf headers, shape stays 2 × 4, no engine error.
 - **Slice 4 — structural edits (new engine ops).** The Rust/Python work:
   `relabel_category` (with collision surfacing), `add_rows`, `delete_rows` (with row-count
   surfacing), `add_column` / `drop_column`. Wire the grouped sheet's add/delete/rename
