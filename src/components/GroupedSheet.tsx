@@ -8,6 +8,7 @@ import { engine, type Row } from "../types";
 import {
   pivotability, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
+import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
 import { DataViewToggle } from "./DataViewToggle";
 import { DataEntry } from "./DataEntry";
 
@@ -189,11 +190,32 @@ function Empty({ children }: { children: ReactNode }) {
 const fmt = (v: string | number | boolean | null): string =>
   v == null ? "" : typeof v === "boolean" ? (v ? "true" : "false") : String(v);
 
-/* the merged-header grid; shares the entry grid's visual language (.de-grid) so
-   entry and lens look like one surface. Value cells backed by a tidy row are
-   click-to-edit; blank padding cells (holes) stay read-only. Header cells carry
-   the structural gestures: double-click a group/leaf label to rename it, or hover
-   for a × that deletes that whole column/band. */
+/* fixed layout metrics, in px. The grid is virtualised (only the visible window
+   renders), so cells need known sizes: row height and header-row height are
+   constants; column widths default uniform but are resized by hand (drag a leaf
+   header's right edge). Never content-measured. */
+const ROW_H = 25;          // body + row-index cell height
+const HEAD_ROW_H = 26;     // each band row and the leaf-label row
+const ROWHEAD_W = 34;      // the pinned row-index / corner column
+const DEFAULT_COL_W = 84;  // starting per-column width
+const MIN_COL_W = 44;      // resize floor
+const OVERSCAN = 2;        // extra rows/cols each side of the visible window
+
+const rng = (a: number, b: number): number[] => {
+  const out: number[] = [];
+  for (let i = a; i < b; i++) out.push(i);
+  return out;
+};
+
+/* the merged-header grid, virtualised: only the visible column/row window is in
+   the DOM, so a thousands-of-columns pivot scrolls instead of choking. Cells are
+   absolutely positioned in canvas coordinates; the band header, the row-index
+   column, and the corner are pinned to the viewport by translating each layer by
+   the scroll offset (they sit above the body, opaque, masking rows that scroll
+   under them). Value cells backed by a tidy row are click-to-edit; holes stay
+   read-only. Header cells keep the structural gestures: double-click a label to
+   rename, hover for a × that deletes that column/band. Each leaf header has a
+   right-edge handle that resizes its column (drag; that column only). */
 function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   sheet: Sheet;
   onCommit: (rowId: string, colName: string, value: number | null) => void;
@@ -211,6 +233,31 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   const headDone = useRef(false);
   const hasFactors = factorLabels.length > 0;
   const leafLevel = bands.length;   // leaf headers sit one level below the bands
+
+  // --- windowing: measure the port, track scroll, hold per-column widths ---
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scroll, setScroll] = useState({ left: 0, top: 0 });
+  const [port, setPort] = useState({ w: 0, h: 0 });
+  const [widths, setWidths] = useState<number[]>(() => Array<number>(nCols).fill(DEFAULT_COL_W));
+  // a different pivot is a different set of columns: reset widths to the default.
+  useEffect(() => { setWidths(Array<number>(nCols).fill(DEFAULT_COL_W)); }, [nCols]);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setPort({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const offsets = useMemo(() => colOffsets(widths), [widths]);
+  const totalW = offsets[nCols] ?? 0;
+  const headerH = (bands.length + 1) * HEAD_ROW_H;
+  const bodyH = nRows * ROW_H;
+  const vCols = visibleCols(offsets, scroll.left, port.w, OVERSCAN);
+  // the body scrolls under the pinned header, so its scroll origin is offset by it
+  const vRows = visibleRows(ROW_H, nRows, Math.max(0, scroll.top - headerH), port.h, OVERSCAN);
 
   const startEdit = (r: number, c: number) => {
     done.current = false;
@@ -243,7 +290,26 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   };
   const cancelHead = () => { headDone.current = true; setHead(null); };
 
-  // every non-blank tidy row id under leaf columns [start, start+span)
+  // drag a leaf header's right edge to set that one column's width (>= MIN_COL_W)
+  const startResize = (c: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = widths[c] ?? DEFAULT_COL_W;
+    const move = (ev: MouseEvent) => {
+      const w = Math.max(MIN_COL_W, startW + (ev.clientX - startX));
+      setWidths((ws) => { const next = ws.slice(); next[c] = w; return next; });
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
+  // every non-blank tidy row id under leaf columns [start, start+span). Scans the
+  // full data arrays (not the DOM), so it is correct even though only a window renders.
   const idsUnder = (start: number, span: number): string[] => {
     const ids: string[] = [];
     for (let r = 0; r < nRows; r++)
@@ -265,86 +331,92 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
   );
 
   return (
-    <div className="gs-scroll">
-      <table className="de-grid gs-grid">
-        <thead>
+    <div className="gs-scroll" ref={scrollRef}
+      onScroll={(e) => setScroll({ left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop })}>
+      <div className="gs-canvas" style={{ width: ROWHEAD_W + totalW, height: headerH + bodyH }}>
+        {/* body: only the visible window of value cells */}
+        {rng(vRows.start, vRows.end).map((r) =>
+          rng(vCols.start, vCols.end).map((c) => {
+            const editable = rowIds[r][c] != null;
+            const editing = !!edit && edit.r === r && edit.c === c;
+            return (
+              <div key={`${r}:${c}`}
+                className={`gs-cell${editable ? "" : " gs-blank"}${editing ? " gs-editing" : ""}`}
+                style={{ left: ROWHEAD_W + offsets[c], top: headerH + r * ROW_H, width: widths[c], height: ROW_H }}
+                onClick={editable && !editing ? () => startEdit(r, c) : undefined}>
+                {editing
+                  ? <input className="gs-input" autoFocus value={draft}
+                      spellCheck={false} inputMode="decimal"
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={commit}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); commit(); }
+                        else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+                      }} />
+                  : fmt(values[r][c])}
+              </div>
+            );
+          }),
+        )}
+
+        {/* row-index column, pinned left */}
+        <div className="gs-rowcol" style={{ transform: `translateX(${scroll.left}px)`, width: ROWHEAD_W, height: headerH + bodyH }}>
+          {rng(vRows.start, vRows.end).map((r) => (
+            <div key={r} className="gs-rowhead"
+              style={{ top: headerH + r * ROW_H, width: ROWHEAD_W, height: ROW_H }}>{r + 1}</div>
+          ))}
+        </div>
+
+        {/* band + leaf header, pinned top */}
+        <div className="gs-header" style={{ transform: `translateY(${scroll.top}px)`, width: ROWHEAD_W + totalW, height: headerH }}>
           {bands.map((band, level) => {
             let offset = 0;
-            return (
-              <tr key={`b${level}`} className="de-band">
-                <th className="de-corner" />
-                {band.map((c, i) => {
-                  const start = offset; offset += c.span;
-                  const key = `b${level}:${i}`;
-                  const editing = head?.key === key;
-                  return (
-                    <th key={i} colSpan={c.span} className="de-groupcell gs-head"
-                      title={factorLabels[level]}
-                      onDoubleClick={() => startHead(key, level, c.label)}>
-                      <div className="de-grouphead">
-                        {editing ? headInput : <span>{c.label}</span>}
-                        {!editing && (
-                          <button className="gs-head-x" title={`Delete “${c.label}”`}
-                            onMouseDown={(e) => e.preventDefault()}
-                            onClick={(e) => { e.stopPropagation(); onDelete(idsUnder(start, c.span), c.label); }}>✕</button>
-                        )}
-                      </div>
-                    </th>
-                  );
-                })}
-              </tr>
-            );
-          })}
-          <tr className="de-heads">
-            <th className="de-corner">#</th>
-            {columnLabels.map((label, c) => {
-              const key = `L:${c}`;
+            return band.map((cell, i) => {
+              const start = offset; offset += cell.span;
+              // render only bands whose leaf span intersects the visible columns
+              if (start + cell.span <= vCols.start || start >= vCols.end) return null;
+              const key = `b${level}:${i}`;
               const editing = head?.key === key;
               return (
-                <th key={c} className="de-colcell gs-head"
-                  title={factorLabels[factorLabels.length - 1]}
-                  onDoubleClick={hasFactors ? () => startHead(key, leafLevel, label) : undefined}>
-                  <div className="de-colhead">
-                    {editing ? headInput : <span>{label}</span>}
-                    {hasFactors && !editing && (
-                      <button className="gs-head-x" title={`Delete “${label}”`}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={(e) => { e.stopPropagation(); onDelete(idsUnder(c, 1), label); }}>✕</button>
-                    )}
-                  </div>
-                </th>
+                <div key={key} className="gs-head gs-band"
+                  title={factorLabels[level]}
+                  style={{ left: ROWHEAD_W + offsets[start], top: level * HEAD_ROW_H,
+                           width: offsets[start + cell.span] - offsets[start], height: HEAD_ROW_H }}
+                  onDoubleClick={() => startHead(key, level, cell.label)}>
+                  {editing ? headInput : <span>{cell.label}</span>}
+                  {!editing && (
+                    <button className="gs-head-x" title={`Delete “${cell.label}”`}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={(e) => { e.stopPropagation(); onDelete(idsUnder(start, cell.span), cell.label); }}>✕</button>
+                  )}
+                </div>
               );
-            })}
-          </tr>
-        </thead>
-        <tbody>
-          {Array.from({ length: nRows }, (_, r) => (
-            <tr key={r}>
-              <td className="de-rowhead">{r + 1}</td>
-              {Array.from({ length: nCols }, (_, c) => {
-                const editable = rowIds[r][c] != null;
-                const editing = !!edit && edit.r === r && edit.c === c;
-                return (
-                  <td key={c}
-                    className={`gs-cell${editable ? "" : " gs-blank"}${editing ? " gs-editing" : ""}`}
-                    onClick={editable && !editing ? () => startEdit(r, c) : undefined}>
-                    {editing
-                      ? <input className="gs-input" autoFocus value={draft}
-                          spellCheck={false} inputMode="decimal"
-                          onChange={(e) => setDraft(e.target.value)}
-                          onBlur={commit}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); commit(); }
-                            else if (e.key === "Escape") { e.preventDefault(); cancel(); }
-                          }} />
-                      : fmt(values[r][c])}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+            });
+          })}
+          {rng(vCols.start, vCols.end).map((c) => {
+            const key = `L:${c}`;
+            const editing = head?.key === key;
+            const label = columnLabels[c];
+            return (
+              <div key={key} className="gs-head gs-leaf"
+                title={factorLabels[factorLabels.length - 1]}
+                style={{ left: ROWHEAD_W + offsets[c], top: bands.length * HEAD_ROW_H, width: widths[c], height: HEAD_ROW_H }}
+                onDoubleClick={hasFactors ? () => startHead(key, leafLevel, label) : undefined}>
+                {editing ? headInput : <span>{label}</span>}
+                {hasFactors && !editing && (
+                  <button className="gs-head-x" title={`Delete “${label}”`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => { e.stopPropagation(); onDelete(idsUnder(c, 1), label); }}>✕</button>
+                )}
+                <div className="gs-resize" title="Drag to resize" onMouseDown={(e) => startResize(c, e)} />
+              </div>
+            );
+          })}
+        </div>
+
+        {/* corner, pinned both */}
+        <div className="gs-corner" style={{ transform: `translate(${scroll.left}px, ${scroll.top}px)`, width: ROWHEAD_W, height: headerH }}>#</div>
+      </div>
     </div>
   );
 }
