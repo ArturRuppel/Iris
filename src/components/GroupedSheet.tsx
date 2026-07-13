@@ -9,7 +9,8 @@ import {
   pivotability, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
 import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
-import { rectOf, inRect, clampCell, cellText, rectToTSV, parseTSV, type Cell } from "../gridSelect";
+import { clampCell, cellText, type Cell, type Rect } from "../gridSelect";
+import { useGridSelection } from "../useGridSelection";
 import { DataViewToggle } from "./DataViewToggle";
 import { DataEntry } from "./DataEntry";
 
@@ -262,11 +263,6 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
   const { bands, columnLabels, valueOfCol, factorLabels, values, rowIds, nRows, nCols } = sheet;
   const [edit, setEdit] = useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = useState("");
-  // the Excel-like selection: anchor is the fixed corner, focus the active/moving
-  // one; the highlighted block is the rect between them (rectOf). Data coordinates,
-  // so it rides the virtualised window. dragging tracks a mouse range-drag.
-  const [sel, setSel] = useState<{ anchor: Cell; focus: Cell } | null>(null);
-  const dragging = useRef(false);
   // a header rename in progress, keyed to disambiguate a band cell from a leaf.
   const [head, setHead] = useState<{ key: string; level: number; from: string } | null>(null);
   const [headDraft, setHeadDraft] = useState("");
@@ -292,12 +288,6 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-  // a range-drag ends wherever the mouse is released, even outside the grid
-  useEffect(() => {
-    const up = () => { dragging.current = false; };
-    window.addEventListener("mouseup", up);
-    return () => window.removeEventListener("mouseup", up);
-  }, []);
 
   const offsets = useMemo(() => colOffsets(widths), [widths]);
   const totalW = offsets[nCols] ?? 0;
@@ -306,46 +296,16 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
   const vCols = visibleCols(offsets, scroll.left, port.w, OVERSCAN);
   // the body scrolls under the pinned header, so its scroll origin is offset by it
   const vRows = visibleRows(ROW_H, nRows, Math.max(0, scroll.top - headerH), port.h, OVERSCAN);
-  const rect = sel ? rectOf(sel.anchor, sel.focus) : null;
 
   const canEditCell = (r: number, c: number) => rowIds[r]?.[c] != null;
 
   const startEdit = (r: number, c: number, initial?: string) => {
     if (!canEditCell(r, c)) return;   // holes have no tidy row; nothing to edit
     done.current = false;
-    setSel({ anchor: { r, c }, focus: { r, c } });
     setDraft(initial ?? cellText(values[r][c]));
-    setEdit({ r, c });
-  };
-  const commit = (advance?: { dr: number; dc: number }) => {
-    if (!edit || done.current) return;
-    done.current = true;
-    const { r, c } = edit;
-    const id = rowIds[r][c];
-    const raw = draft.trim();
-    // match the tidy grid's numeric coercion: blank or unparseable clears to NA
-    const value = raw === "" || Number.isNaN(Number(raw)) ? null : Number(raw);
-    if (id != null && value !== values[r][c]) onCommit(id, valueOfCol[c], value);
-    setEdit(null);
-    // Excel: Enter/Tab commit and step the active cell on; keep the keyboard alive
-    // by returning focus to the grid (the unmounting input would otherwise drop it).
-    if (advance) { step(advance.dr, advance.dc, false, { r, c }); scrollRef.current?.focus(); }
+    setEdit({ r, c });   // the cell is already the selection focus in every entry path
   };
   const cancel = () => { done.current = true; setEdit(null); scrollRef.current?.focus(); };
-
-  // --- selection + keyboard navigation (Excel-like) ---
-  const select = (r: number, c: number, extend: boolean) =>
-    setSel((s) => (extend && s ? { anchor: s.anchor, focus: { r, c } } : { anchor: { r, c }, focus: { r, c } }));
-
-  // move the active cell by (dr,dc), clamped to the sheet; `extend` keeps the anchor
-  // (shift+arrow grows the range), otherwise collapses to a single cell. `from`
-  // overrides the current focus (used just after a commit, before sel state flushes).
-  const step = (dr: number, dc: number, extend: boolean, from?: Cell) => {
-    const f = from ?? sel?.focus ?? { r: 0, c: 0 };
-    const next = clampCell(f.r + dr, f.c + dc, nRows, nCols);
-    setSel((s) => (extend && s ? { anchor: s.anchor, focus: next } : { anchor: next, focus: next }));
-    ensureVisible(next);
-  };
 
   // scroll the port so the active cell clears the pinned header / row-index column.
   const ensureVisible = (cell: Cell) => {
@@ -363,11 +323,6 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
     el.scrollTo({ left: Math.max(0, sl), top: Math.max(0, st) });
   };
 
-  const copySelection = () => {
-    if (!sel) return;
-    void navigator.clipboard?.writeText(rectToTSV(values, rectOf(sel.anchor, sel.focus)));
-  };
-
   // coerce a pasted/typed string to the numeric body's value: blank or unparseable
   // clears to NA — the same rule the single-cell editor uses, so paste and typing
   // agree. (Grouped bodies are measurement columns; they hold numbers or NA.)
@@ -376,11 +331,9 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
 
   type Edit = { row_id: string; column: string; value: number | null };
 
-  // clear every editable cell in the selection to NA (Delete). Holes have no tidy
-  // row so they are skipped; already-blank cells need no write.
-  const clearSelection = () => {
-    if (!sel) return;
-    const x = rectOf(sel.anchor, sel.focus);
+  // clear every editable cell in `x` to NA (Delete). Holes have no tidy row so they
+  // are skipped; already-blank cells need no write.
+  const clearRect = (x: Rect) => {
     const edits: Edit[] = [];
     let skipped = 0;
     for (let r = x.r0; r <= x.r1; r++)
@@ -396,49 +349,44 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
   // paste a clipboard block anchored at the selection's top-left. Paste never grows
   // the pivot (grain is fixed by the spine), so cells past the sheet edge — and
   // holes with no tidy row — are skipped and reported, never silently invented.
-  const doPaste = async () => {
-    if (!sel) return;
-    const text = await navigator.clipboard?.readText().catch(() => "");
-    const block = parseTSV(text ?? "");
-    if (block.length === 0) return;
-    const { r0, c0 } = rectOf(sel.anchor, sel.focus);
+  const pasteBlock = (anchor: Cell, block: string[][]) => {
     const edits: Edit[] = [];
     let skipped = 0;
     for (let i = 0; i < block.length; i++)
       for (let j = 0; j < block[i].length; j++) {
-        const r = r0 + i, c = c0 + j;
+        const r = anchor.r + i, c = anchor.c + j;
         if (r >= nRows || c >= nCols) { skipped++; continue; }
         const id = rowIds[r][c];
         if (id == null) { skipped++; continue; }
         edits.push({ row_id: id, column: valueOfCol[c], value: coerce(block[i][j]) });
       }
     onApply(edits, { wrote: edits.length, skipped, kind: "paste" });
-    // highlight what landed (Excel selects the pasted block), clamped to the sheet
-    const focus = clampCell(r0 + block.length - 1, c0 + (block[0]?.length ?? 1) - 1, nRows, nCols);
-    setSel({ anchor: { r: r0, c: c0 }, focus });
   };
 
-  // the grid's keyboard model, handled on the focused scroll container; skipped
-  // while a cell or header is being edited (the input owns its keys then).
-  const onGridKey = (e: React.KeyboardEvent) => {
-    if (edit || head) return;
-    const meta = e.ctrlKey || e.metaKey;
-    if (meta && (e.key === "c" || e.key === "C")) { e.preventDefault(); copySelection(); return; }
-    if (meta && (e.key === "v" || e.key === "V")) { e.preventDefault(); void doPaste(); return; }
-    if (meta || e.altKey) return;
-    const shift = e.shiftKey;
-    switch (e.key) {
-      case "ArrowUp": e.preventDefault(); step(-1, 0, shift); return;
-      case "ArrowDown": e.preventDefault(); step(1, 0, shift); return;
-      case "ArrowLeft": e.preventDefault(); step(0, -1, shift); return;
-      case "ArrowRight": e.preventDefault(); step(0, 1, shift); return;
-      case "Tab": e.preventDefault(); step(0, shift ? -1 : 1, false); return;
-      case "Enter": e.preventDefault(); if (sel) startEdit(sel.focus.r, sel.focus.c); return;
-      case "Escape": e.preventDefault(); if (sel) setSel({ anchor: sel.focus, focus: sel.focus }); return;
-      case "Delete": case "Backspace": e.preventDefault(); clearSelection(); return;
+  // the shared Excel selection/nav/copy/paste/clear model (see useGridSelection)
+  const gsel = useGridSelection({
+    nRows, nCols, values,
+    isEditable: canEditCell, beginEdit: startEdit, pasteBlock, clearRect, ensureVisible,
+  });
+
+  const commit = (advance?: { dr: number; dc: number }) => {
+    if (!edit || done.current) return;
+    done.current = true;
+    const { r, c } = edit;
+    const id = rowIds[r][c];
+    const raw = draft.trim();
+    // match the tidy grid's numeric coercion: blank or unparseable clears to NA
+    const value = raw === "" || Number.isNaN(Number(raw)) ? null : Number(raw);
+    if (id != null && value !== values[r][c]) onCommit(id, valueOfCol[c], value);
+    setEdit(null);
+    // Excel: Enter/Tab commit and step the active cell on; keep the keyboard alive
+    // by returning focus to the grid (the unmounting input would otherwise drop it).
+    if (advance) {
+      const next = clampCell(r + advance.dr, c + advance.dc, nRows, nCols);
+      gsel.selectCell(next.r, next.c, false);
+      ensureVisible(next);
+      scrollRef.current?.focus();
     }
-    // a printable character overwrites the active cell (Excel type-to-replace)
-    if (e.key.length === 1 && sel) { e.preventDefault(); startEdit(sel.focus.r, sel.focus.c, e.key); }
   };
 
   const startHead = (key: string, level: number, from: string) => {
@@ -495,7 +443,8 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
   );
 
   return (
-    <div className="gs-scroll" ref={scrollRef} tabIndex={0} onKeyDown={onGridKey}
+    <div className="gs-scroll" ref={scrollRef} tabIndex={0}
+      onKeyDown={(e) => { if (edit || head) return; gsel.onKeyDown(e); }}
       onScroll={(e) => setScroll({ left: e.currentTarget.scrollLeft, top: e.currentTarget.scrollTop })}>
       <div className="gs-canvas" style={{ width: ROWHEAD_W + totalW, height: headerH + bodyH }}>
         {/* body: only the visible window of value cells */}
@@ -503,16 +452,14 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
           rng(vCols.start, vCols.end).map((c) => {
             const canEdit = rowIds[r][c] != null;
             const editing = !!edit && edit.r === r && edit.c === c;
-            const active = !!sel && sel.focus.r === r && sel.focus.c === c;
-            const selected = !!rect && inRect(r, c, rect);
+            const active = gsel.isActive(r, c);
+            const selected = gsel.isSelected(r, c);
             return (
               <div key={`${r}:${c}`} data-r={r} data-c={c}
                 className={`gs-cell${canEdit ? "" : " gs-blank"}${selected ? " gs-sel" : ""}${active ? " gs-active" : ""}${editing ? " gs-editing" : ""}`}
                 style={{ left: ROWHEAD_W + offsets[c], top: headerH + r * ROW_H, width: widths[c], height: ROW_H }}
-                onMouseDown={editing ? undefined : (e) => {
-                  select(r, c, e.shiftKey); dragging.current = !e.shiftKey; scrollRef.current?.focus();
-                }}
-                onMouseEnter={() => { if (dragging.current) setSel((s) => (s ? { anchor: s.anchor, focus: { r, c } } : s)); }}
+                onMouseDown={editing ? undefined : (e) => { gsel.onCellMouseDown(r, c, e.shiftKey); scrollRef.current?.focus(); }}
+                onMouseEnter={() => gsel.onCellMouseEnter(r, c)}
                 onDoubleClick={canEdit ? () => startEdit(r, c) : undefined}>
                 {editing
                   ? <input className="gs-input" autoFocus value={draft}
