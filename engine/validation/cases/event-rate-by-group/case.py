@@ -27,7 +27,7 @@ the by-construction group size, plus the figure.
 SCHEMA_OVERRIDES = {
     "treatment": {"type": "categorical",
                   "levels": ["control", "inhibitor", "activator"]},
-    "field": {"type": "identifier"},
+    "field": {"identifier": True},
     "events": {"type": "numeric"},
     "hours": {"type": "numeric"},
 }

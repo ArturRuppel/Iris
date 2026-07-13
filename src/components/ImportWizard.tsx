@@ -9,7 +9,6 @@ const RESHAPE_DEFAULTS = { var_name: "Condition", value_name: "Value" };
 const TYPE_LABELS: Record<ColumnDef["type"], string> = {
   numeric: "numeric (123)",
   categorical: "categorical (abc)",
-  identifier: "identifier (id)",
   bool: "bool (T/F)",
 };
 
@@ -92,6 +91,9 @@ export const ImportWizard = forwardRef<ImportWizardHandle, { hideTrigger?: boole
   const setColType = (name: string, type: ColumnDef["type"]) =>
     updateOptions({ types: { ...opts.types, [name]: type } }, false);
 
+  const setColIdentifier = (name: string, identifier: boolean) =>
+    updateOptions({ identifiers: { ...opts.identifiers, [name]: identifier } }, false);
+
   /* wide → long: column names change, so per-column type overrides reset */
   const applyStack = () =>
     updateOptions({
@@ -116,7 +118,8 @@ export const ImportWizard = forwardRef<ImportWizardHandle, { hideTrigger?: boole
     try {
       const ct = await engine.importCommit(
         { filename: file.name, file_token: file.token }, opts,
-        preview.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
+        preview.columns.map((c) => ({
+          name: c.name, label: c.label, type: c.type, identifier: c.identifier })));
       loadTable({ ...tableFromColumnar(ct), token: ct.token });
       close();
     } catch (e) {
@@ -200,6 +203,11 @@ export const ImportWizard = forwardRef<ImportWizardHandle, { hideTrigger?: boole
                           <option key={t} value={t}>{TYPE_LABELS[t]}</option>
                         ))}
                       </select>
+                      <label className="wizard-id" title="A nesting key (spine level) — the identifiers must jointly identify each row">
+                        <input type="checkbox" checked={!!c.identifier}
+                          onChange={(e) => setColIdentifier(c.name, e.target.checked)} />
+                        identifier
+                      </label>
                       <span className="dim">
                         {c.n_distinct == null
                           ? "…"

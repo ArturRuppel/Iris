@@ -10,10 +10,11 @@
  */
 import type { ColumnDef, GeomMeta, Registry, Schema, StatsFamily } from "./types";
 
-/* the two column types a channel can carry. "identifier" columns are not a
-   ColType: they never drive axes/stats and aren't mapped to most channels. The
-   one exception is color, where a spine identifier is treated as a discrete
-   categorical (see offeredColumns) so per-grain dots can be colored by grain. */
+/* the two column types a channel can carry. Every column has one (its value
+   type); the identifier *role* is orthogonal and decided separately (see
+   channelType): on color/shape/facet an identifier reads as a discrete
+   categorical (the per-grain superplot idiom), and on a measurement axis only a
+   *numeric* identifier is offered (a nominal key belongs on a grouping channel). */
 export type ColType = "categorical" | "numeric";
 export type Channel = "x" | "y" | "color" | "size" | "shape"
                      | "facet_row" | "facet_col";
@@ -38,22 +39,48 @@ export const RENDERABLE: Record<Channel, Partial<Record<ColType, Support>>> = {
   facet_col: { categorical: true },
 };
 
-/* the ColType a column carries, independent of any channel: a bool is a
-   stochastic-event flag that plots/analyzes as numeric 1/0, so it and numeric
-   both read "numeric"; a categorical reads "categorical"; an identifier is null
-   (not a ColType — only specific channels treat it as categorical, see
-   offeredColumns). The single classifier every call site shares. */
-export function colTypeOf(col: ColumnDef): ColType | null {
-  if (col.type === "numeric" || col.type === "bool") return "numeric";
-  return col.type === "categorical" ? "categorical" : null;
+/* the ColType a column's *value* carries, independent of any channel or role: a
+   bool is a stochastic-event flag that plots/analyzes as numeric 1/0, so it and
+   numeric both read "numeric"; a categorical reads "categorical". Every column
+   has a value type — this is never null. The single classifier every call site
+   shares for "what does this column contain". */
+export function colTypeOf(col: ColumnDef): ColType {
+  return col.type === "numeric" || col.type === "bool" ? "numeric" : "categorical";
 }
 
-/* the type of a column in a schema, or null when the column is absent/unmapped
-   or an identifier (never a visual channel). */
+/* the nesting-key role, orthogonal to the value type. */
+export function isIdentifier(col: ColumnDef): boolean {
+  return col.identifier === true;
+}
+
+/* the type a column presents *on a given channel*, or null when it isn't offered
+   there. This is the one place the value type and the identifier role meet:
+   - an identifier on color/shape/facet reads discrete categorical (superplot);
+   - an identifier on a measurement axis (x/y/size) is offered only when numeric
+     (time/dose carry a real position); a nominal key is not an axis;
+   - a non-identifier reads its value type on every channel. */
+export function channelType(col: ColumnDef, channel: Channel): ColType | null {
+  const vt = colTypeOf(col);
+  if (isIdentifier(col)) {
+    if (ID_AS_CATEGORICAL.has(channel)) return "categorical";
+    return vt === "numeric" ? "numeric" : null;
+  }
+  return vt;
+}
+
+/* the type a column presents on a measurement axis (x and y share the rule) —
+   value type for a plain column, numeric-or-null for an identifier. Used for
+   supply counting and the mapped-axis type the stats family reads. */
+export function axisType(col: ColumnDef): ColType | null {
+  return channelType(col, "x");
+}
+
+/* the axis type of a named column in a schema, or null when the column is
+   absent/unmapped or is a non-numeric identifier (never a measurement axis). */
 export function colType(schema: Schema | null, name: string): ColType | null {
   if (!schema || !name) return null;
   const c = schema.columns.find((c) => c.name === name);
-  return c ? colTypeOf(c) : null;
+  return c ? axisType(c) : null;
 }
 
 /* the derived stats family — the label the stats engine reads — computed from
@@ -253,10 +280,12 @@ export function geomAddable(
 export function geomSatisfiableByColumns(
   meta: GeomMeta, columns: ColumnDef[], _reg: Registry | null,
 ): boolean {
-  // Count usable columns per ColType (identifiers and single-value cats excluded)
+  // Count usable columns per axis ColType. axisType excludes nominal-key
+  // identifiers (numeric identifiers count as numeric supply); single-value cats
+  // are excluded too.
   const avail: Record<ColType, number> = { categorical: 0, numeric: 0 };
   for (const c of columns) {
-    const ct = colTypeOf(c);
+    const ct = axisType(c);
     if (!ct) continue;
     if (ct === "categorical" && !categoryUsable(c)) continue;
     avail[ct]++;
@@ -319,10 +348,11 @@ export function geomAxisColTypes(
    discrete categorical: color draws it as a palette and shape draws it as a
    marker cycle (both the superplot idiom of distinguishing per-grain marks by
    grain — and, mapped together, they merge into one per-grain legend), while the
-   facets split a small-multiples grid by it (one panel per date/position). Every
-   other channel excludes identifiers (colType returns null). High-cardinality ids
-   are caught downstream — the palette-exhausted / marker-exhausted warning for
-   color/shape, the blocking facet-cell cap. */
+   facets split a small-multiples grid by it (one panel per date/position). On a
+   measurement axis a nominal-key identifier is excluded and a numeric one reads
+   as its value type (see channelType). High-cardinality ids are caught
+   downstream — the palette-exhausted / marker-exhausted warning for color/shape,
+   the blocking facet-cell cap. */
 const ID_AS_CATEGORICAL: ReadonlySet<Channel> =
   new Set(["color", "shape", "facet_row", "facet_col"]);
 
@@ -347,11 +377,10 @@ export function offeredColumns(
   const selectable: ColumnDef[] = [];
   const disabled: { col: ColumnDef; reason: string }[] = [];
   for (const c of columns) {
-    const t: ColType | null = colTypeOf(c)
-      ?? (c.type === "identifier" && ID_AS_CATEGORICAL.has(channel) ? "categorical" : null);
+    const t = channelType(c, channel);
     if (!t) continue;
     // a single-value categorical groups nothing — hide it entirely (design §4).
-    if (t === "categorical" && c.type === "categorical" && !categoryUsable(c)) continue;
+    if (t === "categorical" && !categoryUsable(c)) continue;
     const st = renderStatus(reg, channel, t, activeGeoms);
     if (st === "ok") selectable.push(c);
     else if (st) disabled.push({ col: c, reason: st.reason });

@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { ColType } from "./channels";
 import {
-  categoryUsable,
+  axisType, categoryUsable, channelType, colType, colTypeOf,
   familyFor, familyForMappings, familyForMappingsRef, geomAddable, geomAxisColTypes,
-  geomGateReason, geomSatisfiableByColumns, isOfferable, offeredColumns, renderStatus,
+  geomGateReason, geomSatisfiableByColumns, isIdentifier, isOfferable, offeredColumns, renderStatus,
 } from "./channels";
 import type { ColumnDef, GeomMeta, Registry, Schema } from "./types";
 
@@ -33,7 +33,7 @@ const REG_3D: Registry = { ...REG, geoms: { ...REG.geoms,
 const COLS: ColumnDef[] = [
   { name: "grp", type: "categorical", label: "Group" },
   { name: "val", type: "numeric", label: "Value" },
-  { name: "id", type: "identifier", label: "ID" },
+  { name: "id", type: "categorical", identifier: true, label: "ID" },
 ];
 const SCHEMA: Schema = { schema_version: "1.0", columns: COLS };
 
@@ -460,5 +460,54 @@ describe("geomSatisfiableByColumns", () => {
     const hCatCatMeta: GeomMeta = { ...catCatMeta, h_orient: true } as GeomMeta;
     expect(geomSatisfiableByColumns(catCatMeta, withCategory, reg)).toBe(false);
     expect(geomSatisfiableByColumns(hCatCatMeta, withCategory, reg)).toBe(true);
+  });
+});
+
+describe("identifier role is orthogonal to the value type", () => {
+  // a numeric key (time/dose) — the motivating case: an identifier that still plots
+  const numId: ColumnDef = { name: "t", type: "numeric", identifier: true, label: "Time" };
+  const catId: ColumnDef = { name: "well", type: "categorical", identifier: true, label: "Well" };
+  const numMeasure: ColumnDef = { name: "y", type: "numeric", label: "Y" };
+
+  it("value type is unchanged by the role; the role is read separately", () => {
+    expect(colTypeOf(numId)).toBe("numeric");     // still numeric-valued
+    expect(colTypeOf(catId)).toBe("categorical");
+    expect(isIdentifier(numId)).toBe(true);
+    expect(isIdentifier(numMeasure)).toBe(false);
+  });
+
+  it("channelType: a numeric identifier is a numeric axis but a discrete colour", () => {
+    expect(channelType(numId, "x")).toBe("numeric");        // plots on x (the point)
+    expect(channelType(numId, "y")).toBe("numeric");
+    expect(channelType(numId, "color")).toBe("categorical"); // discrete per-grain
+    expect(channelType(numId, "facet_row")).toBe("categorical");
+  });
+
+  it("channelType: a nominal-key identifier is barred from measurement axes", () => {
+    expect(channelType(catId, "x")).toBeNull();             // a nominal key is not an axis
+    expect(channelType(catId, "color")).toBe("categorical");
+  });
+
+  it("axisType / colType: numeric id plots, categorical id does not", () => {
+    expect(axisType(numId)).toBe("numeric");
+    expect(axisType(catId)).toBeNull();
+    const schema: Schema = { schema_version: "1.0", columns: [numId, catId] };
+    expect(colType(schema, "t")).toBe("numeric");           // a numeric id on x → correlation family
+    expect(colType(schema, "well")).toBeNull();
+  });
+
+  it("offeredColumns: a numeric identifier is offered on x and y; a categorical one is not", () => {
+    const cols = [numId, catId, numMeasure];
+    for (const ch of ["x", "y"] as const) {
+      const { selectable } = offeredColumns(REG, ch, cols);
+      expect(selectable.map((c) => c.name)).toContain("t");    // numeric id on the axis
+      expect(selectable.map((c) => c.name)).not.toContain("well");
+    }
+  });
+
+  it("offeredColumns: a numeric identifier is a discrete (selectable) colour, not disabled", () => {
+    const { selectable, disabled } = offeredColumns(REG, "color", [numId]);
+    expect(selectable.map((c) => c.name)).toEqual(["t"]);
+    expect(disabled).toEqual([]);
   });
 });

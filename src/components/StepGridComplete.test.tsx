@@ -4,7 +4,7 @@ import { StepGridComplete } from "./StepGridComplete";
 import type { ColumnDef, GridCompleteStep } from "../types";
 
 const cols: ColumnDef[] = [
-  { name: "cell", type: "identifier", label: "Cell" },
+  { name: "cell", type: "categorical", identifier: true, label: "Cell" },
   { name: "cond", type: "categorical", label: "Condition" },
   { name: "batch", type: "categorical", label: "Batch" },
 ];

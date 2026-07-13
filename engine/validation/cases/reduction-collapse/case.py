@@ -42,8 +42,8 @@ Independent recompute (outside Iris, raw scipy 1.16.3) on the known well means:
 # well grain); `condition` the categorical qualifier compared on x.
 SCHEMA_OVERRIDES = {
     "condition": {"type": "categorical", "levels": ["ctrl", "trt"]},
-    "well": {"type": "identifier"},
-    "cell": {"type": "identifier"},
+    "well": {"identifier": True},
+    "cell": {"identifier": True},
 }
 
 

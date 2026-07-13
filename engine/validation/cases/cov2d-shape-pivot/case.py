@@ -19,9 +19,9 @@ CLASSES = ["round", "spread"]
 BASE = {"round": (40.0, 130.0), "spread": (60.0, 110.0)}
 
 SCHEMA_OVERRIDES = {
-    "experiment_id": {"type": "identifier"},
-    "position_id": {"type": "identifier"},
-    "cell_id": {"type": "identifier"},
+    "experiment_id": {"identifier": True},
+    "position_id": {"identifier": True},
+    "cell_id": {"identifier": True},
     "class_label": {"type": "categorical", "levels": CLASSES},
     "feature": {"type": "categorical", "levels": FEATURES},
     "val": {"type": "numeric"},

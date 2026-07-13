@@ -4,9 +4,9 @@ from iris_engine import hierarchy
 
 def _schema():
     return {"schema_version": "1.0", "columns": [
-        {"name": "experiment", "type": "identifier", "label": "Experiment"},
-        {"name": "field", "type": "identifier", "label": "Field"},
-        {"name": "cell", "type": "identifier", "label": "Cell"},
+        {"name": "experiment", "type": "categorical", "identifier": True, "label": "Experiment"},
+        {"name": "field", "type": "categorical", "identifier": True, "label": "Field"},
+        {"name": "cell", "type": "categorical", "identifier": True, "label": "Cell"},
         {"name": "frame", "type": "numeric", "label": "Frame"},
         {"name": "area", "type": "numeric", "label": "Area"}]}
 

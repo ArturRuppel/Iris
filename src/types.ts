@@ -2,7 +2,13 @@
 
 export interface ColumnDef {
   name: string;
-  type: "numeric" | "categorical" | "identifier" | "bool";
+  /* the value type — what the column *contains*. Orthogonal to the identifier
+     role: a numeric identifier (time, dose) keeps type "numeric" so it still
+     plots on an axis, while its role puts it on the nesting spine. */
+  type: "numeric" | "categorical" | "bool";
+  /* the nesting-key role. When true the column is a spine level (an identifier),
+     independent of its value type; see channels.ts channelType. */
+  identifier?: boolean;
   label: string;
   unit?: string;
   levels?: string[];
@@ -658,12 +664,16 @@ export interface ImportOptions {
   header?: boolean;
   sheet?: string | null;
   types?: Record<string, ColumnDef["type"]>;
+  /* per-column overrides of the inferred identifier (nesting-key) role */
+  identifiers?: Record<string, boolean>;
   reshape?: ReshapeOptions | null;
 }
 export interface ImportColumn {
   name: string;
   label: string;
   type: ColumnDef["type"];
+  /* the inferred (or overridden) identifier role */
+  identifier?: boolean;
   /* full-data stats are absent on the headers-first (provisional) pass and
      filled in by the subsequent full preview */
   n_missing?: number;
@@ -865,7 +875,7 @@ export const engine = {
   importPreview: (src: ImportSource, options: ImportOptions = {}) =>
     post<ImportPreview>("/import/preview", { ...src, options }),
   importCommit: (src: ImportSource, options: ImportOptions,
-                 columns: { name: string; label: string; type: ColumnDef["type"] }[]) =>
+                 columns: { name: string; label: string; type: ColumnDef["type"]; identifier?: boolean }[]) =>
     post<ColumnarTable & { token: string }>("/import/commit", { ...src, options, columns }),
 };
 

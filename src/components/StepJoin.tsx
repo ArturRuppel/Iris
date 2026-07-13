@@ -27,7 +27,7 @@ export function StepJoin(
     const names = new Set(next?.schema.columns.map((c) => c.name) ?? []);
     const kept = step.on.filter((n) => names.has(n));
     const on = kept.length > 0 ? kept
-      : columns.filter((c) => c.type === "identifier" && names.has(c.name)).map((c) => c.name);
+      : columns.filter((c) => c.identifier && names.has(c.name)).map((c) => c.name);
     onChange({ ...step, rightTableId: id, on });
   };
 

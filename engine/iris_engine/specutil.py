@@ -9,12 +9,22 @@ from __future__ import annotations
 
 
 def col_type(schema: dict, name: str | None, default: str | None = None) -> str | None:
-    """The declared type of column ``name``, or ``default`` when the column is
-    absent (or ``name`` is falsy — no column is named None/"")."""
+    """The declared *value* type of column ``name`` (numeric/categorical/bool), or
+    ``default`` when the column is absent (or ``name`` is falsy — no column is
+    named None/""). Orthogonal to the identifier role, see ``is_identifier``."""
     for c in schema.get("columns", []):
         if c["name"] == name:
             return c.get("type", default)
     return default
+
+
+def is_identifier(schema: dict, name: str | None) -> bool:
+    """Whether column ``name`` carries the identifier (nesting-key) role — a spine
+    level, independent of its value type. False when the column is absent."""
+    for c in schema.get("columns", []):
+        if c["name"] == name:
+            return bool(c.get("identifier"))
+    return False
 
 
 def enc_col(enc: dict, key: str) -> str | None:

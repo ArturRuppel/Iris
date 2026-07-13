@@ -78,7 +78,7 @@ describe("OpEditorCard", () => {
     // a second pool table sharing the "cell" identifier — the join candidate
     // (the analysis's own main table is excluded from the picker).
     const annotSchema: Schema = { schema_version: "1.0", columns: [
-      { name: "cell", type: "identifier", label: "cell" },
+      { name: "cell", type: "categorical", identifier: true, label: "cell" },
       { name: "note", type: "categorical", label: "note" },
     ] };
     store.set(tablesAtom, [

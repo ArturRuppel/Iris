@@ -39,7 +39,7 @@ describe("exposureColumns — offerable rate exposure offsets", () => {
     { name: "count", type: "numeric", label: "Count" },
     { name: "hours", type: "numeric", label: "Hours" },
     { name: "flag", type: "bool", label: "Flag" },
-    { name: "id", type: "identifier", label: "ID" },
+    { name: "id", type: "categorical", identifier: true, label: "ID" },
   ] };
 
   it("offers numeric columns other than the mapped count column", () => {

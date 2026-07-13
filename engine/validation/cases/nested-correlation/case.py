@@ -36,7 +36,7 @@ not just an inflated n, it points the wrong way. The spine (replicate) is the
 honest unit. Spearman is pinned via override so the assertion is independent of
 the small-sample selection heuristic.
 """
-SCHEMA_OVERRIDES = {"replicate": {"type": "identifier"}}
+SCHEMA_OVERRIDES = {"replicate": {"identifier": True}}
 
 ANALYSES = [
     {

@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from .specutil import col_type
+from .specutil import col_type, is_identifier
 
 # The group/series palette — the single colour source of truth, shared by the
 # geom render functions, the legend, the compiler (re-exported there), and the
@@ -158,9 +158,10 @@ def resolve_scales(encodings: dict, df: pd.DataFrame, schema: dict,
     color = _col(encodings, "color", present)
     if color:
         sc.color_col = color
-        if col_type(schema, color) == "numeric":
+        if col_type(schema, color) == "numeric" and not is_identifier(schema, color):
             # Phase 3b: continuous color. Normalize over the data range; the
-            # compiler renders points with c=values + cmap and a colorbar.
+            # compiler renders points with c=values + cmap and a colorbar. A
+            # numeric *identifier* is a discrete key (superplot), not a colormap.
             vals = df[color].dropna().to_numpy(dtype=float)
             sc.color_numeric = True
             sc.color_lo = float(vals.min()) if len(vals) else 0.0

@@ -34,10 +34,10 @@ const cnt = (rows: number, axes: string[]): NodeCount => ({
 });
 
 const SCHEMA = { schema_version: "1.0", columns: [
-  { name: "E", label: "Experiment", type: "identifier" },
-  { name: "P", label: "Position", type: "identifier" },
-  { name: "C", label: "Cell", type: "identifier" },
-  { name: "F", label: "Frame", type: "identifier" },
+  { name: "E", label: "Experiment", type: "categorical", identifier: true },
+  { name: "P", label: "Position", type: "categorical", identifier: true },
+  { name: "C", label: "Cell", type: "categorical", identifier: true },
+  { name: "F", label: "Frame", type: "categorical", identifier: true },
   { name: "value", label: "Value", type: "numeric" },
 ] } as unknown as Schema;
 const SPINE = ["E", "P", "C", "F"];

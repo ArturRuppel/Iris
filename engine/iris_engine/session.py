@@ -12,6 +12,45 @@ import uuid
 import pandas as pd
 
 
+class IdentifierError(ValueError):
+    """The identifier columns don't jointly key the raw table — two or more rows
+    share an identity with nothing to tell them apart. Carries enough to explain
+    the collision (which identifiers, how many rows, an example tuple)."""
+
+    def __init__(self, ids: list[str], n_rows: int, example: dict):
+        self.ids = ids
+        self.n_rows = n_rows
+        self.example = example
+        ex = ", ".join(f"{k}={v!r}" for k, v in example.items())
+        super().__init__(
+            f"Identifiers {ids} don't uniquely identify each row: "
+            f"{n_rows} rows share an identity (e.g. {ex}). Mark the column that "
+            f"distinguishes them as an identifier, or remove the duplicate rows.")
+
+
+def _validate_identifiers(df: pd.DataFrame, schema: dict) -> None:
+    """Assert the identifier columns jointly key the table (each row uniquely
+    identified). Raises IdentifierError on the first collision. A no-op when there
+    are no identifiers (nothing is being claimed). Adding an identifier can only
+    increase uniqueness, so this bites on demotion and on already-colliding data."""
+    ids = [c["name"] for c in schema.get("columns", [])
+           if c.get("identifier") and c["name"] in df.columns]
+    if not ids:
+        return
+    dup = df.duplicated(subset=ids, keep=False)
+    n = int(dup.sum())
+    if n:
+        example = {k: _scalar(v) for k, v in df.loc[dup, ids].iloc[0].items()}
+        raise IdentifierError(ids, n, example)
+
+
+def _scalar(v):
+    """A JSON-friendly plain scalar for an example collision value."""
+    if pd.isna(v):
+        return None
+    return v.item() if hasattr(v, "item") else v
+
+
 def records(df: pd.DataFrame) -> list[dict]:
     # object dtype so NaN/NaT survive the replace; then -> None for JSON null.
     return df.astype(object).where(pd.notnull(df), None).to_dict(orient="records")
@@ -204,17 +243,22 @@ class SessionTable:
             return {"dropped": column}
 
     def set_schema(self, schema: dict) -> None:
-        """Replace the column schema in place (types, labels, levels) without
-        touching the data — the Data tab retypes a column (identifier↔classifier)
-        and the engine must see the new type on the next analyze, or the frontend
-        and engine silently disagree about which test ran. A schema-only change:
-        the frame's values are unchanged, so no row is coerced or dropped. Bumps
-        `version` so every result cache keyed on it invalidates."""
+        """Replace the column schema in place (types, labels, levels, identifier
+        roles) without touching the data — the Data tab retypes a column or flips
+        its identifier role and the engine must see the change on the next analyze,
+        or the frontend and engine silently disagree about which test ran. A
+        schema-only change: the frame's values are unchanged, so no row is coerced
+        or dropped. Rejects (IdentifierError) a schema whose identifier columns
+        don't jointly key the table. Bumps `version` so every result cache keyed on
+        it invalidates."""
         with self._lock:
             missing = [c["name"] for c in schema["columns"]
                        if c["name"] not in self._df.columns]
             if missing:
                 raise KeyError(f"schema columns not in table: {missing!r}")
+            # reject a role change that leaves the identifiers not keying the table
+            # (raises IdentifierError) before committing — data is never touched.
+            _validate_identifiers(self._df, schema)
             self.schema = schema
             self.version += 1
 

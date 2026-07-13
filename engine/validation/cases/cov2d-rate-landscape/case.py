@@ -22,8 +22,8 @@ COUNTS = {
 }
 
 SCHEMA_OVERRIDES = {
-    "experiment_id": {"type": "identifier"},
-    "position_id": {"type": "identifier"},
+    "experiment_id": {"identifier": True},
+    "position_id": {"identifier": True},
     "tt": {"type": "categorical", "levels": TT_LEVELS},
     "L": {"type": "numeric"},
 }

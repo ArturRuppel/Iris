@@ -15,7 +15,7 @@ import pandas as pd
 
 from . import geoms
 from .scales import MARKERS, PALETTE
-from .specutil import col_type, enc_col, resolve_cat_val
+from .specutil import col_type, enc_col, is_identifier, resolve_cat_val
 from .stats import MIN_LOCATION_N  # single source: the test's skip threshold
 
 MIN_BOX_N = 3   # below this per group, a box/violin summary is meaningless
@@ -48,7 +48,12 @@ def drop_unrenderable_channels(schema: dict, spec: dict) -> list[dict]:
         col = enc_col(enc, ch)
         if not col:
             continue
-        reason = UNRENDERABLE.get((ch, col_type(schema, col)))
+        # an identifier reads as a discrete categorical on color/shape (the
+        # superplot idiom), so a numeric identifier on shape is a marker cycle,
+        # not a barred continuous value.
+        eff_type = ("categorical" if is_identifier(schema, col) and ch in ("color", "shape")
+                    else col_type(schema, col))
+        reason = UNRENDERABLE.get((ch, eff_type))
         if reason:
             out.append(_issue(
                 "warning", "channel_unrenderable",
@@ -195,8 +200,10 @@ def _aesthetic_issues(df: pd.DataFrame, schema: dict, spec: dict) -> list[dict]:
                 f"mapping."))
             continue
         # a numeric color is a continuous colorbar (Phase 3b), not a palette —
-        # it can't "exhaust" a discrete set, so skip the cardinality check.
-        if ch == "color" and col_type(schema, col) == "numeric":
+        # it can't "exhaust" a discrete set, so skip the cardinality check. A
+        # numeric *identifier* colour is a discrete palette, so it still counts.
+        if (ch == "color" and col_type(schema, col) == "numeric"
+                and not is_identifier(schema, col)):
             continue
         if ch in ("color", "shape") and col in df:
             n = int(df[col].dropna().astype(str).nunique())

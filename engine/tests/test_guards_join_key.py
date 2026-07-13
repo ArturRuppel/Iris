@@ -2,7 +2,7 @@ import pandas as pd
 from iris_engine.hierarchy import join_leaf_key
 
 SPINE = ["experiment", "position", "cell", "frame"]
-SCHEMA = {"columns": [{"name": n, "type": "identifier"}
+SCHEMA = {"columns": [{"name": n, "type": "categorical", "identifier": True}
                       for n in SPINE]}
 
 def _left():

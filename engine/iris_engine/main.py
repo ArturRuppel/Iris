@@ -632,6 +632,8 @@ def table_schema(tid: str, req: SchemaRequest):
     t = _session_or_409(tid)
     try:
         t.set_schema(req.table_schema)
+    except session_mod.IdentifierError as e:
+        raise HTTPException(422, str(e)) from e
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
     return {"version": t.version, "schema": t.schema, "counts": t.counts()}
@@ -809,7 +811,7 @@ def shape_counts(req: ShapeCountsRequest):
         r_schema = rblock.get("schema") or {}
         r_df = pd.DataFrame(r_rows)
         r_spine = [c["name"] for c in r_schema.get("columns", [])
-                   if c.get("type") == "identifier" and c["name"] in r_df.columns]
+                   if c.get("identifier") and c["name"] in r_df.columns]
         joins[str(i)] = {"rows": int(len(r_df)), "cols": _cols(r_df),
                          **shape_mod.describe_shape(r_df, r_schema, r_spine)}
 

@@ -119,7 +119,7 @@ def load_document(data: bytes) -> dict:
 SAMPLE_SCHEMA = {
     "schema_version": "1.0",
     "columns": [
-        {"name": "subject", "type": "identifier", "label": "Subject"},
+        {"name": "subject", "type": "categorical", "identifier": True, "label": "Subject"},
         {"name": "treatment", "type": "categorical", "label": "Treatment",
          "levels": ["control", "drug_a"]},
         {"name": "dose", "type": "numeric", "label": "Dose (µM)", "unit": "µM"},
@@ -166,16 +166,17 @@ def _infer_schema(df: pd.DataFrame) -> dict:
             continue
         s = df[name]
         nun = int(s.nunique(dropna=True))
-        if name in _ID_COLS or name.endswith("_id") and pd.api.types.is_integer_dtype(s):
-            ctype = "identifier"
-        elif pd.api.types.is_numeric_dtype(s):
-            ctype = "numeric"
-        elif nun <= _CAT_MAX_CARD:
-            ctype = "categorical"
-        else:
-            ctype = "identifier"
+        numeric = pd.api.types.is_numeric_dtype(s)
+        # the nesting-key role, orthogonal to the value type: named-like-a-key
+        # integer columns, and high-cardinality strings, are identifiers.
+        ident = bool(name in _ID_COLS
+                     or (name.endswith("_id") and pd.api.types.is_integer_dtype(s))
+                     or (not numeric and nun > _CAT_MAX_CARD))
+        ctype = "numeric" if numeric else "categorical"
         col = {"name": name, "type": ctype, "label": _leaf_label(name)}
-        if ctype == "categorical":
+        if ident:
+            col["identifier"] = True
+        if ctype == "categorical" and not ident:
             col["levels"] = sorted(str(v) for v in s.dropna().unique())
         cols.append(col)
     return {"schema_version": "1.0", "columns": cols}

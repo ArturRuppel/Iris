@@ -9,7 +9,7 @@ per-facet correction). When the design is ambiguous, default to describe-only.
 from __future__ import annotations
 
 from . import geoms as geoms_mod
-from .specutil import col_type, enc_col
+from .specutil import col_type, enc_col, is_identifier
 
 
 def _is_timeseries(layers: list[dict] | None) -> bool:
@@ -138,7 +138,8 @@ def infer(encodings: dict, schema: dict, override: str | None,
         # Item P: a categorical color overlays one distribution curve per group in
         # a single panel (shared bins). Carry it as the grouping factor so the
         # design sentence names it; the figure splits on this color directly.
-        if color and col_type(schema, color) == "categorical":
+        if (color and col_type(schema, color) == "categorical"
+                and not is_identifier(schema, color)):
             design += f", one curve per {color}"
             factors.append({"column": color, "role": "group"})
     else:
@@ -154,7 +155,8 @@ def infer(encodings: dict, schema: dict, override: str | None,
     group_factor = factors[0]["column"]
     issues = []
     if (family == "group_comparison" and color and color != group_factor
-            and col_type(schema, color) == "categorical"):
+            and col_type(schema, color) == "categorical"
+            and not is_identifier(schema, color)):
         design += (f"; color ({color}) could be a second factor — it is drawn "
                    f"as separate groups, but only {group_factor} is tested")
         issues.append({

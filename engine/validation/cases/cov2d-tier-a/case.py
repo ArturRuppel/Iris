@@ -19,9 +19,9 @@ RIGHT_TABLE = {
     "schema": {
         "schema_version": "1.0",
         "columns": [
-            {"name": "experiment_id", "type": "identifier", "label": "Experiment"},
-            {"name": "position_id", "type": "identifier", "label": "Position"},
-            {"name": "cell_id", "type": "identifier", "label": "Cell"},
+            {"name": "experiment_id", "type": "categorical", "identifier": True, "label": "Experiment"},
+            {"name": "position_id", "type": "categorical", "identifier": True, "label": "Position"},
+            {"name": "cell_id", "type": "categorical", "identifier": True, "label": "Cell"},
             {"name": "class_label", "type": "categorical", "label": "Class",
              "levels": ["negative", "positive"]},
         ],
@@ -35,10 +35,10 @@ RIGHT_TABLE = {
 }
 
 SCHEMA_OVERRIDES = {
-    "experiment_id": {"type": "identifier"},
-    "position_id": {"type": "identifier"},
-    "cell_id": {"type": "identifier"},
-    "frame": {"type": "identifier"},
+    "experiment_id": {"identifier": True},
+    "position_id": {"identifier": True},
+    "cell_id": {"identifier": True},
+    "frame": {"identifier": True},
     "value": {"type": "numeric"},
 }
 

@@ -4,7 +4,7 @@ import { StepPivot } from "./StepPivot";
 import type { ColumnDef, PivotStep } from "../types";
 
 const cols: ColumnDef[] = [
-  { name: "cell", type: "identifier", label: "Cell" },
+  { name: "cell", type: "categorical", identifier: true, label: "Cell" },
   { name: "cond", type: "categorical", label: "Condition" },
   { name: "val", type: "numeric", label: "Value" },
   { name: "batch", type: "categorical", label: "Batch" },

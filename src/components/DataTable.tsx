@@ -5,16 +5,17 @@ import {
   AllCommunityModule, ModuleRegistry,
   type CellEditRequestEvent, type ColDef, type IDatasource,
 } from "ag-grid-community";
-import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAtom } from "../state";
-import type { ColumnType } from "../state";
+import { activeSchemaAtom, activeHandleAtom, bumpActiveHandleAtom, typeColorsAtom, swatchKey } from "../state";
+import type { SwatchKey } from "../state";
 import { engine, type Row } from "../types";
 import { gridTheme } from "./gridTheme";
 import { DataViewToggle } from "./DataViewToggle";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
-const TYPE_BADGE = { numeric: "123", categorical: "abc", identifier: "id", bool: "T/F" } as const;
-const TYPE_LABEL: Record<ColumnType, string> = {
+const TYPE_BADGE: Record<SwatchKey, string> =
+  { numeric: "123", categorical: "abc", identifier: "id", bool: "T/F" };
+const TYPE_LABEL: Record<SwatchKey, string> = {
   numeric: "numeric", categorical: "categorical", identifier: "identifier", bool: "bool",
 };
 
@@ -47,16 +48,17 @@ export function DataTable() {
     if (!schema) return [];
     const defs: ColDef<Row>[] = [];
     for (const c of schema.columns) {
+      const sk = swatchKey(c);   // role when identifier, else value type
       defs.push({
         field: c.name,
         headerName: `${c.label}`,
-        headerTooltip: `${c.type} (${TYPE_BADGE[c.type]})`,
-        headerClass: `type-${c.type}`,
-        editable: c.type !== "identifier",
+        headerTooltip: c.identifier ? `identifier · ${c.type}` : `${c.type} (${TYPE_BADGE[sk]})`,
+        headerClass: `type-${sk}`,
+        editable: !c.identifier,               // identifiers are keys, not edited
         flex: 1,
         minWidth: 90,
         cellDataType: c.type === "numeric" ? "number" : "text",
-        cellClass: c.type === "identifier" ? "mono dim"
+        cellClass: c.identifier ? "mono dim"
           : c.type === "numeric" || c.type === "bool" ? "mono" : undefined,
         ...(c.type === "categorical" && {
           cellEditor: "agSelectCellEditor",
@@ -114,7 +116,7 @@ export function DataTable() {
         <h2>Data</h2>
         <DataViewToggle />
         <div className="type-legend" title="Data-type colours — click a swatch to recolour">
-          {(Object.keys(typeColors) as ColumnType[]).map((t) => (
+          {(Object.keys(typeColors) as SwatchKey[]).map((t) => (
             <label key={t} className="type-chip" style={{ "--chip": typeColors[t] } as CSSProperties}>
               <input
                 type="color"

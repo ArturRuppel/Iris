@@ -135,8 +135,10 @@ def test_schema_patch_endpoint_refixes_session_test_inference():
     # POST /table/{id}/schema retypes the session in place; the next /analyze on
     # the same token then infers the corrected family.
     table = make_table()
+    # retype the grouping column to bool: bool×numeric matches no inference branch,
+    # so the engine can't build a model — the user-visible face of the drift.
     ident_schema = {**document.SAMPLE_SCHEMA, "columns": [
-        {**c, "type": "identifier"} if c["name"] == "treatment" else c
+        {**c, "type": "bool"} if c["name"] == "treatment" else c
         for c in document.SAMPLE_SCHEMA["columns"]]}
     table["schema"] = ident_schema
 
@@ -167,6 +169,26 @@ def test_schema_patch_endpoint_rejects_unknown_column():
         {"name": "ghost", "type": "numeric", "label": "Ghost"}]}
     r = client.post(f"/table/{tid}/schema", json={"table_schema": bad})
     assert r.status_code == 422
+
+
+def test_schema_patch_endpoint_rejects_non_keying_identifiers():
+    # the contract the frontend depends on: marking `treatment` (2 levels, 20 rows
+    # each) an identifier leaves rows indistinguishable → 422 with a clear message,
+    # and the toggle reverts because local state is only committed on success.
+    created = client.post("/table/create", json={"table": make_table()})
+    tid = created.json()["id"]
+    # treatment alone as the only identifier: subject demoted, so 2 levels × 20
+    # rows collide. (Building on SAMPLE_SCHEMA where subject would otherwise key it.)
+    def _fix(c):
+        if c["name"] == "treatment":
+            return {**c, "identifier": True}
+        return {k: v for k, v in c.items() if k != "identifier"}
+    bad = {**document.SAMPLE_SCHEMA,
+           "columns": [_fix(c) for c in document.SAMPLE_SCHEMA["columns"]]}
+    r = client.post(f"/table/{tid}/schema", json={"table_schema": bad})
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "treatment" in detail and "uniquely identify" in detail
 
 
 def _modern_spec_size_on_categorical(font_pt):
@@ -869,8 +891,12 @@ def test_import_commit_feeds_analyze():
     prev = client.post("/import/preview", json={
         "filename": "study.csv", "data_base64": _b64(csv_data)}).json()
     cols = {c["name"]: c for c in prev["columns"]}
-    assert cols["subject"]["type"] == "identifier"
+    # subject (P00..P39, all distinct) is a categorical *identifier* — a key, not
+    # a free classifier; the role is orthogonal to the value type.
+    assert cols["subject"]["type"] == "categorical"
+    assert cols["subject"]["identifier"] is True
     assert cols["group"]["type"] == "categorical"
+    assert cols["group"].get("identifier") in (False, None)
     assert cols["value"]["type"] == "numeric"
 
     commit = client.post("/import/commit", json={

@@ -21,9 +21,9 @@ CELLS = ["C1", "C2", "C3"]
 RATIO = {"E1": 2.0, "E2": 2.2, "E3": 1.8}
 
 SCHEMA_OVERRIDES = {
-    "experiment_id": {"type": "identifier"},
-    "position_id": {"type": "identifier"},
-    "cell_id": {"type": "identifier"},
+    "experiment_id": {"identifier": True},
+    "position_id": {"identifier": True},
+    "cell_id": {"identifier": True},
     "contact": {"type": "categorical", "levels": ["high"]},
     "obs": {"type": "numeric"},
     "exp": {"type": "numeric"},

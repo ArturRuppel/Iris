@@ -15,7 +15,7 @@ export function seedStore(
 ) {
   const store = createStore();
   const schema: Schema = { schema_version: "1.0", columns: [
-    ...spine.map((d) => ({ name: d, type: "identifier" as const, label: d })),
+    ...spine.map((d) => ({ name: d, type: "categorical" as const, identifier: true, label: d })),
     ...extraColumns,
     { name: "val", type: "numeric" as const, label: "Value" },
   ] };

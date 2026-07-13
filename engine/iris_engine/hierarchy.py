@@ -59,10 +59,15 @@ def _level_table(src: pd.DataFrame, schema: dict, grain: list[str],
     category), and union each group's `row_ids` so provenance still resolves to
     raw."""
     cols = {c["name"]: c for c in schema["columns"]}
+    # a measure is a numeric column that is NOT an identifier — a numeric key
+    # (a numeric identifier) is carried like any other key, never averaged.
     measures = [c["name"] for c in schema["columns"]
-                if c["type"] == "numeric" and c["name"] in src and c["name"] not in grain]
+                if c["type"] == "numeric" and not c.get("identifier")
+                and c["name"] in src and c["name"] not in grain]
+    # carry the key/label columns single-valued within the grain: every identifier
+    # (whatever its value type) and every plain categorical qualifier.
     others = [c["name"] for c in schema["columns"]
-              if c["type"] in ("categorical", "identifier")
+              if (c.get("identifier") or c["type"] == "categorical")
               and c["name"] in src and c["name"] not in grain]
 
     # dropna=False: a grain key may legitimately be missing (e.g. an all-NaN
@@ -356,7 +361,7 @@ def identity_merge(df: pd.DataFrame, schema: dict, spine: list[str],
     kept identifier (the default chain, or pooling with nothing finer kept) is
     exempt. Detection is exact: distinct count of (kept identifiers) with vs
     without D."""
-    types = {c["name"]: c["type"] for c in schema["columns"]}
+    ident = {c["name"] for c in schema["columns"] if c.get("identifier")}
     present = spine_present(df, spine)
     pos = {d: i for i, d in enumerate(present)}
     merges: list[dict] = []
@@ -364,7 +369,7 @@ def identity_merge(df: pd.DataFrame, schema: dict, spine: list[str],
     for step in plan:
         keep = [c for c in step["keep"] if c in present]
         removed = [d for d in prev if d not in keep]
-        kept_ids = [d for d in keep if types.get(d) == "identifier"]
+        kept_ids = [d for d in keep if d in ident]
         for dim in removed:
             if dim not in pos:
                 continue
@@ -384,7 +389,7 @@ def join_leaf_key(df, schema, spine, steps) -> list[dict]:
     """Warn (never block) when a `join` keys on a leaf identifier without its spine
     ancestors and that leaf isn't unique on its own — the merge may mismatch units.
     Returns [{dim, on, suggested, before, after, severity, text}] per offending join."""
-    ids = {c["name"] for c in schema.get("columns", []) if c.get("type") == "identifier"}
+    ids = {c["name"] for c in schema.get("columns", []) if c.get("identifier")}
     present = [s for s in spine if s in df.columns]
     out: list[dict] = []
     for i, step in enumerate(steps or []):

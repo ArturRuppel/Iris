@@ -7,12 +7,15 @@ import {
 import { engine, LEVEL_FNS, type HierarchyInfo, type LevelFn } from "../types";
 import { labelForCol } from "../levels";
 
-/* The data hierarchy, defined on the DATA (not per analysis). Every non-numeric
-   column is either an *identifier* (a nesting level on the spine) or a
-   *classifier* (a categorical qualifier). Identifiers form the ordered spine
+/* The data hierarchy, defined on the DATA (not per analysis). Any column can be
+   an *identifier* (a nesting level on the spine) — the role is orthogonal to the
+   value type, so a numeric key like time or dose is an identifier that still
+   plots on an axis. A non-identifier column is a *classifier* (a categorical
+   qualifier) or a *measure* (numeric). Identifiers form the ordered spine
    (coarsest → finest); classifiers attach at their *home level* — the coarsest
-   grain where they stay single-valued (class_label at the cell level, condition
-   at the date level). The visualization makes that attachment visible. */
+   grain where they stay single-valued. The identifiers must jointly key the raw
+   table (each row uniquely identified); the engine rejects a role change that
+   would break that, and the reason is shown inline below. */
 export function HierarchyPanel() {
   const schema = useAtomValue(activeSchemaAtom);
   const hierarchy = useAtomValue(activeHierarchyAtom);
@@ -21,12 +24,25 @@ export function HierarchyPanel() {
   const moveSpine = useSetAtom(moveSpineAtom);
   const setLevelFn = useSetAtom(setLevelFnAtom);
   const [info, setInfo] = useState<HierarchyInfo | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const timer = useRef<number>();
 
-  const classifiers = (schema?.columns ?? []).filter((c) => c.type === "categorical");
-  const measures = (schema?.columns ?? []).filter(
-    (c) => c.type === "numeric" || c.type === "bool");
+  const cols = schema?.columns ?? [];
+  // classifiers = categorical qualifiers (non-identifier); they drive the home-
+  // level preview fetch below.
+  const classifiers = cols.filter((c) => c.type === "categorical" && !c.identifier);
   const spine = hierarchy.spine;
+
+  // toggle a column's identifier role; on rejection (identifiers don't key the
+  // table) surface the engine's reason inline and leave the toggle unchanged.
+  async function applyRole(name: string, identifier: boolean) {
+    setRoleError(null);
+    try {
+      await setRole({ name, identifier });
+    } catch (e) {
+      setRoleError(e instanceof Error ? e.message : String(e));
+    }
+  }
 
   /* fetch home levels + grain cardinalities whenever the spine or the set of
      classifiers changes (debounced). Resolves the table by its session id. */
@@ -66,30 +82,39 @@ export function HierarchyPanel() {
     <aside className="hierarchy-panel">
       <h3>Data hierarchy</h3>
       <p className="dim hp-hint">
-        Assign every category a role: an <b>identifier</b> nests the data (a spine
-        level), a <b>classifier</b> labels it. Pick a level later to average away
-        everything finer.
+        Mark any column an <b>identifier</b> to nest the data by it (a spine
+        level) — a numeric key like time or dose still plots on an axis.
+        Everything else is a <b>classifier</b> (a label) or a <b>measure</b>.
+        Pick a level later to average away everything finer.
       </p>
 
-      {/* role assignment for every non-numeric column */}
+      {/* role assignment for every column: identifier on/off, with the natural
+          (non-identifier) role named per value type. Identifiers listed first,
+          in spine order (coarsest → finest), then classifiers, then measures. */}
       <div className="hp-roles">
-        {[...spine.map((s) => ({ name: s, type: "identifier" as const })),
-          ...classifiers.map((c) => ({ name: c.name, type: "categorical" as const }))]
-          .map(({ name, type }) => (
-            <div key={name} className="hp-role-row">
-              <span className="hp-col">{labelFor(name)}</span>
-              <div className="seg">
-                <button className={type === "identifier" ? "on" : ""}
-                  onClick={() => setRole({ name, role: "identifier" })}>identifier</button>
-                <button className={type === "categorical" ? "on" : ""}
-                  onClick={() => setRole({ name, role: "classifier" })}>classifier</button>
+        {[...spine, ...cols.filter((c) => !c.identifier).map((c) => c.name)]
+          .map((name) => {
+            const col = cols.find((c) => c.name === name);
+            if (!col) return null;
+            const isId = !!col.identifier;
+            const naturalRole = col.type === "categorical" ? "classifier" : "measure";
+            return (
+              <div key={name} className="hp-role-row">
+                <span className="hp-col">{labelFor(name)}</span>
+                <div className="seg">
+                  <button className={isId ? "on" : ""}
+                    onClick={() => applyRole(name, true)}>identifier</button>
+                  <button className={isId ? "" : "on"}
+                    onClick={() => applyRole(name, false)}>{naturalRole}</button>
+                </div>
               </div>
-            </div>
-          ))}
-        {classifiers.length === 0 && spine.length === 0 && (
-          <p className="rail-empty">No categorical columns to organize.</p>
+            );
+          })}
+        {cols.length === 0 && (
+          <p className="rail-empty">No columns to organize.</p>
         )}
       </div>
+      {roleError && <p className="hp-role-error error-bar">{roleError}</p>}
 
       {/* the visualization: spine (vertical) with classifiers branching at home */}
       {spine.length > 0 && (
@@ -141,10 +166,6 @@ export function HierarchyPanel() {
         </div>
       )}
 
-      {measures.length > 0 && (
-        <p className="dim hp-measures">{measures.length} numeric measure
-          {measures.length === 1 ? "" : "s"}</p>
-      )}
     </aside>
   );
 }

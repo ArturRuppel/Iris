@@ -2,8 +2,12 @@ import { describe, it, expect } from "vitest";
 import { pivotability, groupedSpec, longToWide } from "./grouped";
 import type { ColumnDef, Row, Schema, Hierarchy } from "./types";
 
-const col = (name: string, type: ColumnDef["type"]): ColumnDef =>
-  ({ name, type, label: name });
+// "identifier" is shorthand for a categorical column carrying the identifier
+// role (the value type is immaterial to the spine-layout logic under test).
+const col = (name: string, type: ColumnDef["type"] | "identifier"): ColumnDef =>
+  type === "identifier"
+    ? { name, type: "categorical", identifier: true, label: name }
+    : { name, type, label: name };
 const schema = (...cs: ColumnDef[]): Schema => ({ schema_version: "1.0", columns: cs });
 const hier = (...spine: string[]): Hierarchy => ({ spine, fn: {} });
 

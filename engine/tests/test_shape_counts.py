@@ -11,8 +11,8 @@ def _fixture():
                 rows.append({"group": g, "subject": f"{g}_s{s}", "rep": r, "value": 1.0 + s + r})
     schema = {"schema_version": "1.0", "columns": [
         {"name": "group", "label": "Group", "type": "classifier"},
-        {"name": "subject", "label": "Subject", "type": "identifier"},
-        {"name": "rep", "label": "Rep", "type": "identifier"},
+        {"name": "subject", "label": "Subject", "type": "categorical", "identifier": True},
+        {"name": "rep", "label": "Rep", "type": "categorical", "identifier": True},
         {"name": "value", "label": "Value", "type": "numeric"}]}
     return {"schema": schema, "rows": rows}
 
@@ -98,9 +98,9 @@ def _table():
                 for fr in range(5):
                     rows.append([e, f, c, fr, float(len(rows))])
     return {"schema": {"schema_version": "1.0", "columns": [
-                {"name": "experiment", "type": "identifier", "label": "Experiment"},
-                {"name": "field", "type": "identifier", "label": "Field"},
-                {"name": "cell", "type": "identifier", "label": "Cell"},
+                {"name": "experiment", "type": "categorical", "identifier": True, "label": "Experiment"},
+                {"name": "field", "type": "categorical", "identifier": True, "label": "Field"},
+                {"name": "cell", "type": "categorical", "identifier": True, "label": "Cell"},
                 {"name": "frame", "type": "numeric", "label": "Frame"},
                 {"name": "area", "type": "numeric", "label": "Area"}]},
             "rows": [dict(zip(cols, r)) for r in rows]}
@@ -133,7 +133,7 @@ def test_shape_counts_describes_join_right_table():
     table = _fixture()  # subjects ctrl_s0..2, drug_s0..2 (6 unique subjects)
     right = {
         "schema": {"schema_version": "1.0", "columns": [
-            {"name": "subject",  "label": "Subject",  "type": "identifier"},
+            {"name": "subject",  "label": "Subject",  "type": "categorical", "identifier": True},
             {"name": "genotype", "label": "Genotype", "type": "categorical"}]},
         "rows": [
             {"subject": "ctrl_s0", "genotype": "wt"},

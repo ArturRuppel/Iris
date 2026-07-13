@@ -21,8 +21,8 @@ function linearDag(steps: ReduceStep[], post: ReduceStep[] = []): ReduceDag {
 const SCHEMA: Schema = {
   schema_version: "1.0",
   columns: [
-    { name: "experiment", label: "Experiment", type: "identifier" },
-    { name: "cell", label: "Cell", type: "identifier" },
+    { name: "experiment", label: "Experiment", type: "categorical", identifier: true },
+    { name: "cell", label: "Cell", type: "categorical", identifier: true },
     { name: "area", label: "Area", type: "numeric" },
   ],
 } as unknown as Schema;

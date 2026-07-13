@@ -34,7 +34,7 @@ from . import scales as scales_mod
 from . import stats as stats_mod
 from . import style as style_mod
 from .scales import PALETTE  # the single colour source of truth (see scales.py)
-from .specutil import col_type, resolve_cat_val
+from .specutil import col_type, is_identifier, resolve_cat_val
 
 MM = 1 / 25.4
 INK = "#0f172a"
@@ -769,9 +769,14 @@ def _layout(df, schema, spec, *, scales=None):
     has_point = any(not geoms_mod.GEOMS[l["geom"]].aggregates
                     for l in spec.get("layers", [])
                     if l.get("geom") in geoms_mod.GEOMS)
+    # a plain categorical colour (not an identifier) always dodges; an identifier
+    # colour (numeric or categorical, a replicate id) dodges only when no per-point
+    # layer claims it for the superplot idiom.
+    plain_cat_color = (col_type(schema, color_col) == "categorical"
+                       and not is_identifier(schema, color_col))
     dodged = (color_col is not None and color_col != cat_col
               and not sc.color_numeric
-              and (col_type(schema, color_col) == "categorical" or not has_point))
+              and (plain_cat_color or not has_point))
 
     if dodged:
         clevels = list(sc.color_levels)
@@ -1791,7 +1796,8 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     # Numeric color is a colorbar, not curves, so only categorical color groups.
     color = enc.get("color")
     color_col = color["column"] if color and color.get("column") else None
-    grouped = bool(color_col) and col_type(schema, color_col) == "categorical"
+    grouped = (bool(color_col) and col_type(schema, color_col) == "categorical"
+               and not is_identifier(schema, color_col))
     sc = scales_mod.resolve_scales(enc, df, schema, style)
     color_levels = sc.color_levels if grouped else []
     # Shared bins span the POOLED in-scope values so overlaid/faceted curves are

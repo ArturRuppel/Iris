@@ -61,7 +61,7 @@ export const hierarchyAtom = atom<Hierarchy>((get) =>
 /* identifier columns of the current (master) schema, in schema order — the
    canonical spine membership the stored order is reconciled against. */
 function identifierCols(schema: Schema | null): string[] {
-  return schema ? schema.columns.filter((c) => c.type === "identifier").map((c) => c.name) : [];
+  return schema ? schema.columns.filter((c) => c.identifier).map((c) => c.name) : [];
 }
 /* keep the stored spine order but drop columns no longer identifiers and append
    newly-identifier columns at the end (finest). */
@@ -78,18 +78,25 @@ export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
   "#332288", "#117733", "#88CCEE", "#882255",
   "#999933", "#AA4499", "#44AA99", "#661100"];
 
-/* App-level colour coding for column data types, shown in the table overview.
-   Configurable (and persisted) so a user can match their own convention; the
-   key set must stay in sync with ColumnDef["type"]. */
 export type ColumnType = ColumnDef["type"];
-export const DEFAULT_TYPE_COLORS: Record<ColumnType, string> = {
+/* App-level colour coding shown in the table overview. Keyed by value type plus
+   the orthogonal `identifier` role (a column that is an identifier is swatched by
+   its role, whatever its value type). Configurable (and persisted) so a user can
+   match their own convention. */
+export type SwatchKey = ColumnType | "identifier";
+export const DEFAULT_TYPE_COLORS: Record<SwatchKey, string> = {
   numeric: "#3f8f68",      // sage — measurements (--t-num)
   categorical: "#6d3ab0",  // iris-violet — classifiers (--t-cat)
   identifier: "#a99fb0",   // muted lilac-grey — nesting keys (--t-id)
   bool: "#b07d2a",         // amber — stochastic-event flags (--t-bool)
 };
-export const typeColorsAtom = atomWithStorage<Record<ColumnType, string>>(
+export const typeColorsAtom = atomWithStorage<Record<SwatchKey, string>>(
   "iris.typeColors", DEFAULT_TYPE_COLORS);
+/* the swatch key for a column: its role when it's an identifier, else its value
+   type. */
+export function swatchKey(col: ColumnDef): SwatchKey {
+  return col.identifier ? "identifier" : col.type;
+}
 
 /* ---- style sheets (item F): capture, reuse, share a plot's look ---- */
 
@@ -1761,39 +1768,42 @@ export const addLayerAtNodeAtom = atom(null,
 
 /* ---- table-level hierarchy: column roles + spine order (Data tab) ---- */
 
-/* Assign a column a role: "identifier" (a nesting/spine level) or "classifier"
-   (a categorical qualifier). Changes the column TYPE on the master schema and
-   reconciles the spine membership, so the hierarchy stays fully defined — every
-   non-numeric column is one or the other. The retyped schema is pushed to the
-   engine session (POST /table/{id}/schema): the engine's test inference reads the
-   session schema, so without this the engine keeps the old types and can disagree
-   with the frontend about which test ran. The version the engine bumps flows back
-   onto the handle, invalidating the analyze cache so the next render re-infers. */
+/* Turn a column's identifier role on or off. The role is orthogonal to the value
+   type (a numeric identifier keeps type "numeric" and still plots): this only
+   flips the `identifier` flag on the master schema and reconciles the spine
+   membership. The schema is pushed to the engine session (POST /table/{id}/schema),
+   which VALIDATES that the identifier columns jointly key the table and rejects
+   (422) otherwise — so the throw propagates to the caller (HierarchyPanel shows it
+   inline) and local state is left untouched, reverting the toggle. On success the
+   version the engine bumps flows back onto the handle, invalidating the analyze
+   cache so the next render re-infers. */
 export const setColumnRoleAtom = atom(null,
-  async (get, set, arg: { name: string; role: "identifier" | "classifier" }) => {
+  async (get, set, arg: { name: string; identifier: boolean }) => {
     const t = get(activeTableAtom); if (!t) return;
     const tableId = t.id;
     const schema = t.schema;
     const handle = t.handle;
-    const newType: "identifier" | "categorical" =
-      arg.role === "identifier" ? "identifier" : "categorical";
-    // a column becoming a classifier needs levels for the editor / ordering;
-    // derive them from the server-owned table (not a browser-side row copy).
+    // a non-identifier categorical needs levels for the editor / ordering; derive
+    // them from the server-owned table (not a browser-side row copy) when missing.
     const target = schema.columns.find((c) => c.name === arg.name);
-    const fetched = newType === "categorical" && target && !target.levels && handle
+    const fetched = !arg.identifier && target?.type === "categorical" && !target.levels && handle
       ? (await engine.distinct(handle.id, arg.name)).values
       : undefined;
     const columns = schema.columns.map((c) => {
       if (c.name !== arg.name) return c;
-      const levels = newType === "categorical" && !c.levels ? fetched : c.levels;
-      return { ...c, type: newType, levels };
+      const next: ColumnDef = { ...c };
+      if (arg.identifier) next.identifier = true;
+      else delete next.identifier;                       // omit false: keep schema tidy
+      if (!arg.identifier && c.type === "categorical" && !c.levels && fetched) next.levels = fetched;
+      return next;
     });
     const nextSchema = { ...schema, columns };
     const nextHierarchy = {
       ...t.hierarchy, spine: reconcileSpine(t.hierarchy.spine, identifierCols(nextSchema)),
     };
-    // Retype the engine session in place (data untouched) so its inference sees
-    // the new types; the bumped version invalidates every result cache keyed on it.
+    // Push to the engine session (data untouched) so its inference sees the new
+    // roles; the bumped version invalidates every result cache keyed on it. Throws
+    // (422) if the identifiers don't key the table — caught by the caller.
     const patched = handle ? await engine.setSchema(handle.id, nextSchema) : null;
     const nextHandle: TableHandle | undefined = handle && patched
       ? { ...handle, version: patched.version, schema: patched.schema }

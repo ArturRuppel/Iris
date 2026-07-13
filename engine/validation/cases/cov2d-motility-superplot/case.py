@@ -23,10 +23,10 @@ BASE = {"ctrl": 1.0, "trt": 1.6}
 EXP_OFFSET = {"E1": 0.0, "E2": 0.1, "E3": -0.1}
 
 SCHEMA_OVERRIDES = {
-    "experiment_id": {"type": "identifier"},
-    "position_id": {"type": "identifier"},
-    "cell_id": {"type": "identifier"},
-    "frame": {"type": "identifier"},
+    "experiment_id": {"identifier": True},
+    "position_id": {"identifier": True},
+    "cell_id": {"identifier": True},
+    "frame": {"identifier": True},
     "condition": {"type": "categorical", "levels": CONDITIONS},
     "speed": {"type": "numeric"},
 }

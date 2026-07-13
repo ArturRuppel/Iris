@@ -19,7 +19,7 @@ import type { ColumnDef } from "../types";
 function seed({ handle = true }: { handle?: boolean } = {}) {
   const store = createStore();
   const schema: Schema = { schema_version: "1.0", columns: [
-    { name: "cell", type: "identifier", label: "cell" },
+    { name: "cell", type: "categorical", identifier: true, label: "cell" },
     { name: "val", type: "numeric", label: "Value" },
   ] };
   if (handle) {
@@ -138,8 +138,8 @@ describe("NodeTable", () => {
 
 describe("buildColumnDefs", () => {
   const cols: ColumnDef[] = [
-    { name: "experiment", label: "experiment", type: "identifier" },
-    { name: "position", label: "position", type: "identifier" },
+    { name: "experiment", label: "experiment", type: "categorical", identifier: true },
+    { name: "position", label: "position", type: "categorical", identifier: true },
     { name: "t1_event_id", label: "t1_event_id", type: "numeric" },
     { name: "contact_type", label: "contact_type", type: "categorical" },
   ];

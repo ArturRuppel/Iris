@@ -40,8 +40,8 @@ stats block — `hierarchy.pairing` returns verdict "paired" across `patient`
 (n_units = 10, n_complete = 10), so the engine aligns 10 pairs and counts n = 10.
 """
 SCHEMA_OVERRIDES = {
-    "patient": {"type": "identifier"},
-    "rep": {"type": "identifier"},
+    "patient": {"identifier": True},
+    "rep": {"identifier": True},
     "drug": {"type": "categorical", "levels": ["drug1", "drug2"]},
 }
 

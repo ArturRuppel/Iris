@@ -4,7 +4,7 @@ import { StepJoin, type JoinPoolEntry } from "./StepJoin";
 import type { ColumnDef, JoinStep, Schema } from "../types";
 
 const cols: ColumnDef[] = [
-  { name: "id", type: "identifier", label: "ID" },
+  { name: "id", type: "categorical", identifier: true, label: "ID" },
   { name: "batch", type: "categorical", label: "Batch" },
 ];
 

@@ -277,27 +277,34 @@ def _is_zero_one(non_na: pd.Series, decimal: str) -> bool:
     return set(nums.dropna().unique()).issubset({0.0, 1.0})
 
 
-def _infer_type(s: pd.Series, decimal: str) -> str:
+def _infer_type(s: pd.Series, decimal: str) -> tuple[str, bool]:
+    """Infer ``(value_type, is_identifier)``. The value type is what the column
+    contains (numeric/categorical/bool); the identifier flag is the orthogonal
+    nesting-key role. A key column keeps its value type — an integer index is a
+    ``numeric`` identifier (so it still plots), a string key a ``categorical``
+    identifier."""
     non_na = s.dropna()
     if non_na.empty:
-        return "categorical"
+        return "categorical", False
     # bool before numeric: an all true/false (yes/no) column is a stochastic
     # event flag, not a measure or a free categorical.
     if set(str(v).strip().lower() for v in non_na.unique()) <= BOOL_TOKENS:
-        return "bool"
+        return "bool", False
     name_id = _looks_like_identifier(s.name)
     nums = _as_numeric(non_na, decimal)
     if nums.notna().mean() >= 0.95:
-        # an integer-valued column named like a key is a grouping index, not a
-        # measure; a float-valued one (e.g. time in seconds) stays a measure.
+        # a numeric column; an integer-valued one named like a key is also a
+        # grouping index (a numeric identifier). A float column (e.g. time in
+        # seconds) is a plain measure unless the name says otherwise.
         intlike = bool((nums.dropna() % 1 == 0).all())
-        return "identifier" if name_id and intlike else "numeric"
+        return "numeric", bool(name_id and intlike)
     n_distinct = non_na.nunique()
     if n_distinct == len(non_na) and len(non_na) > 10:
-        return "identifier"  # every value unique: a label, not a grouping
+        return "categorical", True   # every value unique: a label key, not a grouping
     if name_id:
-        return "identifier"  # named like a key (date, position_id, well, ...)
-    return "categorical" if n_distinct <= MAX_LEVELS else "identifier"
+        return "categorical", True   # named like a key (date, position, well, ...)
+    # high-cardinality strings read as a key too; ordinary ones as a free category
+    return "categorical", n_distinct > MAX_LEVELS
 
 
 def _levels_in_order(s: pd.Series) -> list[str]:
@@ -306,17 +313,24 @@ def _levels_in_order(s: pd.Series) -> list[str]:
 
 def _column_report(df: pd.DataFrame, labels: list[str], decimal: str,
                    types: dict[str, str] | None = None,
+                   identifiers: dict[str, bool] | None = None,
                    counts: bool = True) -> list[dict]:
     """Per-column report for the wizard. With `counts=False` (the headers-first
-    pass) only name/label/inferred-type/examples are computed from a head sample
-    — the full-data stats (n_missing/n_distinct/n_unparsed/levels) are filled in
-    by the later full preview, so the user can start typing/mapping immediately."""
+    pass) only name/label/inferred-type/identifier/examples are computed from a
+    head sample — the full-data stats (n_missing/n_distinct/n_unparsed/levels) are
+    filled in by the later full preview, so the user can start typing/mapping
+    immediately. `types`/`identifiers` are the user's per-column overrides of the
+    inferred value type / nesting-key role."""
     cols = []
     for name, label in zip(df.columns, labels):
         s = df[name]
-        ctype = (types or {}).get(name) or _infer_type(s, decimal)
+        inferred_type, inferred_id = _infer_type(s, decimal)
+        ctype = (types or {}).get(name) or inferred_type
+        ident = (identifiers or {}).get(name)
+        if ident is None:
+            ident = inferred_id
         non_na = s.dropna()
-        col = {"name": name, "label": label, "type": ctype,
+        col = {"name": name, "label": label, "type": ctype, "identifier": bool(ident),
                "examples": non_na.head(3).tolist()}
         # a numeric 0/1 column stays numeric by default but is flagged so the
         # wizard can suggest bool (the user confirms; commit then converts 0/1
@@ -385,7 +399,8 @@ def preview_headers_from_frame(df: pd.DataFrame, resolved: dict,
     resolved = dict(resolved)  # don't mutate the cached read result
     labels = resolved.pop("labels")
     columns = _column_report(df, labels, resolved["decimal"],
-                             types=options.get("types"), counts=False)
+                             types=options.get("types"),
+                             identifiers=options.get("identifiers"), counts=False)
     return {"options": resolved, "columns": columns, "n_rows": None,
             "rows": [], "provisional": True}
 
@@ -395,7 +410,8 @@ def preview_from_frame(df: pd.DataFrame, resolved: dict, options: dict) -> dict:
     resolved = dict(resolved)  # don't mutate the cached read result
     labels = resolved.pop("labels")
     columns = _column_report(df, labels, resolved["decimal"],
-                             types=options.get("types"))
+                             types=options.get("types"),
+                             identifiers=options.get("identifiers"))
     return {"options": resolved, "columns": columns, "n_rows": len(df),
             "rows": _typed_rows(df, columns, resolved["decimal"],
                                 limit=PREVIEW_ROWS)}
@@ -419,6 +435,8 @@ def commit_from_frame(df: pd.DataFrame, resolved: dict,
             raise ValueError(f"unknown column {name!r}")
         entry = {"name": name, "type": ctype,
                  "label": col.get("label") or labels[name]}
+        if col.get("identifier"):
+            entry["identifier"] = True
         if ctype == "categorical":
             entry["levels"] = _levels_in_order(df[name])[:MAX_LEVELS]
         schema_cols.append(entry)

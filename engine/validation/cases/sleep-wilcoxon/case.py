@@ -25,8 +25,8 @@ the signed-rank statistic W = 0 and the rank-biserial effect is -1.0 (the sign i
 the drug1 − drug2 direction, matching sleep-paired-t).
 """
 SCHEMA_OVERRIDES = {
-    "patient": {"type": "identifier"},
-    "rep": {"type": "identifier"},
+    "patient": {"identifier": True},
+    "rep": {"identifier": True},
     "drug": {"type": "categorical", "levels": ["drug1", "drug2"]},
 }
 
