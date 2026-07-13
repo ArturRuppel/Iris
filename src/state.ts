@@ -691,11 +691,6 @@ export const activeTableIdAtom = atom<string | null>(null);
    a view preference, never serialized. */
 export const dataViewAtom = atom<"table" | "grouped">("table");
 
-/* the grouped sheet's factor nesting (outer → inner), a list of column names per
-   table id. Session-only view preference; reconciled against the live factors on
-   read (see grouped.applyFactorOrder), so a role change never leaves it stale. */
-export const factorOrderAtom = atom<Record<string, string[]>>({});
-
 /* the table the Data tab edits (its preview, spine, column roles). */
 export const activeTableAtom = atom((get) => byId(get(tablesAtom), get(activeTableIdAtom)));
 /* the table the ACTIVE ANALYSIS computes against (its main table). */

@@ -1,5 +1,5 @@
 import { useAtom, useAtomValue } from "jotai";
-import { dataViewAtom, activeSchemaAtom, activeHandleAtom } from "../state";
+import { dataViewAtom, activeSchemaAtom, activeHandleAtom, activeHierarchyAtom } from "../state";
 import { pivotability } from "../grouped";
 
 /* The Data-tab representation switch: tidy Table ↔ wide Grouped sheet. Lives in
@@ -10,8 +10,9 @@ export function DataViewToggle() {
   const [view, setView] = useAtom(dataViewAtom);
   const schema = useAtomValue(activeSchemaAtom);
   const handle = useAtomValue(activeHandleAtom);
+  const hierarchy = useAtomValue(activeHierarchyAtom);
 
-  const avail = pivotability(schema, handle?.n ?? 0);
+  const avail = pivotability(schema, hierarchy);
   // no table yet: the grouped pane is the entry surface, so it's the only place
   // to be — Grouped is forced-on and Table has nothing to show (Slice 5).
   const noTable = !handle;
