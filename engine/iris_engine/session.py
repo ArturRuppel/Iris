@@ -61,6 +61,29 @@ class SessionTable:
             self._df.at[pos, column] = value
             self.version += 1
 
+    def edit_cells(self, edits: list[dict]) -> int:
+        """Apply many cell edits under one lock, bumping `version` once — the write
+        path for a grouped-sheet paste or range-clear, so a 10×10 paste is one
+        round-trip and one re-pivot, not a hundred. Each edit is
+        {row_id, column, value}. An edit naming an unknown row or column is skipped
+        (paste only targets existing tidy rows, but stay defensive rather than
+        abort a whole block on one bad cell). Returns the count actually applied."""
+        with self._lock:
+            applied = 0
+            for e in edits:
+                column = e.get("column")
+                if column not in self._df.columns:
+                    continue
+                try:
+                    pos = self._row_pos(str(e.get("row_id")))
+                except KeyError:
+                    continue
+                self._df.at[pos, column] = e.get("value")
+                applied += 1
+            if applied:
+                self.version += 1
+            return applied
+
     def relabel_category(self, column: str, from_label: str, to_label: str) -> dict:
         """Rename a categorical level across every row that carries it — the tidy
         effect of renaming a leaf/group header in the grouped sheet. Honest about

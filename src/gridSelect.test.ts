@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rectOf, inRect, clampCell, cellText, rectToTSV } from "./gridSelect";
+import { rectOf, inRect, clampCell, cellText, rectToTSV, parseTSV } from "./gridSelect";
 
 describe("rectOf — normalise anchor/focus into an inclusive rect", () => {
   it("orders the corners regardless of drag direction", () => {
@@ -75,5 +75,31 @@ describe("rectToTSV — a copied block is spreadsheet-pasteable TSV", () => {
   });
   it("a single cell is just its text, no separators", () => {
     expect(rectToTSV(values, { r0: 2, r1: 2, c0: 2, c1: 2 })).toBe("9");
+  });
+});
+
+describe("parseTSV — clipboard text back into a grid of fields", () => {
+  it("splits tabs into columns and newlines into rows", () => {
+    expect(parseTSV("1\t2\n3\t4")).toEqual([["1", "2"], ["3", "4"]]);
+  });
+  it("drops the single trailing newline a spreadsheet appends", () => {
+    expect(parseTSV("1\t2\n3\t4\n")).toEqual([["1", "2"], ["3", "4"]]);
+  });
+  it("normalises CRLF (Windows/Excel) to rows", () => {
+    expect(parseTSV("1\t2\r\n3\t4")).toEqual([["1", "2"], ["3", "4"]]);
+  });
+  it("keeps empty fields (a blank between tabs) so columns stay aligned", () => {
+    expect(parseTSV("1\t\t3")).toEqual([["1", "", "3"]]);
+  });
+  it("a single value is a 1×1 grid", () => {
+    expect(parseTSV("42")).toEqual([["42"]]);
+  });
+  it("empty text is no rows", () => {
+    expect(parseTSV("")).toEqual([]);
+  });
+  it("round-trips with rectToTSV", () => {
+    const grid = [[1, 2, 3], [4, null, 6]];
+    const tsv = rectToTSV(grid, { r0: 0, r1: 1, c0: 0, c1: 2 });
+    expect(parseTSV(tsv)).toEqual([["1", "2", "3"], ["4", "", "6"]]);
   });
 });

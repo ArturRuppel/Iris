@@ -170,6 +170,12 @@ class EditRequest(BaseModel):
     value: object | None = None
 
 
+class EditCellsRequest(BaseModel):
+    # a batch of {row_id, column, value} edits (grouped-sheet paste / range-clear),
+    # applied atomically with a single version bump.
+    edits: list[EditRequest]
+
+
 class RelabelRequest(BaseModel):
     column: str
     from_label: str
@@ -607,6 +613,16 @@ def table_edit(tid: str, req: EditRequest):
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
     return {"version": t.version, "counts": t.counts()}
+
+
+@app.post("/table/{tid}/edit_cells")
+def table_edit_cells(tid: str, req: EditCellsRequest):
+    """Apply a batch of cell edits atomically (grouped-sheet paste / range-clear):
+    one version bump, one refetch. `applied` is how many landed, so the UI can
+    state what a paste wrote (and, by difference, what it skipped)."""
+    t = _session_or_409(tid)
+    applied = t.edit_cells([e.model_dump() for e in req.edits])
+    return {"version": t.version, "counts": t.counts(), "applied": applied}
 
 
 @app.post("/table/{tid}/schema")

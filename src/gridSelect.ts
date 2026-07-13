@@ -66,3 +66,14 @@ export function rectToTSV(values: CellValue[][], x: Rect): string {
   }
   return lines.join("\n");
 }
+
+/* the inverse of rectToTSV: parse clipboard text into a grid of string fields.
+   Accepts the TSV a spreadsheet puts on the clipboard — tabs between columns,
+   newlines between rows, CRLF or LF — and drops the single trailing newline
+   spreadsheets tend to append (so it does not read as a phantom empty last row).
+   Returns [] for empty text. Cells stay strings; the caller coerces per column. */
+export function parseTSV(text: string): string[][] {
+  const norm = text.replace(/\r\n?/g, "\n").replace(/\n$/, "");
+  if (norm === "") return [];
+  return norm.split("\n").map((line) => line.split("\t"));
+}

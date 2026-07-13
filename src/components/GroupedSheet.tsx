@@ -9,7 +9,7 @@ import {
   pivotability, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
 import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
-import { rectOf, inRect, clampCell, cellText, rectToTSV, type Cell } from "../gridSelect";
+import { rectOf, inRect, clampCell, cellText, rectToTSV, parseTSV, type Cell } from "../gridSelect";
 import { DataViewToggle } from "./DataViewToggle";
 import { DataEntry } from "./DataEntry";
 
@@ -50,6 +50,34 @@ export function GroupedSheet() {
     if (!handle) return;
     const { version, counts } = await engine.editCell(handle.id, rowId, colName, value);
     bumpHandle({ ...handle, version, counts });
+  };
+
+  /* a batch write for paste / range-clear: one editCells round-trip, one version
+     bump, one re-pivot (not one per cell). The Grid has already resolved which
+     cells map to tidy rows — skipping holes and anything past the sheet edge — and
+     counted what it skipped; here we perform the write and state the outcome. Paste
+     never grows the pivot (the grain is fixed by the spine), so overflow is
+     reported, not silently absorbed. */
+  const applyEdits = async (
+    edits: { row_id: string; column: string; value: number | null }[],
+    report: { wrote: number; skipped: number; kind: "paste" | "clear" },
+  ) => {
+    if (!handle) return;
+    setNotice(null);
+    if (edits.length > 0) {
+      const { version, counts } = await engine.editCells(handle.id, edits);
+      bumpHandle({ ...handle, version, counts });
+    }
+    const n = report.skipped;
+    if (report.wrote === 0) {
+      setNotice(n > 0
+        ? `Nothing to ${report.kind} — the ${n === 1 ? "target cell is" : `${n} target cells are`} outside the editable data.`
+        : `Nothing to ${report.kind}.`);
+      return;
+    }
+    const verb = report.kind === "clear" ? "Cleared" : "Pasted";
+    setNotice(`${verb} ${report.wrote} ${report.wrote === 1 ? "cell" : "cells"}`
+      + (n > 0 ? ` — ${n} ${n === 1 ? "cell" : "cells"} outside the data ${n === 1 ? "was" : "were"} skipped.` : "."));
   };
 
   /* --- structural edits. Each resolves the header the user acted on to a tidy op,
@@ -140,7 +168,7 @@ export function GroupedSheet() {
     if (fetchError) return <Empty>Couldn’t load the table: {fetchError}</Empty>;
     if (!sheet) return <Empty>Loading…</Empty>;
     return (
-      <Grid sheet={sheet} onCommit={commitEdit}
+      <Grid sheet={sheet} onCommit={commitEdit} onApply={applyEdits}
         onRelabel={requestRelabel} onDelete={requestDelete} />
     );
   })();
@@ -221,9 +249,13 @@ const rng = (a: number, b: number): number[] => {
    tidy row) select and copy as blanks but never edit. Header cells keep the
    structural gestures: double-click a label to rename, hover for a × that deletes that column/band. Each leaf header has a
    right-edge handle that resizes its column (drag; that column only). */
-function Grid({ sheet, onCommit, onRelabel, onDelete }: {
+function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
   sheet: Sheet;
   onCommit: (rowId: string, colName: string, value: number | null) => void;
+  onApply: (
+    edits: { row_id: string; column: string; value: number | null }[],
+    report: { wrote: number; skipped: number; kind: "paste" | "clear" },
+  ) => void;
   onRelabel: (level: number, from: string, to: string) => void;
   onDelete: (ids: string[], label: string) => void;
 }) {
@@ -336,12 +368,63 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
     void navigator.clipboard?.writeText(rectToTSV(values, rectOf(sel.anchor, sel.focus)));
   };
 
+  // coerce a pasted/typed string to the numeric body's value: blank or unparseable
+  // clears to NA — the same rule the single-cell editor uses, so paste and typing
+  // agree. (Grouped bodies are measurement columns; they hold numbers or NA.)
+  const coerce = (raw: string): number | null =>
+    raw.trim() === "" || Number.isNaN(Number(raw.trim())) ? null : Number(raw.trim());
+
+  type Edit = { row_id: string; column: string; value: number | null };
+
+  // clear every editable cell in the selection to NA (Delete). Holes have no tidy
+  // row so they are skipped; already-blank cells need no write.
+  const clearSelection = () => {
+    if (!sel) return;
+    const x = rectOf(sel.anchor, sel.focus);
+    const edits: Edit[] = [];
+    let skipped = 0;
+    for (let r = x.r0; r <= x.r1; r++)
+      for (let c = x.c0; c <= x.c1; c++) {
+        const id = rowIds[r][c];
+        if (id == null) { skipped++; continue; }
+        if (values[r][c] == null) continue;   // already NA — nothing to write
+        edits.push({ row_id: id, column: valueOfCol[c], value: null });
+      }
+    onApply(edits, { wrote: edits.length, skipped, kind: "clear" });
+  };
+
+  // paste a clipboard block anchored at the selection's top-left. Paste never grows
+  // the pivot (grain is fixed by the spine), so cells past the sheet edge — and
+  // holes with no tidy row — are skipped and reported, never silently invented.
+  const doPaste = async () => {
+    if (!sel) return;
+    const text = await navigator.clipboard?.readText().catch(() => "");
+    const block = parseTSV(text ?? "");
+    if (block.length === 0) return;
+    const { r0, c0 } = rectOf(sel.anchor, sel.focus);
+    const edits: Edit[] = [];
+    let skipped = 0;
+    for (let i = 0; i < block.length; i++)
+      for (let j = 0; j < block[i].length; j++) {
+        const r = r0 + i, c = c0 + j;
+        if (r >= nRows || c >= nCols) { skipped++; continue; }
+        const id = rowIds[r][c];
+        if (id == null) { skipped++; continue; }
+        edits.push({ row_id: id, column: valueOfCol[c], value: coerce(block[i][j]) });
+      }
+    onApply(edits, { wrote: edits.length, skipped, kind: "paste" });
+    // highlight what landed (Excel selects the pasted block), clamped to the sheet
+    const focus = clampCell(r0 + block.length - 1, c0 + (block[0]?.length ?? 1) - 1, nRows, nCols);
+    setSel({ anchor: { r: r0, c: c0 }, focus });
+  };
+
   // the grid's keyboard model, handled on the focused scroll container; skipped
   // while a cell or header is being edited (the input owns its keys then).
   const onGridKey = (e: React.KeyboardEvent) => {
     if (edit || head) return;
     const meta = e.ctrlKey || e.metaKey;
     if (meta && (e.key === "c" || e.key === "C")) { e.preventDefault(); copySelection(); return; }
+    if (meta && (e.key === "v" || e.key === "V")) { e.preventDefault(); void doPaste(); return; }
     if (meta || e.altKey) return;
     const shift = e.shiftKey;
     switch (e.key) {
@@ -352,6 +435,7 @@ function Grid({ sheet, onCommit, onRelabel, onDelete }: {
       case "Tab": e.preventDefault(); step(0, shift ? -1 : 1, false); return;
       case "Enter": e.preventDefault(); if (sel) startEdit(sel.focus.r, sel.focus.c); return;
       case "Escape": e.preventDefault(); if (sel) setSel({ anchor: sel.focus, focus: sel.focus }); return;
+      case "Delete": case "Backspace": e.preventDefault(); clearSelection(); return;
     }
     // a printable character overwrites the active cell (Excel type-to-replace)
     if (e.key.length === 1 && sel) { e.preventDefault(); startEdit(sel.focus.r, sel.focus.c, e.key); }

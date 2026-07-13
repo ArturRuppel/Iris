@@ -49,6 +49,45 @@ def test_edit_cell_bumps_version_and_persists():
     assert t.window(1, 2)[0]["y"] == 99.0
 
 
+def test_edit_cells_applies_batch_and_bumps_version_once():
+    # a grouped-sheet paste / range-clear: many edits, one atomic version bump.
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    applied = t.edit_cells([
+        {"row_id": "1", "column": "y", "value": 10.0},
+        {"row_id": "3", "column": "y", "value": 30.0},
+        {"row_id": "5", "column": "y", "value": None},   # clear-to-NA
+    ])
+    assert applied == 3
+    assert t.version == 1                                # one bump for the whole batch
+    assert t.window(0, 1)[0]["y"] == 10.0
+    assert t.window(2, 3)[0]["y"] == 30.0
+    assert t.window(4, 5)[0]["y"] is None
+
+
+def test_edit_cells_skips_unknown_targets_without_aborting_the_batch():
+    # one bad cell must not sink the paste: unknown row/column edits are skipped,
+    # the good ones still land, and `applied` reports the truth.
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    applied = t.edit_cells([
+        {"row_id": "2", "column": "y", "value": 22.0},   # good
+        {"row_id": "nope", "column": "y", "value": 1.0}, # unknown row -> skipped
+        {"row_id": "1", "column": "nope", "value": 1.0}, # unknown column -> skipped
+    ])
+    assert applied == 1
+    assert t.version == 1
+    assert t.window(1, 2)[0]["y"] == 22.0
+
+
+def test_edit_cells_empty_batch_is_a_noop():
+    # nothing to write (e.g. a clear whose whole selection was holes) does not bump.
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    assert t.edit_cells([]) == 0
+    assert t.version == 0
+
+
 def test_edit_unknown_row_or_column_raises():
     store = session.SessionStore()
     t = store.get(store.create(SCHEMA, _df()))

@@ -765,6 +765,12 @@ export const engine = {
   editCell: (id: string, rowId: string, column: string, value: unknown) =>
     post<{ version: number; counts: TableCounts }>(`/table/${id}/edit`,
       { row_id: rowId, column, value }),
+  /* a batch of cell edits applied atomically (grouped-sheet paste / range-clear):
+     one version bump, one refetch. `applied` is how many landed — the UI states
+     what a paste wrote and what it skipped (holes / out-of-bounds). */
+  editCells: (id: string, edits: { row_id: string; column: string; value: unknown }[]) =>
+    post<{ version: number; counts: TableCounts; applied: number }>(
+      `/table/${id}/edit_cells`, { edits }),
   distinct: (id: string, column: string) =>
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
   /* rename a categorical level across its rows (grouped-sheet header rename).
