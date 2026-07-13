@@ -125,11 +125,12 @@ how lossy they are (lossy moves must be **surfaced**, never silent):
 | delete columns | **delete every row** in that factor combination | new `delete_rows` | **yes** — it drops data; must read as dropping N rows |
 | add / delete a grouping row (band) | add / drop a **factor column** | new `add_column` / `drop_column` (+ `set_schema`) | delete drops a factor; must be explicit |
 
-Only `edit_cell` and `set_schema` exist today (`session.py:56,64`). Everything structural
-is **new engine surface**, following the same pattern: the session owns the DataFrame, the
-op mutates it and bumps `version`, the client refetches. The lossy ones (`delete_rows`,
-collision-merging `relabel_category`, `drop_column`) must return enough for the UI to state
-the consequence before or as it happens.
+`edit_cell`, `set_schema`, `relabel_category`, and `delete_rows` exist today (the last two
+added in Slice 4a/4b); `add_rows`, `add_column`, and `drop_column` remain new surface. All
+follow the same pattern: the session owns the DataFrame, the op mutates it and bumps
+`version`, the client refetches. The lossy ones (`delete_rows`, collision-merging
+`relabel_category`, `drop_column`) return enough for the UI to state the consequence before
+or as it happens.
 
 ## Invariants
 
@@ -181,10 +182,26 @@ Each slice is independently shippable and never puts the canonical table at risk
   `longToWide` re-pivots client-side, no engine op, no data write. Verified in-app
   (`e2e/grouped_nesting_test.mjs`): flip "group" inward → "day" becomes the outer band
   and "group" the leaf headers, shape stays 2 × 4, no engine error.
-- **Slice 4 — structural edits (new engine ops).** The Rust/Python work:
-  `relabel_category` (with collision surfacing), `add_rows`, `delete_rows` (with row-count
-  surfacing), `add_column` / `drop_column`. Wire the grouped sheet's add/delete/rename
-  affordances to them. Land op-by-op, each with the honesty surfacing from the ledger.
+- **Slice 4 — structural edits (new engine ops).** New session ops, each honest about
+  its cost. Landing op-by-op:
+  - **4a/4b — `delete_rows` + `relabel_category` (DONE, landed 2026-07-13).** The two
+    gestures that act directly on the existing grouped headers. `SessionTable.delete_rows`
+    (by id; returns the count dropped) and `.relabel_category` (renames a level across its
+    rows; returns `merged` when it collides with a sibling, and keeps schema levels in
+    sync as a copy — never mutating the caller's schema); routes `/table/{id}/delete_rows`
+    and `/table/{id}/relabel`; client `engine.deleteRows`/`engine.relabelCategory`; state
+    `applyTableEditAtom` (syncs handle.n from the server counts on delete + schema on
+    relabel, one write path). In `GroupedSheet`: hover a leaf/band header for a × that
+    **confirms the exact row count before dropping** (`delete_rows`), double-click a header
+    to rename it — a fresh name applies straight away, a name that collides with a sibling
+    **warns it will merge the two levels before it runs** (`relabel_category`); every op
+    states its outcome in a notice (invariant 3). Verified: `test_session.py` (+5 cases),
+    full unit suite (493) + tsc + build clean, and `e2e/grouped_structural_test.mjs`
+    (delete states 2 rows → 2×4→2×3; rename Control→Ctrl no-confirm; Ctrl→Treatment
+    warns-then-merges → 4×2).
+  - **4c/4d — `add_rows` (add a column = new combination) + `add_column`/`drop_column`
+    (add/delete a grouping row = a factor).** Not yet built: these need new UI for naming
+    the new level/factor (the two above reuse the existing headers), so they follow.
 - **Slice 5 — unify entry into the lens (optional).** Treat an empty grouped sheet as an
   uncommitted table: typing/pasting into the lens with no table loaded creates the engine
   session on first commit, collapsing the `DataEntry` modal and the lens into one surface.

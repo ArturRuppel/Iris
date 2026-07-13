@@ -170,6 +170,16 @@ class EditRequest(BaseModel):
     value: object | None = None
 
 
+class RelabelRequest(BaseModel):
+    column: str
+    from_label: str
+    to_label: str
+
+
+class DeleteRowsRequest(BaseModel):
+    ids: list[str]
+
+
 class DistinctRequest(BaseModel):
     column: str
 
@@ -600,6 +610,28 @@ def table_schema(tid: str, req: SchemaRequest):
     except KeyError as e:
         raise HTTPException(422, str(e)) from e
     return {"version": t.version, "schema": t.schema, "counts": t.counts()}
+
+
+@app.post("/table/{tid}/relabel")
+def table_relabel(tid: str, req: RelabelRequest):
+    """Rename a categorical level across its rows (grouped-sheet header rename).
+    Returns whether it merged into a sibling level, so the UI can state the loss;
+    the schema rides back because its level list may have changed."""
+    t = _session_or_409(tid)
+    try:
+        info = t.relabel_category(req.column, req.from_label, req.to_label)
+    except KeyError as e:
+        raise HTTPException(422, str(e)) from e
+    return {"version": t.version, "schema": t.schema, "counts": t.counts(), **info}
+
+
+@app.post("/table/{tid}/delete_rows")
+def table_delete_rows(tid: str, req: DeleteRowsRequest):
+    """Drop tidy rows by id (grouped-sheet column/band delete). Returns the number
+    actually removed so the UI states the loss against the server's truth."""
+    t = _session_or_409(tid)
+    removed = t.delete_rows(req.ids)
+    return {"version": t.version, "counts": t.counts(), "removed": removed}
 
 
 @app.post("/table/{tid}/distinct")

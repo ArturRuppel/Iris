@@ -61,6 +61,55 @@ class SessionTable:
             self._df.at[pos, column] = value
             self.version += 1
 
+    def relabel_category(self, column: str, from_label: str, to_label: str) -> dict:
+        """Rename a categorical level across every row that carries it — the tidy
+        effect of renaming a leaf/group header in the grouped sheet. Honest about
+        loss: if `to_label` already exists as a sibling level, the rename *merges*
+        the two (their rows now share a level → two grouped columns collapse into
+        one), so we report `merged` and let the UI state it. Schema levels, if the
+        column carries an explicit list, are kept in sync (renamed, deduped on
+        merge). Bumps `version`."""
+        with self._lock:
+            if column not in self._df.columns:
+                raise KeyError(f"unknown column {column!r}")
+            col = self._df[column]
+            mask = col.astype(str) == str(from_label)
+            n = int(mask.sum())
+            if n == 0:
+                raise KeyError(f"no rows with {column}={from_label!r}")
+            merged = bool((col.astype(str) == str(to_label)).any())
+            self._df.loc[mask, column] = to_label
+            # rebuild schema as a copy (never mutate the caller's dict) so an
+            # explicit level list follows the rename, deduped on merge.
+            def _relabel_levels(c: dict) -> dict:
+                if c["name"] != column or c.get("levels") is None:
+                    return c
+                renamed = [to_label if x == from_label else x for x in c["levels"]]
+                seen: list = []      # dedupe on merge, preserving order
+                for x in renamed:
+                    if x not in seen:
+                        seen.append(x)
+                return {**c, "levels": seen}
+            self.schema = {**self.schema,
+                           "columns": [_relabel_levels(c) for c in self.schema["columns"]]}
+            self.version += 1
+            return {"n": n, "merged": merged}
+
+    def delete_rows(self, ids: list[str]) -> int:
+        """Drop the given tidy rows by id — the effect of deleting a grouped column
+        (a full factor combination) or a band (an outer factor value); the grouped
+        sheet supplies the ids from the pivot it already holds. Lossy by definition,
+        so it returns the number actually removed for the UI to state. Unknown ids
+        are ignored (idempotent). Only bumps `version` if something was dropped."""
+        with self._lock:
+            want = {str(i) for i in ids}
+            mask = self._df["id"].astype(str).isin(want)
+            n = int(mask.sum())
+            if n:
+                self._df = self._df[~mask].reset_index(drop=True)
+                self.version += 1
+            return n
+
     def set_schema(self, schema: dict) -> None:
         """Replace the column schema in place (types, labels, levels) without
         touching the data — the Data tab retypes a column (identifier↔classifier)

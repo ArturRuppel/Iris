@@ -3,7 +3,7 @@ import { atomWithStorage } from "jotai/utils";
 import { dataFingerprint, snapshotStateKey } from "./autosave";
 import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
-  StatsFamily, StyleKnob, StyleOverrides, Table, TableHandle, TestName,
+  StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName,
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
   ReduceDag, ReduceStepNode, ReduceSource, EngineReduceDag,
 } from "./types";
@@ -586,6 +586,25 @@ export const bumpActiveHandleAtom = atom(null, (get, set, h: TableHandle) => {
   const t = get(activeTableAtom); if (!t) return;
   set(tablesAtom, upsertTable(get(tablesAtom), { ...t, handle: h }));
 });
+
+/* apply a structural engine edit (delete_rows / relabel_category) to the active
+   table. Unlike a plain cell edit these can change the row count and the schema,
+   so this syncs both handle.n (from the server's counts) and — when the op
+   returns one — the schema onto the handle and the pool table, then the version
+   bump drives the same refetch + recompute as any other edit (invariant 5). */
+export const applyTableEditAtom = atom(
+  null,
+  (get, set, r: { version: number; counts?: TableCounts; schema?: Schema }) => {
+    const t = get(activeTableAtom); if (!t?.handle) return;
+    const handle: TableHandle = {
+      ...t.handle,
+      version: r.version,
+      ...(r.counts ? { n: r.counts.total, counts: r.counts } : {}),
+      ...(r.schema ? { schema: r.schema } : {}),
+    };
+    set(tablesAtom, upsertTable(get(tablesAtom),
+      { ...t, handle, ...(r.schema ? { schema: r.schema } : {}) }));
+  });
 
 /* ---- figure cache: ONE atom owning, per analysis, the rendered result, the
    freshness key it was computed from, and the LRU recency together, so the three

@@ -37,9 +37,10 @@ await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
 await page.waitForSelector(".gs-grid", { timeout: 15000 });
 
-// default nesting = schema order: outer band is "group" (Control / Treatment)
+// default nesting = schema order: outer band is "group" (Control / Treatment).
+// read the label span (the header also carries a hover-only delete ✕ button).
 const outerLabel = () => page.locator(".gs-grid .de-band .de-groupcell").first()
-  .locator(".de-grouphead").innerText();
+  .locator(".de-grouphead span").first().innerText();
 if ((await outerLabel()).trim() !== "Control")
   fail("default outer band should be group=Control, got " + await outerLabel());
 console.log("default nesting: outer band =", (await outerLabel()).trim());
@@ -52,7 +53,7 @@ await page.locator(".gs-factor", { hasText: "group" }).locator(".gs-fmove").nth(
 
 // outer band is now "day" (D1 spanning its two groups)
 await page.waitForFunction(() => {
-  const cell = document.querySelector(".gs-grid .de-band .de-groupcell .de-grouphead");
+  const cell = document.querySelector(".gs-grid .de-band .de-groupcell .de-grouphead span");
   return cell && cell.textContent.trim() === "D1";
 }, null, { timeout: 5000 });
 const span = await page.locator(".gs-grid .de-band .de-groupcell").first().getAttribute("colspan");

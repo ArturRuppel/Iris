@@ -763,6 +763,18 @@ export const engine = {
       { row_id: rowId, column, value }),
   distinct: (id: string, column: string) =>
     post<{ values: string[] }>(`/table/${id}/distinct`, { column }),
+  /* rename a categorical level across its rows (grouped-sheet header rename).
+     `merged` is true when the new name collided with a sibling and the two levels
+     were fused — the caller must surface that loss. Schema rides back: its level
+     list may have changed. */
+  relabelCategory: (id: string, column: string, fromLabel: string, toLabel: string) =>
+    post<{ version: number; schema: Schema; counts: TableCounts; n: number; merged: boolean }>(
+      `/table/${id}/relabel`, { column, from_label: fromLabel, to_label: toLabel }),
+  /* drop tidy rows by id (grouped-sheet column/band delete). `removed` is the
+     server's count of rows actually dropped, for the honesty surfacing. */
+  deleteRows: (id: string, ids: string[]) =>
+    post<{ version: number; counts: TableCounts; removed: number }>(
+      `/table/${id}/delete_rows`, { ids }),
   /* retype the session's columns (Data-tab role change) so the engine's test
      inference sees the new types — data is untouched, only the schema swaps */
   setSchema: (id: string, schema: Schema) =>

@@ -70,6 +70,63 @@ def test_edit_bool_flag_cell_persists():
     assert t.window(0, 1)[0]["flag"] is True
 
 
+def test_relabel_category_renames_across_rows_no_merge():
+    # Renaming a level to a fresh name just relabels its rows; not a merge.
+    store = session.SessionStore()
+    df = _df(4)
+    df["g"] = ["a", "a", "b", "b"]
+    t = store.get(store.create(SCHEMA, df))
+    info = t.relabel_category("g", "a", "c")
+    assert info == {"n": 2, "merged": False}
+    assert t.version == 1
+    assert [r["g"] for r in t.window(0, 4)] == ["c", "c", "b", "b"]
+    # explicit schema levels track the rename
+    assert t.schema["columns"][0]["levels"] == ["c", "b"]
+
+
+def test_relabel_category_into_sibling_merges_and_reports():
+    # Renaming "a" -> "b" when "b" already exists fuses the two levels: rows keep
+    # their values but now share a level (two grouped columns collapse to one).
+    store = session.SessionStore()
+    df = _df(4)
+    df["g"] = ["a", "a", "b", "b"]
+    t = store.get(store.create(SCHEMA, df))
+    info = t.relabel_category("g", "a", "b")
+    assert info == {"n": 2, "merged": True}
+    assert [r["g"] for r in t.window(0, 4)] == ["b", "b", "b", "b"]
+    assert t.schema["columns"][0]["levels"] == ["b"]   # deduped on merge
+
+
+def test_relabel_unknown_column_or_absent_level_raises():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df()))
+    with pytest.raises(KeyError):
+        t.relabel_category("nope", "a", "b")
+    with pytest.raises(KeyError):
+        t.relabel_category("g", "ghost", "b")    # no rows carry that level
+    assert t.version == 0                          # rejected: no partial mutation
+
+
+def test_delete_rows_drops_by_id_and_reports_count():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df(5)))
+    removed = t.delete_rows(["2", "4"])
+    assert removed == 2
+    assert t.version == 1
+    assert [r["id"] for r in t.window(0, 99)] == ["1", "3", "5"]
+
+
+def test_delete_rows_ignores_unknown_ids_and_is_a_noop_when_empty():
+    store = session.SessionStore()
+    t = store.get(store.create(SCHEMA, _df(3)))
+    removed = t.delete_rows(["ghost", "2"])   # only "2" is real
+    assert removed == 1
+    assert t.version == 1
+    # a delete that matches nothing changes nothing and does not bump the version
+    assert t.delete_rows(["ghost"]) == 0
+    assert t.version == 1
+
+
 def test_set_schema_retypes_in_place_and_bumps_version():
     # The Data-tab role change: retype a column without touching the data. The
     # bumped version invalidates result caches keyed on it.
