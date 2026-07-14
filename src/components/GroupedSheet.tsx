@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   activeSchemaAtom, activeHandleAtom, activeHierarchyAtom,
-  bumpActiveHandleAtom, applyTableEditAtom,
+  bumpActiveHandleAtom, applyTableEditAtom, typeColorsAtom,
 } from "../state";
-import { engine, type Row } from "../types";
+import { engine, type Row, type ColumnDef } from "../types";
 import {
   pivotability, pivotOverflow, longToWide, type GroupedSheet as Sheet,
 } from "../grouped";
@@ -15,23 +15,25 @@ import { DataViewToggle } from "./DataViewToggle";
 import { DataEntry } from "./DataEntry";
 
 /* The grouped-sheet lens: the active tidy table projected into the wide,
-   merged-header layout, derived from the hierarchy spine — all but the finest
-   grain level across the top as nested bands (classifiers innermost), the finest
-   grain down the side, the remaining value columns in the body. It materializes
-   the whole table (rowsWindow 0..n) because the grouped view is inherently
-   whole-table; virtualisation is a follow-up slice.
+   merged-header layout, derived from the identifier spine — the identifiers form
+   the nested bands (coarse → fine, outer → inner), and every non-identifier column
+   is a leaf column of the little tidy sub-table under each band combination. The
+   sub-tables append horizontally; their rows stack ragged, so every record shows
+   and nothing collapses. It materializes the whole table (rowsWindow 0..n) and
+   virtualises the render.
 
    Every edit is an op on the canonical tidy table (one write path): a value cell →
-   edit_cell (routed to the cell's own value column via valueOfCol); a header
-   rename → relabel_category; a column/band delete → delete_rows. The two
-   structural ops can lose data — a rename that collides with a sibling *merges*
-   two levels, a delete *drops rows* — so both are surfaced (a pre-warning or a
-   stated row count), never performed silently. Nesting (re-ordering the grain,
-   adding/removing levels) lives in the Data-hierarchy panel now, not here. */
+   edit_cell (per the cell's column and type, via valueOfCol); a band-header rename
+   → relabel_category on that identifier column; a band delete → delete_rows. The
+   two structural ops can lose data — a rename that collides with a sibling *merges*
+   two values, a delete *drops rows* — so both are surfaced (a pre-warning or a
+   stated row count), never performed silently. Nesting (which columns are
+   identifiers, and their order) lives in the Data-hierarchy panel, not here. */
 export function GroupedSheet() {
   const schema = useAtomValue(activeSchemaAtom);
   const handle = useAtomValue(activeHandleAtom);
   const hierarchy = useAtomValue(activeHierarchyAtom);
+  const typeColors = useAtomValue(typeColorsAtom);
   const bumpHandle = useSetAtom(bumpActiveHandleAtom);
   const applyEdit = useSetAtom(applyTableEditAtom);
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -47,7 +49,7 @@ export function GroupedSheet() {
      this cell belongs to (valueOfCol tells the Grid which one) on the tidy row it
      came from, bump the handle version, and let the effect refetch + re-pivot.
      Same write path as the tidy grid. */
-  const commitEdit = async (rowId: string, colName: string, value: number | null) => {
+  const commitEdit = async (rowId: string, colName: string, value: unknown) => {
     if (!handle) return;
     const { version, counts } = await engine.editCell(handle.id, rowId, colName, value);
     bumpHandle({ ...handle, version, counts });
@@ -60,7 +62,7 @@ export function GroupedSheet() {
      never grows the pivot (the grain is fixed by the spine), so overflow is
      reported, not silently absorbed. */
   const applyEdits = async (
-    edits: { row_id: string; column: string; value: number | null }[],
+    edits: { row_id: string; column: string; value: unknown }[],
     report: { wrote: number; skipped: number; kind: "paste" | "clear" | "move" },
   ) => {
     if (!handle) return;
@@ -180,7 +182,8 @@ export function GroupedSheet() {
     if (!sheet) return <Empty>Loading…</Empty>;
     return (
       <Grid sheet={sheet} onCommit={commitEdit} onApply={applyEdits}
-        onRelabel={requestRelabel} onDelete={requestDelete} />
+        onRelabel={requestRelabel} onDelete={requestDelete}
+        colType={(name) => schema.columns.find((c) => c.name === name)?.type ?? "numeric"} />
     );
   })();
 
@@ -214,7 +217,7 @@ export function GroupedSheet() {
           <button className="gs-notice-x" title="Dismiss" onClick={() => setNotice(null)}>✕</button>
         </div>
       )}
-      <div className="gs-host">{body}</div>
+      <div className="gs-host" style={{ "--type-identifier": typeColors.identifier } as CSSProperties}>{body}</div>
     </section>
   );
 }
@@ -233,7 +236,7 @@ function Empty({ children }: { children: ReactNode }) {
    header's right edge). Never content-measured. */
 const ROW_H = 25;          // body + row-index cell height
 const HEAD_ROW_H = 26;     // each band row and the leaf-label row
-const ROWHEAD_W = 34;      // the pinned row-index / corner column
+const ROWHEAD_W = 76;      // the pinned grain column (the finest identifier) + corner
 const DEFAULT_COL_W = 84;  // starting per-column width
 const MIN_COL_W = 44;      // resize floor
 const OVERSCAN = 2;        // extra rows/cols each side of the visible window
@@ -260,17 +263,18 @@ const rng = (a: number, b: number): number[] => {
    tidy row) select and copy as blanks but never edit. Header cells keep the
    structural gestures: double-click a label to rename, hover for a × that deletes that column/band. Each leaf header has a
    right-edge handle that resizes its column (drag; that column only). */
-function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
+function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
   sheet: Sheet;
-  onCommit: (rowId: string, colName: string, value: number | null) => void;
+  onCommit: (rowId: string, colName: string, value: unknown) => void;
   onApply: (
-    edits: { row_id: string; column: string; value: number | null }[],
+    edits: { row_id: string; column: string; value: unknown }[],
     report: { wrote: number; skipped: number; kind: "paste" | "clear" | "move" },
   ) => void;
   onRelabel: (level: number, from: string, to: string) => void;
   onDelete: (ids: string[], label: string) => void;
+  colType: (name: string) => ColumnDef["type"];
 }) {
-  const { bands, columnLabels, valueOfCol, factorLabels, values, rowIds, nRows, nCols } = sheet;
+  const { bands, columnLabels, valueOfCol, factorLabels, grain, rowLabels, values, rowIds, nRows, nCols } = sheet;
   const [edit, setEdit] = useState<{ r: number; c: number } | null>(null);
   const [draft, setDraft] = useState("");
   // a header rename in progress, keyed to disambiguate a band cell from a leaf.
@@ -333,13 +337,20 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
     el.scrollTo({ left: Math.max(0, sl), top: Math.max(0, st) });
   };
 
-  // coerce a pasted/typed string to the numeric body's value: blank or unparseable
-  // clears to NA — the same rule the single-cell editor uses, so paste and typing
-  // agree. (Grouped bodies are measurement columns; they hold numbers or NA.)
-  const coerce = (raw: string): number | null =>
-    raw.trim() === "" || Number.isNaN(Number(raw.trim())) ? null : Number(raw.trim());
+  // coerce a pasted/typed string to a leaf column's value, per its type — the same
+  // rule the tidy grid uses, so paste and typing agree across both grids. Blank
+  // clears to NA; numeric parses (unparseable -> NA); bool reads true/1; a
+  // categorical keeps the raw string (leaf columns are no longer numbers-only).
+  const coerce = (colName: string, raw: string): unknown => {
+    const t = raw.trim();
+    if (t === "") return null;
+    const type = colType(colName);
+    if (type === "numeric") return Number.isNaN(Number(t)) ? null : Number(t);
+    if (type === "bool") return t === "true" || t === "1";
+    return t;
+  };
 
-  type Edit = { row_id: string; column: string; value: number | null };
+  type Edit = { row_id: string; column: string; value: unknown };
 
   // clear every editable cell in the selection to NA (Delete). Holes have no tidy
   // row so they are skipped; already-blank cells need no write. A discontiguous
@@ -375,7 +386,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
         if (r >= nRows || c >= nCols) { skipped++; continue; }
         const id = rowIds[r][c];
         if (id == null) { skipped++; continue; }
-        edits.push({ row_id: id, column: valueOfCol[c], value: coerce(block[i][j]) });
+        edits.push({ row_id: id, column: valueOfCol[c], value: coerce(valueOfCol[c], block[i][j]) });
       }
     onApply(edits, { wrote: edits.length, skipped, kind: "paste" });
   };
@@ -402,7 +413,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
         if (r >= nRows || c >= nCols) { skipped++; continue; }
         const id = rowIds[r]?.[c];
         if (id == null) { skipped++; continue; }
-        writes.set(`${id}\0${valueOfCol[c]}`, { row_id: id, column: valueOfCol[c], value: coerce(block[i][j]) });
+        writes.set(`${id}\0${valueOfCol[c]}`, { row_id: id, column: valueOfCol[c], value: coerce(valueOfCol[c], block[i][j]) });
         wrote++;
       }
     onApply([...writes.values()], { wrote, skipped, kind: "move" });
@@ -433,9 +444,8 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
     done.current = true;
     const { r, c } = edit;
     const id = rowIds[r][c];
-    const raw = draft.trim();
-    // match the tidy grid's numeric coercion: blank or unparseable clears to NA
-    const value = raw === "" || Number.isNaN(Number(raw)) ? null : Number(raw);
+    // coerce to the cell's column type (numeric / bool / categorical), like the tidy grid
+    const value = coerce(valueOfCol[c], draft);
     if (id != null && value !== values[r][c]) onCommit(id, valueOfCol[c], value);
     setEdit(null);
     // Excel: Enter/Tab commit and step the active cell on; keep the keyboard alive
@@ -527,7 +537,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
                 onDoubleClick={canEdit ? () => startEdit(r, c) : undefined}>
                 {editing
                   ? <input className="gs-input" autoFocus value={draft}
-                      spellCheck={false} inputMode="decimal"
+                      spellCheck={false} inputMode={colType(valueOfCol[c]) === "numeric" ? "decimal" : "text"}
                       onChange={(e) => setDraft(e.target.value)}
                       onBlur={() => commit()}
                       onKeyDown={(e) => {
@@ -541,11 +551,13 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
           }),
         )}
 
-        {/* row-index column, pinned left */}
-        <div className="gs-rowcol" style={{ transform: `translateX(${scroll.left}px)`, width: ROWHEAD_W, height: headerH + bodyH }}>
+        {/* grain column, pinned left: the finest identifier's value per row, coloured
+            as an identifier so it reads as a key. Falls back to the row number when
+            there is no grain axis. */}
+        <div className={`gs-rowcol${grain ? " gs-grain" : ""}`} style={{ transform: `translateX(${scroll.left}px)`, width: ROWHEAD_W, height: headerH + bodyH }}>
           {rng(vRows.start, vRows.end).map((r) => (
-            <div key={r} className="gs-rowhead"
-              style={{ top: headerH + r * ROW_H, width: ROWHEAD_W, height: ROW_H }}>{r + 1}</div>
+            <div key={r} className="gs-rowhead" title={grain ? `${grain.label}: ${rowLabels[r]}` : undefined}
+              style={{ top: headerH + r * ROW_H, width: ROWHEAD_W, height: ROW_H }}>{grain ? rowLabels[r] : r + 1}</div>
           ))}
         </div>
 
@@ -604,7 +616,8 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete }: {
         </div>
 
         {/* corner, pinned both */}
-        <div className="gs-corner" style={{ transform: `translate(${scroll.left}px, ${scroll.top}px)`, width: ROWHEAD_W, height: headerH }}>#</div>
+        <div className={`gs-corner${grain ? " gs-grain" : ""}`} title={grain?.label}
+          style={{ transform: `translate(${scroll.left}px, ${scroll.top}px)`, width: ROWHEAD_W, height: headerH }}>{grain?.label ?? "#"}</div>
       </div>
     </div>
   );

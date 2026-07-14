@@ -1,28 +1,30 @@
 /* The grouped-sheet lens: project the canonical tidy (long) table into the wide,
    merged-header shape people keep in Excel/Prism. The layout is derived from the
-   *hierarchy spine*, not from column types: all but the finest grain level spread
-   across the top as nested bands (classifiers hanging off their home level), the
-   finest grain runs down the side, and the remaining value columns fill the body.
+   *identifier spine*: the identifiers become the nested header bands (coarse → fine,
+   outer → inner), and every non-identifier column — measures and classifiers alike —
+   becomes a leaf column of the little tidy sub-table that hangs under each band
+   combination. The sub-tables append horizontally; their rows are stacked as-is
+   (ragged), so every record is shown and nothing is ever aligned-and-collapsed.
    This is the *read* half of the lens (long → wide); it is pure and derives the
    whole rendering from the schema + spine + rows, so it never becomes a stored
    form (tidy stays canonical). See
-   docs/superpowers/specs/2026-07-13-pivot-across-grain-design.md. */
+   docs/superpowers/specs/2026-07-13-grouped-sheet-lens-design.md. */
 
 import type { ColumnDef, Row, Schema, Hierarchy } from "./types";
 
 /* one header cell: a run of `span` leaf columns carrying one group label */
 export interface Cell { span: number; label: string }
 
-/* What fixes a grouped rendering, derived from the hierarchy spine:
-   - bandCols: the horizontal header levels, outer -> inner. The spine minus its
-     finest level, then the classifiers (categoricals not on the spine), which nest
-     innermost because a classifier is constant within its home grain.
-   - vertical: the finest spine level. Its distinct values index the rows, so body
-     cells align across columns (frame 3 is row 3 in every column). null when the
-     spine is empty; rows then fall back to the tidy row id (a ragged per-column
-     stack, honest because rows are not claimed to align).
-   - values: the body columns (everything not on the spine and not a classifier),
-     one leaf sub-column each. Zero = a pure index grid. */
+/* What fixes a grouped rendering, derived from the identifier spine:
+   - bandCols: the horizontal header levels, outer -> inner — the COARSER identifiers
+     (the spine minus its finest level). A classifier is NOT a band; it is a plain
+     leaf column, because spreading categoricals across the top is a cross-tab.
+   - vertical: the FINEST identifier. It stays vertical — its distinct values index
+     the rows, so the sub-tables align across bands (frame 3 is row 3 in every
+     block), and it is shown as a single pinned column, coloured as an identifier so
+     it reads as a key rather than data. null only when the spine is empty.
+   - values: the leaf columns — every non-identifier column (measures and classifiers
+     alike), one sub-column each, forming the sub-table under each band combination. */
 export interface GroupedSpec {
   bandCols: ColumnDef[];
   vertical: ColumnDef | null;
@@ -31,21 +33,19 @@ export interface GroupedSpec {
 
 /* Derive the layout roles from the schema + spine. Pure; needs no rows. Self-heals
    against a spine naming a column the schema no longer has (that level is dropped).
-   The keep-order of `schema.columns` is preserved for bands and values, so the view
-   is stable and matches the Data-hierarchy panel's ordering. */
+   The keep-order of `schema.columns` is preserved for the leaf columns, so the view
+   is stable and matches the tidy table's column order. */
 export function groupedSpec(schema: Schema, spine: string[]): GroupedSpec {
   const byName = new Map(schema.columns.map((c) => [c.name, c] as const));
   const spineCols = spine
     .map((n) => byName.get(n))
     .filter((c): c is ColumnDef => c != null);
   const spineSet = new Set(spineCols.map((c) => c.name));
+  // coarser identifiers -> bands; finest identifier -> the vertical (aligning) axis;
+  // every non-identifier -> a leaf column.
   const vertical = spineCols.length ? spineCols[spineCols.length - 1] : null;
-  const bandSpine = spineCols.slice(0, Math.max(0, spineCols.length - 1));
-  const classifiers = schema.columns.filter(
-    (c) => !spineSet.has(c.name) && c.type === "categorical");
-  const bandCols = [...bandSpine, ...classifiers];
-  const structural = new Set([...spineSet, ...classifiers.map((c) => c.name)]);
-  const values = schema.columns.filter((c) => !structural.has(c.name));
+  const bandCols = spineCols.slice(0, Math.max(0, spineCols.length - 1));
+  const values = schema.columns.filter((c) => !spineSet.has(c.name));
   return { bandCols, vertical, values };
 }
 
@@ -59,6 +59,8 @@ export interface GroupedSheet {
   columnLabels: string[];   // one leaf header per body column
   valueOfCol: string[];     // value-column name per body column (parallel to cols)
   factorLabels: string[];   // display label per band level, for tooltips
+  grain: ColumnDef | null;  // the finest identifier — the vertical (pinned) column
+  rowLabels: string[];      // the grain value per row (parallel to the row axis)
   values: (string | number | boolean | null)[][];  // [rowIndex][colIndex]
   rowIds: (string | null)[][];                       // parallel to `values`
   nRows: number;
@@ -66,8 +68,9 @@ export interface GroupedSheet {
 }
 
 /* Whether the grouped lens is offered for a table, and if so its layout spec.
-   Availability is honest: the view exists iff there is something to lay out — a
-   non-empty spine, or at least one categorical to band by. */
+   Availability is honest: the view exists iff there is a spine to band by — at
+   least one identifier. With none, the wide sheet would be the tidy table with no
+   bands, so we refuse and point at the panel rather than render a redundant copy. */
 export type Availability =
   | { ok: true; spec: GroupedSpec }
   | { ok: false; reason: string };
@@ -78,7 +81,7 @@ export function pivotability(schema: Schema | null, hierarchy: Hierarchy): Avail
   if (spec.bandCols.length === 0 && spec.vertical === null) {
     return {
       ok: false,
-      reason: "Nothing to group by. Assign an identifier or a category in the Data hierarchy panel to pivot this table.",
+      reason: "Nothing to group by. Mark a column an identifier in the Data hierarchy panel to group the table by it.",
     };
   }
   return { ok: true, spec };
@@ -227,8 +230,9 @@ export function longToWide(rows: Row[], spec: GroupedSpec): GroupedSheet {
     }
   });
 
-  // --- headers: one band row per band level, merging shared prefixes; the leaf row
-  // is the value-column label (multi-value) or the innermost band level. ---
+  // --- headers: one band row per band level (the coarser identifiers), merging
+  // shared prefixes; the leaf row is always the value-column label. The finest
+  // identifier is NOT a band — it is the vertical grain column (below). ---
   const cols = comboKeys.map((k) => combos.get(k)!);
   const bands: Cell[][] = [];
   const pushBand = (labelAt: (g: number) => string, prefixLen: (g: number) => string) => {
@@ -244,28 +248,29 @@ export function longToWide(rows: Row[], spec: GroupedSpec): GroupedSheet {
     }
     bands.push(band);
   };
-  // all band levels become band rows; when single-value, the innermost band level
-  // is the leaf row instead (so it is not duplicated).
-  const bandLevelCount = valueCols.length > 1 ? bandCols.length : Math.max(0, bandCols.length - 1);
-  for (let L = 0; L < bandLevelCount; L++) {
+  for (let L = 0; L < bandCols.length; L++) {
     pushBand((g) => cols[g][L], (g) => cols[g].slice(0, L + 1).join(" "));
   }
-  // leaf labels + valueOfCol
+  // leaf labels + valueOfCol — always the value column's own label
   const columnLabels: string[] = [];
   const valueOfCol: string[] = [];
   for (let g = 0; g < nGroups; g++) {
     for (let v = 0; v < vPer; v++) {
-      const leaf = valueCols.length > 1
-        ? valueCols[v].label
-        : (bandCols.length ? cols[g][bandCols.length - 1] : (valueCols[0]?.label ?? ""));
-      columnLabels.push(leaf);
+      columnLabels.push(valueCols[v]?.label ?? "");
       valueOfCol.push(valueCols[v]?.name ?? "");
     }
   }
 
+  // the vertical grain's value per row, for the pinned identifier column (aligned
+  // mode). Positional 1-based labels when there is no grain axis (ragged fallback).
+  const rowLabels: string[] = new Array(nRows).fill("");
+  if (vertical) for (const [k, i] of rowOrder) rowLabels[i] = k;
+  else for (let i = 0; i < nRows; i++) rowLabels[i] = String(i + 1);
+
   return {
     spec, bands, columnLabels, valueOfCol,
     factorLabels: bandCols.map((c) => c.label),
+    grain: vertical, rowLabels,
     values: values2, rowIds, nRows, nCols,
   };
 }

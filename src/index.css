@@ -505,7 +505,15 @@ dd.strong { font-weight: 600; }
   background: var(--panel2); color: var(--faint);
   border-bottom: 1px solid var(--line);
   display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-variant-numeric: tabular-nums; }
+  font-size: 11px; font-variant-numeric: tabular-nums;
+  overflow: hidden; white-space: nowrap; padding: 0 6px; }
+/* the grain column carries the finest identifier's values — coloured as a key, not
+   a plain row index, so it reads as the nesting axis it is. */
+.gs-rowcol.gs-grain { background: color-mix(in srgb, var(--type-identifier) 9%, var(--panel2)); }
+.gs-rowcol.gs-grain .gs-rowhead { background: transparent; color: var(--type-identifier);
+  font-size: 12px; font-weight: 600; }
+.gs-corner.gs-grain { color: var(--type-identifier); font-weight: 700; font-size: 11px;
+  background: color-mix(in srgb, var(--type-identifier) 9%, var(--panel2)); }
 
 /* header cells: double-click a label to rename it, hover for a × that deletes
    that column/band; a leaf carries a right-edge resize handle. */
