@@ -40,6 +40,13 @@ def frame_from_table(table: dict) -> pd.DataFrame:
 def _load_frame(table: dict) -> tuple[pd.DataFrame, dict]:
     schema = table["schema"]
     df = frame_from_table(table).copy()
+    # `id` is row-bookkeeping (RESERVED_NAMES in importer.py), not user data, and
+    # is deliberately absent from schema["columns"]. The GUI paths (main.py) all
+    # establish this invariant before the frame reaches here; a hand-built table
+    # dict (the library entry point's whole point) may not have — so guarantee it
+    # here rather than let hierarchy.materialize_plan's `raw["id"]` index crash.
+    if "id" not in df.columns:
+        df.insert(0, "id", [str(i + 1) for i in range(len(df))])
     # A `bool` column (a stochastic-event flag) collapses to numeric 1/0 for every
     # compute path — so a summary/bar of it reads as the fraction of trues — and
     # is presented as numeric to the rest of the engine. Normalize a copy of the
