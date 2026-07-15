@@ -2,38 +2,65 @@
 
 **Publication-grade figures and honest statistics for researchers who don't code.**
 
-Iris is a desktop application built around one idea — the *reactive triad*: a
+Iris is a desktop application built around one idea, the *reactive triad*: a
 typed data table, a figure, and a statistical analysis, linked so that editing
 any one updates the others instantly and honestly. You build each analysis on an
-interactive graph — the **workbench** — where the input tables, the shaping
-steps, the figure, and the test are nodes you click to edit. Iris produces a
-matplotlib vector figure and a citable statistic from the *same* declarative
-spec, so the plot and the test can never disagree about the data.
+interactive graph, the **workbench**, where the input tables, the shaping steps,
+the figure, and the test are nodes you click to edit. Iris renders a matplotlib
+vector figure and computes a citable statistic from the *same* declarative spec,
+so the plot and the test can never disagree about the data.
 
 The audience is the colleague who knows what an ANOVA is but not how to write
-one — and whose p-values and figures will end up in a paper or thesis. The
+one, and whose p-values and figures will end up in a paper or thesis. The
 promise is never having to re-make a figure in Prism or ggplot afterwards.
 
 Three properties arbitrate every decision:
 
-- **Power** — every inferential number comes from scipy, statsmodels, and
+- **Power**: every inferential number comes from scipy, statsmodels, and
   pingouin. Battle-tested, citable code, never reimplemented.
-- **Beauty** — every figure is matplotlib vector output with full typographic
-  control. The on-screen preview and the exported PDF are the *same* renderer at
-  the *same* physical size (millimetres, fonttype 42, editable text).
-- **Simplicity** — a one-click installer for users, and an architecture a small
+- **Beauty**: every figure is matplotlib vector output with full typographic
+  control. The on-screen preview and the exported PDF are the same renderer at
+  the same physical size (millimetres, fonttype 42, editable text).
+- **Simplicity**: a one-click installer for users, and an architecture a small
   team can maintain: boring at the edges, opinionated at the core.
 
 All compute is local; your data never leaves the machine.
+
+## Status
+
+Iris is under **active development** and has no tagged release. It is useful
+today and it is not finished.
+
+What works end-to-end: import one or more tables, reshape them on the
+transformation workbench, compose a figure from a stack of geom layers, add a
+guided statistical test, restyle in millimetres, export a PDF, and save a
+`.iris` document. The four load-bearing systems (the grammar of graphics, the
+data-hierarchy model, the guided test picker, and the workbench) are built and
+tested. What remains is breadth, polish, and real-world use. See
+[ROADMAP.md](ROADMAP.md).
+
+Three things to know before you rely on it:
+
+- **Linux is the verified platform.** Development and testing happen there. The
+  Tauri shell is cross-platform by construction, but macOS and Windows builds
+  are neither packaged nor verified yet, and installers are unsigned.
+  Cross-platform distribution is a roadmap item.
+- **Interfaces are not frozen.** Iris has no installed base, so a breaking
+  change lands when it is the right call, without a deprecation cycle. The
+  `.iris` format is versioned (currently 2.1) and still moving.
+- **The statistics are validated; the surface around them is younger.** Every
+  test family is checked against independently recomputed scipy reference values
+  (see [What is validated](#what-is-validated)). Bugs, when they come, are far
+  likelier in the UI than in the numbers.
 
 ## Why Iris exists
 
 Tools that turn data into a publication figure and a defensible statistic tend
 to offer one way in or the other: a point-and-click interface, approachable but
 closed to scripting, or a code library, scriptable but closed to anyone who
-doesn't program. A researcher who starts in one is stuck there — the work can't
-later be automated, and an analysis produced by a pipeline can't be opened up and
-adjusted by hand.
+doesn't program. A researcher who starts in one is stuck there: the work can't
+later be automated, and an analysis produced by a pipeline can't be opened up
+and adjusted by hand.
 
 Iris is built around a single declarative document that is equally at home in
 both. A pipeline can generate a batch of analyses; a researcher can finish them
@@ -41,37 +68,59 @@ in the GUI; the file reads back into code unchanged. The artifact is data, not
 executable code, so it stays safe to share and re-render, and the figure and the
 statistic always come from the same spec.
 
-To our knowledge no existing tool — and, in particular, no open-source one —
-brings these together: publication-grade vector figures, validated and citable
+To our knowledge no existing tool, and in particular no open-source one, brings
+these together: publication-grade vector figures, validated and citable
 statistics, produced and edited from either code or a GUI, with all computation
 local. Each piece exists somewhere; the combination, as far as we know, does
 not. That gap is the reason Iris is being built.
 
+## Documentation
+
+The user guide lives in [`docs/guide/`](docs/guide/index.md). Start with the
+[quickstart](docs/guide/quickstart.md), which walks one dataset from import to
+exported figure. From there the guide follows the same path in depth:
+[getting data in](docs/guide/data-in.md),
+[shaping it](docs/guide/shape.md),
+[nesting](docs/guide/nesting.md),
+[reshaping](docs/guide/reshaping.md),
+[plots](docs/guide/plots.md),
+[choosing a test](docs/guide/test/choosing.md),
+[interpreting the result](docs/guide/test/interpreting.md), and
+[troubleshooting](docs/guide/troubleshooting.md).
+
+The reference pages document the
+[`.iris` format](docs/guide/reference/iris-format.md), the
+[composition rules](docs/guide/reference/composition.md), and
+[what to cite](docs/guide/reference/citations.md) when an Iris analysis ends up
+in a paper.
+
 ## Architecture
 
 ```
-┌──────────────────────────┐   HTTP (localhost)   ┌──────────────────────────────┐
-│  React + TypeScript       │ ───────────────────► │  iris-engine (Python sidecar) │
-│  Jotai state · AG Grid     │   /analyze /export   │  pandas · scipy · pingouin    │
-│  SVG injection             │ ◄─────────────────── │  matplotlib (vector SVG/PDF)  │
-└──────────────────────────┘   SVG + stats + spec   └──────────────────────────────┘
-        ▲ both hosted by the Tauri shell, which spawns and reaps the sidecar ▲
+┌────────────────────────────┐  HTTP (localhost)  ┌───────────────────────────────┐
+│  React + TypeScript        │ ─────────────────► │  iris-engine (Python sidecar) │
+│  Jotai state · AG Grid     │  /analyze /export  │  pandas · scipy · pingouin    │
+│  SVG injection             │ ◄───────────────── │  matplotlib (vector SVG/PDF)  │
+└────────────────────────────┘  SVG + stats + spec└───────────────────────────────┘
+       ▲ both hosted by the Tauri shell, which spawns and reaps the sidecar ▲
 ```
 
 The keystone artifact is the **declarative analysis spec**: grammar-of-graphics
 encodings, an ordered stack of geom layers, a reduction pipeline of shaping steps
 (filter, drop, derive, recode, join, pivot, grid_complete) over a chosen main
 table, a data-`hierarchy` block, and a stats clause. It compiles to *both* the
-plot and the test. The engine ships as a pip-installable library (`iris-engine`)
-whose render/stats core needs no web framework; FastAPI is an optional extra used
-only by the GUI. Documents are `.iris` files — a ZIP holding one Parquet table
-per named input table (each with its own schema and hierarchy), plus
-human-readable JSON: the analysis specs, provenance, and an engine-identity
-manifest (format version 2.1).
+plot and the test.
+
+The engine ships as a pip-installable library (`iris-engine`) whose render and
+stats core needs no web framework; FastAPI is an optional extra used only by the
+GUI. Documents are `.iris` files: a ZIP holding one Parquet table per named
+input table (each with its own schema and hierarchy), plus human-readable JSON
+for the analysis specs, provenance, and an engine-identity manifest.
 
 ## Quickstart (dev mode)
 
-One command starts both halves; open http://localhost:5173 when it's ready:
+You need Python 3.10+ and Node 18+. One command starts both halves; open
+http://localhost:5173 when it's ready:
 
 ```bash
 pip install -e "engine[server]"   # engine + FastAPI service
@@ -94,9 +143,9 @@ plot, compose geom layers, optionally add a statistical test, restyle in
 millimetres, export SVG/PDF/PNG, and save a `.iris` document.
 
 To drop rows from an analysis, add a `filter` step to the reduction pipeline
-(e.g. `flag == false`). A `.iris` is then a pure function of its input table and
-its analysis spec — the judgment of *which* rows to keep lives in the spec,
-where its provenance belongs.
+(for example `flag == false`). A `.iris` is then a pure function of its input
+table and its analysis spec: the judgment of *which* rows to keep lives in the
+spec, where its provenance belongs.
 
 ## Using the engine without the GUI
 
@@ -150,14 +199,15 @@ Notes learned the hard way:
   matplotlib's first-launch font scan isn't repeated every launch.
 - The shell picks a free port at runtime (8765 first) and the frontend asks for
   it via the `engine_port` Tauri command; dev mode keeps plain 8765.
-- Installers are currently unsigned; signing/notarization is deferred (see
+- Installers are currently unsigned; signing and notarization are deferred (see
   [ROADMAP.md](ROADMAP.md)).
 
 ## What is validated
 
-The engine carries a pytest suite (`engine/tests/`, 50+ files) plus a per-family
-**validation corpus** (`engine/validation/`) that asserts each statistical
-family against reference values recomputed independently against raw scipy:
+The engine carries a pytest suite (`engine/tests/`, 58 files) plus a per-family
+**validation corpus** (`engine/validation/`, 27 cases) that asserts each
+statistical family against reference values recomputed independently against raw
+scipy:
 
 - Two-group (Welch's t / Mann–Whitney / paired-t / Wilcoxon), multi-group
   (one-way ANOVA + Tukey HSD / Kruskal–Wallis + Holm), correlation
@@ -184,6 +234,7 @@ engine/iris_engine/
   hierarchy.py    the data "spine": nested identifier levels + per-layer grain
   reduce.py       the shaping pipeline: filter/drop/derive/recode/join/pivot/
                   grid_complete, plus the post-collapse (reduce.post) phase
+  dag.py          the shaping graph: fan-out/fan-in over the reduction steps
   shape.py        array-shape descriptor for a table (drives the workbench nodes)
   specnorm.py     spec normalization + migration from older shapes
   compiler.py     spec → matplotlib figure (layered geoms, mm sizing, vector SVG)
@@ -192,13 +243,15 @@ engine/iris_engine/
   guards.py       guard pass (point cap, facet-cell cap, actionable messages)
   stats.py        pingouin/scipy orchestration + the guided test picker
   statmodel.py    encodings → inferred, overridable stat model
+  methods.py      generated methods text for the chosen test
   style.py        style registry + override resolution (screen == export)
   render.py       FastAPI-free render core (build a figure/stats from a spec)
+  autosave.py     crash-recovery snapshots of the working document
   build_info.py   engine version/commit identity stamped into every document
   main.py         optional FastAPI HTTP service
 
-engine/tests/         pytest suite (50+ files)
-engine/validation/    per-family reference corpus
+engine/tests/         pytest suite (58 files, 598 tests)
+engine/validation/    per-family reference corpus (27 cases)
 
 src/
   state.ts            Jotai atoms, table pool, derived spec, analysis cache
@@ -206,23 +259,26 @@ src/
   channels.ts         encoding/geom compatibility logic
   collapse.ts         collapse-plan helpers (the grain spine)
   tables.ts / levels.ts   table-pool + data-spine UI helpers
+  grouped.ts          the grouped-sheet lens over a nested table
+  useGridSelection.ts shared spreadsheet selection/clipboard behaviour
   explorer/           graph.ts — the analysis → dataflow-graph derivation
   workbench/          WorkbenchCanvas + node/edge cards (the interactive DAG)
   components/         TableList, HierarchyPanel, DataTable, FigurePane, StatsPanel,
                       EncodingsCard, ImportWizard, GuidedTestPicker, …
+  examples/           the built-in example gallery (.iris assets)
+  tutorial/           the in-app interactive tutorial
   style/              style-sheet UI helpers
 
+e2e/                  Playwright smoke tests against a running dev stack
+docs/guide/           the user guide
 src-tauri/            desktop shell (spawns/reaps the engine sidecar)
 ```
 
-## Status & roadmap
+## Contributing
 
-Tier 2 — the credible-tool milestone — is mostly complete: the composable
-grammar of graphics, the data-hierarchy model, the guided test picker, the
-interactive transformation workbench, the reshaping vocabulary (join, pivot,
-grid_complete, derive, recode, filter), and multi-table documents are built and
-tested; what remains is breadth, polish, optimization, and real-world use. See
-[ROADMAP.md](ROADMAP.md) for what's next.
+Iris is early, so the most valuable contribution is telling us where it breaks
+on your real data. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to run the
+tests and what the house rules are.
 
 ## License
 
