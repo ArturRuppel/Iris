@@ -1,6 +1,6 @@
 # Iris
 
-Publication-grade figures and honest statistics for researchers who don't code.
+Publication-grade figures and honest statistics, from the GUI, from code, or both.
 
 Iris is a desktop application built around one idea, the *reactive triad*: a
 typed data table, a figure, and a statistical analysis, linked so that editing
@@ -10,14 +10,15 @@ test are nodes you click to edit. Iris renders a matplotlib vector figure and
 computes a statistic from the same declarative spec, so the plot and the test
 cannot disagree about the data.
 
-The audience is the colleague who knows what an ANOVA is but not how to write
-one, and whose p-values and figures will end up in a paper or thesis. All
-compute is local: your data never leaves the machine.
+Neither way in is an afterthought. The slow part of a figure is rarely the
+statistics: it is the long tail of small visual decisions, and pointing at one
+beats editing a parameter and re-running. That is what the GUI is for. Batching,
+diffing, and reproducing a result a year later are what code is for.
 
-That spec is also the file format, so an analysis is equally at home in a script
-and in the GUI: a pipeline can generate a batch of them, a person can finish them
-by hand, and the file reads back into code unchanged. It is data, not executable
-code, so it stays safe to share and re-render.
+Because an analysis is a declarative document rather than a program, both work on
+the same one: generate a batch from a script and finish them by hand, or build
+one by hand and read it straight back into code. Neither half is mandatory. The
+GUI alone takes a table from import to exported figure.
 
 ## Status
 
