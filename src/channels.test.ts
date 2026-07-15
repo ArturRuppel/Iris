@@ -275,7 +275,7 @@ describe("familyForMappingsRef — vs-reference (location) opt-in", () => {
     expect(familyForMappingsRef({ x: "val", y: "val" }, SCHEMA, 0)).toBe("correlation");
     expect(familyForMappingsRef({ x: "grp", y: "grp" }, SCHEMA, 0)).toBe("contingency");
   });
-  it("CODE_REVIEW §4: a stored reference does NOT upgrade the 'none' fallback to location", () => {
+  it("a stored reference does NOT upgrade the 'none' fallback to location", () => {
     // A mapping the stats engine can't read (a mapped-but-vanished X column, so
     // xType is null AND a y is present but the pair is unreadable). The pre-fix
     // bug turned this into "location" via the "descriptive" fallback string; it

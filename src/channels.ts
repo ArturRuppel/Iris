@@ -145,8 +145,7 @@ export interface RateOpts { exposure: string; model: RateModel }
    Any other mapping ignores the opt-ins and keeps its derived family. The
    "none" fallthrough (a stats-unreadable mapping, e.g. a mapped-but-vanished
    column) is NOT upgraded: it stays the serialized "descriptive" fallback, so a
-   stored reference can't mislabel an unreadable spec as `location`
-   (CODE_REVIEW §4). */
+   stored reference can't mislabel an unreadable spec as `location`. */
 export function familyForMappingsRef(
   mappings: { x: string; y: string }, schema: Schema | null,
   reference: number | null, rate: RateOpts | null = null,
