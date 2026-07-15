@@ -204,5 +204,4 @@ AGPL-3.0. See [`LICENSE`](LICENSE).
 
 Generative AI tools (Anthropic Claude) assisted with code drafting, refactoring,
 tests, debugging, and documentation. The human author made the scientific,
-architectural, and design decisions, and is fully responsible for all code and
-other content in the repository.
+architectural, and design decisions.
