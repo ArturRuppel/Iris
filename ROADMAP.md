@@ -141,9 +141,7 @@ issue is the place to argue it.
 - **Multi-panel figure composition**: a document-level figure object referencing
   analyses.
 - **A Pyodide browser demo** for zero-install sharing. The spec and protocol keep
-  the engine swappable, so this is expensive but not a rewrite. Hosting tiers and
-  the publication strategy are in
-  [docs/dissemination-plan.md](docs/dissemination-plan.md).
+  the engine swappable, so this is expensive but not a rewrite.
 - **A fluid exploration mode** (D3-rendered, 60 fps brushing) feeding the same
   spec, with matplotlib still rendering the publication output.
 - **A natural-language layer** compiling utterances to spec edits.
