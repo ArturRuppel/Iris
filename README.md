@@ -15,10 +15,11 @@ statistics: it is the long tail of small visual decisions, and pointing at one
 beats editing a parameter and re-running. That is what the GUI is for. Batching,
 diffing, and reproducing a result a year later are what code is for.
 
-Because an analysis is a declarative document rather than a program, both work on
-the same one: generate a batch from a script and finish them by hand, or build
-one by hand and read it straight back into code. Neither half is mandatory. The
-GUI alone takes a table from import to exported figure.
+An analysis is a file, not a script. A `.iris` holds your data together with the
+specification of the analysis: the steps that shape the table, the plot, and the
+test. A script can generate a hundred of them; you can open any one, fix the
+figure by hand, and save; the script reads the result back unchanged. Neither
+half is mandatory. The GUI alone takes a table from import to exported figure.
 
 ## Status
 
