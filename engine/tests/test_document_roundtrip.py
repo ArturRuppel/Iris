@@ -174,6 +174,40 @@ def test_full_rows_persisted_not_just_the_load_window():
     assert tail["n"] == 250 and len(tail["rows"]) == 50
 
 
+def test_small_and_high_precision_floats_survive_round_trip_exactly():
+    """Regression: load must not truncate floats. The rows path once ran the
+    exact Parquet frame back through DataFrame.to_json, whose double_precision
+    defaults to 10 DECIMAL PLACES — so values below ~1e-10 collapsed to 0.0 and
+    every value lost precision past the 10th place, silently altering the data
+    the file stored exactly. Values chosen to expose that: 3.14e-12 became 0.0,
+    0.1+0.2 became 0.3, etc. (The other round-trip tests use values like 72.1
+    and float(i), which never trip the truncation, which is why it slipped by.)
+    """
+    vals = [
+        3.141592653589793e-12,   # < 1e-10: to_json collapsed this to 0.0
+        6.022140857e-08,
+        1.234567890123456,       # more than 10 significant decimals
+        0.1 + 0.2,               # 0.30000000000000004
+        -2.5e-15,
+    ]
+    rows = [{"id": str(i + 1), "grp": "g", "response": v}
+            for i, v in enumerate(vals)]
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "grp", "type": "categorical", "label": "Grp", "levels": ["g"]},
+        {"name": "response", "type": "numeric", "label": "Response"}]}
+    save = client.post("/document/save", json={
+        "tables": [{"name": "precise", "table": {"schema": schema, "rows": rows},
+                    "hierarchy": {"spine": [], "fn": {}}}],
+        "analyses": [], "provenance": {}})
+    assert save.status_code == 200, save.text
+    load = client.post(
+        "/document/load", json={"data_base64": save.json()["data_base64"]})
+    assert load.status_code == 200, load.text
+    loaded = load.json()["tables"][0]["rows"]
+    got = [r["response"] for r in loaded]
+    assert got == vals, f"floats altered on load: {got} != {vals}"
+
+
 def test_load_keeps_every_session_of_a_large_document_resident():
     """Regression: a document with more tables than the session-store LRU bound
     (default 8) must come back with EVERY table live — load raises the bound to

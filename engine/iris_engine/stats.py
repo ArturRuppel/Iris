@@ -271,7 +271,12 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
         H = float(_col(kw, "H"))
         p = float(_col(kw, "p-unc", "p_unc"))
         df_b = float(_col(kw, "ddof1"))
-        eps = (H - k + 1) / (N - k) if N > k else 0.0  # epsilon-squared
+        # epsilon-squared: H / (N - 1) (Tomczak & Tomczak 2014; rcompanion).
+        # NOT (H - k + 1)/(N - k) — that is eta-squared-based-on-H (rstatix's
+        # eta2[H]), a different quantity that must not be reported under the ε²
+        # name. η² is the parametric ANOVA effect size (see the branch above);
+        # ε² is its rank-based analogue and is what the UI/glossary label here.
+        eps = H / (N - 1) if N > 1 else 0.0
         pw = pg.pairwise_tests(data=sub, dv=y, between=x, parametric=False,
                                padjust="holm")
         pairwise = []

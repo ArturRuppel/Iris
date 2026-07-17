@@ -472,7 +472,9 @@ def _import_frame(data: bytes, token: str, filename: str, options: dict,
 
 
 def _to_table(df: pd.DataFrame, schema: dict) -> dict:
-    return {"schema": schema, "rows": json.loads(df.to_json(orient="records"))}
+    # session_mod.records uses to_dict (exact) rather than to_json, whose
+    # 10-decimal-place default silently truncates small floats to 0.
+    return {"schema": schema, "rows": session_mod.records(df)}
 
 
 def fast_json(payload: dict) -> JSONResponse:
