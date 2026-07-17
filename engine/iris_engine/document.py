@@ -17,6 +17,7 @@ from pathlib import Path
 import pandas as pd
 
 from . import build_info
+from .session import records as _records
 
 # 2.2: reduce is a DAG (`{nodes, output}`, per-node `inputs`) instead of the
 # linear `{steps}` fold; a join no longer carries an inline right sub-pipeline
@@ -108,7 +109,12 @@ def load_document(data: bytes) -> dict:
             tables[name] = {
                 "schema": json.loads(z.read(f"tables/{name}/schema.json")),
                 "hierarchy": json.loads(z.read(f"tables/{name}/hierarchy.json")),
-                "rows": json.loads(df.to_json(orient="records")),
+                # to_dict, not to_json: to_json truncates floats to 10 decimal
+                # places (values below ~1e-10 collapse to 0), so a save->load
+                # would silently alter the very data the Parquet frame stored
+                # exactly. _records is the same exact, NaN-safe path the live
+                # session serves rows on.
+                "rows": _records(df),
             }
     return {"manifest": manifest, "tables": tables,
             "analyses": analyses, "provenance": provenance}
@@ -191,7 +197,7 @@ def load_sample() -> dict:
         return {"schema": SAMPLE_SCHEMA, "rows": sample_rows()}
     df = pd.read_csv(path)
     schema = _infer_schema(df)
-    rows = json.loads(df.to_json(orient="records"))
+    rows = _records(df)
     for i, r in enumerate(rows, 1):
         r["id"] = str(i)
     return {"schema": schema, "rows": rows}

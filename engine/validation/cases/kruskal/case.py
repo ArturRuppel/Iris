@@ -19,7 +19,7 @@ Three synthetic groups (n = 8 each), cleanly increasing:
 Independent recompute (outside Iris, raw scipy 1.16.3 / pingouin 0.6.1):
     scipy.stats.kruskal(g1, g2, g3)
     -> H = 19.845000, df = 2, p = 4.9058e-05 ; N = 24, k = 3
-    epsilon² = (H - k + 1) / (N - k) = 0.849762
+    epsilon² = H / (N - 1) = 0.862826
     Holm-adjusted pairwise Mann–Whitney: every pair p_adj < 0.001 (all ***)
         g1 vs g2: p_adj = 0.00062   g1 vs g3: p_adj = 0.00047
         g2 vs g3: p_adj = 0.00062
@@ -50,7 +50,7 @@ ANALYSES = [
             "n": 24,
             "k": 3,
             "correction": "holm",
-            "effect.value": (0.849762, 1e-5),   # epsilon²
+            "effect.value": (0.862826, 1e-5),   # epsilon² = H/(N-1)
             "pairwise.0.stars": "***",
             "pairwise.1.stars": "***",
             "pairwise.2.stars": "***",
