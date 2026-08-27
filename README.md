@@ -96,6 +96,12 @@ cd engine && python -m iris_engine.main          # serves on 127.0.0.1:8765
 npm run dev                                       # http://localhost:5173
 ```
 
+There is a third way to run it, used on the author's machine. `--serve` makes the
+engine hand out the built frontend from its own origin, as one long-running
+service on a private network — which is how Iris reaches a tablet. It is a
+deployment note rather than a supported product, and the layout is still a
+desktop layout. See [docs/serving.md](docs/serving.md).
+
 The app opens on a sample dataset. Import a CSV/TSV/Excel file, map columns to a
 plot, compose geom layers, optionally add a statistical test, restyle in
 millimetres, export SVG/PDF/PNG, and save a `.iris` document.

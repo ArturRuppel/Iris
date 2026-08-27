@@ -49,12 +49,6 @@ likely to reorder everything below.
   cutoffs.
 - **Exclusion annotations.** The n/N sample-size labels are shipped
   (`compiler.py:238-272`); an annotation for what a filter dropped is not.
-- **The stats panel promises numbers it does not show.** `statsGlossary`
-  describes the 95% CI of the mean and the IQR; `StatsPanel` renders only n, mean
-  and SD. The engine already computes and ships `ci95_half`, and nothing in the
-  frontend reads it (`types.ts:540` is its only mention). Either render it and
-  drop the IQR sentence, or align the prose. This is the smallest live gap
-  between what Iris says and what it does, so it should not sit here long.
 
 ## Workbench
 

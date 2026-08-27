@@ -712,18 +712,29 @@ declare global {
   }
 }
 
-/* Dev mode uses a fixed port; under the shell the port is chosen at runtime
-   (collision handling) and fetched from the `engine_port` command. */
+/* Three ways in, and only the first two know a port. Under the shell the port
+   is chosen at runtime (collision handling) and fetched from `engine_port`.
+   Vite dev serves the page from :5173 and must cross to the engine's own port.
+   Served mode (the engine hands out the built bundle itself — tailnet, phone,
+   iPad) is same-origin: an empty base keeps every fetch relative, so it follows
+   whatever host and port you actually reached the page on. Hardcoding
+   127.0.0.1 there would send the phone to *its own* loopback. */
+const loopback = () =>
+  `http://127.0.0.1:${(import.meta as any).env?.VITE_ENGINE_PORT ?? 8765}`;
+
 const baseUrl: Promise<string> = (async () => {
   if (typeof window !== "undefined" && window.__TAURI__) {
     try {
       const port = await window.__TAURI__.core.invoke<number>("engine_port");
       return `http://127.0.0.1:${port}`;
     } catch {
-      /* fall through to the dev default */
+      /* the shell is there but didn't answer — the sidecar is still on
+         loopback, so guess the default port. Same-origin would resolve to
+         tauri://localhost, where nothing is listening. */
+      return loopback();
     }
   }
-  return `http://127.0.0.1:${(import.meta as any).env?.VITE_ENGINE_PORT ?? 8765}`;
+  return (import.meta as any).env?.DEV ? loopback() : "";
 })();
 
 async function get<T>(path: string): Promise<T> {

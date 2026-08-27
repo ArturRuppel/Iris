@@ -1,0 +1,25 @@
+[Unit]
+Description=Iris server — figures and statistics over the tailnet
+Documentation=file:%h/Projects/Iris/docs/serving.md
+After=network.target
+
+[Service]
+# Modelled on lit.service, the unit next door that already works.
+#
+# --serve binds this machine's tailnet address (not 0.0.0.0) so the phone and
+# the iPad can reach it while the ordinary LAN cannot: the engine's endpoints
+# edit session tables and write autosave snapshots, and the tailnet is the only
+# network where every peer is an authenticated device of Artur's. If Tailscale
+# is not up yet the process exits and systemd retries, which is the same
+# "retry until the tailnet exists" behaviour lit.service relies on.
+#
+# --serve also serves the built ../dist itself, so UI and API share one origin.
+# It refuses to start if dist/ is missing rather than serving a 404 for the app.
+# After changing the frontend: npm run build && systemctl --user restart iris
+WorkingDirectory=%h/Projects/Iris/engine
+ExecStart=/home/aruppel/miniconda3/bin/python -m iris_engine.main --serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

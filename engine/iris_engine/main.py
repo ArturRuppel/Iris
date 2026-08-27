@@ -2,6 +2,8 @@
 
 Dev mode:   python -m iris_engine.main   (port 8765, or ENGINE_PORT env)
 Tauri mode: spawned by the shell at startup.
+Served mode: IRIS_HOST=<addr> with a built ../../dist — one origin serves the
+             UI and the API together (see `_mount_frontend`).
 """
 from __future__ import annotations
 
@@ -10,16 +12,26 @@ import copy
 import hashlib
 import json
 import math
+import mimetypes
 import os
 import sys
 import threading
 from collections import OrderedDict
+from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+
+# Starlette takes the content type from the OS mime database, and a machine
+# whose /etc/mime.types predates .webmanifest serves the manifest as
+# application/octet-stream — which Safari ignores *without saying anything*,
+# so you get a plain bookmark instead of an installed app. switchboard hit
+# this exact wall; registering the type here removes the dependency.
+mimetypes.add_type("application/manifest+json", ".webmanifest")
 
 from . import (autosave, build_info, compiler, document, geoms, guards,
                hierarchy, importer, methods as methods_mod,
@@ -1085,6 +1097,52 @@ def autosave_clear():
     return {"ok": True}
 
 
+# ----- served mode: the engine also hands out the built frontend -----
+#
+# Dev keeps Vite on :5173 and Tauri serves its own bundle, so both leave this
+# unmounted. Serving the UI from the engine's own origin is what makes the
+# tailnet deployment work: same-origin means no CORS to widen and no second
+# port to reach, and the page's `fetch("/analyze")` lands on the engine that
+# served it. Registered last on purpose — Starlette matches in order, so every
+# API route above already wins over this catch-all.
+
+def _dist_dir() -> Path:
+    env = os.environ.get("IRIS_DIST")
+    if env:
+        return Path(env)
+    if getattr(sys, "frozen", False):
+        # In the packaged sidecar __file__ points inside the PyInstaller
+        # extraction dir, whose parents[2] is somewhere like /tmp — walking up
+        # from there would mount whatever `dist/` happened to be sitting next
+        # to it. The frozen build is the Tauri shell's, and the shell serves
+        # its own bundle; nothing to find here.
+        return Path("/nonexistent")
+    return Path(__file__).resolve().parents[2] / "dist"
+
+
+def _mount_frontend(app_: FastAPI) -> bool:
+    d = _dist_dir()
+    if not (d / "index.html").is_file():
+        return False
+
+    # iOS asks for /apple-touch-icon.png at the document root whatever the
+    # markup says, and a 404 there is one of the ways you end up with a
+    # screenshot of the page for a home-screen icon.
+    @app_.get("/apple-touch-icon.png", include_in_schema=False)
+    @app_.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+    def _apple_touch_icon():
+        p = d / "apple-touch-icon.png"
+        if not p.is_file():
+            raise HTTPException(404)
+        return FileResponse(p)
+
+    app_.mount("/", StaticFiles(directory=d, html=True), name="frontend")
+    return True
+
+
+SERVING_FRONTEND = _mount_frontend(app)
+
+
 def _exit_when_stdin_closes():
     """Parent-death watchdog. The shell spawns us with a piped stdin and
     IRIS_WATCH_STDIN=1; if the shell dies for any reason — including
@@ -1098,12 +1156,42 @@ def _exit_when_stdin_closes():
     os._exit(0)
 
 
+def _tailnet_ip() -> str:
+    """This machine's tailnet address, for --serve. Binding *this* rather than
+    0.0.0.0 is the whole access-control story: the write endpoints are then
+    reachable from the tailnet (where every peer is an authenticated device of
+    yours) and not from whatever café LAN the laptop is on."""
+    import subprocess
+    out = subprocess.run(["tailscale", "ip", "-4"],
+                         capture_output=True, text=True, timeout=10)
+    ip = out.stdout.strip().splitlines()[0].strip() if out.stdout.strip() else ""
+    if out.returncode != 0 or not ip:
+        raise SystemExit("--serve: no tailnet address yet "
+                         f"(`tailscale ip -4` said: {out.stderr.strip() or 'nothing'})")
+    return ip
+
+
 def main():
     import uvicorn
     if os.environ.get("IRIS_WATCH_STDIN") == "1":
         threading.Thread(target=_exit_when_stdin_closes, daemon=True).start()
-    port = int(os.environ.get("ENGINE_PORT", "8765"))
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+    # `--serve` is the long-running tailnet deployment (iris.service); bare is
+    # the loopback sidecar. It is also a deliberate marker in the command line:
+    # dev.sh clears stale engines with `pkill -f 'iris_engine\.main$'`, and that
+    # anchor is what stops a dev run from killing the service.
+    serve = "--serve" in sys.argv[1:]
+
+    port = int(os.environ.get("ENGINE_PORT", "8766" if serve else "8765"))
+    # Loopback stays the default: as a sidecar this must not be reachable off
+    # the machine.
+    host = os.environ.get("IRIS_HOST") or (_tailnet_ip() if serve else "127.0.0.1")
+
+    if serve and not SERVING_FRONTEND:
+        raise SystemExit(f"--serve: no built frontend at {_dist_dir()} — "
+                         "run `npm run build` first, or set IRIS_DIST.")
+
+    uvicorn.run(app, host=host, port=port, log_level="warning")
 
 
 if __name__ == "__main__":

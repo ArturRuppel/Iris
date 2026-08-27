@@ -20,12 +20,19 @@ export VITE_ENGINE_PORT="${ENGINE_PORT}"
 # method is by module name (`iris_engine.main` is unique to this app) — portable
 # and not dependent on lsof/fuser/ss, which aren't always installed. As a
 # best-effort supplement, also free ENGINE_PORT if some *other* process holds it.
+#
+# The `$` anchor below is load-bearing: it matches the bare dev invocation and
+# NOT `iris_engine.main --serve`, which is the long-running tailnet service
+# (iris.service on :8766 — see docs/serving.md). Without the anchor every
+# ./dev.sh would kill the served app out from under the phone.
+DEV_ENGINE_RE='iris_engine\.main$'
+
 free_port() {
-  if command -v pgrep >/dev/null 2>&1 && pgrep -f iris_engine.main >/dev/null 2>&1; then
+  if command -v pgrep >/dev/null 2>&1 && pgrep -f "${DEV_ENGINE_RE}" >/dev/null 2>&1; then
     echo "dev.sh: stopping stale engine(s) by name"
-    pkill -f iris_engine.main 2>/dev/null || true
+    pkill -f "${DEV_ENGINE_RE}" 2>/dev/null || true
     sleep 1
-    pkill -9 -f iris_engine.main 2>/dev/null || true
+    pkill -9 -f "${DEV_ENGINE_RE}" 2>/dev/null || true
   fi
   local pids=""
   if command -v lsof >/dev/null 2>&1; then

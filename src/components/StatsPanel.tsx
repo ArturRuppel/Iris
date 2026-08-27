@@ -17,6 +17,13 @@ const isRateTest = (t: string) => t === "nb_glm" || t === "poisson_glm";
 /* rate estimates span orders of magnitude (events/h vs events/s), so fixed
    decimals misrender; 3 significant digits reads right across scales. */
 const fmtRate = (v: number) => Number(v.toPrecision(3)).toString();
+/* The engine ships the mean's 95% CI as a half-width; the panel shows the
+   interval. n < 2 has no interval — the engine floors ci95_half to 0 there, and
+   printing "10.0, 10.0" would pass a missing bound off as a measured one. */
+const fmtCI = (s: { n: number; mean: number; ci95_half: number }, dp: number) =>
+  s.n > 1
+    ? `${(s.mean - s.ci95_half).toFixed(dp)}, ${(s.mean + s.ci95_half).toFixed(dp)}`
+    : null;
 const GROUP_TESTS: TestName[] = ["welch_t", "mann_whitney", "paired_t", "wilcoxon"];
 // >2 groups: the omnibus alternatives (parametric ANOVA vs robust Kruskal).
 const MULTI_TESTS: TestName[] = ["one_way_anova", "kruskal"];
@@ -196,16 +203,25 @@ function ResultRows({ s }: { s: StatsResult }) {
           <dt>n <InfoTip k="sample_n" /></dt><dd className="mono">{r.n}</dd>
         </>
       );
-    case "descriptive":
+    case "descriptive": {
+      // the single-column path summarizes the one measure, so its lone summary
+      // carries the CI half-width the `result` itself doesn't.
+      const ci = s.summaries[0] && fmtCI(s.summaries[0], 2);
       return (
         <>
           <dt>n <InfoTip k="sample_n" /></dt><dd className="mono">{r.n}</dd>
           <dt>Mean (SD) <InfoTip k="group_summary" /></dt><dd className="mono">{r.mean!.toFixed(2)} ({r.sd!.toFixed(2)})</dd>
+          {ci && (
+            <>
+              <dt>95% CI of mean <InfoTip k="group_summary" /></dt><dd className="mono">{ci}</dd>
+            </>
+          )}
           <dt>Median (IQR) <InfoTip k="group_summary" /></dt>
           <dd className="mono">{r.median!.toFixed(2)} ({r.q1!.toFixed(2)}–{r.q3!.toFixed(2)})</dd>
           <dt>Range</dt><dd className="mono">{r.min!.toFixed(2)} to {r.max!.toFixed(2)}</dd>
         </>
       );
+    }
     default:
       return null;
   }
@@ -251,12 +267,18 @@ export function StatsResults() {
               <dt className="pairwise-head">Per-group summary <InfoTip k="group_summary" /></dt><dd></dd>
             </>
           )}
-          {s.result.test !== "descriptive" && !isRateTest(s.result.test) && s.summaries.map((g) => (
-            <span key={g.group} style={{ display: "contents" }}>
-              <dt>{g.group}</dt>
-              <dd className="mono">n = {g.n}, mean {g.mean.toFixed(1)} (SD {g.sd.toFixed(1)})</dd>
-            </span>
-          ))}
+          {s.result.test !== "descriptive" && !isRateTest(s.result.test) && s.summaries.map((g) => {
+            const ci = fmtCI(g, 1);
+            return (
+              <span key={g.group} style={{ display: "contents" }}>
+                <dt>{g.group}</dt>
+                <dd className="mono">
+                  n = {g.n}, mean {g.mean.toFixed(1)} (SD {g.sd.toFixed(1)}
+                  {ci && `; 95% CI ${ci}`})
+                </dd>
+              </span>
+            );
+          })}
         </dl>
 
         <h3>Methods text <InfoTip k="methods_text" /></h3>
