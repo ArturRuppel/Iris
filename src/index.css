@@ -1,47 +1,47 @@
-/* ── Design tokens (reskin: iris-violet + sage, IBM Plex) ──────────────────
+/* ── Design tokens (family palette: purple + teal on neutral grey, Archivo) ──────────────────
    Light lives on :root, dark on [data-theme="dark"] (set on <html> so portalled
    popovers inherit it too). --accent/--warn/--ok are aliases onto the new roles
    so the many existing var(--accent|--warn|--ok) usages retheme for free and
    re-resolve per theme (the alias substitutes the element's cascaded token). */
 :root {
-  --bg:#f4eff4; --panel:#fffcff; --panel2:#f7f1f9; --canvas:#f4eff4;
-  --ink:#2a2331; --dim:#6f6478; --faint:#a99fb0;
-  --line:#ece2ec; --line2:#e0d5e0; --field:#ffffff;
-  --primary:#6d3ab0; --primary-fg:#ffffff; --primary-text:#6d3ab0;
-  --primary-tint:#f1e9f8; --primary-tintline:#e0cff2; --primary-shadow:rgba(109,58,176,.45);
-  --sage:#3f8f68; --sage-tint:#e6f2ea; --sage-tintline:#c8e6d4;
-  --t-num:#3f8f68; --t-cat:#6d3ab0; --t-id:#a99fb0; --t-bool:#b07d2a;   /* data-type coding */
-  --true:#3f8f68; --false:#b05a2a;
-  --seg-bg:#f2eaf3; --seg-line:#e8dee8;
-  --brandbox:transparent; --pool-dot:#d8cce0; --track-line:#ddd0dd;
-  --chip-bg:#ece2ec; --nav-inactive:#6f6478;
-  --btn-bg:#ffffff; --btn-line:#e0d5e0; --btn-fg:#2a2331;
-  --mono-dim:#a99fb0; --row-line:#f3edf5;
+  --bg:#f3f3f4; --panel:#ffffff; --panel2:#f8f8f9; --canvas:#f3f3f4;
+  --ink:#1c1b22; --dim:#5c5b63; --faint:#9a9aa1;
+  --line:#e8e8ea; --line2:#d4d4d8; --field:#ffffff;
+  --primary:#6b3fa0; --primary-fg:#ffffff; --primary-text:#6b3fa0;
+  --primary-tint:#eee7f7; --primary-tintline:#dccdef; --primary-shadow:rgba(107,63,160,.45);
+  --sage:#0e7c7b; --sage-tint:#e3f2f1; --sage-tintline:#c4e3e1;
+  --t-num:#0e7c7b; --t-cat:#6b3fa0; --t-id:#9a9aa1; --t-bool:#b07d2a;   /* data-type coding */
+  --true:#0e7c7b; --false:#b05a2a;
+  --seg-bg:#eaeaec; --seg-line:#e2e2e5;
+  --brandbox:transparent; --pool-dot:#d0d0d5; --track-line:#d4d4d8;
+  --chip-bg:#e8e8ea; --nav-inactive:#5c5b63;
+  --btn-bg:#ffffff; --btn-line:#d4d4d8; --btn-fg:#1c1b22;
+  --mono-dim:#9a9aa1; --row-line:#f0f0f2;
   /* workbench per-step (node kind) accents */
-  --k-source:#8a7f92; --k-filter:#d63a63; --k-collapse:#6d3ab0; --k-geom:#2f8f8f; --k-test:#5a4fd0;
+  --k-source:#7a7a82; --k-filter:#d63a63; --k-collapse:#6b3fa0; --k-geom:#0e7c7b; --k-test:#5a4fd0;
   /* aliases so legacy var(--accent|--warn|--ok) usages retheme by role */
   --accent: var(--primary); --warn: var(--t-bool); --ok: var(--sage);
   --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
 }
 [data-theme="dark"] {
-  --bg:#17131c; --panel:#201a28; --panel2:#1a151f; --canvas:#151019;
-  --ink:#ece7f0; --dim:#a396ad; --faint:#6f6478;
-  --line:#322a3b; --line2:#3a3145; --field:#271f31;
+  --bg:#141418; --panel:#1e1e23; --panel2:#19191d; --canvas:#121215;
+  --ink:#ececef; --dim:#a1a1a9; --faint:#6e6e76;
+  --line:#2e2e34; --line2:#38383f; --field:#25252b;
   --primary:#8a53d6; --primary-fg:#ffffff; --primary-text:#b98ae8;
   --primary-tint:#2a2036; --primary-tintline:#3d2f4f; --primary-shadow:rgba(138,83,214,.55);
-  --sage:#5fbf90; --sage-tint:#16271f; --sage-tintline:#244a37;
-  --t-num:#5fbf90; --t-cat:#b98ae8; --t-id:#8a7d95; --t-bool:#d0a24a;
-  --true:#5fbf90; --false:#e0955f;
-  --seg-bg:#17131c; --seg-line:#322a3b;
-  --brandbox:#2a2036; --pool-dot:#4a3f57; --track-line:#3a3145;
-  --chip-bg:#322a3b; --nav-inactive:#a396ad;
-  --btn-bg:#271f31; --btn-line:#3a3145; --btn-fg:#ece7f0;
-  --mono-dim:#8a7d95; --row-line:#29222f;
-  --k-source:#8a7d95; --k-filter:#f2607f; --k-collapse:#a878e8; --k-geom:#5fc4c4; --k-test:#9a8ff0;
+  --sage:#3fb3b1; --sage-tint:#102625; --sage-tintline:#1d4746;
+  --t-num:#3fb3b1; --t-cat:#b98ae8; --t-id:#86868e; --t-bool:#d0a24a;
+  --true:#3fb3b1; --false:#e0955f;
+  --seg-bg:#141418; --seg-line:#2e2e34;
+  --brandbox:#2a2036; --pool-dot:#46464e; --track-line:#38383f;
+  --chip-bg:#2e2e34; --nav-inactive:#a1a1a9;
+  --btn-bg:#25252b; --btn-line:#38383f; --btn-fg:#ececef;
+  --mono-dim:#86868e; --row-line:#26262b;
+  --k-source:#86868e; --k-filter:#f2607f; --k-collapse:#a878e8; --k-geom:#3fb3b1; --k-test:#9a8ff0;
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
-  font: 14px/1.45 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif; }
+  font: 14px/1.45 'Archivo', ui-sans-serif, system-ui, sans-serif; }
 /* The safe-area half of the black-translucent pair in index.html: standalone on
    iOS paints the page under the notch and the home indicator, so the shell pads
    itself back out. env() is 0px everywhere else, so the desktop is untouched.
@@ -69,34 +69,34 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tb-brand { display:flex; align-items:center; gap:10px; flex:none; }
 .tb-mark { width:34px; height:34px; border-radius:9px; background:var(--brandbox);
   display:inline-flex; align-items:center; justify-content:center; flex:none; }
-.tb-word { font:600 19px/1 'IBM Plex Sans'; letter-spacing:-.015em; color:var(--ink); }
+.tb-word { font:600 19px/1 'Archivo'; letter-spacing:-.015em; color:var(--ink); }
 .tb-div { width:1px; height:26px; background:var(--line); flex:none; }
 .tb-div.sm { height:24px; }
 .tb-modes { display:flex; justify-content:center; min-width:0; }
 .tb-seg { display:inline-flex; gap:3px; background:var(--seg-bg);
   border:1px solid var(--seg-line); border-radius:11px; padding:3px; }
 .tb-seg button { display:inline-flex; align-items:center; gap:7px; border:none;
-  border-radius:8px; padding:8px 16px; font:500 13px/1 'IBM Plex Sans';
+  border-radius:8px; padding:8px 16px; font:500 13px/1 'Archivo';
   background:none; color:var(--nav-inactive); cursor:pointer;
   transition:background-color .12s, color .12s; }
 .tb-seg button.active { font-weight:600; background:var(--primary);
   color:var(--primary-fg); box-shadow:0 2px 6px -1px var(--primary-shadow); }
 .tb-seg button svg { flex:none; }
 .tb-menuwrap { position:relative; display:inline-flex; }
-.tb-btn { display:inline-flex; align-items:center; gap:6px; font:500 12px/1 'IBM Plex Sans';
+.tb-btn { display:inline-flex; align-items:center; gap:6px; font:500 12px/1 'Archivo';
   border:1px solid var(--btn-line); border-radius:9px; padding:8px 12px;
   background:var(--btn-bg); color:var(--btn-fg); cursor:pointer;
   transition:border-color .12s, background-color .12s; }
 .tb-btn:hover { border-color:var(--primary); }
 .tb-btn .caret { color:var(--faint); font-size:9px; }
-.tb-ghost { font:500 12px/1 'IBM Plex Sans'; border:none; background:none;
+.tb-ghost { font:500 12px/1 'Archivo'; border:none; background:none;
   color:var(--nav-inactive); padding:8px 6px; cursor:pointer; }
 .tb-ghost:hover { color:var(--ink); }
-.tb-primary { font:600 12px/1 'IBM Plex Sans'; border:1px solid var(--primary);
+.tb-primary { font:600 12px/1 'Archivo'; border:1px solid var(--primary);
   border-radius:9px; padding:8px 18px; background:var(--primary); color:var(--primary-fg);
   cursor:pointer; box-shadow:0 2px 6px -1px var(--primary-shadow); }
 .tb-icon { width:34px; height:34px; display:inline-flex; align-items:center;
-  justify-content:center; font:600 15px/1 'IBM Plex Sans'; border:1px solid var(--btn-line);
+  justify-content:center; font:600 15px/1 'Archivo'; border:1px solid var(--btn-line);
   border-radius:9px; background:var(--btn-bg); color:var(--nav-inactive); cursor:pointer; }
 .tb-icon:hover { border-color:var(--primary); }
 /* z-index 54: below the header's stacking context (55, so header buttons remain
@@ -108,7 +108,7 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tb-menu.tb-menu-right { left:auto; right:0; width:184px; }
 .tb-menu > button { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
   border:none; background:none; border-radius:7px; padding:8px 10px; cursor:pointer;
-  font:500 12.5px/1 'IBM Plex Sans'; color:var(--ink); }
+  font:500 12.5px/1 'Archivo'; color:var(--ink); }
 .tb-menu > button:hover { background:var(--primary-tint); }
 .tb-menu-item.active { color:var(--primary-text); font-weight:600; background:var(--primary-tint); }
 .tb-menu-item .grow { flex:1; }

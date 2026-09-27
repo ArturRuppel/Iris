@@ -85,8 +85,8 @@ export type ColumnType = ColumnDef["type"];
    match their own convention. */
 export type SwatchKey = ColumnType | "identifier";
 export const DEFAULT_TYPE_COLORS: Record<SwatchKey, string> = {
-  numeric: "#3f8f68",      // sage — measurements (--t-num)
-  categorical: "#6d3ab0",  // iris-violet — classifiers (--t-cat)
+  numeric: "#0e7c7b",      // teal — measurements (--t-num)
+  categorical: "#6b3fa0",  // purple — classifiers (--t-cat)
   identifier: "#a99fb0",   // muted lilac-grey — nesting keys (--t-id)
   bool: "#b07d2a",         // amber — stochastic-event flags (--t-bool)
 };
