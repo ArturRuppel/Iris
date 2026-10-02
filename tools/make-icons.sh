@@ -12,13 +12,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SRC=public/iris-favicon.svg
-# iOS rounds the home-screen icon itself and paints transparent corners black, so
-# the 180 px apple-touch-icon is rendered from a square (rx=0) copy of the SVG.
-SQUARE=$(mktemp --suffix=.svg)
-trap 'rm -f "$SQUARE"' EXIT
-sed 's/ rx="22"//' "$SRC" > "$SQUARE"
-
-for spec in "180:public/apple-touch-icon.png:$SQUARE" \
+# Preserve the SVG's transparent background in every size.
+for spec in "180:public/apple-touch-icon.png:$SRC" \
             "192:public/icon-192.png:$SRC" \
             "512:public/icon-512.png:$SRC"; do
     size=${spec%%:*}
