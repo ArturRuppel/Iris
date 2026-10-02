@@ -211,3 +211,7 @@ AGPL-3.0. See [`LICENSE`](LICENSE).
 Generative AI tools (Anthropic Claude) assisted with code drafting, refactoring,
 tests, debugging, and documentation. The human author made the scientific,
 architectural, and design decisions.
+
+## Shared interface style
+
+The interface vendors Harmonia's canonical stylesheet in `src/harmonia/`. Marine and teal identify controls; square panels and ink rules separate the workspace. Scientific palettes, data-type colours and workflow-node colours stay local. Harmonia's `sync.py` checks the copies on both workstations. Tablet headers wrap into two rows and touch controls retain 44 px targets.

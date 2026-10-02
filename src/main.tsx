@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import "./harmonia/harmonia.css";
 import "./index.css";
 
 // DEV-only E2E seam (see src/testSeam.ts); gated so prod builds tree-shake it out.
