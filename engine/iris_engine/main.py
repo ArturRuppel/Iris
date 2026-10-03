@@ -2,8 +2,9 @@
 
 Dev mode:   python -m iris_engine.main   (port 8765, or ENGINE_PORT env)
 Tauri mode: spawned by the shell at startup.
-Served mode: IRIS_HOST=<addr> with a built ../../dist — one origin serves the
-             UI and the API together (see `_mount_frontend`).
+Served mode: --serve (tailnet address) or IRIS_HOST=<addr>, with a built
+             ../../dist — one origin serves the UI and the API together (see
+             `_mount_frontend`); behind `tailscale serve` it is IRIS_HOST=127.0.0.1.
 """
 from __future__ import annotations
 
@@ -1136,6 +1137,19 @@ def _mount_frontend(app_: FastAPI) -> bool:
             raise HTTPException(404)
         return FileResponse(p)
 
+    # The page and its service worker must never be answered from the HTTP
+    # cache: public/sw.js is server-first for the shell, and that only holds if
+    # "server" means the file on disk rather than a heuristic copy the browser
+    # kept. For /sw.js it is also what lets an updated worker reach an installed
+    # home-screen app on its next open. The hashed /assets/ files are left
+    # cacheable — a changed build has new names.
+    @app_.middleware("http")
+    async def _no_cache_shell(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path in ("/", "/index.html", "/sw.js"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     app_.mount("/", StaticFiles(directory=d, html=True), name="frontend")
     return True
 
@@ -1184,7 +1198,9 @@ def main():
 
     port = int(os.environ.get("ENGINE_PORT", "8766" if serve else "8765"))
     # Loopback stays the default: as a sidecar this must not be reachable off
-    # the machine.
+    # the machine. The served deployment sets IRIS_HOST=127.0.0.1 too and puts
+    # `tailscale serve` in front for HTTPS (docs/serving.md); the bare tailnet
+    # bind remains for a machine without Serve.
     host = os.environ.get("IRIS_HOST") or (_tailnet_ip() if serve else "127.0.0.1")
 
     if serve and not SERVING_FRONTEND:

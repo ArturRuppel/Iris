@@ -733,6 +733,7 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   border-radius: 0; padding: 14px; overflow: auto; max-height: 320px; }
 .engine-down { max-width: 480px; margin: 18vh auto; text-align: center; }
 .engine-down code { background: var(--line); padding: 1px 5px; border-radius: 0; }
+.engine-down-brand { justify-content: center; margin-bottom: 24px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
 /* unified with the pipeline rail (item 8): same panel card, head, collapse */

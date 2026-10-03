@@ -26,6 +26,7 @@ def served(tmp_path, monkeypatch):
     (dist / "assets" / "index-abc123.js").write_text("export default 1;\n")
     (dist / "manifest.webmanifest").write_text('{"name": "Iris"}')
     (dist / "apple-touch-icon.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    (dist / "sw.js").write_text("self.addEventListener('fetch', () => {});\n")
 
     monkeypatch.setenv("IRIS_DIST", str(dist))
     mod = importlib.reload(main_mod)
@@ -87,3 +88,17 @@ def test_apple_touch_icon_at_the_document_root(served):
         r = TestClient(served.app).get(path)
         assert r.status_code == 200, path
         assert r.headers["content-type"] == "image/png"
+
+
+def test_the_shell_and_its_worker_are_never_heuristically_cached(served):
+    """public/sw.js is server-first, which only means "the build on disk" if
+    the browser never answers the page or the worker from its HTTP cache. The
+    hashed bundle is left cacheable: a new build has new names."""
+    c = TestClient(served.app)
+    for path in ("/", "/index.html", "/sw.js"):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert r.headers.get("cache-control") == "no-cache", path
+    assert "cache-control" not in c.get("/assets/index-abc123.js").headers
+    # and the engine's own answers are not touched
+    assert "cache-control" not in c.get("/health").headers

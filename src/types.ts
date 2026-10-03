@@ -722,6 +722,16 @@ declare global {
 const loopback = () =>
   `http://127.0.0.1:${(import.meta as any).env?.VITE_ENGINE_PORT ?? 8765}`;
 
+/* Served mode: the page came from the engine itself (iris.service behind
+   `tailscale serve`), not from Vite or the Tauri shell. It is the only mode in
+   which "the engine did not answer" means "the laptop is out of reach" rather
+   than "the sidecar is still booting", and the only one that registers the
+   offline-shell service worker (see public/sw.js). */
+export const servedMode: boolean =
+  typeof window !== "undefined" && !window.__TAURI__ &&
+  !(import.meta as any).env?.DEV &&
+  /^https?:$/.test(window.location?.protocol ?? "");
+
 const baseUrl: Promise<string> = (async () => {
   if (typeof window !== "undefined" && window.__TAURI__) {
     try {

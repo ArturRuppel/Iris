@@ -98,9 +98,11 @@ npm run dev                                       # http://localhost:5173
 
 There is a third way to run it, used on the author's machine. `--serve` makes the
 engine hand out the built frontend from its own origin, as one long-running
-service on a private network — which is how Iris reaches a tablet. It is a
-deployment note rather than a supported product, and the layout is still a
-desktop layout. See [docs/serving.md](docs/serving.md).
+service on a private network — which is how Iris reaches a tablet, over HTTPS via
+`tailscale serve`, with a shell-only service worker so an unreachable server shows
+Iris saying so rather than a browser error. It is a deployment note rather than a
+supported product, and the layout is still a desktop layout. See
+[docs/serving.md](docs/serving.md).
 
 The app opens on a sample dataset. Import a CSV/TSV/Excel file, map columns to a
 plot, compose geom layers, optionally add a statistical test, restyle in

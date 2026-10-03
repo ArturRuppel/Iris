@@ -26,7 +26,7 @@ import {
   activeReduceDagAtom, reduceStoreAtom,
   mintFromEntryAtom, entryHasContentAtom,
 } from "./state";
-import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback } from "./types";
+import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
 import type { AutosaveStatus, NodeShape } from "./types";
 import { colType } from "./channels";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
@@ -158,13 +158,20 @@ export default function App() {
   /* derived from active plottable */
   const mappings = active?.mappings ?? { x: "", y: "" };
 
-  useEffect(() => {
-    /* run exactly once. React 18 StrictMode double-invokes mount effects in dev;
-       without this guard the health check fires twice for no reason. */
-    if (didInit.current) return;
-    didInit.current = true;
-    engine.waitForHealth()
+  /* Served mode (phone / iPad over the tailnet) has no frozen sidecar to wait
+     for: the server either answers or the laptop is out of reach, so give up
+     after ~2 s instead of ~15 s and say which. `wasDown` is set once a check has
+     failed in this page load — when the server comes back after that, the page
+     reloads instead of carrying on, because a page that started while the
+     server was unreachable came from the service worker's cached shell, and the
+     server's copy is the one that must run (public/sw.js is server-first, so the
+     reload is all it takes). */
+  const wasDown = useRef(false);
+  const connectEngine = () => {
+    setEngineUp(null);
+    engine.waitForHealth(servedMode ? 4 : 30)
       .then((h) => {
+        if (servedMode && wasDown.current) { window.location.reload(); return; }
         setSnapshot(h.engine_snapshot); setRegistry(h.registry);
         setStyleRegistry(h.style_registry ?? []); setEngineUp(true);
         /* a populated autosave slot means a previous session ended with
@@ -174,7 +181,14 @@ export default function App() {
           .then((s) => { if (s.exists) setRecovery(s); })
           .catch(() => {});
       })
-      .catch(() => setEngineUp(false));
+      .catch(() => { wasDown.current = true; setEngineUp(false); });
+  };
+  useEffect(() => {
+    /* run exactly once. React 18 StrictMode double-invokes mount effects in dev;
+       without this guard the health check fires twice for no reason. */
+    if (didInit.current) return;
+    didInit.current = true;
+    connectEngine();
   }, []);
 
   /* ---- autosave / crash recovery (design: docs/superpowers/specs/
@@ -675,7 +689,23 @@ export default function App() {
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
-  if (engineUp === false) return (
+  /* Served mode says "server", with a retry button: installed to the Home
+     Screen there is no reload button, and the remedy is waking the laptop, not
+     starting a Python module. No figures, tables or stats are shown from any
+     cache — they all come from the engine, and there is none to ask. */
+  if (engineUp === false) return servedMode ? (
+    <div className="engine-down">
+      <div className="tb-brand engine-down-brand">
+        <span className="tb-mark"><img src={irisMark} alt="" width="27" height="27" /></span>
+        <span className="tb-word">Iris</span>
+      </div>
+      <h1>Server not reachable</h1>
+      <p>Showing the app without live data. The statistics and figures run on
+        the server, which did not answer — check that the machine is awake and
+        on the tailnet.</p>
+      <button className="tb-btn" onClick={connectEngine}>Retry</button>
+    </div>
+  ) : (
     <div className="engine-down">
       <h1>Engine not reachable</h1>
       <p>Start it with <code>python -m iris_engine.main</code> in <code>engine/</code>, then reload.</p>
@@ -683,7 +713,7 @@ export default function App() {
   );
   if (engineUp === null) return (
     <div className="engine-down">
-      <h1>Starting engine…</h1>
+      <h1>{servedMode ? "Connecting…" : "Starting engine…"}</h1>
     </div>
   );
 

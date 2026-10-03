@@ -15,6 +15,13 @@ After=network.target
 #
 # --serve also serves the built ../dist itself, so UI and API share one origin.
 # It refuses to start if dist/ is missing rather than serving a 404 for the app.
+#
+# With `tailscale serve` (HTTPS, docs/serving.md) the engine binds loopback
+# instead and Serve is the tailnet's way in:
+#   tailscale serve --bg --https=8766 http://127.0.0.1:8766
+# Serve only listens on the tailnet, so the reasoning above is unchanged. Delete
+# this line to go back to the bare tailnet bind on a machine without Serve.
+Environment=IRIS_HOST=127.0.0.1
 # After changing the frontend: npm run build && systemctl --user restart iris
 WorkingDirectory=%h/Projects/Iris/engine
 ExecStart=/home/aruppel/miniconda3/bin/python -m iris_engine.main --serve
