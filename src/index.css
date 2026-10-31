@@ -1703,3 +1703,10 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 .txw-vplus { font-weight: 700; }
 .txw-grain-to { margin-left: 6px; font: 500 11px/1 var(--mono); color: var(--hm-dim);
   overflow: hidden; text-overflow: ellipsis; }
+
+/* "Why this test?": a disclosure in the stats column, not a separate box */
+.why-test { margin-top: 12px; border-top: 1px solid var(--hm-hairline); padding-top: 8px; }
+.why-test > summary { cursor: pointer; font-size: 12px; color: var(--hm-dim);
+  text-decoration: underline; text-underline-offset: 2px; user-select: none; width: max-content; }
+.why-test > summary:hover { color: var(--hm-ink); }
+.why-test[open] > summary { margin-bottom: 4px; }

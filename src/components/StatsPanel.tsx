@@ -249,7 +249,6 @@ export function StatsResults() {
       <div className="stats-body">
         <h3>No test run</h3>
         <p className="stat-error">{s.error}.</p>
-        <p className="reason">Pick an applicable test to run it.</p>
       </div>
     </section>
   );
@@ -340,9 +339,7 @@ export function TestPicker() {
   return (
     <section className="pane stats-pane">
       <div className="stats-body">
-        {s.error && <p className="stat-error">{s.error}. No test ran — choose one below.</p>}
-        <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
-        <p className="reason">{model.design}.</p>
+        {s.error && <p className="stat-error">{s.error}. Choose a test below.</p>}
         {(model.issues as { code?: string; message?: string }[])
           .filter((i) => i.code === "color_second_factor")
           .map((i, k) => (
@@ -426,20 +423,7 @@ export function TestPicker() {
             <InfoTip k="significance_stars" />
           </label>
         )}
-        {s.checks.length > 0 && <h3>Assumption checks <InfoTip k="normality" /></h3>}
-        {s.checks.map((c) => (
-          <div className="row" key={c.group}>
-            <span>Shapiro–Wilk · {c.group} <InfoTip k="shapiro_wilk" /></span>
-            {c.ok
-              ? <span className="mono">W = {c.W!.toFixed(3)}, p {fmtP(c.p!)}{" "}
-                  <em className={c.p! > s.alpha ? "ok" : "warn"}>{c.p! > s.alpha ? "normal" : "non-normal"}</em></span>
-              : <span className="warn">unavailable ({c.reason})</span>}
-          </div>
-        ))}
-
-        {model.chosen_by === "describe_only" ? (
-          <p className="reason">No test was run — describing only. Untick “Describe only” to run a test.</p>
-        ) : s.decision?.structural && s.decision?.assumption ? (
+        {model.chosen_by === "describe_only" ? null : s.decision?.structural && s.decision?.assumption ? (
           /* Two-group numeric family: the engine emits a per-question `decision`
              with both axes, so guide the user through the questions and derive the
              test. The location family emits only an `assumption` axis (no
@@ -483,6 +467,24 @@ export function TestPicker() {
             )}
           </>
         )}
+        {/* the reasoning behind the choice, folded away in the same column: the
+            design Iris inferred from the column types and the assumption checks
+            that steer parametric vs rank-based. The ⓘ tips carry the glossary. */}
+        <details className="why-test">
+          <summary>Why this test?</summary>
+          <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
+          <p className="reason">{model.design}.</p>
+          {s.checks.length > 0 && <h3>Assumption checks <InfoTip k="normality" /></h3>}
+          {s.checks.map((c) => (
+            <div className="row" key={c.group}>
+              <span>Shapiro–Wilk · {c.group} <InfoTip k="shapiro_wilk" /></span>
+              {c.ok
+                ? <span className="mono">W = {c.W!.toFixed(3)}, p {fmtP(c.p!)}{" "}
+                    <em className={c.p! > s.alpha ? "ok" : "warn"}>{c.p! > s.alpha ? "normal" : "non-normal"}</em></span>
+                : <span className="warn">unavailable ({c.reason})</span>}
+            </div>
+          ))}
+        </details>
       </div>
     </section>
   );

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, within } from "@testing-library/react";
 import { Provider } from "jotai";
 import { targetToCardKind, CARD, type CardKind } from "./cardRegistry";
 import { seedStore } from "./cards/cardTestStore";
@@ -120,6 +120,17 @@ describe("card bodies — each renders its panel inside the classed wrapper", ()
     expect(container.querySelector('[data-testid="stats-card"]')).toBeInTheDocument();
     expect(screen.getByText(/Methods text/i)).toBeInTheDocument();          // results readout
     expect(screen.getByText(/significance brackets/i)).toBeInTheDocument(); // test picker
+  });
+
+  // the inferred model and assumption checks fold into a "Why this test?"
+  // disclosure in the same column instead of always taking room.
+  it("stats folds the inferred model into a Why this test? disclosure", () => {
+    const { container } = renderBody("stats", true, true);
+    const why = container.querySelector("details.why-test") as HTMLDetailsElement;
+    expect(why).toBeInTheDocument();
+    expect(why.open).toBe(false);
+    expect(within(why).getByText("Why this test?").tagName).toBe("SUMMARY");
+    expect(within(why).getByText(/Inferred model/)).toBeInTheDocument();
   });
 
   it("test shows the picker, not the results readout", () => {
