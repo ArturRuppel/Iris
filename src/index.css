@@ -1654,3 +1654,76 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
  .tb-fileactions { flex-wrap: wrap; }
 }
 .txw-card-table .ag-root-wrapper, .txw-card-table .ag-header, .txw-card-table .ag-header-viewport, .txw-card-table .ag-header-row { border-radius: 0 !important; }
+
+/* ── One frame (de-clutter pass) ─────────────────────────────────────────────
+   The workbench is a single frame under the top bar's 2px rule: the Analyses
+   list, the canvas and the display panel are columns separated by one hairline
+   each, not boxed cards inset on the grey ground. Inside the display panel the
+   figure, the layers and the stats are one column of eyebrow headings and
+   hairlines, with no card nested in a card. */
+main:has(> .workbench-mode) { padding: 0; gap: 0; }
+.workbench-mode { background: var(--hm-ground); }
+.plottable-sidebar { border: none; border-right: 1px solid var(--hm-hairline);
+  background: var(--hm-ground); padding: 10px 10px 8px; }
+.plottable-sidebar .rail-head strong { font-size: 13px; }
+.plottable-sidebar .rail-head .icon { border-color: transparent; background: none; color: var(--hm-dim); }
+.plottable-sidebar .rail-head .icon:hover { border-color: var(--hm-hairline); }
+.add-plottable { background: none; border-color: var(--hm-hairline); text-align: left; }
+.txw-overlay.txw-embedded { background: var(--hm-ground); }
+.txw-stash { border-left: 1px solid var(--hm-hairline); background: var(--hm-raised); }
+.txw-stash .txw-slot-bar { background: none; border-bottom: 1px solid var(--hm-hairline); }
+.txw-stash .txw-slot.sel { box-shadow: none; }
+.txw-stash .txw-slot-body { padding: 12px 16px 24px; }
+
+/* the figure sits directly in the panel: no "Figure" card, no title row rule */
+.txw-card-plot .figure-pane { border: none; background: none; overflow: visible; }
+.txw-card-plot .figure-pane > .pane-head { border: none; padding: 0 0 4px; min-height: 24px;
+  justify-content: flex-end; align-items: center; }
+.txw-card-plot .figure-pane > .pane-head h2 { position: absolute; width: 1px; height: 1px;
+  overflow: hidden; clip: rect(0 0 0 0); }
+.txw-card-plot .figure-host { padding: 0; }
+.txw-card-plot .style-pane { padding: 0; border-top: 1px solid var(--hm-hairline); margin-top: 8px; }
+.txw-card-plot .figure-tools button { border-color: transparent; background: none; }
+.txw-card-plot .figure-tools button:hover:not(:disabled) { border-color: var(--hm-hairline); }
+
+/* layers: one column, eyebrow headings, hairlines between, no boxes */
+.txw-card-plot .layer-strip { gap: 0; }
+.txw-card-plot .layer-list { gap: 0; }
+.txw-card-plot .layer-card { border: none; border-top: 1px solid var(--hm-hairline);
+  padding: 10px 0 10px; }
+.txw-card-plot .layer-geom { font: 600 11px/1.2 var(--mono); text-transform: uppercase;
+  letter-spacing: .08em; color: var(--hm-dim); padding: 2px 0; margin: 0 4px 0 0; }
+.txw-card-plot .layer-actions .icon { border-color: transparent; background: none; color: var(--hm-dim); }
+.txw-card-plot .layer-actions .icon:hover:not(:disabled) { border-color: var(--hm-hairline); }
+.txw-card-plot .add-layer { border-top: 1px solid var(--hm-hairline); padding-top: 6px; }
+.txw-card-plot .add-layer-btn { padding: 4px 0; }
+
+/* stats: the readout and the test editor are one column */
+.txw-card-stats .stats-pane { border: none; background: none; overflow: visible; }
+.txw-card-stats .stats-pane + .stats-pane { border-top: 1px solid var(--hm-hairline);
+  margin-top: 14px; padding-top: 4px; }
+.txw-card-stats .stats-pane > .pane-head { border: none; padding: 8px 0 0; }
+.txw-card-stats .stats-body { padding: 8px 0 0; }
+.txw-card-stats .stats-body h3 { font-family: var(--mono); letter-spacing: .08em; }
+.txw-card-stats .qcard { border: none; border-top: 1px solid var(--hm-hairline);
+  padding: 8px 0; margin: 0; }
+
+/* top bar: ghost actions, one filled Save, the mode switch at 1px */
+.tb-fileactions { gap: 4px; }
+.tb-ghost { padding: 8px 10px; }
+.tb-ghost:hover { color: var(--hm-ink); background: var(--hm-sunk); }
+.tb-ghost .caret { color: var(--faint); font-size: 11px; }
+.tb-primary { margin: 0 6px; }
+.tb-seg { border: 1px solid var(--hm-divider); background: none; padding: 0; gap: 0; }
+.tb-seg button { padding: 7px 14px; }
+.tb-seg button:not(.active):hover { color: var(--hm-ink); background: var(--hm-sunk); }
+.tb-icon { border-color: transparent; background: none; }
+.tb-icon:hover { border-color: var(--hm-hairline); }
+
+/* React Flow controls: a flat cluster, no lift */
+.react-flow__controls { box-shadow: none; border: 1px solid var(--hm-hairline); background: var(--hm-raised); }
+.react-flow__controls-button { background: var(--hm-raised); border: none;
+  border-bottom: 1px solid var(--hm-hairline); color: var(--hm-dim); }
+.react-flow__controls-button:last-child { border-bottom: none; }
+.react-flow__controls-button:hover { background: var(--hm-sunk); color: var(--hm-ink); }
+.figure-overlay.over-figure { background: color-mix(in srgb, var(--hm-raised) 72%, transparent); }

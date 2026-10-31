@@ -755,17 +755,15 @@ export default function App() {
             <span className="tb-mark"><img src={irisMark} alt="" width="27" height="27" /></span>
             <span className="tb-word">Iris</span>
           </div>
-          <div className="tb-div" />
-          {/* File-manipulation cluster, next to the logo: document lifecycle
-              (New / Load / Save), then a divider, then data in / figure out. */}
+          {/* File-manipulation cluster, next to the logo: one ghost vocabulary for
+              New / Load / Import / Export, and Save as the single filled action. */}
           <div className="tb-fileactions">
             <button className="tb-ghost" onClick={doNew}>New</button>
             <button className="tb-ghost" onClick={doLoad}>Load</button>
             <button className="tb-primary" onClick={doSave}>Save</button>
-            <div className="tb-div sm" />
-            <button className="tb-btn" onClick={() => importRef.current?.open()}>Import</button>
+            <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
             <div className="tb-menuwrap">
-              <button className="tb-btn" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
+              <button className="tb-ghost" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
                 Export <span className="caret">▾</span></button>
               {openMenu === "export" && (
                 <div className="tb-menu">
@@ -794,7 +792,6 @@ export default function App() {
         </nav>
         <div className="tb-right">
           <RenderIndicator dataLoading={dataLoading} />
-          <div className="tb-div sm" />
           <div className="tb-menuwrap">
             <button className="tb-icon" aria-label="More actions"
               onClick={() => setOpenMenu((m) => m === "overflow" ? null : "overflow")}>⋯</button>
