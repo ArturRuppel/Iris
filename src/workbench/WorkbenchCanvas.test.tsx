@@ -149,6 +149,27 @@ describe("WorkbenchCanvas", () => {
     expect(store.get(stashAtom)).toMatchObject([{ cardKind: "plot", target: { id: "figure", facet: "plot" } }]);
   });
 
+  // an edge is a thin target, so the step's editor is also reachable from the
+  // node it produced: the context menu and a double-click both open it in the
+  // display panel.
+  it("opens a step's editor from its node: context menu and double-click", () => {
+    const { store, container } = mount();
+    const stepNode = container.querySelector('.react-flow__node[data-id="step:0"]')!;
+    fireEvent.contextMenu(stepNode);
+    fireEvent.click(screen.getByRole("menuitem", { name: /Edit step/i }));
+    expect(store.get(stashAtom)).toMatchObject([{ cardKind: "op-editor", target: { kind: "edge", id: "e0" } }]);
+
+    store.set(stashAtom, []);
+    fireEvent.doubleClick(stepNode);
+    expect(store.get(stashAtom)).toMatchObject([{ cardKind: "op-editor", target: { kind: "edge", id: "e0" } }]);
+  });
+
+  it("offers no step editor on the source, which no step produced", () => {
+    const { container } = mount();
+    fireEvent.contextMenu(container.querySelector('.react-flow__node[data-id="source"]')!);
+    expect(screen.queryByRole("menuitem", { name: /Edit step/i })).toBeNull();
+  });
+
   it("shows the seeded plot in the display panel beside the DAG", () => {
     const store = createStore();
     store.set(seedDefaultStashAtom);

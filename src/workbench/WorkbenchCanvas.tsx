@@ -15,7 +15,7 @@ import {
   openCardAtom, nodePositionsAtom,
   pushStashAtom, focusedStashIdAtom, displayCollapsedAtom,
 } from "./state";
-import { targetToCardKind, type Target } from "./cardRegistry";
+import { targetToCardKind, EDGE_CARD, type Target } from "./cardRegistry";
 import { Stash, StashFocus } from "./Stash";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
 import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom, activeReduceDagAtom } from "../state";
@@ -187,6 +187,16 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
       ? activeDag?.steps[d.stepIndex]?.id : undefined;
     return id ? { id, label: d.eyebrow ?? "step" } : null;
   };
+  /* the editor of the step that produced a node, reached from the node itself:
+     an edge is a thin target (worse on a touchscreen), so a double-click on the
+     node and its context menu open the same editor its incoming edge does. Null
+     for the source and the figure, which no single step produced. */
+  const editStep = (n: Node): (() => void) | null => {
+    const d = n.data as unknown as RFNodeData;
+    if (d.variant === "figure" || !d.inEdge) return null;
+    const target: Target = { kind: "edge", id: d.inEdge.id };
+    return () => openCard({ target, cardKind: EDGE_CARD[d.inEdge!.kind] });
+  };
   const onNodeContextMenu = useCallback((e: ReactMouseEvent, n: Node) => {
     e.preventDefault();
     const d = n.data as unknown as RFNodeData;
@@ -200,9 +210,12 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
       return;
     }
     const del = deletableStep(n);
-    setMenu(del ? { x: e.clientX, y: e.clientY, items: [
-      { label: `Delete ${del.label.toLowerCase()}`, danger: true, onClick: () => removeStep(del.id) },
-    ] } : null);
+    const edit = editStep(n);
+    const items = [
+      ...(edit ? [{ label: "Edit step…", onClick: edit }] : []),
+      ...(del ? [{ label: `Delete ${del.label.toLowerCase()}`, danger: true, onClick: () => removeStep(del.id) }] : []),
+    ];
+    setMenu(items.length ? { x: e.clientX, y: e.clientY, items } : null);
   }, [openCard, removeStep, active]);
 
   // undo/redo the spec (Cmd/Ctrl+Z, +Shift to redo / +Y); spec mutations only —
@@ -299,6 +312,8 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
           onNodeClick={(_e, n) => pinNode({ kind: "node", id: n.id })}
           onNodeContextMenu={onNodeContextMenu}
+          onNodeDoubleClick={(_e, n) => editStep(n)?.()}
+          zoomOnDoubleClick={false}
           onConnect={(c) => { const a = onConnectDelegate(c, dagIdOf); if (a) connectInput(a); }}
           onPaneClick={() => setMenu(null)}
           onNodeDragStop={(_e, n) =>
