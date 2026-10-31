@@ -38,6 +38,13 @@ export interface ArrayShapeNodeProps {
   onEdit?: () => void;             // detail click → open this step's editor
 }
 
+/* true where the primary pointer can hover. A tap on the iPad fires a synthetic
+   mouseenter and no mouseleave, so a hover-only example would stick on screen
+   after the tap; the before/after examples are shown only where hover exists.
+   jsdom has no matchMedia, which counts as hover. */
+export const canHover = (): boolean =>
+  typeof window.matchMedia !== "function" || window.matchMedia("(hover: hover)").matches;
+
 const VAL_CLASS: Record<string, string> = { numeric: "num", categorical: "catg", bool: "bool" };
 
 /* one glyph per nesting level — the first letter; its tooltip names the level. */
@@ -138,8 +145,8 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
       <div className="txw-nbody">
         <div
           className="txw-eyebrow"
-          onMouseEnter={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
-          onMouseMove={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
+          onMouseEnter={example ? (e) => { if (canHover()) setExAt({ x: e.clientX, y: e.clientY }); } : undefined}
+          onMouseMove={example ? (e) => { if (canHover()) setExAt({ x: e.clientX, y: e.clientY }); } : undefined}
           onMouseLeave={example ? () => setExAt(null) : undefined}
         >
           <span className="txw-nicon" aria-hidden><NodeIcon variant={variant} /></span>

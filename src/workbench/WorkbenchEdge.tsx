@@ -1,4 +1,5 @@
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, type EdgeProps } from "@xyflow/react";
+import { canHover } from "../components/ArrayShapeNode";
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useSetAtom } from "jotai";
@@ -114,8 +115,8 @@ export function WorkbenchEdge(props: EdgeProps) {
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
                      pointerEvents: "all" }}
             title={data?.label || undefined}
-            onMouseEnter={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
-            onMouseMove={example ? (e) => setExAt({ x: e.clientX, y: e.clientY }) : undefined}
+            onMouseEnter={example ? (e) => { if (canHover()) setExAt({ x: e.clientX, y: e.clientY }); } : undefined}
+            onMouseMove={example ? (e) => { if (canHover()) setExAt({ x: e.clientX, y: e.clientY }); } : undefined}
             onMouseLeave={example ? () => setExAt(null) : undefined}
             onClick={(e) => {
               e.stopPropagation();
