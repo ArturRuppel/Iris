@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 
 /* E2E for the interactive tutorial (replaces the quickstart page). Proves the
-   state-driven engine end to end: launch from the Guide, then walk all five steps
+   state-driven engine end to end: launch from the ⋯ menu, then walk all five steps
    performing the REAL actions, asserting that Next gates on live app state — it
    stays disabled until the user actually opens the Workbench and actually builds
    the mapped plot, and the final figure carries a real test. Needs the engine
@@ -27,11 +27,9 @@ const waitStep = (n) => page.waitForFunction(
     document.querySelector(".tutorial-card")?.textContent ?? ""),
   String(n), { timeout: 15_000 });
 
-// --- Launch from the Guide's Quickstart page ---------------------------------
-await page.getByRole("button", { name: "Guide" }).click();
-await page.waitForSelector(".guide-nav", { timeout: 10_000 });
-await page.locator(".guide-nav").getByRole("button", { name: "Quickstart", exact: true }).click();
-await page.getByRole("button", { name: /start the tutorial/i }).click();
+// --- Launch from the ⋯ menu ---------------------------------------------------
+await page.getByRole("button", { name: "More actions" }).click();
+await page.getByRole("button", { name: "Start tutorial" }).click();
 
 // --- Step 1: the table (observational, opens in Data) ------------------------
 await card.waitFor({ timeout: 15_000 });

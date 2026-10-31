@@ -31,7 +31,6 @@ describe("tutorial step goals", () => {
   it("the workbench step is met only in the workbench view", () => {
     const g = step("workbench").goal!;
     expect(g(ctx({ viewMode: "data" }))).toBe(false);
-    expect(g(ctx({ viewMode: "guide" }))).toBe(false);
     expect(g(ctx({ viewMode: "workbench" }))).toBe(true);
   });
 

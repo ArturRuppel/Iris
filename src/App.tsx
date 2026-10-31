@@ -6,7 +6,6 @@ import { HierarchyPanel } from "./components/HierarchyPanel";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
 import { PlottableSidebar } from "./components/PlottableSidebar";
 import { TableList } from "./components/TableList";
-import { Guide } from "./examples/Guide";
 import { TutorialOverlay } from "./tutorial/TutorialOverlay";
 import { startTutorialAtom } from "./tutorial/state";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
@@ -44,9 +43,6 @@ const DataGlyph = () => (
 );
 const WorkbenchGlyph = () => (
   <svg {...G}><circle cx="3.2" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.4" /><circle cx="12.8" cy="3.4" r="2.1" stroke="currentColor" strokeWidth="1.4" /><circle cx="12.8" cy="12.6" r="2.1" stroke="currentColor" strokeWidth="1.4" /><line x1="5" y1="7.1" x2="11" y2="4.2" stroke="currentColor" strokeWidth="1.4" /><line x1="5" y1="8.9" x2="11" y2="11.8" stroke="currentColor" strokeWidth="1.4" /></svg>
-);
-const GuideGlyph = () => (
-  <svg {...G}><rect x="2" y="3" width="12" height="10.5" rx="1.2" stroke="currentColor" strokeWidth="1.4" /><line x1="8" y1="3.4" x2="8" y2="13.2" stroke="currentColor" strokeWidth="1.4" /></svg>
 );
 const SunGlyph = () => (
   <svg {...G}><circle cx="8" cy="8" r="3.1" stroke="currentColor" strokeWidth="1.4" /><g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><line x1="8" y1="1.5" x2="8" y2="3" /><line x1="8" y1="13" x2="8" y2="14.5" /><line x1="1.5" y1="8" x2="3" y2="8" /><line x1="13" y1="8" x2="14.5" y2="8" /><line x1="3.4" y1="3.4" x2="4.4" y2="4.4" /><line x1="11.6" y1="11.6" x2="12.6" y2="12.6" /><line x1="12.6" y1="3.4" x2="11.6" y2="4.4" /><line x1="4.4" y1="11.6" x2="3.4" y2="12.6" /></g></svg>
@@ -648,27 +644,6 @@ export default function App() {
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
-  /* Open a bundled example into the current session. Unlike doLoad there is no
-     OS file handle, and we explicitly clear any retained one, so the next Save
-     prompts for a location (Save As) — the shipped example is never overwritten
-     in place. */
-  const handleOpenExample = async (caseId: string) => {
-    try {
-      const url = EXAMPLE_IRIS[`./examples/assets/${caseId}.iris`];
-      if (!url) throw new Error(`example "${caseId}" is not bundled`);
-      const buf = await (await fetch(url)).arrayBuffer();
-      const doc = await engine.loadDocument(fileToBase64(buf));
-      await loadDocument({
-        manifest: doc.manifest,
-        analyses: doc.analyses.map(migrateSpec),
-        provenance: doc.provenance,
-        tables: doc.tables,
-      });
-      fileHandleRef.current = null;                 // force Save -> Save As
-      setViewMode(doc.analyses.length ? "workbench" : "data");
-    } catch (e) { surfaceUnlessAbort(e); }
-  };
-
   /* `?open=<url>`: a link from another app on this host (the lab book) opens a
      .iris directly. Runs once, after any recovery prompt is answered; the query
      is dropped once loaded, so a reload retries a failed open but cannot replace later edits. Other hosts are
@@ -699,7 +674,8 @@ export default function App() {
     })();
   }, [engineUp, recoveryPending, recovery]);
 
-  /* Launch the interactive tutorial: seed the two-species Fisher-iris table with
+  /* Launch the interactive tutorial (from the ⋯ menu, now that the Guide is
+     gone): seed the two-species Fisher-iris table with
      NO analyses (a genuinely raw start the user builds a plot from), then hand off
      to the overlay. Reuses the same load path as an example open. */
   const handleStartTutorial = async () => {
@@ -786,8 +762,6 @@ export default function App() {
               onClick={() => setViewMode("data")}><DataGlyph />Data</button>
             <button data-tour="mode-workbench" className={viewMode === "workbench" ? "active" : ""}
               onClick={() => void goWorkbench()}><WorkbenchGlyph />Workbench</button>
-            <button className={viewMode === "guide" ? "active" : ""}
-              onClick={() => setViewMode("guide")}><GuideGlyph />Guide</button>
           </div>
         </nav>
         <div className="tb-right">
@@ -809,6 +783,8 @@ export default function App() {
                 <div className="tb-menu-sep" />
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void doSaveAs(); }}>
                   <span style={{ width: 15 }} /><span className="grow">Save As…</span></button>
+                <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void handleStartTutorial(); }}>
+                  <span style={{ width: 15 }} /><span className="grow">Start tutorial</span></button>
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowSpec((s) => !s); }}>
                   <span style={{ width: 15 }} /><span className="grow">{showSpec ? "Hide" : "Show"} analysis spec</span></button>
               </div>
@@ -837,9 +813,7 @@ export default function App() {
         : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
         : null}
       <main>
-        {viewMode === "guide" ? (
-          <div className="examples-mode"><Guide onOpen={handleOpenExample} onStartTutorial={handleStartTutorial} /></div>
-        ) : viewMode === "data" ? (
+        {viewMode === "data" ? (
           <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataView /></div>
         ) : dataLoading ? (
           <div className="analyses-loading">

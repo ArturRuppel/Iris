@@ -25,7 +25,7 @@ export const STATS_GLOSSARY = {
     term: "Parametric vs robust",
     what: "Parametric tests (t-test, ANOVA, Pearson) assume the data follow a normal distribution and compare means. Robust / rank-based tests (Mann–Whitney, Kruskal–Wallis, Spearman, Wilcoxon) make no normality assumption — they compare ranks, so they tolerate skew and outliers.",
     read: "Iris recommends parametric when the normality check passes and the sample is large enough to trust it; otherwise robust. Either is valid to report — the override lets you switch.",
-    assumes: "At very small n a rank test can't reach significance no matter the data (e.g. Wilcoxon needs ≥ 6 pairs to cross p = 0.05). When that happens Iris recommends the parametric test instead and flags that normality is unverifiable — the “rank-floor guard”. Full rules + sources are in the Guide tab.",
+    assumes: "At very small n a rank test can't reach significance no matter the data (e.g. Wilcoxon needs ≥ 6 pairs to cross p = 0.05). When that happens Iris recommends the parametric test instead and flags that normality is unverifiable — the “rank-floor guard”. Full rules and sources are in docs/guide/test/choosing.md.",
   },
   rank_floor: {
     term: "Rank-floor guard",

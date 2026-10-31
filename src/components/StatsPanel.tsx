@@ -1,5 +1,5 @@
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { activePlottableAtom, analysisAtom, effectiveSchemaAtom, guideAnchorAtom, viewModeAtom } from "../state";
+import { useAtom, useAtomValue } from "jotai";
+import { activePlottableAtom, analysisAtom, effectiveSchemaAtom } from "../state";
 import type { StatsResult, TestName } from "../types";
 import type { RateModel } from "../channels";
 import { InfoTip } from "./InfoTip";
@@ -295,8 +295,6 @@ export function StatsResults() {
 export function TestPicker() {
   const analysis = useAtomValue(analysisAtom);
   const [active, setActive] = useAtom(activePlottableAtom);
-  const setViewMode = useSetAtom(viewModeAtom);
-  const setGuideAnchor = useSetAtom(guideAnchorAtom);
   const setOverride = (t: TestName | null) => active && setActive({ ...active, override: t });
   const setDescribeOnly = (v: boolean) =>
     active && setActive({ ...active, describeOnly: v });
@@ -341,13 +339,6 @@ export function TestPicker() {
 
   return (
     <section className="pane stats-pane">
-      <div className="pane-head">
-        <button type="button" className="link-btn methods-link"
-          title="How Iris recommends a test — rules, thresholds, and sources"
-          onClick={() => { setGuideAnchor({ page: "test/choosing", anchor: "two-questions" }); setViewMode("guide"); }}>
-          Why this test?
-        </button>
-      </div>
       <div className="stats-body">
         {s.error && <p className="stat-error">{s.error}. No test ran — choose one below.</p>}
         <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
