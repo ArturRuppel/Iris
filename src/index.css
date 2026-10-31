@@ -190,7 +190,7 @@ td select { border: none; background: transparent; padding: 0; }
 /* overflow:hidden clips only the transform-scaled overflow when zoomed (item H);
    at zoom 1 the host is the SVG's natural size, so tall figures still grow the
    host and scroll the outer pane as before. */
-.figure-host { padding: 8px; overflow: hidden; }
+.figure-host { padding: 0; overflow: hidden; }
 .figure-host.pannable { cursor: grab; }
 .figure-host.pannable:active { cursor: grabbing; }
 
@@ -1626,11 +1626,6 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 
 /* the figure sits directly in the panel: no "Figure" card, no title row rule */
 .txw-card-plot .figure-pane { border: none; background: none; overflow: visible; }
-.txw-card-plot .figure-pane > .pane-head { border: none; padding: 0 0 4px; min-height: 24px;
-  justify-content: flex-end; align-items: center; }
-.txw-card-plot .figure-pane > .pane-head h2 { position: absolute; width: 1px; height: 1px;
-  overflow: hidden; clip: rect(0 0 0 0); }
-.txw-card-plot .figure-host { padding: 0; }
 .txw-card-plot .style-pane { padding: 0; border-top: 1px solid var(--hm-hairline); margin-top: 8px; }
 .txw-card-plot .figure-tools button { border-color: transparent; background: none; }
 .txw-card-plot .figure-tools button:hover:not(:disabled) { border-color: var(--hm-hairline); }
@@ -1684,6 +1679,28 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 .react-flow__controls-button.txw-ctl-sep { border-top: 1px solid var(--hm-divider); }
 .react-flow__controls-button:disabled { opacity: .35; cursor: default; }
 .react-flow__controls-button:disabled:hover { background: var(--hm-raised); color: var(--hm-dim); }
+/* under a coarse pointer the buttons grow to touch size, so the cluster lies
+   along the bottom edge instead of climbing over the graph. */
 @media (pointer: coarse) {
-  .react-flow__controls-button { width: 44px; height: 44px; }
+  .react-flow__controls { flex-direction: row; }
+  .react-flow__controls-button { width: 40px; height: 40px; border-bottom: none;
+    border-right: 1px solid var(--hm-hairline); }
+  .react-flow__controls-button.txw-ctl-sep { border-top: none; border-left: 1px solid var(--hm-divider); }
+}
+
+/* the figure: no title row. Its heading is for screen readers only, and the
+   zoom toolbar floats over the top-right corner, shown on hover or focus (and
+   always under a coarse pointer, which cannot hover). */
+.figure-title { position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap; margin: 0; }
+.figure-head-right { position: absolute; top: 0; right: 0; z-index: 3;
+  background: color-mix(in srgb, var(--hm-raised) 88%, transparent);
+  border: 1px solid var(--hm-hairline); padding: 2px 6px 2px 2px;
+  opacity: 0; pointer-events: none; transition: opacity .12s; }
+.figure-frame:hover .figure-head-right, .figure-frame:focus-within .figure-head-right {
+  opacity: 1; pointer-events: auto; }
+@media (pointer: coarse) {
+  .figure-head-right { opacity: 1; pointer-events: auto; position: static;
+    display: flex; justify-content: flex-end; border: none; background: none; padding: 0 0 4px; }
+  .figure-tools button { min-height: 0; width: 40px; height: 40px; }
 }

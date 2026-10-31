@@ -15,6 +15,19 @@ const DRAGGABLE = ["lbl-title", "lbl-x", "lbl-y", "lbl-annot", "legend"];
 
 const PT_PER_MM = 72 / 25.4;
 const PX_PER_PT = 96 / 72;
+/* the tallest the figure is drawn on screen, as a share of the viewport height;
+   a taller figure shrinks (keeping its aspect ratio) instead of pushing the
+   layers and style below it out of view. */
+const MAX_VH = 62;
+
+/* Size the SVG from the figure's own aspect ratio: its true size at 96 dpi,
+   shrunk to the pane width, and to MAX_VH of the viewport height. */
+function fitSvg(svg: SVGSVGElement, vb: DOMRect | SVGRect) {
+  svg.style.width = `${vb.width * PX_PER_PT}px`;
+  svg.style.maxWidth = vb.height > 0
+    ? `min(100%, calc(${MAX_VH}vh * ${(vb.width / vb.height).toFixed(4)}))` : "100%";
+  svg.style.height = "auto";
+}
 
 /** Renders the engine's SVG and attaches interactivity. Item I: dots are not
  *  individually clickable — they draw as plain vector marks, so there is no
@@ -57,7 +70,7 @@ export function FigurePane() {
   const [zoomMode, setZoomMode] = useState(false);
   const viewRef = useRef(view); viewRef.current = view;
   const zoomModeRef = useRef(zoomMode); zoomModeRef.current = zoomMode;
-  const HOST_PAD = 8; /* .figure-host padding, so cursor maths is in svg-local px */
+  const HOST_PAD = 0; /* .figure-host padding, so cursor maths is in svg-local px */
   const clampZ = (z: number) => Math.max(1, Math.min(8, z));
 
   /* keep the resize handle glued to the SVG's bottom-right corner */
@@ -106,9 +119,7 @@ export function FigurePane() {
     /* true-ish scale (96 dpi), shrink-to-fit in narrow panes */
     svg.removeAttribute("width");
     svg.removeAttribute("height");
-    svg.style.width = `${vb.width * PX_PER_PT}px`;
-    svg.style.maxWidth = "100%";
-    svg.style.height = "auto";
+    fitSvg(svg, vb);
     setDims({ w: Math.round(vb.width / PT_PER_MM), h: Math.round(vb.height / PT_PER_MM) });
     placeHandle();
     placePlotHandles();
@@ -133,6 +144,9 @@ export function FigurePane() {
       hit.setAttribute("pointer-events", "all");
       g.insertBefore(hit, g.firstChild);
       g.style.cursor = "move";
+      const tip = document.createElementNS(SVGNS, "title");
+      tip.textContent = "Drag to reposition";
+      g.insertBefore(tip, g.firstChild);
       g.addEventListener("pointerdown", (e0) => {
         /* zoomed in for viewing: don't edit, let the drag bubble to the pane's
            pan handler instead (no stopPropagation/preventDefault here) */
@@ -242,9 +256,7 @@ export function FigurePane() {
     /* back to the shrink-to-fit display the SVG-injection effect sets up */
     const restoreFit = () => {
       svg.removeAttribute("preserveAspectRatio");
-      svg.style.width = `${vb.width * PX_PER_PT}px`;
-      svg.style.maxWidth = "100%";
-      svg.style.height = "auto";
+      fitSvg(svg, vb);
       placeHandle();
     };
     const dimsFor = (e: PointerEvent) => ({
@@ -321,16 +333,19 @@ export function FigurePane() {
     window.addEventListener("pointerup", up);
   };
 
+  /* The zoom toolbar floats over the figure's top-right corner and shows only
+     while the pointer is over the figure or focus is inside it (always, under a
+     coarse pointer, which has no hover; see index.css). */
   return (
     <section className="pane figure-pane">
-      <div className="pane-head">
-        <h2>Figure</h2>
+      <h2 className="figure-title">Figure</h2>
+      <div className="figure-frame">
         {analysis && (
           <div className="figure-head-right">
             <div className="figure-tools" role="toolbar" aria-label="Zoom">
               <button type="button" className={zoomMode ? "on" : ""}
                 aria-pressed={zoomMode} onClick={() => setZoomMode((m) => !m)}
-                title="Zoom mode — drag to pan, scroll to zoom (Ctrl/⌘-scroll works anytime)">⤧</button>
+                title="Zoom mode: drag to pan, scroll to zoom (Ctrl/⌘-scroll works anytime). View only; the figure and exports are unchanged.">⤧</button>
               <button type="button" onClick={() => zoomBy(1 / 1.25)}
                 disabled={view.z <= 1} title="Zoom out">−</button>
               <span className="zoom-pct" title="Current zoom (view only)">{Math.round(view.z * 100)}%</span>
@@ -338,28 +353,27 @@ export function FigurePane() {
                 disabled={view.z >= 8} title="Zoom in">+</button>
               <button type="button" onClick={resetView}
                 disabled={view.z === 1 && view.x === 0 && view.y === 0}
-                title="Fit — reset zoom">⤢</button>
+                title="Fit: reset zoom">⤢</button>
             </div>
-            <span className="provenance">
+            <span className="provenance" title="Figure size; exports use this size">
               {resizing ?? (dims && `${dims.w} × ${dims.h} mm`)}
             </span>
           </div>
         )}
-      </div>
-      <div className="figure-frame">
         <div ref={host}
           className={`figure-host${zoomMode && view.z > 1 ? " pannable" : ""}`}
           onPointerDown={onPanStart} />
         {analysis && view.z === 1 && (
-          <div ref={handle} className="resize-handle" title="drag to resize the canvas (mm)"
+          <div ref={handle} className="resize-handle"
+            title="Drag to resize the figure (mm); exports match"
             onPointerDown={onResizeStart} />
         )}
         {analysis && plotRect && view.z === 1 && (
           <>
-            <div className="plot-move" title="drag to move the plot area"
+            <div className="plot-move" title="Drag to move the plot area within the figure"
               style={{ left: plotRect.left - 7, top: plotRect.top - 7 }}
               onPointerDown={onPlotDrag("move")} />
-            <div className="plot-resize" title="drag to resize the plot area"
+            <div className="plot-resize" title="Drag to resize the plot area within the figure"
               style={{ left: plotRect.left + plotRect.width - 7,
                        top: plotRect.top + plotRect.height - 7 }}
               onPointerDown={onPlotDrag("resize")} />
@@ -379,12 +393,6 @@ export function FigurePane() {
           </div>
         )}
       </div>
-      <p className="hint">
-        Drag labels or the legend to reposition. Drag the canvas corner to resize
-        the figure, or the plot-area corners to move/resize the axes within it —
-        exports match. Use the zoom toolbar (or Ctrl/⌘-scroll) to magnify for a
-        closer look — view only, it doesn't change the figure or exports.
-      </p>
       <StylePane />
     </section>
   );
