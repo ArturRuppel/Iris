@@ -647,6 +647,28 @@ export default function App() {
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
+  /* Open a bundled example into the current session. Unlike doLoad there is no
+     OS file handle, and we explicitly clear any retained one, so the next Save
+     prompts for a location (Save As) — the shipped example is never overwritten
+     in place. The empty workbench's "Open example" opens the first one. */
+  const handleOpenExample = async (caseId: string) => {
+    try {
+      const url = EXAMPLE_IRIS[`./examples/assets/${caseId}.iris`];
+      if (!url) throw new Error(`example "${caseId}" is not bundled`);
+      const buf = await (await fetch(url)).arrayBuffer();
+      const doc = await engine.loadDocument(fileToBase64(buf));
+      await loadDocument({
+        manifest: doc.manifest,
+        analyses: doc.analyses.map(migrateSpec),
+        provenance: doc.provenance,
+        tables: doc.tables,
+      });
+      fileHandleRef.current = null;                 // force Save -> Save As
+      setViewMode(doc.analyses.length ? "workbench" : "data");
+    } catch (e) { surfaceUnlessAbort(e); }
+  };
+  const firstExample = (exampleManifest as { caseId: string }[])[0]?.caseId;
+
   /* `?open=<url>`: a link from another app on this host (the lab book) opens a
      .iris directly. Runs once, after any recovery prompt is answered; the query
      is dropped once loaded, so a reload retries a failed open but cannot replace later edits. Other hosts are
@@ -839,8 +861,12 @@ export default function App() {
             <span>Loading data…</span>
           </div>
         ) : !active ? (
-          <div className="analyses-empty">
-            <span>No data yet — import a file or enter data to start an analysis.</span>
+          <div className="analyses-empty workbench-start">
+            <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
+            <button className="tb-ghost" onClick={() => setViewMode("data")}>Enter data</button>
+            {firstExample && (
+              <button className="tb-ghost" onClick={() => void handleOpenExample(firstExample)}>Open example</button>
+            )}
           </div>
         ) : (
           <div className="workbench-mode">

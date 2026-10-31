@@ -1710,3 +1710,8 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
   text-decoration: underline; text-underline-offset: 2px; user-select: none; width: max-content; }
 .why-test > summary:hover { color: var(--hm-ink); }
 .why-test[open] > summary { margin-bottom: 4px; }
+
+/* the empty workbench: the three ways in, as ghost buttons */
+.workbench-start { gap: 8px; }
+.workbench-start .tb-ghost { font-size: 13px; padding: 10px 14px; border: 1px solid var(--hm-hairline); }
+.workbench-start .tb-ghost:hover { border-color: var(--hm-divider); }
