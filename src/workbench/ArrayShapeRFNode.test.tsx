@@ -155,7 +155,7 @@ describe("ArrayShapeRFNode", () => {
     ]);
 
     screen.getByRole("button", { name: /Stats summary/i }).click();
-    expect(store.get(stashAtom).map((e) => e.target.facet)).toEqual(["plot", "stats"]);
+    expect(store.get(stashAtom).map((e) => e.target.facet)).toEqual(["stats"]);
   });
   it("a figure exposes section-specific target handles so geom/test wires don't overlap", () => {
     const { container } = render(

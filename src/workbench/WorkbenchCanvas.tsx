@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
   useNodesState, useEdgesState, useReactFlow,
@@ -13,13 +13,11 @@ import { nodeDeltas, levelInitial } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
   openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
-  pushStashAtom, stashAtom, workbenchLayoutAtom, focusedStashIdAtom,
+  pushStashAtom, focusedStashIdAtom, displayCollapsedAtom,
 } from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
 import { FloatingCard } from "./FloatingCard";
 import { Stash, StashFocus } from "./Stash";
-import { ResizeHandles, useWorkbenchResize } from "./WorkbenchResize";
-import { clampStashH, TOPBAR } from "./paneTiling";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
 import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom, activeReduceDagAtom } from "../state";
 
@@ -34,7 +32,7 @@ const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
    canvas's top-left (see the top-left Panel) instead of tucking behind it. Shared
    by the initial fit and the resize re-fit so both frame the graph identically. */
 const FIT_OPTS: FitViewOptions = { padding: { top: "72px", right: "24px", bottom: "24px", left: "24px" },
-  maxZoom: 1, duration: 0 };
+  minZoom: 0.2, maxZoom: 1, duration: 0 };
 
 /* the onNodeDragStop reducer: records a node's post-drag position into the
    override map, immutably. Kept pure so it's unit-testable (RF drag events don't
@@ -132,18 +130,11 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   const pushStash = useSetAtom(pushStashAtom);
   const collapseAll = useSetAtom(collapseAllCardsAtom);
   const cards = useAtomValue(cardsAtom);
-  const stash = useAtomValue(stashAtom);
-  const hasStash = stash.length > 0;
-
-  // tiling-resize: stashH + column weights, driven by Alt-drag and the sliders.
-  const layout = useAtomValue(workbenchLayoutAtom);
-  const setLayout = useSetAtom(workbenchLayoutAtom);
+  const displayCollapsed = useAtomValue(displayCollapsedAtom);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const stashRef = useRef<HTMLDivElement>(null);
-  const resize = useWorkbenchResize(overlayRef, stashRef);
 
-  // Keep the DAG framed in its pane. The pane shrinks when the stash grows to its
-  // 2/3 default (and on window resize), but React Flow only fits once at mount —
+  // Keep the DAG framed in its pane. The pane changes with the display panel
+  // (and on window resize), but React Flow only fits once at mount —
   // so without this the nodes keep their old, larger zoom and spill out of the
   // band. Observe the pane and re-fit (coalesced to a frame) whenever it resizes.
   const { fitView } = useReactFlow();
@@ -161,20 +152,6 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
     ro.observe(el);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
   }, [fitView]);
-
-  // Give the cards ~2/3 of the vertical space (they're the focus; the DAG rides
-  // above in the remaining third). Applies on every appearance the user hasn't
-  // sized by hand — a fresh mount AND an analysis switch, which resets the layout
-  // to its 270px default (see clearWorkbenchAtom). Runs before paint, so there's
-  // no jump; guarded by the value check so setting it doesn't re-trigger itself.
-  useLayoutEffect(() => {
-    if (!hasStash || layout.userSized) return;
-    const overlay = overlayRef.current;
-    if (!overlay) return;
-    const contentH = overlay.clientHeight - TOPBAR;
-    const target = clampStashH(Math.round((contentH * 2) / 3), contentH);
-    if (layout.stashH !== target) setLayout((l) => ({ ...l, stashH: target }));
-  }, [hasStash, layout.userSized, layout.stashH, setLayout]);
 
   // clicking a node pins its data card into the stash (docked, comparable),
   // never a floating popup. A stale id (kind === null) is ignored. A whole-node
@@ -340,9 +317,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
 
   return (
     <div className="txw-overlay txw-embedded txw-landing" role="dialog" aria-label="Transformation workbench"
-         ref={overlayRef}
-         style={hasStash ? { "--stash-h": `${layout.stashH}px` } as CSSProperties : undefined}
-         onPointerDownCapture={resize.onOverlayPointerDownCapture}>
+         ref={overlayRef}>
       <div className="txw-topbar">
         <h1 className="txw-title">⛁ Transformation workbench</h1>
         <button className="txw-undo" onClick={() => undo()} disabled={!canUndo}
@@ -355,7 +330,8 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <button className="txw-close" onClick={onClose} aria-label="Close workbench">✕</button>
         )}
       </div>
-      <div className={`txw-rfcanvas${hasStash ? " with-stash" : ""}`} ref={rfcanvasRef}>
+      <div className="txw-workspace">
+      <div className={`txw-rfcanvas ${displayCollapsed ? "display-hidden" : "with-display"}`} ref={rfcanvasRef}>
         <ReactFlow
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
@@ -368,7 +344,7 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           onEdgeClick={(_e, ed) => openEdge({ kind: "edge", id: ed.id })}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           deleteKeyCode={null}
-          fitView fitViewOptions={FIT_OPTS} proOptions={{ hideAttribution: true }}
+          fitView fitViewOptions={FIT_OPTS} minZoom={0.2} proOptions={{ hideAttribution: true }}
         >
           <Background gap={22} size={1} color="#d7dee7" />
           <Controls />
@@ -378,17 +354,12 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           <NodeContextMenu menu={menu} onClose={() => setMenu(null)} />
         )}
       </div>
-      <div className={`txw-cards${hasStash ? " with-stash" : ""}`}>
+      <div className="txw-cards">
         {cards.map((c) => <FloatingCard key={c.id} card={c} />)}
       </div>
-      <Stash graph={graph} cols={layout.cols} ref={stashRef} />
-      {hasStash && (
-        <ResizeHandles
-          cols={layout.cols}
-          startV={resize.startV} startCorner={resize.startCorner}
-        />
-      )}
+      <Stash graph={graph} />
       <StashFocus graph={graph} />
+      </div>
     </div>
   );
 }

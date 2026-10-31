@@ -1,6 +1,6 @@
 import { atom } from "jotai";
 import type { CardKind, Target } from "./cardRegistry";
-import { SOURCE_ID, FIGURE_ID } from "../explorer/graph";
+import { FIGURE_ID } from "../explorer/graph";
 
 export type { CardKind, Target } from "./cardRegistry";
 
@@ -31,49 +31,31 @@ const CASCADE = 28;
 export const selectedTargetAtom = atom<Target | null>(null);
 
 /* Every open floating card. Now used only for edge editors — node data cards
-   (table/plot/stats) dock into the stash below instead of floating. */
+   (table/plot/stats) show in the display panel on the right instead of floating. */
 export const cardsAtom = atom<Card[]>([]);
 
-/* ---- the pop stash: 3 docked slots for node data cards ---- */
+/* ---- the display panel: the one node data card being shown ---- */
 
-/* A pinned data card. No geometry — the stash lays the slots out itself. */
+/* The shown data card. No geometry — the panel lays it out itself. */
 export interface StashEntry {
   id: string;
   target: Target;
   cardKind: CardKind;
 }
 
-/* how many slots the stash shows; pushing a 4th distinct card evicts the oldest. */
-export const STASH_SLOTS = 3;
+/* the panel shows one card; showing another replaces it. */
+export const STASH_SLOTS = 1;
 
-/* The pinned cards, oldest first. Capped at STASH_SLOTS (a FIFO ring). */
+/* The shown card, capped at STASH_SLOTS. */
 export const stashAtom = atom<StashEntry[]>([]);
 
 /* Per-node position overrides for nudged nodes on the canvas; cleared by tidy
    and on analysis switch. Keyed by node id. */
 export const nodePositionsAtom = atom<Record<string, { x: number; y: number }>>({});
 
-/* ---- workbench tiling layout: the 3 numbers that size the panes ----
-   The whole canvas+stash split is described by stashH (the horizontal boundary
-   between the DAG and the docked stash) and `cols` (STASH_SLOTS relative column
-   weights, rendered as grid `fr` units so the split stays proportional when the
-   window resizes). Mutated by Alt-drag and the divider/corner sliders; session-
-   only, like the stash itself. */
-export interface WorkbenchLayout {
-  stashH: number;
-  cols: number[];
-  /* true once the user has dragged a resize handle. Until then the stash
-     auto-fits to ~2/3 of the vertical space on every appearance (a fresh mount
-     or an analysis switch, which resets the layout below). Omitted from the
-     default so a reset reads as "unsized" and re-fits. */
-  userSized?: boolean;
-}
-export const DEFAULT_STASH_H = 270;
-const defaultLayout = (): WorkbenchLayout => ({
-  stashH: DEFAULT_STASH_H,
-  cols: Array(STASH_SLOTS).fill(1),
-});
-export const workbenchLayoutAtom = atom<WorkbenchLayout>(defaultLayout());
+/* The display panel's collapsed state: session-only, like the panel's content.
+   Showing a card opens it, so a click on a node is never silently lost. */
+export const displayCollapsedAtom = atom(false);
 
 /* ---- writer atoms ---- */
 
@@ -105,6 +87,7 @@ export const pushStashAtom = atom(
   null,
   (get, set, arg: { target: Target; cardKind: CardKind }) => {
     set(selectedTargetAtom, arg.target);
+    set(displayCollapsedAtom, false);
     const id = cardId(arg.target);
     const stash = get(stashAtom);
     if (stash.some((e) => e.id === id)) return;
@@ -118,22 +101,12 @@ export const pushStashAtom = atom(
   },
 );
 
-/* Seed the stash with the analysis's three canonical data cards — the source
-   table, the figure's plot, and the figure's stats — as ordinary stash entries
-   (numbered, graph-linked, FIFO-overridable). This is the structured landing
-   view, expressed as the stash's default fill rather than a separate fixed row:
-   selecting another node overrides a slot like any other pin. Called after
-   clearWorkbench on every analysis switch. The source/figure ids are stable
-   graph constants, so no graph lookup is needed. */
+/* The landing view of an analysis: the figure's plot in the display panel.
+   Called after clearWorkbench on every analysis switch. The figure id is a stable
+   graph constant, so no graph lookup is needed. */
 export const seedDefaultStashAtom = atom(null, (_get, set) => {
-  const table: Target = { kind: "node", id: SOURCE_ID };
   const plot: Target = { kind: "node", id: FIGURE_ID, facet: "plot" };
-  const stats: Target = { kind: "node", id: FIGURE_ID, facet: "stats" };
-  set(stashAtom, [
-    { id: cardId(table), target: table, cardKind: "table" },
-    { id: cardId(plot), target: plot, cardKind: "plot" },
-    { id: cardId(stats), target: stats, cardKind: "stats" },
-  ]);
+  set(stashAtom, [{ id: cardId(plot), target: plot, cardKind: "plot" }]);
 });
 
 /* Focus mode: a pinned tile maximized to fill the whole workbench, hiding the
@@ -184,6 +157,5 @@ export const clearWorkbenchAtom = atom(null, (_get, set) => {
   set(stashAtom, []);
   set(selectedTargetAtom, null);
   set(nodePositionsAtom, {});
-  set(workbenchLayoutAtom, defaultLayout());
   set(focusedStashIdAtom, null);
 });

@@ -1179,11 +1179,12 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 .txw-hover-note { font-size:11px; color:var(--dim); margin-top:8px; max-width:380px; }
 
 /* React Flow canvas inside the workbench overlay */
-.txw-rfcanvas { position: absolute; inset: 44px 0 0 0; }
+.txw-workspace { position: relative; flex: 1; min-height: 0; }
+.txw-rfcanvas { position: absolute; inset: 0; }
 
 /* ---- landing layout: compact DAG band on top, hero cards below ---- */
 /* a no-op-but-explicit base: children are absolutely positioned, so block is fine. */
-.txw-overlay.txw-landing { display: block; }
+.txw-overlay.txw-landing { overflow: hidden; }
 /* center the empty-state CTA/stub inside a stash slot on BOTH axes, without
    touching populated table/plot/stats bodies, which need top-aligned scroll. The
    seeded plot/stats default slots use these before a plot exists. */
@@ -1400,30 +1401,41 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 
 /* cards float over the canvas; the layer itself is click-through so the DAG
    beneath stays interactive, while each card re-enables pointer events. */
-.txw-cards { position: absolute; inset: 44px 0 0 0; pointer-events: none; }
+.txw-cards { position: absolute; inset: 0; pointer-events: none; }
 .txw-cards > .txw-card { pointer-events: auto; }
 .txw-collapse-all { margin-left: 8px; }
 
-/* ---- the pop stash: 3 docked slots along the canvas bottom ---- */
-/* when the stash is open, the DAG canvas gives it room. The floating-card layer
-   is NOT clamped — edit popups float over the whole workspace, stash included
-   (the layer is pointer-events:none, so it never steals the stash's clicks). */
-:root { --stash-h: 270px; }
-.txw-rfcanvas.with-stash { bottom: var(--stash-h); }
+/* ---- the display panel: one card in a collapsible column on the right ---- */
+/* The DAG canvas gives it room. The floating-card layer is NOT clamped: edit
+   popups float over the whole workspace, panel included (the layer is
+   pointer-events:none, so it never steals the panel's clicks). */
+:root { --display-w: 560px; }
+.txw-rfcanvas.with-display { right: min(var(--display-w), calc(100% - 200px)); }
+.txw-rfcanvas.display-hidden { right: 34px; }
 
 .txw-stash {
   position: absolute;
-  inset: auto 0 0 0;
-  height: var(--stash-h);
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;   /* overridden inline with the live weights */
-  gap: 10px;
-  padding: 10px;
+  inset: 0 0 0 auto;
+  width: var(--display-w);
+  max-width: calc(100% - 200px);
+  display: flex;
+  flex-direction: column;
   background: var(--panel);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -4px 16px rgba(15, 23, 42, 0.06);
+  border-left: 1px solid var(--line);
   z-index: 6;
 }
+.txw-stash > .txw-slot, .txw-stash > .txw-slot.sel { flex: 1; border: none; box-shadow: none; }
+.txw-stash .txw-slot-bar { align-items: center; }
+.txw-stash .txw-slot-body:has(.txw-card-table) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
+.txw-stash .txw-card-table, .txw-focus-body .txw-card-table { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+.txw-card-table .reduced-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.txw-card-table .reduced-note { padding: 8px 12px; }
+.txw-card-table .grid-host.reduced-table { flex: 1 1 0; min-height: 0; height: 0; max-height: none; }
+.txw-card-table .reduced-legend { flex: none; padding: 6px 12px; }
+.txw-stash.collapsed { width: 34px; padding: 8px 0; align-items: center; }
+.txw-display-resize { position: absolute; top: 0; left: 0; width: 8px; height: 100%; cursor: ew-resize; touch-action: none; z-index: 1; }
+.txw-display-resize:hover { background: var(--accent); opacity: 0.3; }
+.txw-display-empty { padding: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; color: var(--ink); font-size: 13px; }
 .txw-slot {
   min-width: 0;
   min-height: 0;
@@ -1435,45 +1447,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   overflow: hidden;
 }
 
-/* ---- tiling resize: the slider layer over the stash boundaries ----
-   a transparent grid mirroring .txw-stash columns; only the handles take input.
-   .txw-rs-v = a column gap (ew), .txw-rs-corner = both axes at once where a gap
-   meets the top boundary (the Hyprland-style two-axis grip; it also carries the
-   height resize, so there's no full-width bar across the middle). */
-.txw-stash-handles {
-  position: absolute;
-  inset: auto 0 0 0;
-  height: var(--stash-h);
-  display: grid;
-  gap: 10px;
-  padding: 10px;
-  pointer-events: none;
-  z-index: 7;
-}
-.txw-stash-handles > * { pointer-events: auto; background: transparent; transition: background .12s; }
-.txw-rs-v {
-  grid-row: 1;
-  justify-self: end;
-  align-self: stretch;
-  width: 10px;
-  margin-right: -10px;                    /* center on the 10px column gap */
-  cursor: ew-resize;
-  border-radius: 0;
-}
-.txw-rs-corner {
-  grid-row: 1;
-  justify-self: end;
-  align-self: start;
-  width: 16px;
-  height: 16px;
-  margin: -14px -13px 0 0;                /* sit on the boundary × gap crossing */
-  cursor: nwse-resize;
-  border-radius: 0;
-  background: var(--line2);
-  opacity: .6;
-}
-.txw-rs-v:hover { background: #6366f1; opacity: .55; }
-.txw-rs-corner:hover { background: #6366f1; opacity: 1; }
 /* ---- stash ↔ graph association: a numbered, colour-coded disc on each pinned
    node (top-left) and on its stash card, so slot 1/2/3 read as the same thing in
    both views. The colour is keyed on data-slot and shared via --slot-color. */
@@ -1568,7 +1541,7 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
    the DAG + stash. Below the add/context menus (z 59/60) so those still pop. */
 .txw-focus {
   position: absolute;
-  inset: 44px 0 0 0;
+  inset: 0;
   z-index: 36;
   display: flex;
   flex-direction: column;
@@ -1668,6 +1641,8 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
  .tb-icon { width: 44px; height: 44px; }
  .topbar { height: auto; min-height: 64px; }
  .tb-menu { top: 48px; }
+ .txw-topbar { padding: 8px 12px; }
+ .txw-stash .txw-slot-close, .txw-stash .txw-slot-max, .txw-focus-exit { min-width: 44px; font-size: 16px; }
 }
 
 /* Two rows keep file actions and mode switching separate on tablets. */
@@ -1678,3 +1653,4 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
  .tb-modes { grid-column: 1 / -1; grid-row: 2; }
  .tb-fileactions { flex-wrap: wrap; }
 }
+.txw-card-table .ag-root-wrapper, .txw-card-table .ag-header, .txw-card-table .ag-header-viewport, .txw-card-table .ag-header-row { border-radius: 0 !important; }

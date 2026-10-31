@@ -669,6 +669,36 @@ export default function App() {
     } catch (e) { surfaceUnlessAbort(e); }
   };
 
+  /* `?open=<url>`: a link from another app on this host (the lab book) opens a
+     .iris directly. Runs once, after any recovery prompt is answered; the query
+     is dropped once loaded, so a reload retries a failed open but cannot replace later edits. Other hosts are
+     refused, so a link cannot make the browser fetch from elsewhere. */
+  const openedFromUrl = useRef(false);
+  useEffect(() => {
+    if (engineUp !== true || recoveryPending || recovery !== null || openedFromUrl.current) return;
+    const target = new URLSearchParams(window.location.search).get("open");
+    if (!target) return;
+    openedFromUrl.current = true;
+    void (async () => {
+      try {
+        const url = new URL(target, window.location.href);
+        if (url.hostname !== window.location.hostname) throw new Error(`refusing to open a file from ${url.hostname}`);
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`could not fetch ${url.pathname}: ${res.status}`);
+        const doc = await engine.loadDocument(fileToBase64(await res.arrayBuffer()));
+        await loadDocument({
+          manifest: doc.manifest,
+          analyses: doc.analyses.map(migrateSpec),
+          provenance: doc.provenance,
+          tables: doc.tables,
+        });
+        window.history.replaceState(null, "", window.location.pathname);
+        fileHandleRef.current = null;               // force Save -> Save As
+        setViewMode(doc.analyses.length ? "workbench" : "data");
+      } catch (e) { surfaceUnlessAbort(e); }
+    })();
+  }, [engineUp, recoveryPending, recovery]);
+
   /* Launch the interactive tutorial: seed the two-species Fisher-iris table with
      NO analyses (a genuinely raw start the user builds a plot from), then hand off
      to the overlay. Reuses the same load path as an example open. */

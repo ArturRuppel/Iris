@@ -173,16 +173,14 @@ describe("WorkbenchCanvas", () => {
       expect.objectContaining({ cardKind: "geom-editor" }));
   });
 
-  it("renders the seeded default trio as stash slots alongside the DAG", () => {
+  it("shows the seeded plot in the display panel beside the DAG", () => {
     const store = createStore();
     store.set(seedDefaultStashAtom);
     const { container } = render(
       <Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
-    // the structured landing view is now the stash's default fill: the source
-    // table plus the figure's plot and stats, each docked as a slot.
-    expect(screen.getByTestId("table-card")).toBeInTheDocument();
     expect(screen.getByTestId("plot-card")).toBeInTheDocument();
-    expect(screen.getByTestId("stats-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("table-card")).toBeNull();
+    expect(screen.queryByTestId("stats-card")).toBeNull();
     expect(container.querySelectorAll(".react-flow__node").length).toBeGreaterThan(0);
   });
 });

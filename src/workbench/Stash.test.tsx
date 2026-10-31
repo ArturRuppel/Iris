@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { Stash } from "./Stash";
-import { stashAtom, selectedTargetAtom, STASH_SLOTS, type StashEntry } from "./state";
+import { stashAtom, selectedTargetAtom, displayCollapsedAtom, type StashEntry } from "./state";
 import type { ExplorerGraph } from "../explorer/graph";
 
 const graph: ExplorerGraph = {
@@ -28,34 +28,27 @@ function mount(entries: StashEntry[]) {
 }
 
 describe("Stash", () => {
-  it("renders nothing when the stash is empty", () => {
+  it("shows a hint when nothing is shown", () => {
     const { container } = mount([]);
-    expect(container.querySelector(".txw-stash")).toBeNull();
+    expect(container.querySelector(".txw-slot")).toBeNull();
+    expect(screen.getByText(/Click a table/)).toBeInTheDocument();
   });
 
-  it("shows a pinned card with the node's friendly label, plus ghost slots", () => {
+  it("shows the card with the node's friendly label", () => {
     const { container } = mount([entry("figure", "plot", "plot")]);
     expect(screen.getByTestId("plot-card")).toBeInTheDocument();
-    // the slot header shows the node's friendly label, not its raw id
     expect(container.querySelector(".txw-slot-sub")!.textContent).toBe("Figure");
-    // one real slot + the rest as ghosts = STASH_SLOTS total
-    expect(container.querySelectorAll(".txw-slot")).toHaveLength(STASH_SLOTS);
-    expect(container.querySelectorAll(".txw-slot.ghost")).toHaveLength(STASH_SLOTS - 1);
+    expect(container.querySelectorAll(".txw-slot")).toHaveLength(1);
   });
 
-  it("no ghost slots once full", () => {
-    const { container } = mount([
-      entry("source", "table"), entry("figure", "plot", "plot"), entry("figure", "stats", "stats"),
-    ]);
-    expect(container.querySelectorAll(".txw-slot")).toHaveLength(STASH_SLOTS);
-    expect(container.querySelectorAll(".txw-slot.ghost")).toHaveLength(0);
-  });
-
-  it("unpin removes that card from the stash", () => {
-    const { store } = mount([entry("figure", "plot", "plot"), entry("source", "table")]);
-    const plotSlot = screen.getByRole("group", { name: /Plot: Figure/i });
-    fireEvent.click(within(plotSlot).getByRole("button", { name: /unpin/i }));
-    expect(store.get(stashAtom).map((e) => e.target.id)).toEqual(["source"]);
+  it("collapses to a rail and comes back with the same card", () => {
+    const { store } = mount([entry("figure", "plot", "plot")]);
+    fireEvent.click(within(screen.getByRole("group", { name: /Plot: Figure/i })).getByRole("button", { name: /hide display/i }));
+    expect(store.get(displayCollapsedAtom)).toBe(true);
+    expect(screen.queryByTestId("plot-card")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Display/ }));
+    expect(screen.getByTestId("plot-card")).toBeInTheDocument();
+    expect(store.get(stashAtom)).toHaveLength(1);
   });
 
   it("pointer-down on a slot selects its target", () => {

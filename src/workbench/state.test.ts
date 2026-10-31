@@ -5,7 +5,7 @@ import {
   openCardAtom, closeCardAtom, moveCardAtom, resizeCardAtom,
   toggleCardCollapsedAtom, collapseAllCardsAtom, clearWorkbenchAtom,
   stashAtom, pushStashAtom, popStashAtom, seedDefaultStashAtom, STASH_SLOTS,
-  focusedStashIdAtom, workbenchLayoutAtom, DEFAULT_STASH_H,
+  focusedStashIdAtom, displayCollapsedAtom,
 } from "./state";
 import type { Target } from "./cardRegistry";
 
@@ -59,20 +59,16 @@ describe("workbench state", () => {
     expect(s.get(cardsAtom).every((c) => c.collapsed)).toBe(true);
   });
 
-  it("clearWorkbench resets cards, stash, selection, node positions, and layout", () => {
+  it("clearWorkbench resets cards, stash, selection, and node positions", () => {
     const s = createStore();
     s.set(openCardAtom, { target: tNode("source"), cardKind: "table" as const });
     s.set(pushStashAtom, { target: tNode("plot"), cardKind: "plot" as const });
     s.set(nodePositionsAtom, { source: { x: 10, y: 20 } });
-    s.set(workbenchLayoutAtom, { stashH: 999, cols: [3, 1, 2] });
     s.set(clearWorkbenchAtom);
     expect(s.get(cardsAtom)).toHaveLength(0);
     expect(s.get(stashAtom)).toHaveLength(0);
     expect(s.get(selectedTargetAtom)).toBeNull();
     expect(s.get(nodePositionsAtom)).toEqual({});
-    expect(s.get(workbenchLayoutAtom)).toEqual({
-      stashH: DEFAULT_STASH_H, cols: Array(STASH_SLOTS).fill(1),
-    });
   });
 });
 
@@ -85,60 +81,52 @@ describe("pop stash", () => {
     expect(s.get(selectedTargetAtom)).toEqual(tNode("source"));
   });
 
-  it("pushStash is idempotent per target (no duplicate, no reorder, re-selects)", () => {
+  it("pushStash is idempotent per target (no duplicate, re-selects)", () => {
     const s = createStore();
     s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
-    s.set(pushStashAtom, { target: tNode("b"), cardKind: "table" as const });
+    s.set(selectedTargetAtom, null);
     s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
-    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["a", "b"]);
+    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["a"]);
     expect(s.get(selectedTargetAtom)).toEqual(tNode("a"));
   });
 
-  it("evicts the oldest when a 4th distinct card is pinned (FIFO ring)", () => {
+  it("showing another card replaces the one shown", () => {
     const s = createStore();
-    for (const id of ["a", "b", "c", "d"]) {
+    for (const id of ["a", "b", "c"]) {
       s.set(pushStashAtom, { target: tNode(id), cardKind: "table" as const });
     }
     expect(s.get(stashAtom)).toHaveLength(STASH_SLOTS);
-    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b", "c", "d"]);
+    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["c"]);
   });
 
-  it("clears focus when the FIFO evicts the focused tile", () => {
+  it("showing a card opens a collapsed display", () => {
     const s = createStore();
+    s.set(displayCollapsedAtom, true);
     s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
-    s.set(focusedStashIdAtom, s.get(stashAtom)[0].id);   // focus the oldest
-    for (const id of ["b", "c", "d"]) {
-      s.set(pushStashAtom, { target: tNode(id), cardKind: "table" as const });
-    }
-    expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b", "c", "d"]);
-    expect(s.get(focusedStashIdAtom)).toBeNull();        // "a" gone → focus reset
+    expect(s.get(displayCollapsedAtom)).toBe(false);
   });
 
-  it("popStash unpins one card by id", () => {
+  it("clears focus when the focused card is replaced", () => {
     const s = createStore();
     s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    s.set(focusedStashIdAtom, s.get(stashAtom)[0].id);
     s.set(pushStashAtom, { target: tNode("b"), cardKind: "table" as const });
-    s.set(popStashAtom, s.get(stashAtom)[0].id);
     expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b"]);
+    expect(s.get(focusedStashIdAtom)).toBeNull();
   });
 
-  it("seedDefaultStash fills the trio: source table, figure plot, figure stats", () => {
+  it("popStash removes the shown card by id", () => {
+    const s = createStore();
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    s.set(popStashAtom, s.get(stashAtom)[0].id);
+    expect(s.get(stashAtom)).toEqual([]);
+  });
+
+  it("seedDefaultStash lands on the figure's plot", () => {
     const s = createStore();
     s.set(seedDefaultStashAtom);
     expect(s.get(stashAtom)).toEqual([
-      { id: "node:source", target: { kind: "node", id: "source" }, cardKind: "table" },
       { id: "node:figure:plot", target: { kind: "node", id: "figure", facet: "plot" }, cardKind: "plot" },
-      { id: "node:figure:stats", target: { kind: "node", id: "figure", facet: "stats" }, cardKind: "stats" },
-    ]);
-  });
-
-  it("the seeded trio is FIFO-overridable: a new pin evicts the oldest default", () => {
-    const s = createStore();
-    s.set(seedDefaultStashAtom);
-    s.set(pushStashAtom, { target: tNode("step:0"), cardKind: "table" as const });
-    // the source table (oldest) drops; plot, stats, and the new pin remain.
-    expect(s.get(stashAtom).map((e) => e.id)).toEqual([
-      "node:figure:plot", "node:figure:stats", "node:step:0",
     ]);
   });
 });
