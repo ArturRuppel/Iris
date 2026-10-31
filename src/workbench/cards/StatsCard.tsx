@@ -1,4 +1,6 @@
 import { useAtomValue } from "jotai";
+import { useEffect, useRef } from "react";
+import { displayFocusAtom } from "../state";
 import { specAtom, effectiveSchemaAtom } from "../../state";
 import { dataCardStates } from "../cardGating";
 import { StatsResults, TestPicker } from "../../components/StatsPanel";
@@ -12,13 +14,19 @@ export function StatsCard(_props: CardBodyProps) {
   const spec = useAtomValue(specAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
   const { statsEnabled } = dataCardStates(spec, schema);
+  /* the test edge (and "Edit test…") asks for the test picker: bring it into view. */
+  const focus = useAtomValue(displayFocusAtom);
+  const pickRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (focus?.section === "test") pickRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [focus]);
 
   return (
     <div className="txw-card-stats" data-testid="stats-card" data-tour="stats">
       {statsEnabled ? (
         <>
           <StatsResults />
-          <TestPicker />
+          <div ref={pickRef} className="stats-picker"><TestPicker /></div>
         </>
       ) : (
         <p className="txw-card-stub">Add a plot to see a test.</p>

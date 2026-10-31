@@ -1258,58 +1258,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 }
 .txw-add-menu button:hover { background: var(--primary-tint); }
 
-/* ---- workbench floating cards (Phase 3) ---- */
-.txw-card {
-  position: absolute;
-  display: flex;
-  flex-direction: column;
-  min-width: 220px;
-  background: var(--panel);
-  border: 1px solid var(--line2);
-  border-radius: 0;
-  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.18);
-  overflow: hidden;
-  /* above the stash (6) and its resize handles (7): an edit popup always floats
-     over the docked cards, never gets painted under them. Below focus mode (36)
-     and the menus/scrims, which are deliberate full-workspace takeovers. */
-  z-index: 20;
-}
-.txw-card-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px 4px 10px;
-  background: var(--panel2);
-  border-bottom: 1px solid var(--line);
-  cursor: move;
-  user-select: none;
-}
-.txw-card.collapsed .txw-card-bar { border-bottom: none; }
-.txw-card-title { flex: 1; font-size: 12px; font-weight: 600; color: var(--ink); }
-.txw-card-btn {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  padding: 2px 5px;
-  color: var(--dim);
-  border-radius: 0;
-}
-.txw-card-btn:hover { background: var(--chip-bg); }
-.txw-card-body { flex: 1; overflow: auto; padding: 10px; }
-.txw-card-resize {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 14px;
-  height: 14px;
-  cursor: nwse-resize;
-  background:
-    linear-gradient(135deg, transparent 50%, var(--faint) 50%, var(--faint) 60%, transparent 60%);
-}
-.txw-card-stub { font-size: 12px; color: var(--dim); }
-
 /* right-click delete menu on a pipeline node. A full-viewport scrim catches the
    dismiss click; the menu floats at the pointer, above everything. */
 .txw-ctxmenu-scrim { position: fixed; inset: 0; z-index: 40; }
@@ -1337,15 +1285,11 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 .txw-ctxmenu button.danger { color: var(--false); }
 .txw-ctxmenu button.danger:hover { background: color-mix(in srgb, var(--false) 12%, var(--panel)); }
 
-/* cards float over the canvas; the layer itself is click-through so the DAG
-   beneath stays interactive, while each card re-enables pointer events. */
-.txw-cards { position: absolute; inset: 0; pointer-events: none; }
-.txw-cards > .txw-card { pointer-events: auto; }
 
 /* ---- the display panel: one card in a collapsible column on the right ---- */
-/* The DAG canvas gives it room. The floating-card layer is NOT clamped: edit
-   popups float over the whole workspace, panel included (the layer is
-   pointer-events:none, so it never steals the panel's clicks). */
+/* The DAG canvas gives it room. Every card shows here, node data and step
+   editors alike; nothing floats over the canvas. */
+.txw-card-stub { font-size: 12px; color: var(--dim); }
 :root { --display-w: 560px; }
 .txw-rfcanvas.with-display { right: min(var(--display-w), calc(100% - 200px)); }
 .txw-rfcanvas.display-hidden { right: 34px; }

@@ -12,11 +12,10 @@ import { ArrayShapeRFNode, nodeShapeProps, type RFNodeData } from "./ArrayShapeR
 import { nodeDeltas } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
-  openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
+  openCardAtom, nodePositionsAtom,
   pushStashAtom, focusedStashIdAtom, displayCollapsedAtom,
 } from "./state";
 import { targetToCardKind, type Target } from "./cardRegistry";
-import { FloatingCard } from "./FloatingCard";
 import { Stash, StashFocus } from "./Stash";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
 import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom, activeReduceDagAtom } from "../state";
@@ -92,13 +91,12 @@ export function toRF(
   };
 }
 
-/* stroke icons for the canvas control cluster (undo, redo, tidy, collapse all),
+/* stroke icons for the canvas control cluster (undo, redo, tidy),
    on React Flow's 12px control grid; .txw-ico paints them as strokes. */
 const I = { viewBox: "0 0 16 16", className: "txw-ico", "aria-hidden": true } as const;
 const UndoIcon = () => (<svg {...I}><path d="M5 3.5 2 6.5l3 3" /><path d="M2.5 6.5H10a4 4 0 0 1 0 8H7" /></svg>);
 const RedoIcon = () => (<svg {...I}><path d="m11 3.5 3 3-3 3" /><path d="M13.5 6.5H6a4 4 0 0 0 0 8h3" /></svg>);
 const TidyIcon = () => (<svg {...I}><rect x="1.5" y="2" width="5" height="4" /><rect x="9.5" y="2" width="5" height="4" /><rect x="5.5" y="10" width="5" height="4" /><path d="M4 6v2h8V6M8 8v2" /></svg>);
-const CollapseIcon = () => (<svg {...I}><rect x="2" y="2" width="12" height="12" /><path d="M5 8h6" /></svg>);
 
 function Canvas({ graph }: { graph: ExplorerGraph }) {
   const nodePositions = useAtomValue(nodePositionsAtom);
@@ -114,8 +112,6 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
 
   const openCard = useSetAtom(openCardAtom);
   const pushStash = useSetAtom(pushStashAtom);
-  const collapseAll = useSetAtom(collapseAllCardsAtom);
-  const cards = useAtomValue(cardsAtom);
   const displayCollapsed = useAtomValue(displayCollapsedAtom);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -151,8 +147,7 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
     if (kind) pushStash({ target: t, cardKind: kind });
   }, [graph, pushStash]);
 
-  // clicking an edge opens its editor as a floating card (a transient, focused
-  // editing surface — distinct from the pinned reference cards).
+  // clicking an edge shows its editor in the display panel, like a node's card.
   const openEdge = useCallback((target: Target) => {
     const kind = targetToCardKind(graph, target);
     if (kind) openCard({ target, cardKind: kind });
@@ -323,16 +318,11 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
               title="Redo (⇧⌘Z)" aria-label="Redo"><RedoIcon /></ControlButton>
             <ControlButton className="txw-ctl-sep" onClick={tidy}
               title="Tidy — re-lay out the graph" aria-label="Tidy"><TidyIcon /></ControlButton>
-            <ControlButton onClick={collapseAll}
-              title="Collapse all open editors" aria-label="Collapse all"><CollapseIcon /></ControlButton>
           </Controls>
         </ReactFlow>
         {menu && (
           <NodeContextMenu menu={menu} onClose={() => setMenu(null)} />
         )}
-      </div>
-      <div className="txw-cards">
-        {cards.map((c) => <FloatingCard key={c.id} card={c} />)}
       </div>
       <Stash graph={graph} />
       <StashFocus graph={graph} />

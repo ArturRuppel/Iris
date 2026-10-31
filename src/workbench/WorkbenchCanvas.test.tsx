@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
 import { WorkbenchCanvas, applyNudge, toRF, onConnectDelegate } from "./WorkbenchCanvas";
-import { cardsAtom, nodePositionsAtom, stashAtom, seedDefaultStashAtom } from "./state";
+import { nodePositionsAtom, stashAtom, seedDefaultStashAtom } from "./state";
 import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
 
@@ -56,16 +56,17 @@ describe("WorkbenchCanvas", () => {
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
   });
 
-  it("puts undo, redo, tidy and collapse-all in the canvas control cluster", () => {
+  it("puts undo, redo and tidy in the canvas control cluster", () => {
     const { container } = mount();
     const controls = container.querySelector(".react-flow__controls")!;
     expect(controls).toBeTruthy();
-    for (const name of ["Undo", "Redo", "Tidy", "Collapse all"]) {
+    for (const name of ["Undo", "Redo", "Tidy"]) {
       const b = screen.getByRole("button", { name });
       expect(controls.contains(b)).toBe(true);
       expect(b.getAttribute("title")).toBeTruthy();
     }
     expect(container.querySelector(".txw-topbar")).toBeNull();
+    expect(container.querySelector(".txw-card")).toBeNull();   // nothing floats
     // nothing in history yet: undo/redo start disabled
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
@@ -75,7 +76,6 @@ describe("WorkbenchCanvas", () => {
     const node = container.querySelector('.react-flow__node[data-id="plot"]')!;
     expect(node).toBeTruthy();
     fireEvent.click(node);
-    expect(store.get(cardsAtom)).toHaveLength(0); // no floating popup
     const stash = store.get(stashAtom);
     expect(stash).toHaveLength(1);
     expect(stash[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot", facet: "plot" } });
@@ -93,31 +93,6 @@ describe("WorkbenchCanvas", () => {
     expect(targetToCardKind(graph, { kind: "edge", id: "g0" })).toBe("geom-editor");
     // a stale id resolves to null -> opens nothing.
     expect(targetToCardKind(graph, { kind: "edge", id: "nope" })).toBeNull();
-  });
-
-  it("renders an open card from the store as the right card + body", () => {
-    const store = createStore();
-    store.set(cardsAtom, [{
-      id: "node:plot", target: { kind: "node", id: "plot" }, cardKind: "plot",
-      x: 30, y: 40, w: 300, h: 200, collapsed: false,
-    }]);
-    render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
-    // the dialog's accessible name comes from CARD[cardKind].title ("Plot"),
-    // so this distinguishes the plot card from any other kind...
-    expect(screen.getByRole("dialog", { name: /plot card/i })).toBeInTheDocument();
-    // ...and the PlotCard body (not some other body) actually mounted.
-    expect(screen.getByTestId("plot-card")).toBeInTheDocument();
-  });
-
-  it("collapse-all collapses every open card", () => {
-    const store = createStore();
-    store.set(cardsAtom, [{
-      id: "node:plot", target: { kind: "node", id: "plot" }, cardKind: "plot",
-      x: 0, y: 0, w: 300, h: 200, collapsed: false,
-    }]);
-    render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
-    fireEvent.click(screen.getByRole("button", { name: /collapse all/i }));
-    expect(store.get(cardsAtom)[0].collapsed).toBe(true);
   });
 
   it("re-flows when the graph structure changes (adds a node)", () => {
@@ -165,13 +140,12 @@ describe("WorkbenchCanvas", () => {
     expect(screen.getByRole("menuitem", { name: /Edit test/i })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit test/i }));
-    expect(store.get(cardsAtom)).toMatchObject([{ cardKind: "test-editor" }]);
+    expect(store.get(stashAtom)).toMatchObject([{ cardKind: "stats", target: { id: "figure", facet: "stats" } }]);
 
     // a fresh right-click → "Edit plot…" shows the Plot card in the display
     // panel (its encoding section), not a floating geom editor.
     fireEvent.contextMenu(figureNode);
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit plot/i }));
-    expect(store.get(cardsAtom).some((c) => c.cardKind === "geom-editor")).toBe(false);
     expect(store.get(stashAtom)).toMatchObject([{ cardKind: "plot", target: { id: "figure", facet: "plot" } }]);
   });
 

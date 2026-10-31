@@ -8,6 +8,19 @@ import {
 } from "./state";
 import { CARD } from "./cardRegistry";
 import { nodeTableName } from "./nodeName";
+import type { Target } from "./cardRegistry";
+
+/* the slot bar's subtitle: the table a node holds, or the step an edge is
+   (its label, e.g. "z_um = z - nucleus_z"). An editor opened from the + menu
+   has no graph edge yet, so it shows no subtitle. */
+function cardLabel(graph: ExplorerGraph, target: Target, sourceName: string): string {
+  if (target.kind === "node") {
+    const node = graph.nodes.find((n) => n.id === target.id);
+    return node ? nodeTableName(node, sourceName) : target.id;
+  }
+  const edge = graph.edges.find((e) => e.id === target.id);
+  return edge ? (edge.label || edge.kind) : "";
+}
 
 /* the shown data card: a header (which node) over the registry body.
    Pointer-down anywhere selects its target so the canvas highlights the node. */
@@ -54,8 +67,7 @@ export function StashFocus({ graph }: { graph: ExplorerGraph }) {
   const entry = stash.find((e) => e.id === focusedId);
   if (!entry) return null;
   const { body: Body, title } = CARD[entry.cardKind];
-  const node = graph.nodes.find((n) => n.id === entry.target.id);
-  const label = node ? nodeTableName(node, sourceName) : entry.target.id;
+  const label = cardLabel(graph, entry.target, sourceName);
   return (
     <div className="txw-focus" role="region" aria-label={`${title}: ${label} (maximized)`}>
       <div className="txw-focus-bar">
@@ -78,7 +90,7 @@ function initialWidth() {
 }
 
 /* The display panel: a collapsible, resizable column on the right of the canvas
-   showing the one card last clicked on the graph. The DAG keeps the remaining
+   showing the one card last clicked on the graph, node or edge. The DAG keeps the remaining
    width through --display-w, which this sets on its parent overlay. */
 export function Stash({ graph }: { graph: ExplorerGraph }) {
   const stash = useAtomValue(stashAtom);
@@ -120,8 +132,7 @@ export function Stash({ graph }: { graph: ExplorerGraph }) {
   }
 
   const entry = stash[stash.length - 1];
-  const node = entry && graph.nodes.find((n) => n.id === entry.target.id);
-  const label = entry ? (node ? nodeTableName(node, sourceName) : entry.target.id) : "";
+  const label = entry ? cardLabel(graph, entry.target, sourceName) : "";
   return (
     <aside className="txw-stash" aria-label="Display" ref={panel}>
       <div className="txw-display-resize" onPointerDown={startResize} title="Drag to resize" />
