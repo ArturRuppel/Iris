@@ -1084,18 +1084,12 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   display:flex; flex-direction:column; overflow:auto; }
 .workbench-mode { display: flex; gap: 0; height: 100%; min-height: 0; }
 .txw-embedded { position: relative; inset: auto; flex: 1; min-width: 0; }
-.txw-topbar { position:sticky; top:0; display:flex; align-items:center;
-  justify-content:space-between; gap:16px; padding:10px 20px; background:var(--panel);
-  border-bottom:1px solid var(--line); }
-.txw-title { font-size:14px; margin:0; font-weight:600; }
 .txw-legend { display:flex; gap:14px; font-size:11px; color:var(--dim); margin-left:auto; }
 .txw-legend span { display:inline-flex; align-items:center; }
 .txw-sw { display:inline-block; width:9px; height:9px; border-radius: 0; margin-right:4px; }
 .txw-sw.axis { background:#7dd3fc; } .txw-sw.key { background:#fcd34d; }
 .txw-sw.num { background:#86efac; } .txw-sw.catg { background:#d8b4fe; }
 .txw-sw.grain { background:#c4b5fd; }
-.txw-close { border:1px solid var(--line); background:var(--panel); border-radius: 0;
-  width:28px; height:28px; cursor:pointer; color:var(--dim); }
 .txw-canvas { padding:30px 20px 60px; flex:1;
   background-image:radial-gradient(var(--line) 1px, transparent 1px); background-size:22px 22px; }
 .txw-spine { display:flex; flex-direction:column; align-items:center; gap:0; }
@@ -1170,9 +1164,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 .plot-wizard .wiz-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
 .plot-wizard .wiz-inherited { font-size: 11px; color: var(--dim); margin: 6px 0 0; }
 
-.txw-undo { font-size: 12px; padding: 3px 8px; }
-.txw-undo:disabled { opacity: 0.4; cursor: default; }
-.txw-tidy { margin-left: auto; }
 .react-flow__attribution { display: none; }
 
 /* ── workbench edges: pure orthogonal "blackbox" wiring (labels live in nodes) ── */
@@ -1363,7 +1354,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
    beneath stays interactive, while each card re-enables pointer events. */
 .txw-cards { position: absolute; inset: 0; pointer-events: none; }
 .txw-cards > .txw-card { pointer-events: auto; }
-.txw-collapse-all { margin-left: 8px; }
 
 /* ---- the display panel: one card in a collapsible column on the right ---- */
 /* The DAG canvas gives it room. The floating-card layer is NOT clamped: edit
@@ -1601,7 +1591,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
  .tb-icon { width: 44px; height: 44px; }
  .topbar { height: auto; min-height: 64px; }
  .tb-menu { top: 48px; }
- .txw-topbar { padding: 8px 12px; }
  .txw-stash .txw-slot-close, .txw-stash .txw-slot-max, .txw-focus-exit { min-width: 44px; font-size: 16px; }
 }
 
@@ -1687,3 +1676,14 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 .react-flow__controls-button:last-child { border-bottom: none; }
 .react-flow__controls-button:hover { background: var(--hm-sunk); color: var(--hm-ink); }
 .figure-overlay.over-figure { background: color-mix(in srgb, var(--hm-raised) 72%, transparent); }
+
+/* the canvas control cluster also carries undo/redo and tidy/collapse-all;
+   a hairline separates each group from the one above it. */
+.react-flow__controls-button svg.txw-ico { fill: none; stroke: currentColor; stroke-width: 1.4;
+  stroke-linecap: round; stroke-linejoin: round; max-width: 14px; max-height: 14px; }
+.react-flow__controls-button.txw-ctl-sep { border-top: 1px solid var(--hm-divider); }
+.react-flow__controls-button:disabled { opacity: .35; cursor: default; }
+.react-flow__controls-button:disabled:hover { background: var(--hm-raised); color: var(--hm-dim); }
+@media (pointer: coarse) {
+  .react-flow__controls-button { width: 44px; height: 44px; }
+}

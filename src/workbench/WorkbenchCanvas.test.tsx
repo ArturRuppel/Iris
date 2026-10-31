@@ -19,10 +19,10 @@ const graph: ExplorerGraph = {
   spine: [],
 };
 
-function mount(g: ExplorerGraph = graph, onClose?: () => void) {
+function mount(g: ExplorerGraph = graph) {
   const store = createStore();
   const utils = render(
-    <Provider store={store}><WorkbenchCanvas graph={g} onClose={onClose} /></Provider>,
+    <Provider store={store}><WorkbenchCanvas graph={g} /></Provider>,
   );
   return { store, ...utils };
 }
@@ -56,17 +56,18 @@ describe("WorkbenchCanvas", () => {
     expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
   });
 
-  it("renders a close control only when onClose is provided", () => {
-    const { rerender, store } = mount(graph, undefined);
-    expect(screen.queryByRole("button", { name: /close/i })).toBeNull();
-    let closed = false;
-    rerender(
-      <Provider store={store}>
-        <WorkbenchCanvas graph={graph} onClose={() => { closed = true; }} />
-      </Provider>,
-    );
-    fireEvent.click(screen.getByRole("button", { name: /close/i }));
-    expect(closed).toBe(true);
+  it("puts undo, redo, tidy and collapse-all in the canvas control cluster", () => {
+    const { container } = mount();
+    const controls = container.querySelector(".react-flow__controls")!;
+    expect(controls).toBeTruthy();
+    for (const name of ["Undo", "Redo", "Tidy", "Collapse all"]) {
+      const b = screen.getByRole("button", { name });
+      expect(controls.contains(b)).toBe(true);
+      expect(b.getAttribute("title")).toBeTruthy();
+    }
+    expect(container.querySelector(".txw-topbar")).toBeNull();
+    // nothing in history yet: undo/redo start disabled
+    expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
   it("clicking a node pins its data card into the stash (not a floating popup)", () => {

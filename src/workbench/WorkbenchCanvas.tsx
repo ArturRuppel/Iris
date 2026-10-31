@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, Panel, Position,
+  ReactFlow, ReactFlowProvider, Background, Controls, ControlButton, Panel, Position,
   useNodesState, useEdgesState, useReactFlow,
   type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes, type FitViewOptions,
 } from "@xyflow/react";
@@ -114,7 +114,15 @@ function GrainLegend({ spine }: { spine: string[] }) {
   );
 }
 
-function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void }) {
+/* stroke icons for the canvas control cluster (undo, redo, tidy, collapse all),
+   on React Flow's 12px control grid; .txw-ico paints them as strokes. */
+const I = { viewBox: "0 0 16 16", className: "txw-ico", "aria-hidden": true } as const;
+const UndoIcon = () => (<svg {...I}><path d="M5 3.5 2 6.5l3 3" /><path d="M2.5 6.5H10a4 4 0 0 1 0 8H7" /></svg>);
+const RedoIcon = () => (<svg {...I}><path d="m11 3.5 3 3-3 3" /><path d="M13.5 6.5H6a4 4 0 0 0 0 8h3" /></svg>);
+const TidyIcon = () => (<svg {...I}><rect x="1.5" y="2" width="5" height="4" /><rect x="9.5" y="2" width="5" height="4" /><rect x="5.5" y="10" width="5" height="4" /><path d="M4 6v2h8V6M8 8v2" /></svg>);
+const CollapseIcon = () => (<svg {...I}><rect x="2" y="2" width="12" height="12" /><path d="M5 8h6" /></svg>);
+
+function Canvas({ graph }: { graph: ExplorerGraph }) {
   const nodePositions = useAtomValue(nodePositionsAtom);
   const setNodePositions = useSetAtom(nodePositionsAtom);
   // the analysis's main table names every box in the reduce chain (see nodeName).
@@ -308,28 +316,9 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
     setEdges(rf.edges);
   }, [graph, sourceName, setNodes, setEdges, setNodePositions]);
 
-  useEffect(() => {
-    if (!onClose) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
   return (
     <div className="txw-overlay txw-embedded txw-landing" role="dialog" aria-label="Transformation workbench"
          ref={overlayRef}>
-      <div className="txw-topbar">
-        <h1 className="txw-title">⛁ Transformation workbench</h1>
-        <button className="txw-undo" onClick={() => undo()} disabled={!canUndo}
-          title="Undo (⌘Z)" aria-label="Undo">↶ Undo</button>
-        <button className="txw-undo" onClick={() => redo()} disabled={!canRedo}
-          title="Redo (⇧⌘Z)" aria-label="Redo">↷ Redo</button>
-        <button className="txw-tidy" onClick={tidy}>⤢ Tidy</button>
-        <button className="txw-collapse-all" onClick={collapseAll}>⊟ Collapse all</button>
-        {onClose && (
-          <button className="txw-close" onClick={onClose} aria-label="Close workbench">✕</button>
-        )}
-      </div>
       <div className="txw-workspace">
       <div className={`txw-rfcanvas ${displayCollapsed ? "display-hidden" : "with-display"}`} ref={rfcanvasRef}>
         <ReactFlow
@@ -347,7 +336,18 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
           fitView fitViewOptions={FIT_OPTS} minZoom={0.2} proOptions={{ hideAttribution: true }}
         >
           <Background gap={22} size={1} color="#d7dee7" />
-          <Controls />
+          {/* the one canvas control cluster: React Flow's zoom buttons, then the
+              spec history (keyboard: ⌘Z / ⇧⌘Z / ⌘Y) and the layout actions. */}
+          <Controls>
+            <ControlButton className="txw-ctl-sep" onClick={() => undo()} disabled={!canUndo}
+              title="Undo (⌘Z)" aria-label="Undo"><UndoIcon /></ControlButton>
+            <ControlButton onClick={() => redo()} disabled={!canRedo}
+              title="Redo (⇧⌘Z)" aria-label="Redo"><RedoIcon /></ControlButton>
+            <ControlButton className="txw-ctl-sep" onClick={tidy}
+              title="Tidy — re-lay out the graph" aria-label="Tidy"><TidyIcon /></ControlButton>
+            <ControlButton onClick={collapseAll}
+              title="Collapse all open editors" aria-label="Collapse all"><CollapseIcon /></ControlButton>
+          </Controls>
           <Panel position="top-left"><GrainLegend spine={graph.spine} /></Panel>
         </ReactFlow>
         {menu && (
@@ -364,10 +364,10 @@ function Canvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void
   );
 }
 
-export function WorkbenchCanvas({ graph, onClose }: { graph: ExplorerGraph; onClose?: () => void }) {
+export function WorkbenchCanvas({ graph }: { graph: ExplorerGraph }) {
   return (
     <ReactFlowProvider>
-      <Canvas graph={graph} onClose={onClose} />
+      <Canvas graph={graph} />
     </ReactFlowProvider>
   );
 }
