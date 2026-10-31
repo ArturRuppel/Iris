@@ -126,9 +126,18 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.link { border: none; background: none; color: var(--dim);
   text-decoration: underline; padding: 0; }
 
-.error-bar { background: color-mix(in srgb, var(--false) 12%, var(--panel)); color: var(--false); border-bottom: 1px solid color-mix(in srgb, var(--false) 35%, var(--panel));
-  padding: 6px 18px; font-size: 13px; }
-.error-bar.warn-bar { background: color-mix(in srgb, var(--t-bool) 12%, var(--panel)); color: var(--t-bool); border-bottom-color: color-mix(in srgb, var(--t-bool) 40%, var(--panel)); }
+/* a real error (engine, render): one hairline-bordered strip, not a block */
+.error-bar { flex: none; background: var(--hm-raised); color: var(--hm-danger);
+  border-bottom: 1px solid var(--hm-hairline); padding: 6px 18px; font-size: 13px; }
+/* harmless notes: a small badge beside the render status in the top bar */
+.tb-notes { display: inline-flex; align-items: center; gap: 6px; font: 500 12px/1 'Archivo';
+  padding: 4px 8px; border: 1px solid var(--hm-hairline); background: none; color: var(--hm-warn); }
+.tb-notes:hover { border-color: var(--hm-warn); }
+.tb-notes-mark { display: inline-grid; place-items: center; width: 14px; height: 14px;
+  background: var(--hm-warn); color: var(--hm-raised); font: 700 10px/1 'Archivo'; }
+.tb-notes-pop { width: 320px; padding: 4px 12px; }
+.tb-notes-pop p { margin: 8px 0; font-size: 12.5px; line-height: 1.45; color: var(--hm-ink); }
+.tb-notes-pop p + p { border-top: 1px solid var(--hm-hairline); padding-top: 8px; }
 /* launch-time crash-recovery offer (autosave snapshot found) */
 .recovery-bar { background: color-mix(in srgb, var(--primary) 9%, var(--panel)); color: var(--primary-text); border-bottom: 1px solid var(--primary-tintline);
   padding: 6px 18px; font-size: 13px;

@@ -127,7 +127,7 @@ export default function App() {
     try { localStorage.setItem("iris:theme", theme); } catch { /* private mode */ }
   }, [theme]);
   /* which top-bar dropdown is open; closes on outside-click (a backdrop) or Escape. */
-  const [openMenu, setOpenMenu] = useState<null | "export" | "overflow">(null);
+  const [openMenu, setOpenMenu] = useState<null | "export" | "overflow" | "notes">(null);
   const importRef = useRef<ImportWizardHandle>(null);
   const newDocument = useSetAtom(newDocumentAtom);
   useEffect(() => {
@@ -295,6 +295,9 @@ export default function App() {
       ? `Y column “${mappings.y}” is removed by this analysis’s reduction pipeline. `
         + `Aggregate it in the Collapse step, or pick a column the pipeline keeps.`
     : null;
+
+  /* the notes the top-bar badge carries: harmless, so never a full-width band. */
+  const notes = [mappingError, warnIssue?.message].filter((m): m is string => !!m);
 
   /* the reactive loop: figure + stats for the active plottable. The engine owns
      the table behind a session handle; compute references it by id. Depends on
@@ -766,6 +769,25 @@ export default function App() {
         </nav>
         <div className="tb-right">
           <RenderIndicator dataLoading={dataLoading} />
+          {/* harmless notes (a mapping the pipeline drops, an engine warning) are
+              a small badge beside the status: the message is on hover, and in a
+              popover on click or tap. Real errors keep the strip below the bar. */}
+          {notes.length > 0 && (
+            <div className="tb-menuwrap">
+              <button className="tb-notes" title={notes.join("\n\n")}
+                aria-label={`${notes.length} ${notes.length === 1 ? "note" : "notes"}`}
+                aria-expanded={openMenu === "notes"}
+                onClick={() => setOpenMenu((m) => m === "notes" ? null : "notes")}>
+                <span className="tb-notes-mark" aria-hidden>!</span>
+                {notes.length === 1 ? "1 note" : `${notes.length} notes`}
+              </button>
+              {openMenu === "notes" && (
+                <div className="tb-menu tb-menu-right tb-notes-pop" role="dialog" aria-label="Notes">
+                  {notes.map((n) => <p key={n}>{n}</p>)}
+                </div>
+              )}
+            </div>
+          )}
           <div className="tb-menuwrap">
             <button className="tb-icon" aria-label="More actions"
               onClick={() => setOpenMenu((m) => m === "overflow" ? null : "overflow")}>⋯</button>
@@ -807,11 +829,7 @@ export default function App() {
           <button onClick={doDiscard}>Discard</button>
         </div>
       )}
-      {error ? <div className="error-bar">{error}</div>
-        : mappingError ? <div className="error-bar warn-bar">{mappingError}</div>
-        : renderError ? <div className="error-bar">{renderError}</div>
-        : warnIssue ? <div className="error-bar warn-bar">{warnIssue.message}</div>
-        : null}
+      {(error || renderError) && <div className="error-bar" role="alert">{error || renderError}</div>}
       <main>
         {viewMode === "data" ? (
           <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataView /></div>
