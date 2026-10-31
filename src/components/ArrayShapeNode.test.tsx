@@ -4,7 +4,7 @@ import { ArrayShapeNode, type ArrayShapeNodeProps } from "./ArrayShapeNode";
 import type { CannedExample } from "../explorer/cannedExamples";
 
 const base: ArrayShapeNodeProps = {
-  variant: "table", kind: "collapse", eyebrow: "Collapse", detail: "median over frame",
+  variant: "grain", kind: "collapse", eyebrow: "Collapse", detail: "median over frame",
   spine: ["experiment_id", "position_id", "cell_id", "frame"],
   live: ["experiment_id", "position_id", "cell_id"],
   shed: ["frame"],
@@ -39,9 +39,9 @@ describe("ArrayShapeNode", () => {
     expect(container.querySelector(".txw-seg.shed")).toBeNull();
   });
 
-  it("rings the value(s) a step introduced", () => {
+  it("a non-collapse step shows only the columns it added, prefixed +, and no grain bar", () => {
     const { container } = render1({
-      eyebrow: "Join", kind: "join", detail: "on exp + pos", shed: [], live: base.spine,
+      variant: "table", eyebrow: "Join", kind: "join", detail: "on exp + pos", shed: [], live: base.spine,
       values: [
         { name: "value", type: "numeric", grain: null },
         { name: "class_label", type: "categorical", grain: null },
@@ -49,10 +49,40 @@ describe("ArrayShapeNode", () => {
       newValues: ["class_label"],
     });
     const chips = container.querySelectorAll(".txw-vchip");
-    expect(chips).toHaveLength(2);
-    expect(container.querySelector(".txw-vchip.isnew")?.textContent).toContain("class_label");
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toBe("+ class_label");
+    expect(container.querySelector(".txw-grain")).toBeNull();
+  });
+
+  it("a step that adds no column repeats no column list", () => {
+    const { container } = render1({ variant: "table", kind: "filter", shed: [], live: base.spine });
+    expect(container.querySelectorAll(".txw-vchip")).toHaveLength(0);
+  });
+
+  it("the source lists its columns once, with its grain", () => {
+    const { container } = render1({ variant: "source", kind: "source", shed: [], live: base.spine,
+      values: [{ name: "value", type: "numeric", grain: null }, { name: "dot", type: "numeric", grain: null }] });
+    expect(container.querySelectorAll(".txw-vchip")).toHaveLength(2);
+    expect(container.querySelector(".txw-grain")).not.toBeNull();
+  });
+
+  it("a collapse shows the grain it pools to, the surviving columns, and rings new ones", () => {
+    const { container } = render1({
+      values: [{ name: "value", type: "numeric", grain: null }, { name: "n", type: "numeric", grain: null }],
+      newValues: ["n"],
+    });
+    expect(container.querySelector(".txw-grain-to")?.textContent).toBe("per experiment_id · position_id · cell_id");
+    expect(container.querySelectorAll(".txw-vchip")).toHaveLength(2);
+    expect(container.querySelector(".txw-vchip.isnew")?.textContent).toContain("n");
     expect(within(container.querySelector(".txw-vchip:not(.isnew)") as HTMLElement).getByText("value"))
       .toBeInTheDocument();
+  });
+
+  it("puts the grain explanation in the level badge's tooltip", () => {
+    const { container } = render1();
+    const shed = container.querySelector(".txw-seg.shed") as HTMLElement;
+    expect(shed.title).toContain("Grain level “frame”");
+    expect(shed.title).toContain("pools one level");
   });
 
   it("reveals the before/after example on hovering the eyebrow", () => {

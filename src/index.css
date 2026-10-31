@@ -1073,21 +1073,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   width:max-content; max-width:230px; white-space:normal;
   background:var(--ink); color:var(--bg); font:11px/1.35 system-ui; padding:7px 9px;
   border-radius: 0; box-shadow:0 6px 22px rgba(15,23,42,.22); }
-/* persistent grain legend (React Flow top-left panel) */
-.txw-grain-legend { display:flex; align-items:center; gap:9px; padding:7px 13px;
-  background:var(--panel); border:1px solid var(--line); border-radius: 0;
-  box-shadow:0 1px 3px rgba(20,30,60,.07); }
-.txw-gl-k { font:600 11px/1 system-ui; letter-spacing:.1em; text-transform:uppercase;
-  color:var(--faint); }
-.txw-gl-lvls { display:flex; align-items:center; gap:7px; font:600 11.5px/1 var(--mono);
-  color:var(--dim); }
-.txw-gl-lvl { display:inline-flex; align-items:center; gap:5px; }
-.txw-gl-seg { display:inline-flex; align-items:center; justify-content:center;
-  width:18px; height:16px; border-radius: 0; background:var(--line); color:var(--dim);
-  font:700 11px/1 var(--mono); }
-.txw-gl-chev { color:var(--faint); font-weight:400; margin-right:2px; }
-.txw-gl-note { color:var(--faint); font:italic 11px/1 system-ui; }
-
 /* ── Array-shape workspace: surface, edges, join, fork (Phase 3) ──────────── */
 .txw-overlay { position:fixed; inset:0; z-index:50; background:var(--panel2);
   display:flex; flex-direction:column; overflow:auto; }
@@ -1713,3 +1698,8 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
     display: flex; justify-content: flex-end; border: none; background: none; padding: 0 0 4px; }
   .figure-tools button { min-height: 0; width: 40px; height: 40px; }
 }
+
+/* node deltas: a step's added columns carry a "+", a collapse names its grain */
+.txw-vplus { font-weight: 700; }
+.txw-grain-to { margin-left: 6px; font: 500 11px/1 var(--mono); color: var(--hm-dim);
+  overflow: hidden; text-overflow: ellipsis; }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
-  ReactFlow, ReactFlowProvider, Background, Controls, ControlButton, Panel, Position,
+  ReactFlow, ReactFlowProvider, Background, Controls, ControlButton, Position,
   useNodesState, useEdgesState, useReactFlow,
   type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes, type FitViewOptions,
 } from "@xyflow/react";
@@ -9,7 +9,7 @@ import { useSetAtom, useAtomValue } from "jotai";
 import type { ExplorerGraph } from "../explorer/graph";
 import { layoutGraph } from "./layout";
 import { ArrayShapeRFNode, nodeShapeProps, type RFNodeData } from "./ArrayShapeRFNode";
-import { nodeDeltas, levelInitial } from "./nodeDelta";
+import { nodeDeltas } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
   openCardAtom, collapseAllCardsAtom, cardsAtom, nodePositionsAtom,
@@ -27,11 +27,10 @@ const nodeTypes = { arrayShape: ArrayShapeRFNode } as unknown as NodeTypes;
 const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
 
 /* fit the DAG into its pane with a little breathing room; maxZoom 1 keeps nodes
-   at their natural size at most, so a roomy pane never balloons them. The top gets
-   extra room so the chain always clears the GRAIN legend that floats over the
-   canvas's top-left (see the top-left Panel) instead of tucking behind it. Shared
-   by the initial fit and the resize re-fit so both frame the graph identically. */
-const FIT_OPTS: FitViewOptions = { padding: { top: "72px", right: "24px", bottom: "24px", left: "24px" },
+   at their natural size at most, so a roomy pane never balloons them. The bottom
+   gets extra room for the control cluster. Shared by the initial fit and the
+   resize re-fit so both frame the graph identically. */
+const FIT_OPTS: FitViewOptions = { padding: { top: "24px", right: "24px", bottom: "64px", left: "24px" },
   minZoom: 0.2, maxZoom: 1, duration: 0 };
 
 /* the onNodeDragStop reducer: records a node's post-drag position into the
@@ -91,27 +90,6 @@ export function toRF(
       data: { kind: e.kind, label: e.label, guards: e.guards },
     })),
   };
-}
-
-/* the persistent grain legend: decodes the per-node segment glyphs (E, P, …) to
-   their full level names, in nesting order, so the shedding bars are readable. */
-function GrainLegend({ spine }: { spine: string[] }) {
-  if (spine.length === 0) return null;
-  return (
-    <div className="txw-grain-legend">
-      <span className="txw-gl-k">Grain</span>
-      <span className="txw-gl-lvls">
-        {spine.map((name, i) => (
-          <span key={name} className="txw-gl-lvl">
-            {i > 0 && <span className="txw-gl-chev" aria-hidden>›</span>}
-            <span className="txw-gl-seg" aria-hidden>{levelInitial(name)}</span>
-            {name}
-          </span>
-        ))}
-      </span>
-      <span className="txw-gl-note">each step pools one level →</span>
-    </div>
-  );
 }
 
 /* stroke icons for the canvas control cluster (undo, redo, tidy, collapse all),
@@ -348,7 +326,6 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
             <ControlButton onClick={collapseAll}
               title="Collapse all open editors" aria-label="Collapse all"><CollapseIcon /></ControlButton>
           </Controls>
-          <Panel position="top-left"><GrainLegend spine={graph.spine} /></Panel>
         </ReactFlow>
         {menu && (
           <NodeContextMenu menu={menu} onClose={() => setMenu(null)} />

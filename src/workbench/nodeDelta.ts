@@ -24,13 +24,6 @@ const axisNames = (g: ExplorerGraph, id: string): string[] =>
 const valueNames = (g: ExplorerGraph, id: string): string[] =>
   (g.nodes.find((n) => n.id === id)?.count?.values ?? []).map((v) => v.name);
 
-/* one glyph per nesting level — the first letter, shared by the segment bar and
-   the canvas legend that decodes it. */
-export const levelInitial = (name: string): string => {
-  const m = name.match(/[a-zA-Z]/);
-  return (m ? m[0] : name[0] ?? "?").toUpperCase();
-};
-
 /* the primary incoming edge of a node: a forward edge into it,
    preferring the main-chain input over a join's secondary (join-input) input. */
 function primaryIn(graph: ExplorerGraph, nodeId: string, byId: Map<string, ExplorerNode>) {

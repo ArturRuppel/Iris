@@ -40,7 +40,7 @@ export interface ArrayShapeNodeProps {
 
 const VAL_CLASS: Record<string, string> = { numeric: "num", categorical: "catg", bool: "bool" };
 
-/* one glyph per nesting level — the first letter, decoded by the canvas legend. */
+/* one glyph per nesting level — the first letter; its tooltip names the level. */
 const initial = (name: string): string => {
   const m = name.match(/[a-zA-Z]/);
   return (m ? m[0] : name[0] ?? "?").toUpperCase();
@@ -119,10 +119,18 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
     );
   }
 
-  // show the grain bar only when this node carries a grain of its own (a table) —
-  // the figure terminal has no live/shed levels and skips it.
-  const hasGrain = live.length > 0 || shed.length > 0;
-  const hasVals = values.length > 0;
+  /* Each node shows only what it changed. The source lists its columns once and
+     its grain; a collapse (grain) node shows the grain it pools to and the
+     columns that survive; any other step shows just the columns it added, as
+     "+ name", and no grain bar, since its grain is its predecessor's. */
+  const isStep = variant === "table";
+  const hasGrain = !isStep && (live.length > 0 || shed.length > 0);
+  const shown = isStep ? values.filter((v) => newValues.includes(v.name)) : values;
+  const hasVals = shown.length > 0;
+  const segTitle = (lvl: string) =>
+    `Grain level “${lvl}”`
+    + (shed.includes(lvl) ? ", pooled away by this step" : live.includes(lvl) ? "" : ", already pooled")
+    + ". Each collapse step pools one level, left to right.";
 
   return (
     <div className={`txw-node ${variant} k-${kind}`}>
@@ -169,20 +177,24 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
               return (
                 <Fragment key={lvl}>
                   {i > 0 && <span className="txw-gtick" aria-hidden>›</span>}
-                  <span className={cls} title={lvl} role="listitem">{initial(lvl)}</span>
+                  <span className={cls} title={segTitle(lvl)} role="listitem">{initial(lvl)}</span>
                 </Fragment>
               );
             })}
+            {variant === "grain" && (
+              <span className="txw-grain-to">{live.length ? `per ${live.join(" · ")}` : "pooled to one row"}</span>
+            )}
           </div>
         )}
 
         {hasVals && (
           <div className="txw-vrow">
-            {values.map((v) => (
+            {shown.map((v) => (
               <span
                 key={v.name}
-                className={`txw-vchip ${VAL_CLASS[v.type] ?? "num"}${newValues.includes(v.name) ? " isnew" : ""}`}
+                className={`txw-vchip ${VAL_CLASS[v.type] ?? "num"}${!isStep && newValues.includes(v.name) ? " isnew" : ""}`}
               >
+                {isStep && <span className="txw-vplus" aria-label="added">+ </span>}
                 {v.name}{v.grain && <span className="txw-vgrain">@{v.grain}</span>}
               </span>
             ))}
