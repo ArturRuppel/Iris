@@ -1,7 +1,6 @@
 import type { ExplorerGraph, EdgeKind } from "../explorer/graph";
 import { TestPicker } from "../components/StatsPanel";
 import { CollapseRoutingPanel } from "../components/CollapseRoutingPanel";
-import { LayerRail } from "../components/LayerRail";
 import { OpEditorCard } from "./cards/OpEditorCard";
 import { TableCard } from "./cards/TableCard";
 import { PlotCard } from "./cards/PlotCard";
@@ -63,8 +62,9 @@ export const CARD: Record<CardKind, CardSpec> = {
   "op-editor": { title: "Edit step", body: OpEditorCard },
   "collapse-editor": { title: "Collapse",
     body: staticBody("txw-card-collapse", "collapse-card", () => <CollapseRoutingPanel />) },
-  "geom-editor": { title: "Geom & encoding",
-    body: staticBody("txw-card-geom", "geom-card", () => <LayerRail />) },
+  // the geom editor is the Plot card (encoding + layers live there); openCardAtom
+  // routes it to the display panel, so this entry only keeps the record total.
+  "geom-editor": { title: "Plot", body: PlotCard },
   "test-editor": { title: "Test",
     body: staticBody("txw-card-test", "test-card", () => <TestPicker />) },
 };

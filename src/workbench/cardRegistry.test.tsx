@@ -105,11 +105,19 @@ describe("card bodies — each renders its panel inside the classed wrapper", ()
     expect(screen.getByLabelText(/test reads at/i)).toBeInTheDocument();
   });
 
-  it("geom mounts the encoding + layer editors", () => {
-    const { container } = renderBody("geom-editor");
-    const wrap = container.querySelector('[data-testid="geom-card"]');
-    expect(wrap).toBeInTheDocument();
-    expect(wrap!.children.length).toBeGreaterThan(0);
+  // the encoding rows (X, Y, …) moved out of the floating geom card into the
+  // Plot card, in one column with the figure, style and layers.
+  it("plot holds the encoding, style and layers in one column", () => {
+    const { container } = renderBody("plot", false, true);
+    const card = container.querySelector('[data-testid="plot-card"]')!;
+    const enc = card.querySelector("details.plot-encoding")!;
+    expect(enc).toBeInTheDocument();
+    expect(within(enc as HTMLElement).getByText("Encoding").tagName).toBe("SUMMARY");
+    expect(card.querySelector(".encodings-card")).toBeInTheDocument();
+    expect(card.querySelector(".style-pane:not(.plot-encoding)")).toBeInTheDocument();
+    expect(card.querySelector('[data-testid="layer-strip"]')).toBeInTheDocument();
+    // the figure pane no longer carries the style drawer itself
+    expect(card.querySelector(".figure-pane .style-pane")).toBeNull();
   });
 
   // the stats landing card shows BOTH halves of the StatsPanel module — the

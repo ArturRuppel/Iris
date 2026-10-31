@@ -167,11 +167,12 @@ describe("WorkbenchCanvas", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit test/i }));
     expect(store.get(cardsAtom)).toMatchObject([{ cardKind: "test-editor" }]);
 
-    // a fresh right-click → "Edit plot…" opens the geom editor.
+    // a fresh right-click → "Edit plot…" shows the Plot card in the display
+    // panel (its encoding section), not a floating geom editor.
     fireEvent.contextMenu(figureNode);
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit plot/i }));
-    expect(store.get(cardsAtom)).toContainEqual(
-      expect.objectContaining({ cardKind: "geom-editor" }));
+    expect(store.get(cardsAtom).some((c) => c.cardKind === "geom-editor")).toBe(false);
+    expect(store.get(stashAtom)).toMatchObject([{ cardKind: "plot", target: { id: "figure", facet: "plot" } }]);
   });
 
   it("shows the seeded plot in the display panel beside the DAG", () => {

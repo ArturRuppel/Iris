@@ -745,13 +745,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 .engine-down-brand { justify-content: center; margin-bottom: 24px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 
-/* unified with the pipeline rail (item 8): same panel card, head, collapse */
-.layer-rail { width: 250px; flex: 0 0 auto; overflow: auto;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 0;
-  padding: 8px; display: flex; flex-direction: column; gap: 8px; }
-.layer-rail.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
-.layer-rail .rail-head { display: flex; align-items: center; justify-content: space-between; }
-.layer-rail .template-pick { font-size: 12px; }
 .layer-strip { display: flex; flex-direction: column; gap: 8px; }
 .layer-list { list-style: none; margin: 0; padding: 0; display: flex;
   flex-direction: column; gap: 6px; }
@@ -1715,3 +1708,7 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 .workbench-start { gap: 8px; }
 .workbench-start .tb-ghost { font-size: 13px; padding: 10px 14px; border: 1px solid var(--hm-hairline); }
 .workbench-start .tb-ghost:hover { border-color: var(--hm-divider); }
+
+/* the encoding section of the Plot card: the channel rows, unboxed */
+.txw-card-plot .plot-encoding .encodings-card { background: none; border: none; padding: 2px 0 10px; }
+.txw-card-plot .style-pane + .style-pane { margin-top: 0; }

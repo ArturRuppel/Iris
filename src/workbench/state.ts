@@ -57,13 +57,25 @@ export const nodePositionsAtom = atom<Record<string, { x: number; y: number }>>(
    Showing a card opens it, so a click on a node is never silently lost. */
 export const displayCollapsedAtom = atom(false);
 
+/* Which section of the shown card an editor click asked for: the geom edge asks
+   the Plot card for its encoding section, the test edge the Stats card for its
+   test picker. `n` bumps on every request so a repeat click scrolls again. */
+export const displayFocusAtom = atom<{ section: "encoding" | "test"; n: number } | null>(null);
+
 /* ---- writer atoms ---- */
 
 /* Open (or re-select) a card for a target. Idempotent per target: if one is
-   already open it is not duplicated; either way the target becomes selected. */
+   already open it is not duplicated; either way the target becomes selected.
+   The geom editor is not a card of its own: its encoding lives in the Plot card,
+   so it shows the figure's plot in the display panel, scrolled to Encoding. */
 export const openCardAtom = atom(
   null,
   (get, set, arg: { target: Target; cardKind: CardKind }) => {
+    if (arg.cardKind === "geom-editor") {
+      set(pushStashAtom, { target: { kind: "node", id: FIGURE_ID, facet: "plot" }, cardKind: "plot" });
+      set(displayFocusAtom, { section: "encoding", n: (get(displayFocusAtom)?.n ?? 0) + 1 });
+      return;
+    }
     set(selectedTargetAtom, arg.target);
     const id = cardId(arg.target);
     const cards = get(cardsAtom);

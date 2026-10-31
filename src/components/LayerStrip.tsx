@@ -63,7 +63,7 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
 }
 
 /* The always-on layer list. Self-contained — reads the active plottable and the
-   layer-CRUD atoms itself — so both LayerRail and the Plot hero card can drop it in. */
+   layer-CRUD atoms itself — so the Plot card can drop it in. */
 export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
   const active = useAtomValue(activePlottableAtom);
   const registry = useAtomValue(registryAtom);

@@ -5,13 +5,23 @@ import {
   openCardAtom, closeCardAtom, moveCardAtom, resizeCardAtom,
   toggleCardCollapsedAtom, collapseAllCardsAtom, clearWorkbenchAtom,
   stashAtom, pushStashAtom, popStashAtom, seedDefaultStashAtom, STASH_SLOTS,
-  focusedStashIdAtom, displayCollapsedAtom,
+  focusedStashIdAtom, displayCollapsedAtom, displayFocusAtom,
 } from "./state";
 import type { Target } from "./cardRegistry";
 
 const tNode = (id: string): Target => ({ kind: "node", id });
 
 describe("workbench state", () => {
+  it("the geom editor shows the Plot card in the display panel, focused on Encoding", () => {
+    const s = createStore();
+    s.set(openCardAtom, { target: { kind: "edge", id: "g0" }, cardKind: "geom-editor" as const });
+    expect(s.get(cardsAtom)).toHaveLength(0);
+    expect(s.get(stashAtom)).toMatchObject([{ cardKind: "plot", target: { kind: "node", id: "figure", facet: "plot" } }]);
+    expect(s.get(displayFocusAtom)).toMatchObject({ section: "encoding", n: 1 });
+    s.set(openCardAtom, { target: { kind: "edge", id: "g0" }, cardKind: "geom-editor" as const });
+    expect(s.get(displayFocusAtom)?.n).toBe(2);   // a repeat click scrolls again
+  });
+
   it("openCard adds a card and selects its target", () => {
     const s = createStore();
     s.set(openCardAtom, { target: tNode("source"), cardKind: "table" as const });

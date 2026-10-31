@@ -1,15 +1,19 @@
 import { useAtomValue, useSetAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { specAtom, effectiveSchemaAtom, plotWizardOpenCountAtom } from "../../state";
 import { dataCardStates } from "../cardGating";
 import { FigurePane } from "../../components/FigurePane";
+import { EncodingsCard } from "../../components/EncodingsCard";
+import { StylePane } from "../../components/StylePane";
+import { displayFocusAtom } from "../state";
 import { LayerStrip } from "../../components/LayerStrip";
 import { PlotWizard } from "../../components/PlotWizard";
 import type { WizardMode } from "../../components/plotWizard";
 import type { CardBodyProps } from "../cardRegistry";
 
-/* The figure's plot card. When the live spec is renderable it shows the figure
-   plus its add-layer strip; otherwise the guided "+ add plot" CTA. Hosts the
+/* The figure's plot card. When the live spec is renderable it shows one column:
+   the figure, its encoding (X, Y, colour, facets), its style, and the layer list
+   with its add-layer button; otherwise the guided "+ add plot" CTA. Hosts the
    add-plot / add-layer wizard. Binds to the active spec via atoms (the target only
    ties the card to the figure node for the slot badge), so it renders correctly
    wherever it is pinned — including the seeded default slot before any plot exists.
@@ -29,6 +33,16 @@ export function PlotCard(_props: CardBodyProps) {
     return () => setWizardCount((c) => c - 1);
   }, [wizard, setWizardCount]);
 
+  /* the geom edge (and "Edit plot…") asks for the encoding section: open it and
+     bring it into view, instead of floating a separate editor over the canvas. */
+  const focus = useAtomValue(displayFocusAtom);
+  const encRef = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (focus?.section !== "encoding" || !encRef.current) return;
+    encRef.current.open = true;
+    encRef.current.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [focus]);
+
   return (
     <div className="txw-card-plot" data-testid="plot-card" data-tour="plot">
       {wizard ? (
@@ -37,6 +51,11 @@ export function PlotCard(_props: CardBodyProps) {
       ) : plotEnabled ? (
         <>
           <FigurePane />
+          <details className="style-pane plot-encoding" open ref={encRef}>
+            <summary>Encoding</summary>
+            <EncodingsCard />
+          </details>
+          <StylePane />
           <LayerStrip addSlot={
             <button className="add-layer-btn" onClick={() => setWizard("addLayer")}>
               + add layer
