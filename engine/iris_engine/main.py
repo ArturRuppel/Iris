@@ -17,6 +17,8 @@ import mimetypes
 import os
 import sys
 import threading
+from urllib.parse import urlsplit
+from urllib.request import urlopen
 from collections import OrderedDict
 from pathlib import Path
 
@@ -94,6 +96,10 @@ class SaveRequest(BaseModel):
 
 class LoadRequest(BaseModel):
     data_base64: str
+
+
+class LoadUrlRequest(BaseModel):
+    url: str
 
 
 class AutosaveRequest(BaseModel):
@@ -1040,6 +1046,24 @@ def doc_save(req: SaveRequest):
 def doc_load(req: LoadRequest):
     try:
         doc = document.load_document(base64.b64decode(req.data_base64))
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(422, f"could not read document: {e}") from e
+    return _document_response(doc)
+
+
+@app.post("/document/load_url")
+def doc_load_url(req: LoadUrlRequest, request: Request):
+    """Open a .iris from another app on this host (a lab-book link). The engine
+    fetches it, so a large file need not travel to the browser and back. Other
+    hosts are refused, so a request cannot make the engine fetch from elsewhere."""
+    url = urlsplit(req.url)
+    host = urlsplit(f"//{request.headers.get('host', '')}").hostname
+    if url.scheme not in ("http", "https") or not url.hostname or url.hostname != host:
+        raise HTTPException(422, f"refusing to open a file from {url.hostname}")
+    try:
+        with urlopen(req.url, timeout=120) as res:
+            data = res.read()
+        doc = document.load_document(data)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not read document: {e}") from e
     return _document_response(doc)

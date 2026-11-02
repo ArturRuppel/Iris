@@ -886,6 +886,8 @@ export const engine = {
   /* read back a saved .viz; analyses come as raw specs (run through migrateSpec) */
   loadDocument: (dataBase64: string) =>
     post<LoadedDocument>("/document/load", { data_base64: dataBase64 }),
+  /* the engine fetches the file itself, so a large one skips the browser */
+  loadDocumentUrl: (url: string) => post<LoadedDocument>("/document/load_url", { url }),
   /* upload a file's bytes once; preview/commit then reference it by token so
      wizard edits don't re-ship the whole file (see ImportSource) */
   importUpload: (filename: string, dataBase64: string) =>

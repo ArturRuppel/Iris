@@ -674,6 +674,8 @@ export default function App() {
      is dropped once loaded, so a reload retries a failed open but cannot replace later edits. Other hosts are
      refused, so a link cannot make the browser fetch from elsewhere. */
   const openedFromUrl = useRef(false);
+  const [openingName, setOpeningName] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get("open")?.split("/").pop() ?? null);
   useEffect(() => {
     if (engineUp !== true || recoveryPending || recovery !== null || openedFromUrl.current) return;
     const target = new URLSearchParams(window.location.search).get("open");
@@ -683,9 +685,7 @@ export default function App() {
       try {
         const url = new URL(target, window.location.href);
         if (url.hostname !== window.location.hostname) throw new Error(`refusing to open a file from ${url.hostname}`);
-        const res = await fetch(url);
-        if (!res.ok) throw new Error(`could not fetch ${url.pathname}: ${res.status}`);
-        const doc = await engine.loadDocument(fileToBase64(await res.arrayBuffer()));
+        const doc = await engine.loadDocumentUrl(url.href);
         await loadDocument({
           manifest: doc.manifest,
           analyses: doc.analyses.map(migrateSpec),
@@ -696,6 +696,7 @@ export default function App() {
         fileHandleRef.current = null;               // force Save -> Save As
         setViewMode(doc.analyses.length ? "workbench" : "data");
       } catch (e) { surfaceUnlessAbort(e); }
+      finally { setOpeningName(null); }
     })();
   }, [engineUp, recoveryPending, recovery]);
 
@@ -750,6 +751,12 @@ export default function App() {
 
   return (
     <div className="app">
+      {openingName && (
+        <div className="app-opening" role="status">
+          <h1>Opening {openingName}</h1>
+          <p>A large file can take a minute or more. Keep this page in front.</p>
+        </div>
+      )}
       <header className="topbar">
         <div className="tb-left">
           <div className="tb-brand">

@@ -296,6 +296,24 @@ def render(table: dict, spec: dict, *, memo=None):
         # The figure (build_timeseries_figure) computes its own per-timepoint
         # means/bands and per-unit curves internally from the raw rows, so the
         # stats result is a legible describe-only summary, not a test.
+        # An explicit `collapse` plan + `test_grain` is honoured exactly as in the
+        # correlation branch, so a time course can be built from raw rows (a count
+        # or a total per stack of a movie) instead of being drawn from every row.
+        plan = spec.get("collapse")
+        if plan:
+            ts_color = enc.get("color")
+            ts_color_col = ts_color["column"] if ts_color and ts_color.get("column") else None
+            split = [c for c in (ts_color_col,) if c and c in df.columns]
+            grains = hierarchy.materialize_plan(df, schema, plan, split)
+            test_grain = spec.get("test_grain")
+            df, schema = (grains[test_grain] if test_grain in grains
+                          else hierarchy.resolve_level(grains, test_grain))
+            model["inferential_level"] = test_grain or hierarchy.RAW
+        if post_steps:
+            try:
+                df, schema = reduce_mod.apply_reduction(df, schema, post_steps)
+            except reduce_mod.ReduceError as e:
+                raise RenderError(f"post-collapse reduction failed: {e}") from e
         res = memo(lambda: stats.timeseries(
                    df, enc["x"]["column"], enc["y"]["column"], alpha=alpha))
     elif family == "descriptive":
