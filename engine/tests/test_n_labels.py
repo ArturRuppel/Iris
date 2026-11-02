@@ -79,7 +79,8 @@ def test_superplot_shows_replicates_and_units():
         {"geom": "box", "params": {}, "level": hierarchy.RAW},
         {"geom": "dot", "params": {}, "level": "subject"},
     ]), df, schema, levels)
-    assert "n = 6  N = 2" in svg     # 6 raw reps, 2 subjects per group
+    assert "n = 6" in svg and "N = 2" in svg   # 6 raw reps, 2 subjects per group
+    assert "n = 6  N = 2" not in svg           # on separate lines, so levels don't collide
 
 
 def test_show_all_levels_toggle_surfaces_undrawn_grains():
@@ -97,4 +98,35 @@ def test_show_all_levels_toggle_surfaces_undrawn_grains():
     spec = _spec(box_raw)
     spec["style"]["overrides"]["show_all_levels"] = True
     on = _svg(spec, df, schema, levels)
-    assert "n = 6  N = 2" in on                   # toggle surfaces the subject grain
+    assert "n = 6" in on and "N = 2" in on        # toggle surfaces the subject grain
+
+
+def _four_group_figure():
+    """Four groups with large counts at the 140 × 100 mm default: the case where one
+    `n = … N = …` line per group ran into its neighbour."""
+    rows, rid = [], 0
+    for grp in "ABCD":
+        for s in range(2):
+            for r in range(700):
+                rows.append({"id": f"r{rid}", "group": grp, "subject": f"{grp}{s}",
+                             "rep": r, "y": float(rid % 17)})
+                rid += 1
+    df, schema = pd.DataFrame(rows), _schema()
+    levels, _ = hierarchy.materialize_levels(df, schema, ["subject", "rep"], {}, ["group"])
+    return compiler.build_comparison_figure(df, schema, _spec([
+        {"geom": "box", "params": {}, "level": hierarchy.RAW},
+        {"geom": "dot", "params": {}, "level": "subject"},
+    ]), {}, levels)
+
+
+def test_count_labels_neither_collide_nor_leave_the_figure():
+    fig = _four_group_figure()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    labels = [t for t in fig.axes[0].texts if t.get_text().startswith("n = ")]
+    boxes = [t.get_window_extent(renderer) for t in labels]
+    assert len(boxes) == 4
+    for left, right in zip(boxes, boxes[1:]):
+        assert left.x1 < right.x0, "neighbouring count labels overlap"
+    assert all(b.y0 >= 0 for b in boxes), "a count label is clipped at the figure's edge"
+    compiler.close(fig)

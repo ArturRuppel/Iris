@@ -235,16 +235,17 @@ def _draw_significance(ax, res: dict, levels: list, horizontal: bool,
 _SUBSCRIPT = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
 
 
-def _n_label(counts_per_grain: list[int]) -> str:
+def _n_label(counts_per_grain: list[int], sep: str = "  ") -> str:
     """Compose one x-level's sample-size label from its per-grain counts, ordered
     FINEST→COARSEST. One grain → ``n = R`` (the replicate count, today's label);
     two → ``n = R  N = U`` (replicates and units, the superplot pair); more →
-    indexed ``n₀ = …  n₁ = …`` finest-first so deeper nesting stays unambiguous."""
+    indexed ``n₀ = …  n₁ = …`` finest-first so deeper nesting stays unambiguous.
+    ``sep`` joins the grains; a vertical plot stacks them on separate lines."""
     if len(counts_per_grain) == 1:
         return f"n = {counts_per_grain[0]}"
     if len(counts_per_grain) == 2:
-        return f"n = {counts_per_grain[0]}  N = {counts_per_grain[1]}"
-    return "  ".join(f"n{str(i).translate(_SUBSCRIPT)} = {c}"
+        return f"n = {counts_per_grain[0]}{sep}N = {counts_per_grain[1]}"
+    return sep.join(f"n{str(i).translate(_SUBSCRIPT)} = {c}"
                      for i, c in enumerate(counts_per_grain))
 
 
@@ -254,21 +255,25 @@ def _draw_n_labels(ax, count_dicts: list[dict], levels: list, horizontal: bool,
     axis (below a vertical plot, left of a horizontal one). ``count_dicts`` is one
     count map per distinct grain the layers draw at, FINEST→COARSEST; each maps a
     level name to that grain's group count within the level. Toggled by
-    ``show_n``."""
+    ``show_n``. On a vertical plot the grains stack, because one line per level
+    runs into its neighbour once several levels share a normal figure width."""
     if not count_dicts:
         return
     fs = style["font_pt"] - 2
     for i, lv in enumerate(levels):
-        txt = _n_label([cd.get(lv, 0) for cd in count_dicts])
+        counts = [cd.get(lv, 0) for cd in count_dicts]
         if horizontal:
+            txt = _n_label(counts)
             ax.annotate(txt, (0, i), xycoords=("axes fraction", "data"),
                         xytext=(-4, 0), textcoords="offset points",
                         ha="right", va="center", fontsize=fs,
                         color="#94a3b8", annotation_clip=False)
         else:
-            ax.annotate(txt, (i, 0), xycoords=("data", "axes fraction"),
-                        xytext=(0, -26), textcoords="offset points",
-                        ha="center", fontsize=fs,
+            # anchored by the top line, so that extra lines grow downwards and
+            # the first stays clear of the tick labels; -26 pt is its baseline
+            ax.annotate(_n_label(counts, sep="\n"), (i, 0), xycoords=("data", "axes fraction"),
+                        xytext=(0, -26 + fs * 0.75), textcoords="offset points",
+                        ha="center", va="top", linespacing=1.15, fontsize=fs,
                         color="#94a3b8", annotation_clip=False)
 
 

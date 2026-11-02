@@ -11,9 +11,11 @@ import { PlotWizard } from "../../components/PlotWizard";
 import type { WizardMode } from "../../components/plotWizard";
 import type { CardBodyProps } from "../cardRegistry";
 
-/* The figure's plot card. When the live spec is renderable it shows one column:
-   the figure, its encoding (X, Y, colour, facets), its style, and the layer list
-   with its add-layer button; otherwise the guided "+ add plot" CTA. Hosts the
+/* The figure's plot card. When the live spec is renderable it shows the figure
+   and, beside or below it depending on the card's width, its encoding (X, Y, colour,
+   facets), its style, and the layer list with its add-layer button. The figure stays
+   pinned in view while the controls scroll, so an edit is always seen as it is made
+   (index.css, "plot card layout"). Otherwise the guided "+ add plot" CTA. Hosts the
    add-plot / add-layer wizard. Binds to the active spec via atoms (the target only
    ties the card to the figure node for the slot badge), so it renders correctly
    wherever it is pinned — including the seeded default slot before any plot exists.
@@ -49,19 +51,21 @@ export function PlotCard(_props: CardBodyProps) {
         <PlotWizard mode={wizard}
           onDone={() => setWizard(null)} onCancel={() => setWizard(null)} />
       ) : plotEnabled ? (
-        <>
-          <FigurePane />
-          <details className="style-pane plot-encoding" open ref={encRef}>
-            <summary>Encoding</summary>
-            <EncodingsCard />
-          </details>
-          <StylePane />
-          <LayerStrip addSlot={
-            <button className="add-layer-btn" onClick={() => setWizard("addLayer")}>
-              + add layer
-            </button>
-          } />
-        </>
+        <div className="plot-split">
+          <div className="plot-figure-side"><FigurePane /></div>
+          <div className="plot-controls">
+            <details className="style-pane plot-encoding" open ref={encRef}>
+              <summary>Encoding</summary>
+              <EncodingsCard />
+            </details>
+            <StylePane />
+            <LayerStrip addSlot={
+              <button className="add-layer-btn" onClick={() => setWizard("addLayer")}>
+                + add layer
+              </button>
+            } />
+          </div>
+        </div>
       ) : (
         <button className="txw-add-plot" data-tour="add-plot" onClick={() => setWizard("first")}>+ add plot</button>
       )}
