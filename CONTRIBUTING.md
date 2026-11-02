@@ -81,6 +81,7 @@ Then run the checks:
 cd engine && python -m pytest tests validation   # 630 tests: engine + validation corpus
 npm test                                         # 539 frontend tests
 npm run build                                    # strict TypeScript + production build
+npm run test:pyodide                             # engine + validation under the browser runtime
 ```
 
 The end-to-end tests drive a real browser against a running dev stack, so start

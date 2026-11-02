@@ -96,6 +96,14 @@ cd engine && python -m iris_engine.main          # serves on 127.0.0.1:8765
 npm run dev                                       # http://localhost:5173
 ```
 
+There is also a build with nothing to install. `npm run build:web` writes a static
+site to `dist-web/`, about 96 MB, that runs the whole engine in the browser through
+[Pyodide](https://pyodide.org). It opens directly from a folder or file share, or from
+any static host. Your data stays on your computer, and each `.iris` file records that it was computed this way. Its scipy and
+numpy are newer than the pinned desktop versions, so `npm run test:pyodide` runs the
+engine and validation suites against them. Chromium and Firefox are tested, and
+Safari is not yet.
+
 There is a third way to run it, used on the author's machine. `--serve` makes the
 engine hand out the built frontend from its own origin, as one long-running
 service on a private network — which is how Iris reaches a tablet, over HTTPS via

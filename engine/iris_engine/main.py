@@ -53,9 +53,13 @@ app.add_middleware(
 
 def engine_snapshot() -> dict:
     import matplotlib, pingouin, scipy, seaborn
-    return {"python": sys.version.split()[0], "scipy": scipy.__version__,
-            "pingouin": pingouin.__version__, "matplotlib": matplotlib.__version__,
-            "seaborn": seaborn.__version__, "pandas": pd.__version__}
+    snapshot = {"python": sys.version.split()[0], "scipy": scipy.__version__,
+                "pingouin": pingouin.__version__, "matplotlib": matplotlib.__version__,
+                "seaborn": seaborn.__version__, "pandas": pd.__version__}
+    if sys.platform == "emscripten":  # results computed in a browser say so
+        import pyodide
+        snapshot["pyodide"] = pyodide.__version__
+    return snapshot
 
 
 class AnalyzeRequest(BaseModel):

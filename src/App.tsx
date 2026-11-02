@@ -25,7 +25,8 @@ import {
   activeReduceDagAtom, reduceStoreAtom,
   mintFromEntryAtom, entryHasContentAtom,
 } from "./state";
-import { base64ToBytes, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
+import { base64ToBytes, browserRuntime, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
+import { BrowserBoot, BrowserBootFailed } from "./BrowserBoot";
 import type { AutosaveStatus, NodeShape } from "./types";
 import { colType } from "./channels";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
@@ -165,7 +166,8 @@ export default function App() {
   const wasDown = useRef(false);
   const connectEngine = () => {
     setEngineUp(null);
-    engine.waitForHealth(servedMode ? 4 : 30)
+    /* a browser boot either finishes or has failed for good, so never re-poll it */
+    engine.waitForHealth(browserRuntime ? 1 : servedMode ? 4 : 30)
       .then((h) => {
         if (servedMode && wasDown.current) { window.location.reload(); return; }
         setSnapshot(h.engine_snapshot); setRegistry(h.registry);
@@ -725,6 +727,8 @@ export default function App() {
      Screen there is no reload button, and the remedy is waking the laptop, not
      starting a Python module. No figures, tables or stats are shown from any
      cache — they all come from the engine, and there is none to ask. */
+  if (browserRuntime && engineUp === false) return <BrowserBootFailed />;
+  if (browserRuntime && engineUp === null) return <BrowserBoot />;
   if (engineUp === false) return servedMode ? (
     <div className="engine-down">
       <div className="tb-brand engine-down-brand">
