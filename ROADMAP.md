@@ -79,6 +79,8 @@ likely to reorder everything below.
 - **Cross-platform distribution.** Linux is the only verified platform. macOS and
   Windows builds are not packaged or verified, installers are unsigned, and
   signing and notarization are deferred. An update mechanism goes with them.
+- **The browser build** (`npm run build:web`) is built but not yet deployed, and
+  Safari is untested. Boot time is the main thing to improve.
 
 ## Code-review tail
 
@@ -134,8 +136,6 @@ issue is the place to argue it.
   testing that faceting deliberately deferred, landing once a real need shows up.
 - **Multi-panel figure composition**: a document-level figure object referencing
   analyses.
-- **A Pyodide browser demo** for zero-install sharing. The spec and protocol keep
-  the engine swappable, so this is expensive but not a rewrite.
 - **A fluid exploration mode** (D3-rendered, 60 fps brushing) feeding the same
   spec, with matplotlib still rendering the publication output.
 - **A natural-language layer** compiling utterances to spec edits.

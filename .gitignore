@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-web/
 .venv/
 src-tauri/target/
 src-tauri/binaries/

@@ -1,3 +1,4 @@
+import { browserFetch } from "./browserEngine";
 /* Shared types mirroring the frozen analysis-spec schema (v1.0). */
 
 export interface ColumnDef {
@@ -712,6 +713,13 @@ declare global {
   }
 }
 
+/* The static web build runs the engine in a Web Worker (browserEngine.ts), so it
+   has no server to reach and none of the served-mode behaviour below applies. */
+export const browserRuntime: boolean = import.meta.env?.VITE_IRIS_RUNTIME === "browser";
+const engineFetch: typeof fetch = browserRuntime
+  ? browserFetch
+  : (input, init) => fetch(input, init);
+
 /* Three ways in, and only the first two know a port. Under the shell the port
    is chosen at runtime (collision handling) and fetched from `engine_port`.
    Vite dev serves the page from :5173 and must cross to the engine's own port.
@@ -728,7 +736,7 @@ const loopback = () =>
    than "the sidecar is still booting", and the only one that registers the
    offline-shell service worker (see public/sw.js). */
 export const servedMode: boolean =
-  typeof window !== "undefined" && !window.__TAURI__ &&
+  typeof window !== "undefined" && !window.__TAURI__ && !browserRuntime &&
   !(import.meta as any).env?.DEV &&
   /^https?:$/.test(window.location?.protocol ?? "");
 
@@ -748,13 +756,13 @@ const baseUrl: Promise<string> = (async () => {
 })();
 
 async function get<T>(path: string): Promise<T> {
-  const r = await fetch((await baseUrl) + path);
+  const r = await engineFetch((await baseUrl) + path);
   if (!r.ok) throw new Error(r.statusText);
   return r.json();
 }
 
 async function post<T>(path: string, body: unknown): Promise<T> {
-  const r = await fetch((await baseUrl) + path, {
+  const r = await engineFetch((await baseUrl) + path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -869,7 +877,7 @@ export const engine = {
      JSON (never rows), so it also fits keepalive's 64 KB body cap. */
   autosaveSnapshot: async (tables: SaveTable[], analyses: AnalysisSpec[],
                            dataFingerprint: string, opts: { keepalive?: boolean } = {}) => {
-    const r = await fetch((await baseUrl) + "/autosave/snapshot", {
+    const r = await engineFetch((await baseUrl) + "/autosave/snapshot", {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       keepalive: opts.keepalive,
