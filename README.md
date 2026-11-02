@@ -97,9 +97,9 @@ npm run dev                                       # http://localhost:5173
 ```
 
 There is also a build with nothing to install. `npm run build:web` writes a static
-site to `dist-web/`, about 72 MB, that runs the whole engine in the browser through
-[Pyodide](https://pyodide.org). Any static host can serve it, your data stays on your
-computer, and each `.iris` file records that it was computed this way. Its scipy and
+site to `dist-web/`, about 96 MB, that runs the whole engine in the browser through
+[Pyodide](https://pyodide.org). It opens directly from a folder or file share, or from
+any static host. Your data stays on your computer, and each `.iris` file records that it was computed this way. Its scipy and
 numpy are newer than the pinned desktop versions, so `npm run test:pyodide` runs the
 engine and validation suites against them. Chromium and Firefox are tested, and
 Safari is not yet.

@@ -79,7 +79,7 @@ likely to reorder everything below.
 - **Cross-platform distribution.** Linux is the only verified platform. macOS and
   Windows builds are not packaged or verified, installers are unsigned, and
   signing and notarization are deferred. An update mechanism goes with them.
-- **The browser build** (`npm run build:web`) is built but not yet deployed, and
+- **The browser build** (`npm run build:web`) opens from `file://` or any static host, and
   Safari is untested. Boot time is the main thing to improve.
 
 ## Code-review tail

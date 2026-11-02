@@ -6,7 +6,7 @@
    docs/superpowers/specs/2026-11-02-browser-runtime-design.md */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { zipSync } from "fflate";
@@ -81,21 +81,30 @@ function engineZip() {
 
 execFileSync("npx", ["tsc"], { cwd: ROOT, stdio: "inherit" });
 rmSync(OUT, { recursive: true, force: true });
-execFileSync("npx", ["vite", "build", "--base", "./", "--outDir", "dist-web"], {
+execFileSync("npx", ["vite", "build", "--mode", "web"], {
   cwd: ROOT, stdio: "inherit", env: { ...process.env, VITE_IRIS_RUNTIME: "browser" },
 });
 rmSync(join(OUT, "sw.js"), { force: true }); // the static site has no service worker
 
+/* Every file becomes a classic script, because that is the one way a file:// page
+   in Chromium can read a neighbouring file. See src/browserEngine.ts. */
 mkdirSync(PYO, { recursive: true });
+const payload = [];
+function addPayload(name, bytes) {
+  const script = `${name}.js`;
+  writeFileSync(join(PYO, script), `__irisPayload(${JSON.stringify(name)},"${Buffer.from(bytes).toString("base64")}");\n`);
+  payload.push({ name, script, bytes: bytes.length });
+}
+
 for (const f of ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]) {
-  cpSync(join(NPM_PYO, f), join(PYO, f));
+  addPayload(f, readFileSync(join(NPM_PYO, f)));
 }
 const version = JSON.parse(readFileSync(join(NPM_PYO, "package.json"), "utf8")).version;
 const lock = JSON.parse(readFileSync(join(NPM_PYO, "pyodide-lock.json"), "utf8"));
 const packages = lockClosure(lock);
 for (const name of packages) {
   const { file_name, sha256: expected } = lock.packages[name];
-  writeFileSync(join(PYO, file_name), await fetchVerified(
+  addPayload(file_name, await fetchVerified(
     `https://cdn.jsdelivr.net/pyodide/v${version}/full/${file_name}`, file_name, expected));
 }
 
@@ -105,13 +114,14 @@ for (const [name, pin] of Object.entries(PYPI)) {
   if (!res.ok) throw new Error(`${name}==${pin}: HTTP ${res.status}`);
   const wheel = (await res.json()).urls.find((u) => u.filename.endsWith("py3-none-any.whl"));
   if (!wheel) throw new Error(`${name}==${pin}: no pure Python wheel`);
-  writeFileSync(join(PYO, wheel.filename), await fetchVerified(wheel.url, wheel.filename, wheel.digests.sha256));
+  addPayload(wheel.filename, await fetchVerified(wheel.url, wheel.filename, wheel.digests.sha256));
   wheels.push(wheel.filename);
 }
 
 const { zip, describe } = engineZip();
-writeFileSync(join(PYO, "iris_engine.zip"), zip);
-writeFileSync(join(PYO, "iris-web.json"), JSON.stringify({ packages, wheels, engine: "iris_engine.zip" }, null, 2));
+addPayload("iris_engine.zip", zip);
+writeFileSync(join(PYO, "manifest.js"), `__irisManifest(${JSON.stringify(
+  { packages, wheels, engine: "iris_engine.zip", files: payload })});\n`);
 
 let bytes = 0;
 for (const f of readdirSync(PYO)) bytes += statSync(join(PYO, f)).size;
