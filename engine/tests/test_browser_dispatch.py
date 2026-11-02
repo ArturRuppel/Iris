@@ -50,7 +50,10 @@ def test_dispatch_runs_the_real_app_without_threads(tmp_path):
     proc = subprocess.run(
         [sys.executable, "-c", SCRIPT], capture_output=True, text=True,
         cwd=Path(__file__).resolve().parents[1],
-        env={"IRIS_AUTOSAVE_DIR": str(tmp_path), "PATH": "/usr/bin:/bin",
+        # no built frontend, as in the browser: a checkout's dist/ would mount
+        # static file serving, which the web build does not contain
+        env={"IRIS_AUTOSAVE_DIR": str(tmp_path), "IRIS_DIST": str(tmp_path / "none"),
+             "PATH": "/usr/bin:/bin",
              "HOME": str(tmp_path)})
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip().endswith("ok")
