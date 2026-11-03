@@ -148,6 +148,10 @@ export default function App() {
   /* `?labbook=<url>` binds this page to one lab-book figure: the query stays, so a
      reload reopens the saved file, and the lab book replaces autosave and recovery. */
   const [labbookFile] = useState(() => browserRuntime ? null : labbookTarget(window.location.search));
+  /* a single-file build (tools/pack-iris.mjs) opens the document it carries; the
+     file itself is the saved state, so there is no autosave slot to share with others */
+  const [embeddedDoc] = useState(() => browserRuntime ? document.getElementById("iris-document") : null);
+  const noAutosave = labbookFile !== null || embeddedDoc !== null;
   const [labbookLoaded, setLabbookLoaded] = useState(false);
   const setOnePlotOnly = useSetAtom(onePlotOnlyAtom);
   const labbookSha = useRef<string | null>(null);
@@ -186,7 +190,7 @@ export default function App() {
            unsaved work (explicit Save clears it) — surface the restore offer.
            A failed status check is not worth blocking startup over. */
         engine.autosaveStatus()
-          .then((s) => { if (s.exists && !labbookFile) setRecovery(s); })
+          .then((s) => { if (s.exists && !noAutosave) setRecovery(s); })
           .catch(() => {});
       })
       .catch(() => { wasDown.current = true; setEngineUp(false); });
@@ -228,7 +232,7 @@ export default function App() {
     return p;
   };
   useEffect(() => {
-    if (labbookFile || engineUp !== true || recoveryPending) return;
+    if (noAutosave || engineUp !== true || recoveryPending) return;
     if (autosaveKey === autosaveBaseline || pool.length === 0) return;
     autosaveTimer.current = window.setTimeout(() => void pushAutosave(false), 1500);
     return () => window.clearTimeout(autosaveTimer.current);
@@ -239,7 +243,7 @@ export default function App() {
      ref keeps the guards reading live state. */
   const autosaveFlushRef = useRef<() => void>(() => {});
   autosaveFlushRef.current = () => {
-    if (labbookFile || engineUp !== true || recoveryPending) return;
+    if (noAutosave || engineUp !== true || recoveryPending) return;
     if (autosaveKey === autosaveBaseline || pool.length === 0) return;
     window.clearTimeout(autosaveTimer.current);
     void pushAutosave(true);
@@ -731,7 +735,8 @@ export default function App() {
      refused, so a link cannot make the browser fetch from elsewhere. */
   const openedFromUrl = useRef(false);
   const [openingName, setOpeningName] = useState<string | null>(
-    () => (labbookFile ?? new URLSearchParams(window.location.search).get("open"))?.split("/").pop() ?? null);
+    () => embeddedDoc?.dataset.name
+      ?? (labbookFile ?? new URLSearchParams(window.location.search).get("open"))?.split("/").pop() ?? null);
   useEffect(() => {
     if (engineUp !== true || recoveryPending || recovery !== null || openedFromUrl.current) return;
     const target = labbookFile ?? new URLSearchParams(window.location.search).get("open");
@@ -766,6 +771,35 @@ export default function App() {
       finally { setOpeningName(null); }
     })();
   }, [engineUp, recoveryPending, recovery]);
+
+  const openedEmbedded = useRef(false);
+  useEffect(() => {
+    if (engineUp !== true || !embeddedDoc || openedEmbedded.current) return;
+    openedEmbedded.current = true;
+    void (async () => {
+      try {
+        const doc = await engine.loadDocument(embeddedDoc.textContent!.trim());
+        embeddedDoc.remove();
+        await loadDocument({
+          manifest: doc.manifest,
+          analyses: doc.analyses.map(migrateSpec),
+          provenance: doc.provenance,
+          tables: doc.tables,
+        });
+        fileHandleRef.current = null;               // force Save -> Save As
+        setViewMode(doc.analyses.length ? "workbench" : "data");
+      } catch (e) { surfaceUnlessAbort(e); }
+      finally { setOpeningName(null); }
+    })();
+  }, [engineUp]);
+  useEffect(() => {
+    if (!embeddedDoc) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      if (store.get(autosaveKeyAtom) !== store.get(autosaveBaselineAtom)) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
 
   /* Launch the interactive tutorial (from the ⋯ menu, now that the Guide is
      gone): seed the two-species Fisher-iris table with

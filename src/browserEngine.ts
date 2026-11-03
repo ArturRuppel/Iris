@@ -48,7 +48,28 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
+/* A single-file build (tools/pack-iris.mjs) carries each file as inert text in the
+   page. The browser is still parsing them when this runs, so it waits for the end. */
+async function sendInlinePayload(w: Worker, manifest: Manifest) {
+  if (document.readyState === "loading")
+    await new Promise((resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
+  const total = manifest.files.reduce((sum, f) => sum + f.bytes, 0);
+  let read = 0;
+  for (const [i, file] of manifest.files.entries()) {
+    setState({ stage: "Reading the statistics libraries", percent: (read / total) * READ_SHARE });
+    await new Promise((resolve) => setTimeout(resolve));   // lets the progress bar paint
+    const tag = document.getElementById(`iris-file-${i}`);
+    if (!tag?.textContent) throw new Error(`missing from this file: ${file.name}`);
+    w.postMessage({ type: "file", name: file.name, base64: tag.textContent });
+    tag.remove();
+    read += file.bytes;
+  }
+  w.postMessage({ type: "boot", packages: manifest.packages, wheels: manifest.wheels, engine: manifest.engine });
+}
+
 async function sendPayload(w: Worker) {
+  const inline = document.getElementById("iris-manifest");
+  if (inline) return sendInlinePayload(w, JSON.parse(inline.textContent!));
   const root = new URL("./pyodide/", document.baseURI).href;
   const scope = window as unknown as {
     __irisManifest?: (m: Manifest) => void;
