@@ -1,7 +1,7 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useState, useRef } from "react";
 import {
-  activePlottableIdAtom, addPlottableAtom, deletePlottableAtom,
+  activePlottableIdAtom, addPlottableAtom, deletePlottableAtom, onePlotOnlyAtom,
   duplicatePlottableAtom, plottablesAtom, renamePlottableAtom,
   selectedPlottableIdsAtom, styleClipboardAtom, styleLibraryAtom,
   styleRegistryAtom, pasteStyleAtom,
@@ -27,6 +27,7 @@ function initialWidth() {
 export function PlottableSidebar() {
   const plottables = useAtomValue(plottablesAtom);
   const [activeId, setActiveId] = useAtom(activePlottableIdAtom);
+  const onePlotOnly = useAtomValue(onePlotOnlyAtom);
   const add = useSetAtom(addPlottableAtom);
   const dup = useSetAtom(duplicatePlottableAtom);
   const del = useSetAtom(deletePlottableAtom);
@@ -174,7 +175,9 @@ export function PlottableSidebar() {
         <button className="icon" title="Hide analyses"
           onClick={() => setCollapsed(true)}>⟨</button>
       </div>
-      <button className="add-plottable" onClick={() => add()}>+ Analysis</button>
+      <button className="add-plottable" disabled={onePlotOnly}
+        title={onePlotOnly ? "A lab-book figure holds one plot" : undefined}
+        onClick={() => add()}>+ Analysis</button>
       <ul>
         {plottables.map((p) => {
           const isActive = p.id === activeId;
@@ -212,7 +215,7 @@ export function PlottableSidebar() {
             onContextMenu={(e) => { e.preventDefault(); setMenu(null); }} />
           <div className="context-menu" style={{ left: menu.x, top: menu.y }}>
             <button onClick={() => startRename(menu.id, menu.name)}>Rename</button>
-            <button onClick={() => { dup(menu.id); setMenu(null); }}>Duplicate</button>
+            <button disabled={onePlotOnly} onClick={() => { dup(menu.id); setMenu(null); }}>Duplicate</button>
             <button disabled={plottables.length <= 1}
               onClick={() => { del(menu.id); setMenu(null); }}>Delete</button>
             <hr className="context-menu-sep" />

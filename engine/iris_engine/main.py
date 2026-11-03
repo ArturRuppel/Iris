@@ -1070,7 +1070,7 @@ def doc_load_url(req: LoadUrlRequest, request: Request):
         doc = document.load_document(data)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(422, f"could not read document: {e}") from e
-    return _document_response(doc)
+    return {**_document_response(doc), "sha256": hashlib.sha256(data).hexdigest()}
 
 
 # ----- autosave / crash recovery (see iris_engine/autosave.py) -----

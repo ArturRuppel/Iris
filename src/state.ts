@@ -1414,6 +1414,9 @@ export const allSpecsAtom = atom((get): AnalysisSpec[] => buildAllSpecs(get, bui
    saved .iris never loses a join. The save path serializes these. */
 export const allSaveSpecsAtom = atom((get): AnalysisSpec[] => buildAllSpecs(get, specForSave));
 
+/* the session is bound to a one-plot lab-book figure, so no plot can be added */
+export const onePlotOnlyAtom = atom(false);
+
 /* ---- CRUD atoms for managing the plottables list ---- */
 
 export const addPlottableAtom = atom(null, (get, set) => {

@@ -21,10 +21,11 @@ import {
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
   tablesNeedingMaterializeAtom, materializedTablesAtom, materializedVersionKeyAtom, allSaveSpecsAtom, plottablesAtom,
   resolveEngineSteps, saveTablesFor, tablesAtom, clearSpecHistoryAtom,
-  autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom,
+  autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom, onePlotOnlyAtom,
   activeReduceDagAtom, reduceStoreAtom,
   mintFromEntryAtom, entryHasContentAtom,
 } from "./state";
+import { fileName, labbookTarget, putFigure } from "./labbook";
 import { base64ToBytes, browserRuntime, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
 import { BrowserBoot, BrowserBootFailed } from "./BrowserBoot";
 import type { AutosaveStatus, NodeShape } from "./types";
@@ -144,6 +145,15 @@ export default function App() {
      Save As. The tableId guard means that after loading A.iris and importing fresh
      data, Save prompts for a new file instead of silently overwriting A.iris. */
   const fileHandleRef = useRef<{ fh: FileSystemFileHandle; tableId: string } | null>(null);
+  /* `?labbook=<url>` binds this page to one lab-book figure: the query stays, so a
+     reload reopens the saved file, and the lab book replaces autosave and recovery. */
+  const [labbookFile] = useState(() => browserRuntime ? null : labbookTarget(window.location.search));
+  const [labbookLoaded, setLabbookLoaded] = useState(false);
+  const setOnePlotOnly = useSetAtom(onePlotOnlyAtom);
+  const labbookSha = useRef<string | null>(null);
+  const labbookSession = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const labbookSaving = useRef(false);
+  const [labbookState, setLabbookState] = useState<{ kind: "saved" | "saving" | "readonly" | "error"; message?: string }>({ kind: "saved" });
   /* background-render loop: exactly one /analyze in flight at a time (matplotlib
      is treated as not thread-safe, so renders are serialized client-side), and a
      set of `${id}:${key}` configs whose render already failed, so a 422-ing plot
@@ -176,7 +186,7 @@ export default function App() {
            unsaved work (explicit Save clears it) — surface the restore offer.
            A failed status check is not worth blocking startup over. */
         engine.autosaveStatus()
-          .then((s) => { if (s.exists) setRecovery(s); })
+          .then((s) => { if (s.exists && !labbookFile) setRecovery(s); })
           .catch(() => {});
       })
       .catch(() => { wasDown.current = true; setEngineUp(false); });
@@ -218,7 +228,7 @@ export default function App() {
     return p;
   };
   useEffect(() => {
-    if (engineUp !== true || recoveryPending) return;
+    if (labbookFile || engineUp !== true || recoveryPending) return;
     if (autosaveKey === autosaveBaseline || pool.length === 0) return;
     autosaveTimer.current = window.setTimeout(() => void pushAutosave(false), 1500);
     return () => window.clearTimeout(autosaveTimer.current);
@@ -229,7 +239,7 @@ export default function App() {
      ref keeps the guards reading live state. */
   const autosaveFlushRef = useRef<() => void>(() => {});
   autosaveFlushRef.current = () => {
-    if (engineUp !== true || recoveryPending) return;
+    if (labbookFile || engineUp !== true || recoveryPending) return;
     if (autosaveKey === autosaveBaseline || pool.length === 0) return;
     window.clearTimeout(autosaveTimer.current);
     void pushAutosave(true);
@@ -578,6 +588,7 @@ export default function App() {
   // and a non-empty pool to reference — not the old single global handle.
   const docTableId = () => store.get(tablesAtom)[0]?.handle.id ?? null;
   const doSave = async () => {
+    if (labbookFile) return void saveToLabbook();
     const docId = docTableId();
     if (allSpecs.length === 0 || !docId) return;
     try {
@@ -669,6 +680,49 @@ export default function App() {
       setViewMode(doc.analyses.length ? "workbench" : "data");
     } catch (e) { surfaceUnlessAbort(e); }
   };
+  const saveToLabbook = async () => {
+    if (!labbookFile || !labbookSha.current || labbookSaving.current) return;
+    labbookSaving.current = true;
+    const key = store.get(autosaveKeyAtom);
+    setLabbookState({ kind: "saving" });
+    try {
+      const analyses = store.get(allSaveSpecsAtom);
+      const liveSpec = store.get(specAtom), liveHandle = store.get(tableHandleAtom);
+      if (analyses.length !== 1) throw new Error(`a lab-book figure holds exactly one plot, not ${analyses.length}`);
+      if (!liveSpec || !liveHandle) throw new Error("the plot is not ready");
+      const [doc, svg] = await Promise.all([
+        saveDoc(), engine.export({ token: liveHandle.id }, liveSpec, "svg")]);
+      labbookSha.current = await putFigure(labbookFile, {
+        iris_base64: doc.data_base64,
+        svg: new TextDecoder().decode(base64ToBytes(svg.data_base64)),
+        base_sha256: labbookSha.current,
+        session: labbookSession.current,
+      });
+      setAutosaveBaseline(key);
+      setLabbookState({ kind: "saved" });
+    } catch (e) {
+      setLabbookState({ kind: "error", message: e instanceof Error ? e.message : String(e) });
+    } finally {
+      labbookSaving.current = false;
+    }
+  };
+  /* A refused save stays on screen and the next edit tries again. An edit made during
+     a save re-fires this when the baseline moves, and the last one is never dropped. */
+  const labbookWritable = labbookFile !== null && labbookState.kind !== "readonly" && labbookLoaded;
+  useEffect(() => {
+    if (!labbookWritable || autosaveKey === autosaveBaseline) return;
+    const timer = window.setTimeout(() => void saveToLabbook(), 2000);
+    return () => window.clearTimeout(timer);
+  }, [labbookWritable, autosaveKey, autosaveBaseline]);
+  useEffect(() => {
+    if (!labbookWritable) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      if (store.get(autosaveKeyAtom) !== store.get(autosaveBaselineAtom)) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [labbookWritable]);
+
   const firstExample = (exampleManifest as { caseId: string }[])[0]?.caseId;
 
   /* `?open=<url>`: a link from another app on this host (the lab book) opens a
@@ -677,10 +731,10 @@ export default function App() {
      refused, so a link cannot make the browser fetch from elsewhere. */
   const openedFromUrl = useRef(false);
   const [openingName, setOpeningName] = useState<string | null>(
-    () => new URLSearchParams(window.location.search).get("open")?.split("/").pop() ?? null);
+    () => (labbookFile ?? new URLSearchParams(window.location.search).get("open"))?.split("/").pop() ?? null);
   useEffect(() => {
     if (engineUp !== true || recoveryPending || recovery !== null || openedFromUrl.current) return;
-    const target = new URLSearchParams(window.location.search).get("open");
+    const target = labbookFile ?? new URLSearchParams(window.location.search).get("open");
     if (!target) return;
     openedFromUrl.current = true;
     void (async () => {
@@ -694,10 +748,21 @@ export default function App() {
           provenance: doc.provenance,
           tables: doc.tables,
         });
-        window.history.replaceState(null, "", window.location.pathname);
+        if (labbookFile) {
+          setOnePlotOnly(doc.analyses.length === 1);
+          if (doc.analyses.length === 1) labbookSha.current = doc.sha256;
+          else setLabbookState({ kind: "readonly",
+            message: `This file holds ${doc.analyses.length} plots, so edits are not saved to the lab book.` });
+          setLabbookLoaded(true);
+        } else {
+          window.history.replaceState(null, "", window.location.pathname);
+        }
         fileHandleRef.current = null;               // force Save -> Save As
         setViewMode(doc.analyses.length ? "workbench" : "data");
-      } catch (e) { surfaceUnlessAbort(e); }
+      } catch (e) {
+        surfaceUnlessAbort(e);
+        if (labbookFile) setLabbookState({ kind: "readonly", message: "The file could not be opened." });
+      }
       finally { setOpeningName(null); }
     })();
   }, [engineUp, recoveryPending, recovery]);
@@ -770,8 +835,8 @@ export default function App() {
           {/* File-manipulation cluster, next to the logo: one ghost vocabulary for
               New / Load / Import / Export, and Save as the single filled action. */}
           <div className="tb-fileactions">
-            <button className="tb-ghost" onClick={doNew}>New</button>
-            <button className="tb-ghost" onClick={doLoad}>Load</button>
+            {!labbookFile && <button className="tb-ghost" onClick={doNew}>New</button>}
+            {!labbookFile && <button className="tb-ghost" onClick={doLoad}>Load</button>}
             <button className="tb-primary" onClick={doSave}>Save</button>
             <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
             <div className="tb-menuwrap">
@@ -801,6 +866,16 @@ export default function App() {
           </div>
         </nav>
         <div className="tb-right">
+          {labbookFile && (
+            <span role="status" title={labbookState.message ?? fileName(labbookFile)}
+              className={`tb-labbook ${labbookState.kind === "error" || labbookState.kind === "readonly" ? "error" : ""}`}>
+              {labbookState.kind === "saving" ? `Saving ${fileName(labbookFile)}…`
+                : labbookState.kind === "error" ? `Not saved: ${labbookState.message}`
+                : labbookState.kind === "readonly" ? labbookState.message
+                : autosaveKey !== autosaveBaseline ? `${fileName(labbookFile)}: unsaved edit`
+                : `${fileName(labbookFile)}: in the lab book`}
+            </span>
+          )}
           <RenderIndicator dataLoading={dataLoading} />
           {/* harmless notes (a mapping the pipeline drops, an engine warning) are
               a small badge beside the status: the message is on hover, and in a
@@ -836,10 +911,10 @@ export default function App() {
                   <MoonGlyph /><span className="grow">Dark</span>
                   {theme === "dark" && <span className="check">✓</span>}</button>
                 <div className="tb-menu-sep" />
-                <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void doSaveAs(); }}>
-                  <span style={{ width: 15 }} /><span className="grow">Save As…</span></button>
-                <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void handleStartTutorial(); }}>
-                  <span style={{ width: 15 }} /><span className="grow">Start tutorial</span></button>
+                {!labbookFile && <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void doSaveAs(); }}>
+                  <span style={{ width: 15 }} /><span className="grow">Save As…</span></button>}
+                {!labbookFile && <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void handleStartTutorial(); }}>
+                  <span style={{ width: 15 }} /><span className="grow">Start tutorial</span></button>}
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowSpec((s) => !s); }}>
                   <span style={{ width: 15 }} /><span className="grow">{showSpec ? "Hide" : "Show"} analysis spec</span></button>
               </div>
@@ -875,7 +950,7 @@ export default function App() {
           <div className="analyses-empty workbench-start">
             <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
             <button className="tb-ghost" onClick={() => setViewMode("data")}>Enter data</button>
-            {firstExample && (
+            {firstExample && !labbookFile && (
               <button className="tb-ghost" onClick={() => void handleOpenExample(firstExample)}>Open example</button>
             )}
           </div>
