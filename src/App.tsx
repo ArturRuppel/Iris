@@ -155,6 +155,7 @@ export default function App() {
   const [labbookLoaded, setLabbookLoaded] = useState(false);
   const setOnePlotOnly = useSetAtom(onePlotOnlyAtom);
   const labbookSha = useRef<string | null>(null);
+  const labbookProvenance = useRef<Record<string, unknown>>({});
   const labbookSession = useRef(`${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const labbookSaving = useRef(false);
   const [labbookState, setLabbookState] = useState<{ kind: "saved" | "saving" | "readonly" | "error"; message?: string }>({ kind: "saved" });
@@ -562,10 +563,10 @@ export default function App() {
      reads each table's full rows from its live session — no client-side
      materialization, no single-main-table restriction. Save can still fail if a
      session was evicted (409), which surfaces instead of being swallowed. */
-  const saveDoc = () =>
+  const saveDoc = (provenance: Record<string, unknown> = {}) =>
     engine.saveDocument(
       saveTablesFor(store.get(plottablesAtom), store.get(reduceStoreAtom), store.get(tablesAtom)),
-      store.get(allSaveSpecsAtom), {});
+      store.get(allSaveSpecsAtom), provenance);
   const writeIris = async (fh: FileSystemFileHandle) => {
     const f = await saveDoc();
     const w = await fh.createWritable();
@@ -695,7 +696,10 @@ export default function App() {
       if (analyses.length !== 1) throw new Error(`a lab-book figure holds exactly one plot, not ${analyses.length}`);
       if (!liveSpec || !liveHandle) throw new Error("the plot is not ready");
       const [doc, svg] = await Promise.all([
-        saveDoc(), engine.export({ token: liveHandle.id }, liveSpec, "svg")]);
+        /* the mark makes a build script refuse to overwrite this file
+           (iris_engine.document.refuse_hand_edited) */
+        saveDoc({ ...labbookProvenance.current, hand_edited: { time: new Date().toISOString(), session: labbookSession.current } }),
+        engine.export({ token: liveHandle.id }, liveSpec, "svg")]);
       labbookSha.current = await putFigure(labbookFile, {
         iris_base64: doc.data_base64,
         svg: new TextDecoder().decode(base64ToBytes(svg.data_base64)),
@@ -710,14 +714,8 @@ export default function App() {
       labbookSaving.current = false;
     }
   };
-  /* A refused save stays on screen and the next edit tries again. An edit made during
-     a save re-fires this when the baseline moves, and the last one is never dropped. */
+  /* A figure is a record, so only Save to lab book rewrites it. Edits wait here. */
   const labbookWritable = labbookFile !== null && labbookState.kind !== "readonly" && labbookLoaded;
-  useEffect(() => {
-    if (!labbookWritable || autosaveKey === autosaveBaseline) return;
-    const timer = window.setTimeout(() => void saveToLabbook(), 2000);
-    return () => window.clearTimeout(timer);
-  }, [labbookWritable, autosaveKey, autosaveBaseline]);
   useEffect(() => {
     if (!labbookWritable) return;
     const warn = (e: BeforeUnloadEvent) => {
@@ -755,6 +753,7 @@ export default function App() {
         });
         if (labbookFile) {
           setOnePlotOnly(doc.analyses.length === 1);
+          labbookProvenance.current = (doc.provenance ?? {}) as Record<string, unknown>;
           if (doc.analyses.length === 1) labbookSha.current = doc.sha256;
           else setLabbookState({ kind: "readonly",
             message: `This file holds ${doc.analyses.length} plots, so edits are not saved to the lab book.` });
@@ -871,7 +870,8 @@ export default function App() {
           <div className="tb-fileactions">
             {!labbookFile && <button className="tb-ghost" onClick={doNew}>New</button>}
             {!labbookFile && <button className="tb-ghost" onClick={doLoad}>Load</button>}
-            <button className="tb-primary" onClick={doSave}>Save</button>
+            <button className="tb-primary" onClick={doSave}
+              disabled={labbookFile !== null && !labbookWritable}>{labbookFile ? "Save to lab book" : "Save"}</button>
             <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
             <div className="tb-menuwrap">
               <button className="tb-ghost" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
@@ -906,7 +906,7 @@ export default function App() {
               {labbookState.kind === "saving" ? `Saving ${fileName(labbookFile)}…`
                 : labbookState.kind === "error" ? `Not saved: ${labbookState.message}`
                 : labbookState.kind === "readonly" ? labbookState.message
-                : autosaveKey !== autosaveBaseline ? `${fileName(labbookFile)}: unsaved edit`
+                : autosaveKey !== autosaveBaseline ? `${fileName(labbookFile)}: unsaved edits`
                 : `${fileName(labbookFile)}: in the lab book`}
             </span>
           )}

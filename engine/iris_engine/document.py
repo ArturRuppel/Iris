@@ -74,6 +74,28 @@ def save_document(tables: dict, analyses: list[dict],
     return buf.getvalue()
 
 
+class HandEditedError(Exception):
+    """A build script would overwrite a figure edited by hand in Iris."""
+
+
+def is_hand_edited(path) -> bool:
+    """Whether a save from Iris marked this `.iris`. A missing file is not edited."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            return bool(json.loads(z.read("provenance.json")).get("hand_edited"))
+    except FileNotFoundError:
+        return False
+
+
+def refuse_hand_edited(paths, force: bool = False) -> None:
+    """Call before a build script writes a figure. The hand edit wins unless the
+    script is told otherwise, so nothing should be written before this returns."""
+    edited = [str(p) for p in paths if is_hand_edited(p)]
+    if edited and not force:
+        raise HandEditedError(
+            "edited by hand in Iris, so not overwritten: " + ", ".join(edited))
+
+
 def _version_tuple(v: str) -> tuple[int, ...]:
     """Parse a dotted version to ints so "10.0" > "2.0" compares numerically
     (a plain string compare would order them lexicographically)."""

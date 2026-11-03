@@ -14,16 +14,16 @@ more than the space. Copies of a table can drift, and nothing warns about that.
 
 `eln/figures.py` holds the rules and `/api/figures/<path>` exposes them.
 
-- `GET` returns `plots`, `sha256` and `history` for a `.iris` under `documents/`
+- `GET` returns `plots`, `sha256`, `iris_url` and `history` for a `.iris` under `documents/`
   or `reports/`.
 - `PUT` takes `iris_base64`, `svg`, `base_sha256` and `session`. It refuses a file
   without exactly one plot (422), a file changed since it was opened (409), and an
   origin other than the configured Iris or the lab book itself (403).
-- The first save of a session copies the previous pair to
-  `<dir>/.versions/<stem>/<stamp>.{iris,svg}`. This copy is the only history a
-  `.iris` has, because the data repo ignores `*.iris`.
-- Every save appends to `<dir>/.versions/<stem>/log.jsonl`: time, session, hashes
-  before and after, and the hash of the previous line.
+- The data repo tracks `*.iris`, so earlier states live in git once committed. A
+  save does not commit, because sancho's clone must stay able to fast-forward.
+- Every save appends to `<stem>.log.jsonl` beside the figure: time, session, hashes
+  before and after, and the hash of the previous line. A state that was saved and
+  never committed therefore leaves a trace, although its content is gone.
 - `edit-overlay.js` runs only on the live server, so the static export never gets
   these links. For each SVG image whose sibling `.iris` holds one plot, it links
   the image to `<iris_url>/?labbook=<url of the .iris>`. It reloads the image when
@@ -41,12 +41,23 @@ more than the space. Copies of a table can drift, and nothing warns about that.
 - Crash recovery is skipped, because the lab book is the saved state. A leftover
   autosave slot is left alone for an ordinary session to offer.
 - A file without exactly one plot opens with a notice and does not save back.
-- After 2 s without an edit, and on Save, Iris saves the document, exports the SVG
-  and sends both. Saves never overlap. The top bar shows the state, and a refused
-  save stays visible until a later one succeeds.
+- A figure is a record, so only Save to lab book rewrites it; exploring does not.
+  The top bar shows unsaved edits, and closing the page with some asks first. A
+  refused save stays visible until a later one succeeds.
+- A save keeps the provenance the file already had and adds `hand_edited` (time and
+  session).
 
-## Not built
+## Build scripts
 
-The check for figures that a script regenerates: rerunning such a script overwrites
-an edit, although the version folder still holds it. There is also no browsing UI
-for versions, and no save-back from the static export.
+Most lab-book figures come from a script, so a figure can have two writers, and the
+hand edit wins. A build script calls `document.refuse_hand_edited(paths, force)` before
+writing anything, and raises `HandEditedError` for a marked `.iris` unless told to
+overwrite. The script must make this call: nothing else stops it writing the file.
+
+## Limits
+
+- `PUT` is guarded only by the Origin header and the tailnet. An Origin header can be
+  set by any client that is not a browser, so any tailnet member can rewrite a figure.
+- Safari and iPad are untested for the browser build.
+- There is no browsing UI for the log or for earlier versions, and no save-back from
+  the static export.

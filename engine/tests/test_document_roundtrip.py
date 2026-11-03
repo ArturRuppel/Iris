@@ -5,6 +5,8 @@ import pandas as pd
 from fastapi.testclient import TestClient
 
 from iris_engine.main import app
+from iris_engine import document
+import pytest
 
 client = TestClient(app)
 
@@ -223,3 +225,20 @@ def test_load_url_refuses_another_host():
     r = client.post("/document/load_url", json={"url": "http://elsewhere.example/a.iris"},
                     headers={"host": "sancho:8766"})
     assert r.status_code == 422 and "refusing" in r.json()["detail"]
+
+
+def _write_iris(path, provenance):
+    path.write_bytes(document.save_document(
+        {"t": {"schema": {"schema_version": "1.0", "columns": [{"name": "a", "type": "numeric"}]},
+               "hierarchy": {"spine": [], "fn": {}}, "rows": [{"a": 1}]}},
+        [], provenance, {}))
+
+
+def test_a_hand_edited_figure_refuses_a_build_script(tmp_path):
+    built, edited, missing = tmp_path / "b.iris", tmp_path / "e.iris", tmp_path / "m.iris"
+    _write_iris(built, {"source": "script"})
+    _write_iris(edited, {"source": "script", "hand_edited": {"time": "t"}})
+    document.refuse_hand_edited([built, missing])
+    with pytest.raises(document.HandEditedError, match="e.iris"):
+        document.refuse_hand_edited([built, edited])
+    document.refuse_hand_edited([edited], force=True)
