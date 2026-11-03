@@ -38,13 +38,28 @@ function failAll(message: string) {
   pending.clear();
 }
 
-function loadScript(src: string): Promise<void> {
+export function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const tag = document.createElement("script");
     tag.src = src;
     tag.onload = () => { tag.remove(); resolve(); };
     tag.onerror = () => { tag.remove(); reject(new Error(`Could not read ${src}`)); };
     document.head.appendChild(tag);
+  });
+}
+
+/* A figure beside the lab-book export: `name.iris.js` calls `__irisDocument` with
+   the file, its lab-book path and hash (eln/share.py writes it), because a page
+   opened over file:// cannot fetch a neighbour but can run a classic script. */
+export type EmbeddedDocument = { name: string; path?: string; sha256?: string; base64: string };
+export function loadEmbeddedDocument(src: string): Promise<EmbeddedDocument> {
+  return new Promise((resolve, reject) => {
+    let handed: EmbeddedDocument | null = null;
+    (window as unknown as { __irisDocument?: (d: EmbeddedDocument) => void }).__irisDocument = (d) => { handed = d; };
+    loadScript(src).then(() => {
+      if (handed?.base64) resolve(handed);
+      else reject(new Error(`${src} holds no document`));
+    }, reject);
   });
 }
 

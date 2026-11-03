@@ -1154,6 +1154,9 @@ export interface LoadedDoc {
   manifest?: DocumentManifest;
   analyses: AnalysisSpec[];                 // already migrated to the current spec
   provenance?: Record<string, unknown> | null;
+  /* where the file came from, when a later save should say so: a lab-book figure
+     opened from the export, or any .iris opened by URL */
+  source?: DocumentSource | null;
   tables: LoadedTable[];                    // the full pool the engine rebuilt
   /* autosave: a restore-from-snapshot loads through this same atom but the
      recovered work still has no explicit save — keep it counting as unsaved
@@ -1174,8 +1177,16 @@ export const dataFingerprintAtom = atom((get) => dataFingerprint(get(tablesAtom)
    the doc's `tables[]`, then restores the saved analyses (rebuilt as editable
    plottables, each bound to its saved `table_id` and joining by reference) instead
    of starting blank. */
+export type DocumentSource = { name: string; path: string; sha256: string };
+/* The loaded file's provenance.json, kept so that a Save writes it back instead of
+   an empty record; `documentSourceAtom` is added to it as `derived_from`. */
+export const documentProvenanceAtom = atom<Record<string, unknown>>({});
+export const documentSourceAtom = atom<DocumentSource | null>(null);
+
 export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   applyLoadedDoc(get, set, doc);
+  set(documentProvenanceAtom, doc.provenance ?? {});
+  set(documentSourceAtom, doc.source ?? null);
   /* a freshly loaded document IS the persisted state — nothing to autosave
      until the user edits. Captured after the body so every exit path (empty
      doc, no analyses, full restore) rebaselines consistently. */
@@ -1196,6 +1207,8 @@ export const newDocumentAtom = atom(null, (get, set) => {
   set(activePlottableIdAtom, null);
   set(reduceStoreAtom, {});
   set(engineErrorAtom, null);
+  set(documentProvenanceAtom, {});
+  set(documentSourceAtom, null);
   set(clearAnalysisCachesAtom);
   set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
 });

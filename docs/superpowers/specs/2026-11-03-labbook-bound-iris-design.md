@@ -47,6 +47,22 @@ more than the space. Copies of a table can drift, and nothing warns about that.
 - A save keeps the provenance the file already had and adds `hand_edited` (time and
   session).
 
+## Export
+
+The static export has no server, so a figure there is never bound. For each SVG with a
+one-plot `.iris` beside it, `eln/share.py` copies the `.iris` in as itself and as
+`name.iris.js`, a classic script calling `__irisDocument` with the file, its lab-book
+path and its hash, because a page opened over `file://` can run a neighbouring script
+but cannot fetch a neighbouring file. The image links to
+`iris/index.html?embedded=../<path>.iris.js`, titled "Open a copy in Iris".
+
+`?embedded=<url>` in the browser build loads that script and opens the document as an
+ordinary detached session: New, Load and Save As stay, Save writes a `.iris` to the
+colleague's disk, and no autosave slot is used. A detached save keeps the provenance
+the file was opened with (the bound save already did) and adds `derived_from` with the
+figure's name, path, hash and the time, so a colleague's version still names the
+figure it came from. `?open=` records the same for a file opened by URL.
+
 ## Build scripts
 
 Most lab-book figures come from a script, so a figure can have two writers, and the
@@ -59,5 +75,8 @@ overwrite. The script must make this call: nothing else stops it writing the fil
 - `PUT` is guarded only by the Origin header and the tailnet. An Origin header can be
   set by any client that is not a browser, so any tailnet member can rewrite a figure.
 - Safari and iPad are untested for the browser build.
-- There is no browsing UI for the log or for earlier versions, and no save-back from
-  the static export.
+- There is no browsing UI for the log or for earlier versions. The static export opens
+  copies only, by design.
+- Only an SVG with a one-plot `.iris` of the same stem beside it is a figure. The
+  older report figures keep their `.iris` next to the markdown and their SVG under
+  `figures/`, so neither the live link nor the export finds them until they are moved.

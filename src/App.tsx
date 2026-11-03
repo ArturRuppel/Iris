@@ -15,7 +15,7 @@ import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
   analysisKeyByIdAtom, analyzeStatusAtom, cacheKey, cacheKeysFingerprintAtom, dataLoadingAtom,
   effectiveSchemaAtom, engineErrorAtom, engineSnapshotAtom,
-  hierarchyAtom, loadDocumentAtom, newDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
+  documentProvenanceAtom, documentSourceAtom, hierarchyAtom, loadDocumentAtom, newDocumentAtom, pickStaleSpec, registryAtom, styleRegistryAtom,
   reducePreviewByIdAtom, renderErrorAtom, schemaAtom, selectedNodeIdAtom, setAnalysisByIdAtom,
   setAnalysisResultAtom, setReducePreviewByIdAtom, specAtom, tableHandleAtom,
   touchAnalysisAtom, viewModeAtom, effectivePlanAtom, effectiveTestGrainAtom,
@@ -26,6 +26,7 @@ import {
   mintFromEntryAtom, entryHasContentAtom,
 } from "./state";
 import { fileName, labbookTarget, putFigure } from "./labbook";
+import { loadEmbeddedDocument } from "./browserEngine";
 import { base64ToBytes, browserRuntime, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
 import { BrowserBoot, BrowserBootFailed } from "./BrowserBoot";
 import type { AutosaveStatus, NodeShape } from "./types";
@@ -151,7 +152,10 @@ export default function App() {
   /* a single-file build (tools/pack-iris.mjs) opens the document it carries; the
      file itself is the saved state, so there is no autosave slot to share with others */
   const [embeddedDoc] = useState(() => browserRuntime ? document.getElementById("iris-document") : null);
-  const noAutosave = labbookFile !== null || embeddedDoc !== null;
+  /* `?embedded=<url of name.iris.js>`: a figure beside the lab-book export, opened as
+     a detached copy. Like `?open=`, only a file next to this page is accepted. */
+  const [embeddedUrl] = useState(() => browserRuntime ? new URLSearchParams(window.location.search).get("embedded") : null);
+  const noAutosave = labbookFile !== null || embeddedDoc !== null || embeddedUrl !== null;
   const [labbookLoaded, setLabbookLoaded] = useState(false);
   const setOnePlotOnly = useSetAtom(onePlotOnlyAtom);
   const labbookSha = useRef<string | null>(null);
@@ -563,7 +567,14 @@ export default function App() {
      reads each table's full rows from its live session — no client-side
      materialization, no single-main-table restriction. Save can still fail if a
      session was evicted (409), which surfaces instead of being swallowed. */
-  const saveDoc = (provenance: Record<string, unknown> = {}) =>
+  /* A copy keeps the provenance it was opened with and says what it came from, so a
+     colleague's version of a lab-book figure still names the figure and its hash. */
+  const detachedProvenance = (): Record<string, unknown> => {
+    const source = store.get(documentSourceAtom);
+    return { ...store.get(documentProvenanceAtom),
+      ...(source ? { derived_from: { ...source, time: new Date().toISOString() } } : {}) };
+  };
+  const saveDoc = (provenance: Record<string, unknown> = detachedProvenance()) =>
     engine.saveDocument(
       saveTablesFor(store.get(plottablesAtom), store.get(reduceStoreAtom), store.get(tablesAtom)),
       store.get(allSaveSpecsAtom), provenance);
@@ -734,6 +745,7 @@ export default function App() {
   const openedFromUrl = useRef(false);
   const [openingName, setOpeningName] = useState<string | null>(
     () => embeddedDoc?.dataset.name
+      ?? embeddedUrl?.split("/").pop()?.replace(/\.js$/, "")
       ?? (labbookFile ?? new URLSearchParams(window.location.search).get("open"))?.split("/").pop() ?? null);
   useEffect(() => {
     if (engineUp !== true || recoveryPending || recovery !== null || openedFromUrl.current) return;
@@ -749,6 +761,7 @@ export default function App() {
           manifest: doc.manifest,
           analyses: doc.analyses.map(migrateSpec),
           provenance: doc.provenance,
+          source: labbookFile ? null : { name: fileName(url.href), path: url.pathname, sha256: doc.sha256 },
           tables: doc.tables,
         });
         if (labbookFile) {
@@ -773,16 +786,27 @@ export default function App() {
 
   const openedEmbedded = useRef(false);
   useEffect(() => {
-    if (engineUp !== true || !embeddedDoc || openedEmbedded.current) return;
+    if (engineUp !== true || (!embeddedDoc && !embeddedUrl) || openedEmbedded.current) return;
     openedEmbedded.current = true;
     void (async () => {
       try {
-        const doc = await engine.loadDocument(embeddedDoc.textContent!.trim());
-        embeddedDoc.remove();
+        let base64: string, source = null;
+        if (embeddedDoc) {
+          base64 = embeddedDoc.textContent!.trim();
+          embeddedDoc.remove();
+        } else {
+          const url = new URL(embeddedUrl!, window.location.href);
+          if (url.hostname !== window.location.hostname) throw new Error(`refusing to open a file from ${url.hostname}`);
+          const handed = await loadEmbeddedDocument(url.href);
+          base64 = handed.base64;
+          if (handed.path && handed.sha256) source = { name: handed.name, path: handed.path, sha256: handed.sha256 };
+        }
+        const doc = await engine.loadDocument(base64);
         await loadDocument({
           manifest: doc.manifest,
           analyses: doc.analyses.map(migrateSpec),
           provenance: doc.provenance,
+          source,
           tables: doc.tables,
         });
         fileHandleRef.current = null;               // force Save -> Save As
@@ -792,7 +816,7 @@ export default function App() {
     })();
   }, [engineUp]);
   useEffect(() => {
-    if (!embeddedDoc) return;
+    if (!embeddedDoc && !embeddedUrl) return;
     const warn = (e: BeforeUnloadEvent) => {
       if (store.get(autosaveKeyAtom) !== store.get(autosaveBaselineAtom)) e.preventDefault();
     };

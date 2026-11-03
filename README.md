@@ -109,6 +109,13 @@ HTML file of about 100 MB. It opens straight to the document, by double-click, w
 no neighbouring files and no network. Edits there are not written back into the HTML:
 Save produces a `.iris` file.
 
+The lab-book export ships this build beside the figures. Each figure there links to
+`iris/index.html?embedded=<figure>.iris.js`, a classic script holding the file with
+its lab-book path and hash, so a colleague opens a copy with nothing to install and
+nothing to fetch. The copy is detached: Save writes a `.iris` on their disk that keeps
+the figure's provenance and records the figure it was derived from, and the report
+itself is untouched. Only the served lab book edits a figure in place.
+
 There is a third way to run it, used on the author's machine. `--serve` makes the
 engine hand out the built frontend from its own origin, as one long-running
 service on a private network — which is how Iris reaches a tablet, over HTTPS via
