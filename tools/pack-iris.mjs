@@ -78,7 +78,8 @@ const payloadOf = (file) => {
 
 const before = tag("iris-document", document_.toString("base64"), ` data-name="${title}.iris"`)
   + tag("iris-manifest", JSON.stringify(manifest).replaceAll("<", "\\u003c"))
-  + `<script>${safeInScript(readFileSync(join(DIST, js[1]), "utf8"))}</script>\n`;
+  + `<script>${safeInScript(readFileSync(join(DIST, js[1]), "utf8")
+    .replaceAll("../iris-favicon.svg", `data:image/svg+xml;base64,${icon}`))}</script>\n`;
 const closing = html.lastIndexOf("</body>");
 if (closing < 0) throw new Error("index.html: no </body>");
 const parts = [html.slice(0, closing), before];

@@ -104,6 +104,11 @@ numpy are newer than the pinned desktop versions, so `npm run test:pyodide` runs
 engine and validation suites against them. Chromium and Firefox are tested, and
 Safari is not yet.
 
+`npm run pack:iris -- figure.iris` folds that build and one document into a single
+HTML file of about 100 MB. It opens straight to the document, by double-click, with
+no neighbouring files and no network. Edits there are not written back into the HTML:
+Save produces a `.iris` file.
+
 There is a third way to run it, used on the author's machine. `--serve` makes the
 engine hand out the built frontend from its own origin, as one long-running
 service on a private network — which is how Iris reaches a tablet, over HTTPS via
