@@ -22,8 +22,10 @@ export function CollapseRoutingPanel() {
   if (!p || spine.length === 0) return null;
 
   const label = (n: string) => labelForCol(schema, n);
-  const grainLabel = (k: string) => k === "" ? "Raw (every row)"
-    : k.split("/").map(label).join(" × ");
+  // a grain is a spine prefix, so its finest level names it ("per Position"); the
+  // full product is the title
+  const grainFull = (k: string) => k.split("/").map(label).join(" × ");
+  const grainLabel = (k: string) => k === "" ? "Raw (every row)" : `per ${label(k.split("/").slice(-1)[0])}`;
   const keptDims = new Set(plan.flatMap((s) => s.keep));
   const addable = spine.filter((d) => !keptDims.has(d));
 
@@ -45,14 +47,16 @@ export function CollapseRoutingPanel() {
           const key = grainKey(step.keep);
           return (
             <li key={`${key}:${i}`} className="cr-step">
-              <span className="cr-grain">{grainLabel(key)}</span>
+              <span className="cr-grain" title={grainFull(key)}>{grainLabel(key)}</span>
               <select aria-label={`aggregate into ${grainLabel(key)}`} value={step.fn}
                 onChange={(e) => setFn(i, e.target.value as LevelFn)}>
                 {LEVEL_FNS.map((f) => <option key={f} value={f}>{f}</option>)}
               </select>
-              <button className="icon" title="Earlier" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
-              <button className="icon" title="Later" onClick={() => move(i, 1)} disabled={i === plan.length - 1}>↓</button>
-              <button className="icon" aria-label={`remove level ${grainLabel(key)}`} onClick={() => remove(i)}>×</button>
+              <span className="cr-ctl">
+                <button className="icon" title="Earlier" onClick={() => move(i, -1)} disabled={i === 0}>↑</button>
+                <button className="icon" title="Later" onClick={() => move(i, 1)} disabled={i === plan.length - 1}>↓</button>
+                <button className="icon" aria-label={`remove level ${grainLabel(key)}`} onClick={() => remove(i)}>×</button>
+              </span>
             </li>
           );
         })}

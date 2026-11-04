@@ -13,8 +13,9 @@
  *
  *   - SERVER FIRST, ALWAYS. Every shell request goes to the network; the cache
  *     is read only when the network fails or does not answer within TIMEOUT_MS.
- *   - THE SHELL ONLY: the page itself ("/"), the built bundle (/assets/…), the
- *     guide, and the icons/manifest at the root. Every engine endpoint and every
+ *   - THE SHELL ONLY: the page itself, the built bundle (assets/…), the guide,
+ *     and the icons/manifest beside the page, all under the directory the worker
+ *     was registered from (the root, or /iris/ under the lab book). Every engine endpoint and every
  *     non-GET is left alone — no respondWith, so the browser behaves exactly as
  *     if there were no worker.
  *   - AN UPDATE NEVER STRANDS AN INSTALLED APP: skipWaiting + clients.claim,
@@ -24,12 +25,15 @@
 const CACHE = "iris-shell-v1";
 const TIMEOUT_MS = 4000;
 
-const ROOT_FILE = /^\/[\w.-]+\.(png|svg|ico|webmanifest)$/;
+/* the directory Iris is served from: "/" alone, or "/iris/" when the lab book
+   mounts it under a path on its own origin (the page links its files relatively) */
+const ROOT = new URL(self.registration.scope).pathname;
+const ROOT_FILE = new RegExp("^" + ROOT.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") + "[\\w.-]+\\.(png|svg|ico|webmanifest)$");
 
 function isShell(request, url) {
   if (url.origin !== self.location.origin) return false;
-  if (request.mode === "navigate") return url.pathname === "/" || url.pathname === "/index.html";
-  return url.pathname.startsWith("/assets/") || url.pathname.startsWith("/guide/")
+  if (request.mode === "navigate") return url.pathname === ROOT || url.pathname === ROOT + "index.html";
+  return url.pathname.startsWith(ROOT + "assets/") || url.pathname.startsWith(ROOT + "guide/")
     || ROOT_FILE.test(url.pathname);
 }
 
@@ -37,7 +41,7 @@ function isShell(request, url) {
    Read them out of the page instead: everything index.html links to. */
 function referencedAssets(html) {
   const out = new Set();
-  for (const m of html.matchAll(/(?:src|href)="(\/[^"]+)"/g)) out.add(m[1]);
+  for (const m of html.matchAll(/(?:src|href)="(\.?\/[^"]+)"/g)) out.add(new URL(m[1], self.registration.scope).pathname);
   return out;
 }
 
@@ -60,7 +64,7 @@ async function pruneOldBuilds(cache, html) {
   const keep = referencedAssets(html);
   for (const req of await cache.keys()) {
     const path = new URL(req.url).pathname;
-    if (path.startsWith("/assets/") && !keep.has(path)) await cache.delete(req);
+    if (path.startsWith(ROOT + "assets/") && !keep.has(path)) await cache.delete(req);
   }
 }
 
@@ -68,10 +72,10 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     try {
       const cache = await caches.open(CACHE);
-      const resp = await fetch("/", { cache: "no-store" });
+      const resp = await fetch(ROOT, { cache: "no-store" });
       if (resp.ok) {
         const html = await resp.clone().text();
-        await cache.put("/", resp);
+        await cache.put(ROOT, resp);
         await cacheShell(cache, html);
       }
     } catch (e) { /* offline at install: filled on the next good fetch */ }
@@ -98,7 +102,7 @@ self.addEventListener("fetch", (event) => {
 async function serverFirst(request, url) {
   const cache = await caches.open(CACHE);
   const isPage = request.mode === "navigate";
-  const key = isPage ? "/" : url.pathname + url.search;
+  const key = isPage ? ROOT : url.pathname + url.search;
 
   const network = fetch(request, { cache: "no-store" }).then((resp) => {
     // Only a real answer replaces the fallback; an error page is passed to the
@@ -107,7 +111,7 @@ async function serverFirst(request, url) {
       const copy = resp.clone();
       if (isPage) {
         copy.text().then(async (html) => {
-          await cache.put("/", new Response(html, { headers: resp.headers }));
+          await cache.put(ROOT, new Response(html, { headers: resp.headers }));
           await pruneOldBuilds(cache, html);
           await cacheShell(cache, html);
         }).catch(() => {});

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { rectOf, inRect, clampCell, rectsToTSV, parseTSV, type Cell, type Rect } from "./gridSelect";
 
 /* The shared Excel-like interaction model for both spreadsheet grids — the tidy
@@ -62,8 +62,27 @@ export interface GridSelection {
   // adds this column block to a discontiguous selection instead of replacing it.
   onColMouseDown: (c0: number, c1: number, shift: boolean, additive?: boolean) => void;
   onColMouseEnter: (c0: number, c1: number) => void;
+  // row-header press/drag: the row-wise twin of the column model.
+  onRowMouseDown: (r: number, shift: boolean, additive?: boolean) => void;
+  onRowMouseEnter: (r: number) => void;
+  // the whole grid (the corner cell, Ctrl/Cmd+A)
+  selectAll: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
+  // Touch (iPad): a finger drag scrolls, so a range is a LONG-PRESS then drag — on
+  // a cell, a column header, a row header. The grid binds this to its scroll
+  // element and tells it what lies under a point; it returns the unbind.
+  bindTouch: (el: HTMLElement | null, hitAt: (x: number, y: number) => Hit | null) => () => void;
 }
+
+/* what a touch lands on, in data coordinates — the grid reads it off its DOM */
+export type Hit =
+  | { kind: "cell"; r: number; c: number }
+  | { kind: "col"; c0: number; c1: number }
+  | { kind: "row"; r: number }
+  | { kind: "all" };
+
+const LONG_PRESS_MS = 350;   // hold this long without moving, then drag to select
+const PRESS_SLOP_PX = 10;    // moving further than this before the hold is a scroll
 
 export function useGridSelection(ops: GridSelectionOps): GridSelection {
   const { nRows, nCols, values, isEditable, beginEdit, pasteBlock, moveCut, clearRect, ensureVisible } = ops;
@@ -80,10 +99,16 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
   const dragging = useRef(false);                        // a body cell-range drag
   const colDragging = useRef(false);                     // a column drag across headers
   const colDragOrigin = useRef<[number, number] | null>(null);  // the origin header's [c0,c1]
+  const rowDragging = useRef(false);                     // a row drag across row headers
+  const rowDragOrigin = useRef<number | null>(null);
 
+  const endDrag = () => {
+    dragging.current = false; colDragging.current = false; colDragOrigin.current = null;
+    rowDragging.current = false; rowDragOrigin.current = null;
+  };
   // a range-drag ends wherever the mouse is released, even outside the grid
   useEffect(() => {
-    const up = () => { dragging.current = false; colDragging.current = false; colDragOrigin.current = null; };
+    const up = () => endDrag();
     window.addEventListener("mouseup", up);
     return () => window.removeEventListener("mouseup", up);
   }, []);
@@ -103,6 +128,16 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
   const selectColRange = (c0: number, c1: number) => {
     const lastRow = Math.max(0, nRows - 1);
     setSel({ anchor: { r: lastRow, c: c1 }, focus: { r: 0, c: c0 } });
+  };
+  // the full-width row block [r0..r1]; active cell at its left end
+  const selectRowRange = (r0: number, r1: number) => {
+    const lastCol = Math.max(0, nCols - 1);
+    setSel({ anchor: { r: r1, c: lastCol }, focus: { r: r0, c: 0 } });
+  };
+  const selectAll = () => {
+    if (nRows <= 0 || nCols <= 0) return;
+    setExtras([]);
+    setSel({ anchor: { r: nRows - 1, c: nCols - 1 }, focus: { r: 0, c: 0 } });
   };
   const clearSel = () => { setSel(null); setExtras([]); };
 
@@ -196,12 +231,100 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
     if (!colDragging.current || !o) return;
     selectColRange(Math.min(o[0], c0), Math.max(o[1], c1));  // origin span ∪ this header
   };
+  // row headers: the same model turned sideways
+  const onRowMouseDown = (r: number, shift: boolean, additive = false) => {
+    if (additive && !shift) {
+      if (rect) setExtras((e) => [...e, rect]);
+      selectRowRange(r, r);
+      rowDragOrigin.current = r;
+      rowDragging.current = true;
+      return;
+    }
+    if (shift && sel) {
+      if (!additive) setExtras([]);
+      const rx = rectOf(sel.anchor, sel.focus);
+      selectRowRange(Math.min(rx.r0, r), Math.max(rx.r1, r));
+      rowDragging.current = false;
+      rowDragOrigin.current = null;
+    } else {
+      setExtras([]);
+      selectRowRange(r, r);
+      rowDragOrigin.current = r;
+      rowDragging.current = true;
+    }
+  };
+  const onRowMouseEnter = (r: number) => {
+    const o = rowDragOrigin.current;
+    if (!rowDragging.current || o == null) return;
+    selectRowRange(Math.min(o, r), Math.max(o, r));
+  };
+
+  // --- touch: long-press, then drag. Native listeners (React's touch handlers are
+  // passive, so they cannot stop the scroll); the latest handlers live in a ref so
+  // the one-time binding never sees stale state. ---
+  const press = useRef<{ x: number; y: number; timer: number } | null>(null);
+  const armed = useRef(false);   // the hold has elapsed: moves now extend, not scroll
+  const cancelPress = () => { if (press.current) window.clearTimeout(press.current.timer); press.current = null; };
+  const beginAt = (hit: Hit) => {
+    if (hit.kind === "cell") onCellMouseDown(hit.r, hit.c, false, false);
+    else if (hit.kind === "col") onColMouseDown(hit.c0, hit.c1, false, false);
+    else if (hit.kind === "row") onRowMouseDown(hit.r, false, false);
+    else selectAll();
+  };
+  const extendTo = (hit: Hit) => {
+    if (hit.kind === "cell") onCellMouseEnter(hit.r, hit.c);
+    else if (hit.kind === "col") onColMouseEnter(hit.c0, hit.c1);
+    else if (hit.kind === "row") onRowMouseEnter(hit.r);
+  };
+  const touch = {
+    start: (hit: Hit | null, x: number, y: number) => {
+      cancelPress(); armed.current = false;
+      if (!hit) return;
+      const timer = window.setTimeout(() => { press.current = null; armed.current = true; beginAt(hit); }, LONG_PRESS_MS);
+      press.current = { x, y, timer };
+    },
+    move: (hit: Hit | null, x: number, y: number, e: TouchEvent) => {
+      if (armed.current) { e.preventDefault(); if (hit) extendTo(hit); return; }
+      const p = press.current;
+      if (p && Math.hypot(x - p.x, y - p.y) > PRESS_SLOP_PX) cancelPress();   // a scroll, not a hold
+    },
+    end: (e: TouchEvent) => {
+      // after a hold the lift must not become the synthesised tap (mousedown would
+      // collapse the range to one cell)
+      if (armed.current) { e.preventDefault(); armed.current = false; endDrag(); }
+      cancelPress();
+    },
+    cancel: () => { armed.current = false; cancelPress(); endDrag(); },
+  };
+  const latest = useRef(touch);
+  latest.current = touch;
+  const bindTouch = useCallback((el: HTMLElement | null, hitAt: (x: number, y: number) => Hit | null) => {
+    if (!el) return () => {};
+    const pt = (e: TouchEvent) => e.touches[0] ?? e.changedTouches[0];
+    const start = (e: TouchEvent) => {
+      if (e.touches.length !== 1) { latest.current.cancel(); return; }   // two fingers: pinch/scroll
+      const t = pt(e); latest.current.start(hitAt(t.clientX, t.clientY), t.clientX, t.clientY);
+    };
+    const move = (e: TouchEvent) => { const t = pt(e); latest.current.move(hitAt(t.clientX, t.clientY), t.clientX, t.clientY, e); };
+    const end = (e: TouchEvent) => latest.current.end(e);
+    const cancel = () => latest.current.cancel();
+    el.addEventListener("touchstart", start, { passive: true });
+    el.addEventListener("touchmove", move, { passive: false });
+    el.addEventListener("touchend", end, { passive: false });
+    el.addEventListener("touchcancel", cancel);
+    return () => {
+      el.removeEventListener("touchstart", start); el.removeEventListener("touchmove", move);
+      el.removeEventListener("touchend", end); el.removeEventListener("touchcancel", cancel);
+      latest.current.cancel();
+    };
+  }, []);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     const meta = e.ctrlKey || e.metaKey;
     if (meta && (e.key === "c" || e.key === "C")) { e.preventDefault(); copy(); return; }
     if (meta && (e.key === "x" || e.key === "X")) { e.preventDefault(); cut(); return; }
     if (meta && (e.key === "v" || e.key === "V")) { e.preventDefault(); void paste(); return; }
+    if (meta && (e.key === "a" || e.key === "A")) { e.preventDefault(); selectAll(); return; }
     if (meta || e.altKey) return;
     const shift = e.shiftKey;
     switch (e.key) {
@@ -226,6 +349,7 @@ export function useGridSelection(ops: GridSelectionOps): GridSelection {
     isSelected: (r, c) => rects.some((x) => inRect(r, c, x)),
     isCut: (r, c) => cutRects.some((x) => inRect(r, c, x)),
     selectCell, selectRange, clearSel,
-    onCellMouseDown, onCellMouseEnter, onColMouseDown, onColMouseEnter, onKeyDown,
+    onCellMouseDown, onCellMouseEnter, onColMouseDown, onColMouseEnter,
+    onRowMouseDown, onRowMouseEnter, selectAll, onKeyDown, bindTouch,
   };
 }

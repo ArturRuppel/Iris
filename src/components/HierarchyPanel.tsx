@@ -134,7 +134,7 @@ export function HierarchyPanel() {
                 </span>
                 <span className="hp-node-body">
                   <span className="hp-level">
-                    <span className="hp-level-name">{labelFor(s)}</span>
+                    <span className="hp-level-name" title={labelFor(s)}>{labelFor(s)}</span>
                     {nGroups(s) != null && (
                       <span className="hp-count">{nGroups(s)!.toLocaleString()}</span>
                     )}

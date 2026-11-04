@@ -19,6 +19,8 @@ After=network.target
 # With `tailscale serve` (HTTPS, docs/serving.md) the engine binds loopback
 # instead and Serve is the tailnet's way in:
 #   tailscale serve --bg --https=8766 http://127.0.0.1:8766
+# and, to keep the lab book's installed iPad app in-app, also under its origin:
+#   tailscale serve --bg --https=5001 --set-path=/iris http://127.0.0.1:8766
 # Serve only listens on the tailnet, so the reasoning above is unchanged. Delete
 # this line to go back to the bare tailnet bind on a machine without Serve.
 Environment=IRIS_HOST=127.0.0.1

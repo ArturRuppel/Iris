@@ -752,7 +752,10 @@ const baseUrl: Promise<string> = (async () => {
       return loopback();
     }
   }
-  return (import.meta as any).env?.DEV ? loopback() : "";
+  if ((import.meta as any).env?.DEV) return loopback();
+  // the directory the page came from: "" at the root, "/iris" when the lab book
+  // mounts the engine under a path on its own origin
+  return new URL(".", window.location.href).pathname.replace(/\/$/, "");
 })();
 
 async function get<T>(path: string): Promise<T> {

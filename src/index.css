@@ -92,6 +92,8 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tb-ghost { font:500 12px/1 'Archivo'; border:none; background:none;
   color:var(--nav-inactive); padding:8px 6px; cursor:pointer; }
 .tb-ghost:hover { color:var(--ink); }
+.tb-back { text-decoration:none; display:inline-flex; align-items:center; }
+.tb-back:hover { text-decoration:none; }
 .tb-primary { font:600 12px/1 'Archivo'; border:1px solid var(--primary);
   border-radius: 0; padding:8px 18px; background:var(--primary); color:var(--primary-fg);
   cursor:pointer; box-shadow:none; }
@@ -182,6 +184,7 @@ main { flex: 1; display: flex; flex-direction: column; gap: 14px; padding: 14px;
 
 .table-scroll { max-height: 560px; overflow: auto; }
 .grid-host { height: 560px; }
+.data-mode .table-pane .grid-host { height: auto; flex: 1 1 560px; min-height: 0; }   /* the tidy table fills the pane too */
 table { width: 100%; border-collapse: collapse; font-size: 12px; }
 thead th { position: sticky; top: 0; background: var(--panel2); color: var(--dim);
   text-align: left; font-weight: 500; padding: 6px 8px; }
@@ -390,7 +393,8 @@ dd.strong { font-weight: 600; }
 .de-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
 .de-scroll { max-height: 46vh; overflow: auto; border: 1px solid var(--line);
   border-radius: 0; margin-top: 12px; }
-.de-grid { border-collapse: collapse; font-size: 12px; user-select: none; }
+.de-grid { border-collapse: collapse; font-size: 12px; user-select: none;
+  -webkit-user-select: none; -webkit-touch-callout: none; }
 .de-grid th, .de-grid td { border: 1px solid var(--line); padding: 0; }
 /* an editor (or a header label being typed) is real text again */
 .de-grid input { border: none; background: none; font: inherit; width: 100%;
@@ -440,7 +444,9 @@ dd.strong { font-weight: 600; }
 .de-icon:hover { color: var(--accent); }
 .de-corner { width: 30px; background: var(--panel2); color: var(--faint);
   text-align: center; }
-.de-rowhead { background: var(--panel2); text-align: center; }
+.de-all { cursor: pointer; }
+.de-rowhead { background: var(--panel2); text-align: center; cursor: pointer; }
+.de-rowhead.de-sel { background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); }
 .de-rowhead .de-icon { width: 100%; }
 .de-addcol { border: none !important; background: none; width: 8px; }
 .de-tools { display: flex; gap: 8px; align-items: center; margin-top: 10px;
@@ -457,7 +463,10 @@ dd.strong { font-weight: 600; }
 /* ---- grouped-sheet lens: the tidy table projected wide (read-only) ---- */
 .dv-toggle { margin: 0; gap: 0; }
 .seg button:disabled { opacity: 0.4; cursor: not-allowed; }
-.gs-host { height: 560px; overflow: hidden; }
+/* the sheet fills whatever height the pane has (the pane is a flex column; the
+   560px basis is only the fallback where no height flows down) */
+.data-mode .table-pane { display: flex; flex-direction: column; }
+.gs-host { flex: 1 1 560px; min-height: 0; overflow: hidden; }
 .gs-empty { height: 100%; display: flex; align-items: center; justify-content: center;
   padding: 24px; text-align: center; color: var(--dim); font-size: 12px; }
 .gs-empty span { max-width: 46ch; line-height: 1.5; }
@@ -491,7 +500,8 @@ dd.strong { font-weight: 600; }
    JS so they stay pinned to the viewport. */
 .gs-scroll { position: relative; width: 100%; height: 100%; overflow: auto; }
 .gs-scroll:focus { outline: none; }   /* the active-cell border is the focus cue */
-.gs-canvas { position: relative; font-size: 12px; user-select: none; }
+.gs-canvas { position: relative; font-size: 12px; user-select: none;
+  -webkit-user-select: none; -webkit-touch-callout: none; }   /* a long-press selects cells, not text */
 .gs-cell { position: absolute; box-sizing: border-box;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line);
   padding: 4px 7px; text-align: right; color: var(--ink); cursor: cell;
@@ -515,11 +525,11 @@ dd.strong { font-weight: 600; }
 .gs-header { position: absolute; top: 0; left: 0; z-index: 2; will-change: transform; }
 .gs-rowcol { position: absolute; top: 0; left: 0; z-index: 1; will-change: transform;
   background: var(--panel2); border-right: 1px solid var(--line); }
-.gs-corner { position: absolute; top: 0; left: 0; z-index: 3; will-change: transform;
+.gs-corner { position: absolute; top: 0; left: 0; z-index: 3; will-change: transform; cursor: pointer;
   box-sizing: border-box; background: var(--panel2); color: var(--faint);
   display: flex; align-items: center; justify-content: center;
   border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.gs-rowhead { position: absolute; left: 0; box-sizing: border-box;
+.gs-rowhead { position: absolute; left: 0; box-sizing: border-box; cursor: pointer;
   background: var(--panel2); color: var(--faint);
   border-bottom: 1px solid var(--line);
   display: flex; align-items: center; justify-content: center;
@@ -530,6 +540,7 @@ dd.strong { font-weight: 600; }
 .gs-rowcol.gs-grain { background: color-mix(in srgb, var(--type-identifier) 9%, var(--panel2)); }
 .gs-rowcol.gs-grain .gs-rowhead { background: transparent; color: var(--type-identifier);
   font-size: 12px; font-weight: 600; }
+.gs-rowcol .gs-rowhead.gs-sel { background: color-mix(in srgb, var(--accent) 22%, var(--panel2)); }
 .gs-corner.gs-grain { color: var(--type-identifier); font-weight: 700; font-size: 11px;
   background: color-mix(in srgb, var(--type-identifier) 9%, var(--panel2)); }
 
@@ -623,13 +634,19 @@ dd.strong { font-weight: 600; }
   margin-top: -4px; border-radius: 50%; background: var(--primary);
   border: 2px solid var(--panel2); }
 .hp-node-body { display: flex; flex-direction: column; gap: 3px;
-  padding: 3px 0; min-width: 0; }
-.hp-level { display: inline-flex; align-items: center; gap: 6px; min-height: 20px; }
-.hp-level-name { font-size: 12px; color: var(--ink); font-weight: 500; }
+  padding: 3px 0; flex: 1; min-width: 0; }
+/* one line per level: the name takes what is left and truncates (its title holds
+   the full label); count, collapse function and the move arrows sit in fixed
+   columns so they line up from row to row */
+.hp-level { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center; gap: 6px; min-height: 22px; }
+.hp-level-name { font-size: 12px; color: var(--ink); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hp-count { font-size: 11px; color: var(--dim); background: var(--chip-bg);
-  border-radius: 0; padding: 0 6px; }
+  border-radius: 0; padding: 0 5px; min-width: 2.6em; text-align: right;
+  font-variant-numeric: tabular-nums; line-height: 20px; }
 .hp-fn { font-size: 11px; color: var(--dim); border: 1px solid var(--line2);
-  border-radius: 0; padding: 0 2px; background: var(--panel); }
+  border-radius: 0; padding: 0 2px; background: var(--panel); width: 62px; height: 22px; }
 .hp-move { display: inline-flex; gap: 1px; }
 .hp-branches { display: inline-flex; flex-wrap: wrap; gap: 4px; }
 .hp-branch { font-size: 11px; color: var(--sage); background: var(--sage-tint);
@@ -695,7 +712,9 @@ dd.strong { font-weight: 600; }
 .step-meta { font-size: 11px; color: var(--faint); }
 .step-sub { font-size: 11px; font-weight: 600; color: var(--dim); margin-top: 2px; }
 .step-add-row { font-size: 12px; align-self: flex-start; }
-button.icon { padding: 1px 5px; font-size: 11px; line-height: 1.4; }
+/* a fixed box: Safari sizes arrow glyphs from their fallback font and would make
+   these taller than the controls beside them */
+button.icon { padding: 0 5px; font-size: 11px; height: 22px; min-width: 22px; line-height: 20px; }
 button.icon:disabled { opacity: 0.3; }
 .add-step-btn { font-size: 12px; width: 100%; }
 .add-step-menu { display: flex; flex-direction: column; gap: 4px; }
@@ -928,19 +947,23 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 .tx-edge-label { font-size: 11px; font-weight: 500; }
 
 /* per-analysis collapse routing: mirrors .layer-rail / .hierarchy-panel. */
-.collapse-routing { width: 250px; flex: 0 0 auto; overflow: auto;
+.collapse-routing { width: 100%; max-width: 380px; flex: 0 0 auto; overflow: auto;
   background: var(--panel); border: 1px solid var(--line); border-radius: 0;
   padding: 8px; display: flex; flex-direction: column; gap: 8px; }
 .collapse-routing h3 { margin: 0; font-size: 13px; color: var(--ink); }
-.cr-steps { list-style: none; margin: 0; padding: 0; display: flex;
-  flex-direction: column; gap: 6px; }
-.cr-step { display: flex; align-items: center; gap: 4px;
-  border: 1px solid var(--line); border-radius: 0; padding: 6px 8px; }
-.cr-grain { flex: 1; min-width: 0; font-size: 12px; color: var(--ink);
+/* one line per step, top to bottom = coarser and coarser: the grain takes what is
+   left and truncates (title = the full level product); the function and the
+   move/remove buttons sit in fixed right-hand columns */
+.cr-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.cr-step { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  gap: 6px; padding: 4px 0; border-top: 1px solid var(--line); }
+.cr-step:first-child { border-top: none; }
+.cr-grain { min-width: 0; font-size: 12px; color: var(--ink);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cr-step select { font: inherit; font-size: 12px; color: var(--ink);
+.cr-step select { font: inherit; font-size: 12px; color: var(--ink); height: 22px; width: 72px;
   border: 1px solid var(--line); background: var(--panel); border-radius: 0;
-  padding: 1px 4px; cursor: pointer; }
+  padding: 0 4px; cursor: pointer; }
+.cr-ctl { display: inline-flex; gap: 1px; }
 .cr-add { display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
   font-size: 12px; color: var(--dim); }
 .cr-add button { font-size: 12px; color: var(--primary); background: none;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type CSSProperties } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
+import type { Hit } from "../useGridSelection";
 import {
   activeSchemaAtom, activeHandleAtom, activeHierarchyAtom,
   bumpActiveHandleAtom, applyTableEditAtom, typeColorsAtom,
@@ -430,6 +431,32 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
   // body, and a Ctrl+click selection lights each disjoint block's headers.
   const colBlockSelected = (c0: number, c1: number) =>
     gsel.rects.some((rx) => rx.r0 === 0 && rx.r1 === nRows - 1 && c0 >= rx.c0 && c1 <= rx.c1);
+  // and a row header when a full-width row block covers its row
+  const rowBlockSelected = (r: number) =>
+    gsel.rects.some((rx) => rx.c0 === 0 && rx.c1 === nCols - 1 && r >= rx.r0 && r <= rx.r1);
+  const rowMouseDown = (r: number, shift: boolean, additive: boolean) => {
+    gsel.onRowMouseDown(r, shift, additive);
+    scrollRef.current?.focus();
+  };
+
+  // touch: what lies under a point, read off the data attributes of the rendered
+  // layers (cells, headers at every grain, row heads, the corner). Nothing while
+  // an inline editor is open, so the finger keeps its native text behaviour there.
+  const editingRef = useRef(false);
+  editingRef.current = !!edit || !!head;
+  useEffect(() => {
+    const hitAt = (x: number, y: number): Hit | null => {
+      if (editingRef.current) return null;
+      const t = (document.elementFromPoint(x, y) as HTMLElement | null)
+        ?.closest<HTMLElement>(".gs-cell, .gs-head, .gs-rowhead, .gs-corner");
+      if (!t) return null;
+      if (t.classList.contains("gs-corner")) return { kind: "all" };
+      if (t.classList.contains("gs-rowhead")) return { kind: "row", r: Number(t.dataset.row) };
+      if (t.classList.contains("gs-head")) return { kind: "col", c0: Number(t.dataset.c0), c1: Number(t.dataset.c1) };
+      return { kind: "cell", r: Number(t.dataset.r), c: Number(t.dataset.c) };
+    };
+    return gsel.bindTouch(scrollRef.current, hitAt);
+  }, [gsel.bindTouch]);
   // press a header to select the columns it covers; drag across headers extends
   // the range (double-click renames). Every grain uses the same span-aware model:
   // a leaf covers one column, a band covers its whole group. Ctrl/Cmd adds a
@@ -556,8 +583,11 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
             there is no grain axis. */}
         <div className={`gs-rowcol${grain ? " gs-grain" : ""}`} style={{ transform: `translateX(${scroll.left}px)`, width: ROWHEAD_W, height: headerH + bodyH }}>
           {rng(vRows.start, vRows.end).map((r) => (
-            <div key={r} className="gs-rowhead" title={grain ? `${grain.label}: ${rowLabels[r]}` : undefined}
-              style={{ top: headerH + r * ROW_H, width: ROWHEAD_W, height: ROW_H }}>{grain ? rowLabels[r] : r + 1}</div>
+            <div key={r} data-row={r} className={`gs-rowhead${rowBlockSelected(r) ? " gs-sel" : ""}`}
+              title={grain ? `${grain.label}: ${rowLabels[r]}` : undefined}
+              style={{ top: headerH + r * ROW_H, width: ROWHEAD_W, height: ROW_H }}
+              onMouseDown={edit ? undefined : (e) => rowMouseDown(r, e.shiftKey, e.ctrlKey || e.metaKey)}
+              onMouseEnter={() => gsel.onRowMouseEnter(r)}>{grain ? rowLabels[r] : r + 1}</div>
           ))}
         </div>
 
@@ -595,7 +625,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
             const editing = head?.key === key;
             const label = columnLabels[c];
             return (
-              <div key={key} data-c={c} className={`gs-head gs-leaf${colBlockSelected(c, c) ? " gs-sel" : ""}`}
+              <div key={key} data-c={c} data-c0={c} data-c1={c} className={`gs-head gs-leaf${colBlockSelected(c, c) ? " gs-sel" : ""}`}
                 title={factorLabels[factorLabels.length - 1]}
                 style={{ left: ROWHEAD_W + offsets[c], top: bands.length * HEAD_ROW_H, width: widths[c], height: HEAD_ROW_H }}
                 onMouseDown={editing ? undefined : (e) => colMouseDown(c, c, e.shiftKey, e.ctrlKey || e.metaKey)}
@@ -616,8 +646,9 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
         </div>
 
         {/* corner, pinned both */}
-        <div className={`gs-corner${grain ? " gs-grain" : ""}`} title={grain?.label}
-          style={{ transform: `translate(${scroll.left}px, ${scroll.top}px)`, width: ROWHEAD_W, height: headerH }}>{grain?.label ?? "#"}</div>
+        <div className={`gs-corner${grain ? " gs-grain" : ""}`} title={grain ? `${grain.label} — click to select all` : "Select all"}
+          style={{ transform: `translate(${scroll.left}px, ${scroll.top}px)`, width: ROWHEAD_W, height: headerH }}
+          onMouseDown={edit ? undefined : () => { gsel.selectAll(); scrollRef.current?.focus(); }}>{grain?.label ?? "#"}</div>
       </div>
     </div>
   );

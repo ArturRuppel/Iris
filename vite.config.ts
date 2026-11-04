@@ -13,7 +13,7 @@ const classicHtml: Plugin = {
   },
 };
 
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ mode, command }) => {
   const web = mode === "web";
   return {
     plugins: web ? [react(), classicHtml] : [react()],
@@ -21,7 +21,9 @@ export default defineConfig(({ mode }) => {
     server: { port: 5173, strictPort: true },
     // classic, because Chromium blocks module workers from a blob on file:// pages
     worker: { format: "iife" },
-    base: web ? "./" : "/",
+    // relative, so the served build also works under a sub-path (the lab book
+    // mounts it at /iris/ on its own origin); the dev server stays at the root
+    base: command === "serve" ? "/" : "./",
     build: web ? {
       outDir: "dist-web",
       modulePreload: { polyfill: false },

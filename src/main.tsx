@@ -19,5 +19,5 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
    from. Fails soft: no support, or plain http off loopback (not a secure
    context), just means no offline shell. */
 if (servedMode && "serviceWorker" in navigator && window.isSecureContext) {
-  navigator.serviceWorker.register("/sw.js").catch(() => {});
+  navigator.serviceWorker.register("./sw.js").catch(() => {});   // scoped to this directory
 }

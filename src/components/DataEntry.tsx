@@ -3,7 +3,7 @@ import { useAtom } from "jotai";
 import { entryBandsAtom, entryColumnsAtom, entryRowsAtom, entryValueNameAtom } from "../state";
 import { type EntryCell as Cell, coverAt } from "../entryMelt";
 import { inRect, edgesOf, type Cell as GridCell, type Rect } from "../gridSelect";
-import { useGridSelection } from "../useGridSelection";
+import { useGridSelection, type Hit } from "../useGridSelection";
 
 /* The header is a stack of grouping rows over a row of value columns — exactly
    the merged-cell layout people build in Excel. `bands[0]` is the topmost
@@ -200,6 +200,24 @@ export function DataEntry() {
   const colSel = selectedCols();
   const colSelSet = new Set(colSel);
   const colSelected = (c: number): boolean => colSelSet.has(c);
+  const rowSelected = (r: number): boolean =>
+    gsel.rects.some((x) => x.c0 === 0 && x.c1 === nCols - 1 && r >= x.r0 && r <= x.r1);
+  // touch (iPad): long-press a cell, a column head or a row head, then drag
+  const editRef = useRef(false);
+  editRef.current = !!edit;
+  useEffect(() => {
+    const hitAt = (x: number, y: number): Hit | null => {
+      if (editRef.current) return null;
+      const t = (document.elementFromPoint(x, y) as HTMLElement | null)
+        ?.closest<HTMLElement>(".de-body, .de-colcell, .de-rowhead, .de-all");
+      if (!t) return null;
+      if (t.classList.contains("de-all")) return { kind: "all" };
+      if (t.classList.contains("de-rowhead")) return { kind: "row", r: Number(t.dataset.row) };
+      if (t.classList.contains("de-colcell")) { const c = Number(t.dataset.colhead); return { kind: "col", c0: c, c1: c }; }
+      return { kind: "cell", r: Number(t.dataset.r), c: Number(t.dataset.c) };
+    };
+    return gsel.bindTouch(scrollRef.current, hitAt);
+  }, [gsel.bindTouch]);
   const spanSelected = (c0: number, c1: number): boolean => {
     for (let c = c0; c <= c1; c++) if (!colSelSet.has(c)) return false;
     return true;
@@ -431,7 +449,8 @@ export function DataEntry() {
                     </tr>
                   ))}
                   <tr className="de-heads">
-                    <th className="de-corner">#</th>
+                    <th className="de-corner de-all" title="Select all"
+                      onMouseDown={(e) => { e.preventDefault(); setSel(null); gsel.selectAll(); focusScroll(); }}>#</th>
                     {columnLabels.map((label, c) => {
                       const editing = hEdit?.row === bands.length && hEdit?.i === c;
                       return (
@@ -454,7 +473,9 @@ export function DataEntry() {
                 <tbody>
                   {rows.map((_, r) => (
                     <tr key={r}>
-                      <td className="de-rowhead">
+                      <td className={`de-rowhead${rowSelected(r) ? " de-sel" : ""}`} data-row={r}
+                        onMouseDown={(e) => { if ((e.target as HTMLElement).tagName === "BUTTON") return; setSel(null); gsel.onRowMouseDown(r, e.shiftKey, e.ctrlKey || e.metaKey); focusScroll(); }}
+                        onMouseEnter={() => gsel.onRowMouseEnter(r)}>
                         <button className="de-icon" title="delete row"
                           onClick={() => removeRow(r)}>{r + 1}</button>
                       </td>

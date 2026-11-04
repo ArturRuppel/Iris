@@ -35,6 +35,21 @@ it. The unit sets `IRIS_HOST=127.0.0.1`; delete that line and `--serve` falls ba
 to binding the tailnet address itself (`tailscale ip -4`), plain HTTP, for a
 machine without Serve.
 
+The built page links its files relatively and finds the engine at its own
+directory, so the same service can also be mounted under a path on another
+origin. The lab book does that for its installed iPad app, which has no browser
+chrome and opens a foreign origin in an in-app browser instead:
+
+```
+tailscale serve --bg --https=5001 --set-path=/iris http://127.0.0.1:8766
+```
+
+gives `https://<machine>.<tailnet>.ts.net:5001/iris/` on the lab book's origin
+(Serve strips the prefix before proxying), and the lab book's `iris_url` points
+there. Figures then open inside the app window, and Iris shows a "Lab book" link
+back to the page it was opened from (`&back=`), guarded by a confirm when there
+are unsaved edits. The service worker is scoped to that directory.
+
 **After any frontend change:** `npm run build && systemctl --user restart iris`.
 The engine serves `dist/` off disk, so a rebuild alone is not enough for the
 Python process to notice — and a stale bundle is the failure that looks like

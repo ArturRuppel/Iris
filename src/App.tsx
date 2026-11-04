@@ -149,6 +149,15 @@ export default function App() {
   /* `?labbook=<url>` binds this page to one lab-book figure: the query stays, so a
      reload reopens the saved file, and the lab book replaces autosave and recovery. */
   const [labbookFile] = useState(() => browserRuntime ? null : labbookTarget(window.location.search));
+  /* `&back=<url>`: the lab-book page the figure was opened from. Shown as a link,
+     because the lab book's home-screen app has no browser chrome to go back with. */
+  const [labbookBack] = useState(() => {
+    if (!labbookFile) return null;
+    try {
+      const back = new URL(new URLSearchParams(window.location.search).get("back") ?? "");
+      return back.origin === new URL(labbookFile).origin ? back.href : null;
+    } catch { return null; }
+  });
   /* a single-file build (tools/pack-iris.mjs) opens the document it carries; the
      file itself is the saved state, so there is no autosave slot to share with others */
   const [embeddedDoc] = useState(() => browserRuntime ? document.getElementById("iris-document") : null);
@@ -892,6 +901,11 @@ export default function App() {
           {/* File-manipulation cluster, next to the logo: one ghost vocabulary for
               New / Load / Import / Export, and Save as the single filled action. */}
           <div className="tb-fileactions">
+            {labbookBack && <a className="tb-ghost tb-back" href={labbookBack} title="Back to the lab-book page"
+              onClick={(e) => {
+                const dirty = store.get(autosaveKeyAtom) !== autosaveBaseline && pool.length > 0;
+                if (dirty && !window.confirm("Leave without saving? The lab book keeps the figure as last saved.")) e.preventDefault();
+              }}>‹ Lab book</a>}
             {!labbookFile && <button className="tb-ghost" onClick={doNew}>New</button>}
             {!labbookFile && <button className="tb-ghost" onClick={doLoad}>Load</button>}
             <button className="tb-primary" onClick={doSave}

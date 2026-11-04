@@ -72,6 +72,18 @@ same tidy long table an import produces.
 
 ![The **Enter data…** wizard: one column per condition, values one per line, **+ condition** to add another, **Create table** to build the long table.](/guide/data-in-02-enter.png)
 
+### Selecting cells
+
+Both grids, the entry grid and the grouped sheet, select like a spreadsheet.
+Click a cell and drag for a block, Shift-click to extend it, Ctrl-click (Cmd on
+a Mac) to add a second block. A column header selects its column, a row head its
+row, and the corner cell, or Ctrl+A, selects everything. Copy, cut, paste and
+Delete act on the selection.
+
+On a touch screen a finger drag scrolls, so a range starts with a hold: press a
+cell, a column header or a row head for a moment, then drag. A tap on the corner
+selects everything.
+
 ## Column types
 
 Every column carries a type. Iris guesses it from the contents on import and
