@@ -4,6 +4,9 @@ Iris normally runs as a desktop app: the Tauri shell spawns the Python engine as
 a loopback sidecar and serves the built frontend itself. **Served mode** is the
 other deployment — one long-running engine that hands out the frontend *and*
 answers the API on a single origin, reachable from the phone and the iPad.
+(The hosted static build, `npm run build:web`, needs no server at all: it runs the
+engine in the page under Pyodide. See
+[the browser-runtime design](superpowers/specs/2026-11-02-browser-runtime-design.md).)
 
 It is the same arrangement as `labbook` and `lit` on this machine: a
 `systemd --user` unit bound to loopback, with `tailscale serve` terminating HTTPS

@@ -100,18 +100,23 @@ npm run dev                                       # http://localhost:5173
 ```
 
 There is also a build with nothing to install, and it is the one most people should
-use. `npm run build:web` writes a static site to `dist-web/`, about 96 MB, that runs
-the whole engine in the browser through [Pyodide](https://pyodide.org). It opens
+use. `npm run build:web` writes a static site to `dist-web/`, about 81 MB, that runs
+the whole engine in the browser through [Pyodide](https://pyodide.org). The page
+is usable at once and the engine is ready about 5 s later on a laptop: the build
+installs and compiles the Python packages ahead of time (in Pyodide under Node), so
+the browser only decompresses them into memory and imports them. It opens
 directly from a folder or file share, or from any static host. Every push to `main`
 publishes it to GitHub Pages at [arturruppel.github.io/Iris](https://arturruppel.github.io/Iris/)
 (`.github/workflows/pages.yml`), and the page makes no third-party request: the
 fonts are in the repo. Your data stays on your computer, and each `.iris` file records that it was computed this way. Its scipy and
-numpy are newer than the pinned desktop versions, so `npm run test:pyodide` runs the
-engine and validation suites against them. Chromium and Firefox are tested, and
-Safari is not yet.
+numpy are newer than the pinned desktop versions, so `npm run test:pyodide` (after
+`npm run build:web`) runs the engine and validation suites against the built
+packages. `node tools/boot-timing.mjs [url]` times a cold boot stage by stage.
+Chromium is tested; Firefox was last tested before the packages were prebuilt
+(2026-11), and Safari not yet.
 
 `npm run pack:iris -- figure.iris` folds that build and one document into a single
-HTML file of about 100 MB. It opens straight to the document, by double-click, with
+HTML file of about 85 MB. It opens straight to the document, by double-click, with
 no neighbouring files and no network. Edits there are not written back into the HTML:
 Save produces a `.iris` file. `npm run pack:iris -- --app [out.html]` packs the app
 alone; the deployed site carries it as `iris-offline.html`, behind the header's

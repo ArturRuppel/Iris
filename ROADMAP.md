@@ -80,8 +80,13 @@ likely to reorder everything below.
   `npm run build:web` to https://arturruppel.github.io/Iris/, with the app packed alone as
   `iris-offline.html` beside it. That answers cross-platform without installers,
   signing or an update mechanism; the Tauri desktop shell stays Linux-only and
-  unpackaged. Chromium and Firefox are tested, Safari is not yet. Boot time
-  (about 25 s) is the main thing to improve.
+  unpackaged. Chromium is tested; Firefox was last tested before the packages
+  were prebuilt, Safari not yet. The app shows
+  at once and the engine is ready in about 5 s from disk on a laptop (it took
+  about 25 s before the packages were prebuilt, 2026-11); over the network the
+  ~60 MB download is now most of the wait. Left to try: a smaller scipy (most of
+  its submodules are never imported), and a thinner dispatch than the FastAPI
+  app in the browser (~0.45 s of the import).
 
 ## Code-review tail
 
