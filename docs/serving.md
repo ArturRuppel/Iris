@@ -154,7 +154,3 @@ and `autosave.default_dir()` is a single per-user slot. Two clients — the lapt
 browser and the phone — will not collide on table ids, but they *will* clobber
 each other's autosave snapshot. Fine for one person on one device at a time;
 worth fixing before it is ever two.
-
-**Web fonts come from Google.** `index.html` loads IBM Plex from
-`fonts.googleapis.com`, so a device with no route to the public internet gets the
-fallback stack. Self-hosting them is the fix if that ever matters.

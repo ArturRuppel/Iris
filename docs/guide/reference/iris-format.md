@@ -15,7 +15,9 @@ the change propagates through the shaping steps to the figure and the statistics
 there is no stale copy to forget to refresh.
 
 The file also records the exact version of Iris that wrote it, so opening it
-later reproduces the same figure and the same numbers. Save and open `.iris`
+later reproduces the same figure and the same numbers. To keep that version
+itself with a publication, keep the offline file (the "Use offline" download, or
+`npm run pack:iris`): it is Iris frozen at one engine, opening with no network. Save and open `.iris`
 files from the header; figures export on their own as `.svg`, `.pdf`, or `.png`.
 
 ## Open by design

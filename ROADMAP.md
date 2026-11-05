@@ -76,11 +76,12 @@ likely to reorder everything below.
 
 ## Packaging and distribution
 
-- **Cross-platform distribution.** Linux is the only verified platform. macOS and
-  Windows builds are not packaged or verified, installers are unsigned, and
-  signing and notarization are deferred. An update mechanism goes with them.
-- **The browser build** (`npm run build:web`) opens from `file://` or any static host, and
-  Safari is untested. Boot time is the main thing to improve.
+- **Distribution is the hosted web build.** Every push to `main` deploys
+  `npm run build:web` to https://ruppel.pro/Iris/, with the app packed alone as
+  `iris-offline.html` beside it. That answers cross-platform without installers,
+  signing or an update mechanism; the Tauri desktop shell stays Linux-only and
+  unpackaged. Chromium and Firefox are tested, Safari is not yet. Boot time
+  (about 25 s) is the main thing to improve.
 
 ## Code-review tail
 

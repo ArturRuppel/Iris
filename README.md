@@ -2,6 +2,9 @@
 
 Publication-grade figures and honest statistics, from the GUI, from code, or both.
 
+**Try it at [ruppel.pro/Iris](https://ruppel.pro/Iris/).** It runs in your browser,
+with nothing to install, and your data stays on your computer.
+
 Iris is a desktop application built around one idea, the *reactive triad*: a
 typed data table, a figure, and a statistical analysis, linked so that editing
 any one updates the others. You build each analysis on an interactive graph, the
@@ -27,9 +30,9 @@ Iris is under active development and has no tagged release. Import, shaping,
 figure composition, the guided test picker, and `.iris` save/load work end to
 end and are covered by tests, but Iris has not yet been used for a published
 analysis: handing it to the researchers it is for is the next milestone, and the
-one most likely to change it. Linux is the verified platform: the Tauri shell is
-cross-platform by construction, but macOS and Windows builds are not packaged or
-verified yet, and installers are unsigned. Interfaces are still moving, and the
+one most likely to change it. The hosted web build is how Iris is distributed; it
+is tested in Chromium and Firefox, and Safari is not yet. The Tauri desktop shell
+is verified on Linux only, with no packaged macOS or Windows builds. Interfaces are still moving, and the
 `.iris` format (currently 2.1) moves with them. See [ROADMAP.md](ROADMAP.md).
 
 ## Documentation
@@ -96,10 +99,13 @@ cd engine && python -m iris_engine.main          # serves on 127.0.0.1:8765
 npm run dev                                       # http://localhost:5173
 ```
 
-There is also a build with nothing to install. `npm run build:web` writes a static
-site to `dist-web/`, about 96 MB, that runs the whole engine in the browser through
-[Pyodide](https://pyodide.org). It opens directly from a folder or file share, or from
-any static host. Your data stays on your computer, and each `.iris` file records that it was computed this way. Its scipy and
+There is also a build with nothing to install, and it is the one most people should
+use. `npm run build:web` writes a static site to `dist-web/`, about 96 MB, that runs
+the whole engine in the browser through [Pyodide](https://pyodide.org). It opens
+directly from a folder or file share, or from any static host. Every push to `main`
+publishes it to GitHub Pages at [ruppel.pro/Iris](https://ruppel.pro/Iris/)
+(`.github/workflows/pages.yml`), and the page makes no third-party request: the
+fonts are in the repo. Your data stays on your computer, and each `.iris` file records that it was computed this way. Its scipy and
 numpy are newer than the pinned desktop versions, so `npm run test:pyodide` runs the
 engine and validation suites against them. Chromium and Firefox are tested, and
 Safari is not yet.
@@ -107,7 +113,9 @@ Safari is not yet.
 `npm run pack:iris -- figure.iris` folds that build and one document into a single
 HTML file of about 100 MB. It opens straight to the document, by double-click, with
 no neighbouring files and no network. Edits there are not written back into the HTML:
-Save produces a `.iris` file.
+Save produces a `.iris` file. `npm run pack:iris -- --app [out.html]` packs the app
+alone; the deployed site carries it as `iris-offline.html`, behind the header's
+"Use offline" link, for working with no network at all.
 
 The lab-book export ships this build beside the figures. Each figure there links to
 `iris/index.html?embedded=<figure>.iris.js`, a classic script holding the file with
