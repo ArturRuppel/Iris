@@ -125,9 +125,8 @@ async function boot(manifest: Manifest) {
     images.delete(name);
   }
   for (const name of manifest.packages) py.loadedPackages[name] = "default channel";
-  const libs = [...manifest.dynlibs.boot, ...manifest.dynlibs.stats];
-  for (const [i, lib] of libs.entries()) {
-    if (i % 8 === 0) progress("Preparing the statistics libraries", 0.5 + 0.25 * (i / libs.length));
+  for (const [i, lib] of manifest.dynlibs.boot.entries()) {
+    if (i % 8 === 0) progress("Preparing the statistics libraries", 0.5 + 0.25 * (i / manifest.dynlibs.boot.length));
     await py._api.loadDynlib(lib);
   }
   py.FS.mkdirTree(AUTOSAVE_DIR);
@@ -144,6 +143,18 @@ browser.install()
 `);
   bridge = py.pyimport("iris_engine.browser");
   progress("Ready", 1);
+  /* then the statistics: requests queue behind this, and the first test would
+     have paid for it anyway */
+  queue = queue.then(() => warmStatistics(manifest.dynlibs.stats));
+}
+
+async function warmStatistics(libs: string[]) {
+  try {
+    for (const lib of libs) await py._api.loadDynlib(lib);
+    await py.runPythonAsync("import scipy.stats, statsmodels.api");
+  } catch (err) {
+    console.warn("statistics warm-up failed; the first test loads them instead:", err);
+  }
 }
 
 async function answer(id: number, method: string, url: string, headers: unknown, body: Uint8Array) {
