@@ -54,7 +54,8 @@ export function DataTable() {
         headerName: `${c.label}`,
         headerTooltip: c.identifier ? `identifier · ${c.type}` : `${c.type} (${TYPE_BADGE[sk]})`,
         headerClass: `type-${sk}`,
-        editable: !c.identifier,               // identifiers are keys, not edited
+        // identifiers are keys, not edited; a row still loading has nothing to edit
+        editable: c.identifier ? false : (p) => p.data != null,
         flex: 1,
         minWidth: 90,
         cellDataType: c.type === "numeric" ? "number" : "text",
@@ -89,7 +90,7 @@ export function DataTable() {
      server-owned table; bumping the handle version refetches the affected block
      (and re-runs compute). */
   const onCellEditRequest = async (e: CellEditRequestEvent<Row>) => {
-    if (!handle) return;
+    if (!handle || !e.data) return;
     const field = e.colDef.field!;
     const col = schema.columns.find((c) => c.name === field);
     let value: unknown = e.newValue;

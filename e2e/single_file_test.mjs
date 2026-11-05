@@ -51,6 +51,8 @@ if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/singl
 const before = await page.locator("[data-testid='plot-card'] .figure-frame svg").first().innerHTML();
 await page.click(".tb-seg button:has-text('Data')");
 const cell = page.locator(".data-mode .ag-center-cols-container .ag-cell").first();
+await page.waitForFunction(() =>          // the row's data is in, not a loading placeholder
+  document.querySelector(".data-mode .ag-center-cols-container .ag-cell")?.textContent?.trim(), null, { timeout: 60000 });
 await cell.click();
 await cell.locator(".ag-picker-field-wrapper").click();
 await page.locator(".ag-list-item:has-text('placebo')").click({ timeout: 10000 });
