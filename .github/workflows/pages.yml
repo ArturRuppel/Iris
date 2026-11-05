@@ -1,0 +1,54 @@
+# The zero-install web build on GitHub Pages (https://ruppel.pro/Iris/), with the
+# offline single file beside it. Everything the page loads is built in: Pyodide
+# from node_modules, its packages and the pinned PyPI wheels downloaded once and
+# checked against their SHA-256 (tools/build-web.mjs), the fonts from the repo.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # git describe stamps the engine with its commit
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # after npm ci, which empties node_modules: the verified wheels, keyed on
+      # what pins them (the pyodide version in the lock file, the PyPI pins)
+      - uses: actions/cache@v4
+        with:
+          path: node_modules/.cache/iris-web
+          key: iris-web-${{ hashFiles('package-lock.json', 'tools/build-web.mjs') }}
+          restore-keys: iris-web-
+      - run: npm run build:web
+      - run: node tools/pack-iris.mjs --app dist-web/iris-offline.html
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
