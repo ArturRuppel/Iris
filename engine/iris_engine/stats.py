@@ -1,15 +1,38 @@
 """Group-comparison statistics: assumption checks, recommendation, tests.
 
-All inferential numbers come from scipy/pingouin — never reimplemented.
+Every test statistic and p-value comes from scipy.stats. What scipy does not
+report (confidence intervals of a mean difference, Hedges' g, rank-biserial r,
+Tukey's HSD table, Holm's adjustment) is computed here from the textbook formula,
+each in one short helper below; they reproduce pingouin 0.6.1, which Iris used
+before 2026-11, to floating-point precision.
+
+scipy is imported on first use, not with this module, so that the browser build
+can show the app before scipy has loaded.
 """
 from __future__ import annotations
 
+import importlib
+from itertools import combinations
 from math import comb, factorial, prod
 
 import numpy as np
 import pandas as pd
-import pingouin as pg
-from scipy import stats as sps
+
+
+class _LazyModule:
+    """`sps.ttest_rel(...)` imports scipy.stats on the first attribute access."""
+
+    def __init__(self, name: str):
+        self._name = name
+        self._module = None
+
+    def __getattr__(self, attr):
+        if self._module is None:
+            self._module = importlib.import_module(self._name)
+        return getattr(self._module, attr)
+
+
+sps = _LazyModule("scipy.stats")
 
 MIN_N_FOR_NORMALITY_RULE = 12  # below this, rank-based test is the safe default
 
@@ -22,12 +45,67 @@ NORMALITY_CAP = 5000
 _NORM_RNG_SEED = 0
 
 
-def _col(row, *names):
-    """Read a pingouin result field across versions (0.5: 'p-val', 0.6: 'p_val')."""
-    for n in names:
-        if n in row:
-            return row[n]
-    raise KeyError(names)
+# ── Formulas scipy does not report ────────────────────────────────────────────
+
+def _t_ci(center: float, se: float, dof: float, conf: float = 0.95) -> list[float]:
+    """Two-sided t interval around `center`."""
+    half = float(sps.t.ppf(1 - (1 - conf) / 2, dof)) * se
+    return [center - half, center + half]
+
+
+def _hedges_g(a: np.ndarray, b: np.ndarray, paired: bool = False) -> float:
+    """Hedges' g: Cohen's d times the small-sample factor 1 − 3/(4(na+nb) − 9).
+    Independent groups standardise by the pooled SD; paired ones by the root mean
+    of the two variances (d_av, Cumming 2012), as pingouin's compute_effsize."""
+    na, nb = len(a), len(b)
+    va, vb = np.var(a, ddof=1), np.var(b, ddof=1)
+    if paired:
+        sd = np.sqrt((va + vb) / 2)
+    else:
+        sd = np.sqrt(((na - 1) * va + (nb - 1) * vb) / (na + nb - 2))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        d = (np.mean(a) - np.mean(b)) / sd
+    return float(d * (1 - 3 / (4 * (na + nb) - 9)))
+
+
+def _signed_rank_rbc(diff: np.ndarray) -> float:
+    """Matched-pairs rank-biserial r: (R+ − R−) / (R+ + R−) over the nonzero
+    differences ranked by magnitude (Kerby 2014)."""
+    d = diff[diff != 0]
+    if not len(d):
+        return float("nan")
+    r = sps.rankdata(np.abs(d))
+    return float((r[d > 0].sum() - r[d < 0].sum()) / r.sum())
+
+
+def _wilcoxon(diff: np.ndarray) -> tuple[float, float, float]:
+    """Wilcoxon signed-rank on paired differences: (W, p, rank-biserial r).
+    scipy's defaults with the continuity correction on, as pingouin ran it."""
+    res = sps.wilcoxon(diff, correction=True)
+    return float(res.statistic), float(res.pvalue), _signed_rank_rbc(diff)
+
+
+def _corr(xa: np.ndarray, ya: np.ndarray, method: str) -> tuple[float, float, list[float]]:
+    """Pearson or Spearman coefficient, its p-value, and the 95% CI from Fisher's
+    z (tanh(atanh r ± 1.96/√(n − 3)), the same interval for both coefficients)."""
+    res = (sps.pearsonr(xa, ya) if method == "pearson" else sps.spearmanr(xa, ya))
+    r, p = float(res.statistic), float(res.pvalue)
+    if abs(r) >= 1:
+        return r, p, [r, r]
+    with np.errstate(divide="ignore"):           # n = 3: the interval is (−1, 1)
+        half = float(sps.norm.ppf(0.975)) / np.sqrt(len(xa) - 3)
+    z = np.arctanh(r)
+    return r, p, [float(np.tanh(z - half)), float(np.tanh(z + half))]
+
+
+def _holm(pvals: list[float]) -> list[float]:
+    """Holm's step-down adjustment: sorted p times (m − rank), as a running max."""
+    p = np.asarray(pvals, dtype=float)
+    order = np.argsort(p)
+    adj = np.maximum.accumulate(p[order] * (len(p) - np.arange(len(p))))
+    out = np.empty_like(p)
+    out[order] = np.minimum(adj, 1.0)
+    return out.tolist()
 
 
 def _fmt_p(p: float) -> str:
@@ -236,21 +314,32 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
     chosen_by = "recommendation_accepted"
 
     if test == "one_way_anova":
-        aov = pg.anova(data=sub, dv=y, between=x).iloc[0]
-        F = float(_col(aov, "F"))
-        p = float(_col(aov, "p-unc", "p_unc"))
-        df_b = float(_col(aov, "ddof1"))
-        df_w = float(_col(aov, "ddof2"))
-        eta = float(_col(aov, "np2"))  # partial η² == η² for one-way
-        tuk = pg.pairwise_tukey(data=sub, dv=y, between=x)
+        # Pairs in the grouping's sort order (category order for a categorical),
+        # A − B for each pair, as the table has always been reported.
+        groups = {lv: g.to_numpy(dtype=float)
+                  for lv, g in sub.groupby(x, observed=True)[y]}
+        labels = list(groups)
+        aov = sps.f_oneway(*groups.values())
+        F, p = float(aov.statistic), float(aov.pvalue)
+        df_b, df_w = float(k - 1), float(N - k)
+        grand = np.mean(np.concatenate(list(groups.values())))
+        ss_b = sum(len(g) * (np.mean(g) - grand) ** 2 for g in groups.values())
+        ss_w = sum(((g - np.mean(g)) ** 2).sum() for g in groups.values())
+        eta = float(ss_b / (ss_b + ss_w))   # η² (== partial η² for one-way)
+        mse = ss_w / df_w
         pairwise = []
-        for _, r in tuk.iterrows():
-            padj = float(_col(r, "p-tukey", "p_tukey"))
+        for la, lb in combinations(labels, 2):
+            ga, gb = groups[la], groups[lb]
+            diff = float(np.mean(ga) - np.mean(gb))
+            # Tukey's HSD: |t| on the pooled MSE, through the studentized range
+            se = np.sqrt(mse / len(ga) + mse / len(gb))
+            padj = float(np.clip(sps.studentized_range.sf(
+                np.sqrt(2) * abs(diff / se), k, df_w), 0.0, 1.0))
             pairwise.append({
-                "a": str(r["A"]), "b": str(r["B"]),
+                "a": str(la), "b": str(lb),
                 "p": padj, "p_adj": padj, "stars": _p_stars(padj),
-                "mean_diff": float(_col(r, "diff")),
-                "effect": {"name": "hedges_g", "value": float(_col(r, "hedges"))},
+                "mean_diff": diff,
+                "effect": {"name": "hedges_g", "value": _hedges_g(ga, gb)},
             })
         correction = "tukey"
         result = {
@@ -267,22 +356,20 @@ def multi_group_comparison(df: pd.DataFrame, x: str, y: str, found: list[str],
             f"p {_fmt_p(p)}; η² = {eta:.2f}. Pairwise differences used Tukey's "
             f"HSD (family-wise α = {alpha}): {pair_txt}.")
     else:
-        kw = pg.kruskal(data=sub, dv=y, between=x).iloc[0]
-        H = float(_col(kw, "H"))
-        p = float(_col(kw, "p-unc", "p_unc"))
-        df_b = float(_col(kw, "ddof1"))
+        groups = {lv: g.to_numpy(dtype=float)
+                  for lv, g in sub.groupby(x, observed=True)[y]}
+        kw = sps.kruskal(*groups.values())   # tie-corrected H
+        H, p = float(kw.statistic), float(kw.pvalue)
+        df_b = float(k - 1)
         eps = (H - k + 1) / (N - k) if N > k else 0.0  # epsilon-squared
-        pw = pg.pairwise_tests(data=sub, dv=y, between=x, parametric=False,
-                               padjust="holm")
-        pairwise = []
-        for _, r in pw.iterrows():
-            praw = float(_col(r, "p-unc", "p_unc"))
-            padj = float(_col(r, "p-corr", "p_corr")) if ("p-corr" in r or "p_corr" in r) \
-                else praw
-            pairwise.append({
-                "a": str(r["A"]), "b": str(r["B"]),
-                "p": praw, "p_adj": padj, "stars": _p_stars(padj),
-            })
+        pairs = list(combinations(groups, 2))
+        raw = [float(sps.mannwhitneyu(groups[la], groups[lb], use_continuity=True,
+                                      alternative="two-sided", method="auto").pvalue)
+               for la, lb in pairs]
+        adj = _holm(raw) if len(raw) > 1 else raw
+        pairwise = [{"a": str(la), "b": str(lb), "p": praw, "p_adj": padj,
+                     "stars": _p_stars(padj)}
+                    for (la, lb), praw, padj in zip(pairs, raw, adj)]
         correction = "holm"
         result = {
             "test": "kruskal", "H": H, "df": df_b, "p": p, "n": N, "k": k,
@@ -474,29 +561,24 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
                       f"{pairing.get('across')}.")
 
     if test == "paired_t":
-        tt = pg.ttest(a, b, paired=True)
-        row = tt.iloc[0]
-        gd = float(pg.compute_effsize(a, b, paired=True, eftype="hedges"))
-        ci_lo, ci_hi = (float(v) for v in _col(row, "CI95", "CI95%"))
+        tt = sps.ttest_rel(a, b)
+        t_val, dof, p_val = float(tt.statistic), float(nA - 1), float(tt.pvalue)
+        gd = _hedges_g(a, b, paired=True)
         md = float(np.mean(a - b))
+        ci_lo, ci_hi = _t_ci(md, float(np.sqrt(np.var(a - b, ddof=1) / nA)), dof)
         result = {
-            "test": "paired_t", "t": float(_col(row, "T")),
-            "df": float(_col(row, "dof")), "p": float(_col(row, "p_val", "p-val")),
+            "test": "paired_t", "t": t_val, "df": dof, "p": p_val,
             "n": nA, "mean_diff": md, "mean_diff_ci": [ci_lo, ci_hi],
             "effect": {"name": "hedges_g", "value": gd, "ci": None},
         }
         methods = (
             f"{y} was compared between {found[0]} and {found[1]} using a paired "
-            f"t-test on {nA} matched pairs. t({_col(row,'dof'):.0f}) = "
-            f"{_col(row,'T'):.2f}, p {_fmt_p(_col(row,'p_val','p-val'))}; "
+            f"t-test on {nA} matched pairs. t({dof:.0f}) = "
+            f"{t_val:.2f}, p {_fmt_p(p_val)}; "
             f"Hedges' g = {gd:.2f}; mean difference = {md:.2f} "
             f"(95% CI {ci_lo:.2f} to {ci_hi:.2f}).{pair_note}")
     elif test == "wilcoxon":
-        ww = pg.wilcoxon(a, b)
-        row = ww.iloc[0]
-        W = float(_col(row, "W_val", "W-val"))
-        p = float(_col(row, "p_val", "p-val"))
-        rbc = float(_col(row, "RBC"))
+        W, p, rbc = _wilcoxon(a - b)
         result = {
             "test": "wilcoxon", "W": W, "p": p, "n": nA,
             "effect": {"name": "rank_biserial", "value": rbc, "ci": None},
@@ -506,32 +588,33 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             f"Wilcoxon signed-rank test on {nA} matched pairs. W = {W:.0f}, "
             f"p {_fmt_p(p)}; rank-biserial r = {rbc:.2f}.{pair_note}")
     elif test == "welch_t":
-        tt = pg.ttest(a, b, correction=True)
-        row = tt.iloc[0]
-        gd = float(pg.compute_effsize(a, b, eftype="hedges"))
+        tt = sps.ttest_ind(a, b, equal_var=False)
+        t_val, p_val = float(tt.statistic), float(tt.pvalue)
+        va, vb = np.var(a, ddof=1) / nA, np.var(b, ddof=1) / nB
+        with np.errstate(divide="ignore", invalid="ignore"):   # zero variance: NaN
+            dof = float((va + vb) ** 2 / (va**2 / (nA - 1) + vb**2 / (nB - 1)))  # Welch–Satterthwaite
+        gd = _hedges_g(a, b)
         se_g = float(np.sqrt((nA + nB) / (nA * nB) + gd**2 / (2 * (nA + nB - 2))))
-        ci_lo, ci_hi = (float(v) for v in _col(row, "CI95", "CI95%"))
+        md = float(np.mean(a) - np.mean(b))
+        ci_lo, ci_hi = _t_ci(md, float(np.sqrt(va + vb)), dof)
         result = {
-            "test": "welch_t", "t": float(_col(row, "T")), "df": float(_col(row, "dof")),
-            "p": float(_col(row, "p_val", "p-val")),
-            "mean_diff": float(np.mean(a) - np.mean(b)),
+            "test": "welch_t", "t": t_val, "df": dof, "p": p_val,
+            "mean_diff": md,
             "mean_diff_ci": [ci_lo, ci_hi],
             "effect": {"name": "hedges_g", "value": gd,
                        "ci": [gd - 1.96 * se_g, gd + 1.96 * se_g]},
         }
         methods = (
             f"{y} was compared between {found[0]} (n = {nA}) and {found[1]} (n = {nB}) "
-            f"using Welch's t-test. t({_col(row,'dof'):.1f}) = {_col(row,'T'):.2f}, "
-            f"p {_fmt_p(_col(row,'p_val','p-val'))}; Hedges' g = {gd:.2f} "
+            f"using Welch's t-test. t({dof:.1f}) = {t_val:.2f}, "
+            f"p {_fmt_p(p_val)}; Hedges' g = {gd:.2f} "
             f"(95% CI {gd - 1.96 * se_g:.2f} to {gd + 1.96 * se_g:.2f}).{pair_note}")
     else:
-        # scipy's asymptotic U matches pingouin's exactly but skips pingouin's
-        # O(nA·nB) CLES brute force, which alone cost ~14 s on 80k-row groups.
-        # method="auto" mirrors pingouin's default (exact only for tiny n).
+        # method="auto": exact for small samples without ties, asymptotic otherwise.
         mw = sps.mannwhitneyu(a, b, alternative="two-sided", method="auto")
         U = float(mw.statistic)
         p = float(mw.pvalue)
-        rbc = (2.0 * U) / (nA * nB) - 1.0  # rank-biserial, pingouin's sign
+        rbc = (2.0 * U) / (nA * nB) - 1.0  # rank-biserial r; positive when a > b
         result = {
             "test": "mann_whitney", "U": U, "p": p,
             "effect": {"name": "rank_biserial", "value": rbc, "ci": None},
@@ -651,16 +734,13 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
                               "center_ci": None})
             continue
         if test == "one_sample_t":
-            row = pg.ttest(v, reference).iloc[0]
-            t = float(_col(row, "T"))
-            dof = float(_col(row, "dof"))
-            p = float(_col(row, "p_val", "p-val"))
-            # Cohen's dz = mean(diff)/sd(diff), computed directly so it keeps its
-            # SIGN (the direction of the effect); pingouin's one-sample cohen_d
-            # reports only the magnitude.
+            tt = sps.ttest_1samp(v, reference)
+            t, p = float(tt.statistic), float(tt.pvalue)
+            dof = float(n - 1)
+            # Cohen's dz = mean(diff)/sd(diff), signed (the direction of the effect).
             sd_diff = float(np.std(diff, ddof=1))
             dz = float(np.mean(diff) / sd_diff) if sd_diff > 0 else 0.0
-            ci = [float(c) for c in _col(row, "CI95", "CI95%")]  # CI of the mean
+            ci = _t_ci(float(np.mean(v)), sd_diff / np.sqrt(n), dof)  # CI of the mean
             md = float(np.mean(diff))
             per_group.append({
                 "level": lv, "test": "one_sample_t", "t": t, "df": dof, "p": p,
@@ -670,10 +750,7 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
                 "center_ci": ci, "mean_diff": md,
                 "mean_diff_ci": [ci[0] - reference, ci[1] - reference]})
         else:
-            row = pg.wilcoxon(diff).iloc[0]
-            W = float(_col(row, "W_val", "W-val"))
-            p = float(_col(row, "p_val", "p-val"))
-            rbc = float(_col(row, "RBC"))
+            W, p, rbc = _wilcoxon(diff)
             per_group.append({
                 "level": lv, "test": "wilcoxon_signed", "W": W, "p": p,
                 "stars": _p_stars(p),
@@ -980,8 +1057,7 @@ def _per_unit_correlation(sub: pd.DataFrame, x: str, y: str, unit_cols: list[str
         xa, ya = g[x].to_numpy(float), g[y].to_numpy(float)
         if len(g) < 3 or np.ptp(xa) == 0 or np.ptp(ya) == 0:
             continue            # an undefined within-unit r cannot enter the test
-        ri = pg.corr(xa, ya, method=test).iloc[0]
-        rs.append(float(_col(ri, "r")))
+        rs.append(_corr(xa, ya, test)[0])
         kept.append(key)
     if len(rs) < 3:
         return None
@@ -1020,7 +1096,7 @@ def _ols_band(xa: np.ndarray, ya: np.ndarray) -> dict:
 def _corr_on(sub: pd.DataFrame, x: str, y: str, test: str, alpha: float,
              unit_cols: list[str] | None) -> dict | None:
     """The inferential `result` for one (sub)frame: replicate-level when a spine
-    is given and resolvable, else the pooled pingouin coefficient. None when the
+    is given and resolvable, else the pooled coefficient. None when the
     frame can't yield a defined coefficient (constant axis / < 3 pairs)."""
     xa, ya = sub[x].to_numpy(float), sub[y].to_numpy(float)
     if len(sub) < 3 or np.ptp(xa) == 0 or np.ptp(ya) == 0:
@@ -1029,11 +1105,9 @@ def _corr_on(sub: pd.DataFrame, x: str, y: str, test: str, alpha: float,
         unit_result = _per_unit_correlation(sub, x, y, unit_cols, test, alpha)
         if unit_result is not None:
             return unit_result
-    row = pg.corr(xa, ya, method=test).iloc[0]
+    r, p, ci = _corr(xa, ya, test)
     eff_name = "pearson_r" if test == "pearson" else "spearman_rho"
-    r = float(_col(row, "r"))
-    ci = [float(v) for v in _col(row, "CI95", "CI95%")]
-    return {"test": test, "r": r, "p": float(_col(row, "p_val", "p-val")),
+    return {"test": test, "r": r, "p": p,
             "n": len(sub), "effect": {"name": eff_name, "value": r, "ci": ci}}
 
 
@@ -1043,7 +1117,7 @@ def correlation(df: pd.DataFrame, x: str, y: str, alpha: float = 0.05,
                 group_col: str | None = None) -> dict:
     """Pearson/Spearman correlation between two numeric columns, plus the
     OLS line and its 95% CI band for the figure (the band is rendering
-    furniture; the inferential numbers come from pingouin).
+    furniture; the inferential numbers come from scipy.stats).
 
     With `unit_cols` (the hierarchy spine), the inferential unit is the coarsest
     spine level, not the row: a per-unit coefficient is computed and the

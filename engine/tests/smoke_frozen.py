@@ -66,7 +66,7 @@ def main() -> None:
         health = wait_for_health()
         boot = time.monotonic() - t0
         snap = health["engine_snapshot"]
-        assert all(k in snap for k in ("scipy", "pingouin", "matplotlib"))
+        assert all(k in snap for k in ("scipy", "statsmodels", "matplotlib"))
         ok(f"boots and reports versions (cold start {boot:.1f}s)")
 
         sample = req("/sample")

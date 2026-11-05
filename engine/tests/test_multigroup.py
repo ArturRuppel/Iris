@@ -1,7 +1,7 @@
 """Multi-group comparison (>2 levels): omnibus test + corrected pairwise.
 
 group_comparison delegates to multi_group_comparison once a factor has more than
-two levels. Ground truth is recomputed independently with raw scipy/pingouin —
+two levels. Ground truth is recomputed independently with raw scipy —
 never echoed from the engine — so an assertion can't be a tautology. Covers test
 selection (ANOVA vs Kruskal), the omnibus statistic, the pairwise table shape +
 multiplicity correction, and the override channel.
@@ -11,7 +11,6 @@ import re
 
 import numpy as np
 import pandas as pd
-import pingouin as pg
 import pytest
 from scipy import stats as sps
 
@@ -104,14 +103,15 @@ def test_pairwise_covers_every_pair():
     assert res["result"]["correction"] == "tukey"
 
 
-def test_tukey_adjusted_p_matches_pingouin():
+def test_tukey_adjusted_p_matches_scipy():
     df = _three_group_df()
     res = stats.group_comparison(df, "g", "y", ["A", "B", "C"])
-    tuk = pg.pairwise_tukey(data=df, dv="y", between="g")
-    ref = {frozenset((str(r["A"]), str(r["B"]))): float(stats._col(r, "p-tukey", "p_tukey"))
-           for _, r in tuk.iterrows()}
+    levels = ["A", "B", "C"]
+    tuk = sps.tukey_hsd(*(df.loc[df.g == lv, "y"].to_numpy(float) for lv in levels))
+    ref = {frozenset((levels[i], levels[j])): float(tuk.pvalue[i, j])
+           for i in range(3) for j in range(i + 1, 3)}
     for pw in res["result"]["pairwise"]:
-        assert pw["p_adj"] == pytest.approx(ref[frozenset((pw["a"], pw["b"]))], rel=1e-9)
+        assert pw["p_adj"] == pytest.approx(ref[frozenset((pw["a"], pw["b"]))], rel=1e-6)
 
 
 def test_holm_correction_inflates_pairwise_p():

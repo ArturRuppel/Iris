@@ -16,7 +16,7 @@ pip install "iris-engine[server]"  # + the FastAPI HTTP service used by the GUI
 ```
 
 The bare install pulls only the compute/render stack (numpy, pandas, pyarrow,
-scipy, pingouin, matplotlib, seaborn). FastAPI / uvicorn come only with the
+scipy, statsmodels, matplotlib). FastAPI / uvicorn come only with the
 `server` extra.
 
 ## Library use

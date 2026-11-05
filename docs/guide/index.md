@@ -20,5 +20,5 @@ When you add a statistical test, Iris suggests one based on the structure of you
 data and shows how it arrived there; you can take the suggestion or choose
 another.
 
-[^libs]: The statistics come from scipy, statsmodels and pingouin; the figures
+[^libs]: The statistics come from scipy and statsmodels; the figures
     from matplotlib.

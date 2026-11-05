@@ -60,7 +60,7 @@ recommendations.
 ```
 ┌────────────────────────────┐  HTTP (localhost)  ┌───────────────────────────────┐
 │  React + TypeScript        │ ─────────────────► │  iris-engine (Python sidecar) │
-│  Jotai state · AG Grid     │  /analyze /export  │  pandas · scipy · pingouin    │
+│  Jotai state · AG Grid     │  /analyze /export  │  pandas · scipy · statsmodels │
 │  SVG injection             │ ◄───────────────── │  matplotlib (vector SVG/PDF)  │
 └────────────────────────────┘  SVG + stats + spec└───────────────────────────────┘
        ▲ both hosted by the Tauri shell, which spawns and reaps the sidecar ▲
@@ -188,12 +188,15 @@ tests.
 
 Engine dependency versions are pinned and recorded in every document's
 `engine_snapshot`. The corpus earns its keep: pingouin 0.6 once silently renamed
-its result columns and broke the engine.
+its result columns and broke the engine. (Iris has since dropped pingouin: the
+tests come from scipy.stats directly, and the few textbook quantities scipy does
+not report, such as Hedges' g and Tukey's HSD table, are short formulas in
+`stats.py` that reproduce pingouin's numbers.)
 
 ## Built on
 
-Iris does not implement statistics. Every inferential number comes from an
-established library, and every figure from matplotlib. If you publish an Iris
+Iris does not implement statistical tests. Every test statistic and p-value
+comes from an established library, and every figure from matplotlib. If you publish an Iris
 analysis, please cite the ones it used:
 
 - **[scipy](https://scipy.org)**: Virtanen P, et al. *SciPy 1.0: fundamental
@@ -203,9 +206,6 @@ analysis, please cite the ones it used:
   *statsmodels: econometric and statistical modeling with Python.* Proceedings of
   the 9th Python in Science Conference (2010).
   [doi:10.25080/Majora-92bf1922-011](https://doi.org/10.25080/Majora-92bf1922-011)
-- **[pingouin](https://pingouin-stats.org)**: Vallat R. *Pingouin: statistics in
-  Python.* Journal of Open Source Software 3(31), 1026 (2018).
-  [doi:10.21105/joss.01026](https://doi.org/10.21105/joss.01026)
 - **[matplotlib](https://matplotlib.org)**: Hunter JD. *Matplotlib: a 2D graphics
   environment.* Computing in Science & Engineering 9(3), 90–95 (2007).
   [doi:10.1109/MCSE.2007.55](https://doi.org/10.1109/MCSE.2007.55)

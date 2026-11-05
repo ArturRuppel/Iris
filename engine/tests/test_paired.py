@@ -1,17 +1,23 @@
 """§5 structural axis: paired numeric tests (paired t / Wilcoxon).
 
 Pairing is derived from the spine (hierarchy.pairing) — no user declaration.
-Ground truth is pingouin/scipy; these assert the engine picks the structural axis
+Ground truth is scipy plus the textbook effect-size formulas; these assert the engine picks the structural axis
 from the pairing verdict, aligns pairs correctly, and reports the right cell.
 """
 import numpy as np
 import pandas as pd
-import pingouin as pg
 import pytest
 from scipy import stats as sps
 
 from iris_engine import stats
-from iris_engine.stats import _col   # version-robust pingouin column access
+
+
+def _hedges_paired(a, b):
+    """Hedges' g for paired samples (d_av, Cumming 2012), written out
+    independently of the engine: mean difference over the root mean variance,
+    times the small-sample factor."""
+    d = (np.mean(a) - np.mean(b)) / np.sqrt((np.var(a, ddof=1) + np.var(b, ddof=1)) / 2)
+    return d * (1 - 3 / (4 * (len(a) + len(b)) - 9))
 
 
 # subject ⊃ rep; `group` is the comparison qualifier (orthogonal to the spine).
@@ -62,20 +68,21 @@ def test_unpaired_verdict_stays_independent():
     assert res["decision"]["structural"]["recommended"] == "independent"
 
 
-# ── paired t matches pingouin on the aligned pairs ────────────────────────────
+# ── paired t matches scipy on the aligned pairs ────────────────────────────
 
-def test_paired_t_matches_pingouin():
+def test_paired_t_matches_scipy():
     df = _paired_df()
     a, b = _unit_means(df)
-    ref = pg.ttest(a, b, paired=True).iloc[0]
+    ref = sps.ttest_rel(a, b)
     res = stats.group_comparison(df, "group", "y", ["A", "B"], pairing=PAIRING)
     r = res["result"]
     assert r["n"] == 15                                  # 15 pairs, not 90 rows
-    assert r["t"] == pytest.approx(float(_col(ref, "T")))
-    assert r["p"] == pytest.approx(float(_col(ref, "p_val", "p-val")))
+    assert r["t"] == pytest.approx(float(ref.statistic))
+    assert r["p"] == pytest.approx(float(ref.pvalue))
     assert r["mean_diff"] == pytest.approx(float(np.mean(a - b)))
-    g = pg.compute_effsize(a, b, paired=True, eftype="hedges")
-    assert r["effect"]["value"] == pytest.approx(float(g))
+    assert r["effect"]["value"] == pytest.approx(float(_hedges_paired(a, b)))
+    half = sps.t.ppf(0.975, len(a) - 1) * sps.sem(a - b)
+    assert r["mean_diff_ci"] == pytest.approx([np.mean(a - b) - half, np.mean(a - b) + half])
 
 
 def test_paired_n_counts_units_not_rows():
@@ -88,18 +95,21 @@ def test_paired_n_counts_units_not_rows():
 
 # ── Wilcoxon override + small-n robust default ────────────────────────────────
 
-def test_wilcoxon_override_matches_pingouin():
+def test_wilcoxon_override_matches_scipy():
     df = _paired_df()
     a, b = _unit_means(df)
-    ref = pg.wilcoxon(a, b).iloc[0]
+    ref = sps.wilcoxon(a, b)
+    d = (a - b)[a != b]
+    ranks = sps.rankdata(np.abs(d))
+    rbc = (ranks[d > 0].sum() - ranks[d < 0].sum()) / ranks.sum()
     res = stats.group_comparison(df, "group", "y", ["A", "B"],
                                  pairing=PAIRING, override="wilcoxon")
     r = res["result"]
     assert r["test"] == "wilcoxon"
     assert res["chosen_by"] == "recommendation_accepted"  # neutral; the pin still took effect
-    assert r["W"] == pytest.approx(float(_col(ref, "W_val", "W-val")))
-    assert r["p"] == pytest.approx(float(_col(ref, "p_val", "p-val")))
-    assert r["effect"]["value"] == pytest.approx(float(_col(ref, "RBC")))
+    assert r["W"] == pytest.approx(float(ref.statistic))
+    assert r["p"] == pytest.approx(float(ref.pvalue))
+    assert r["effect"]["value"] == pytest.approx(float(rbc))
 
 
 def test_small_paired_defaults_to_wilcoxon():

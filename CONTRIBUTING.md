@@ -102,8 +102,9 @@ without being any.
 
 That corpus exists because of what Iris promises its users. Its readers can read
 a p-value but not audit the code behind it, so the numbers are taken on trust:
-inference comes from scipy, statsmodels, and pingouin rather than from
-hand-rolled code, and the plot and the test compile from one spec so they cannot
+inference comes from scipy and statsmodels rather than from
+hand-rolled code (the effect sizes and intervals they do not report are
+textbook formulas in stats.py, each checked against pingouin's numbers), and the plot and the test compile from one spec so they cannot
 disagree. Changes that widen a test's reach are welcome as long as the assumption
 checks and the effect size come along with it.
 
@@ -122,7 +123,7 @@ engine/iris_engine/
                   dag.py (the shaping graph), shape.py, specnorm.py
   the figure      compiler.py (spec → matplotlib, mm sizing, vector SVG),
                   geoms.py, scales.py, guards.py, style.py, render.py
-  the statistics  stats.py (pingouin/scipy orchestration + the test picker),
+  the statistics  stats.py (scipy orchestration + the test picker),
                   statmodel.py, methods.py
   main.py         optional FastAPI HTTP service
 

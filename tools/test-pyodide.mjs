@@ -28,10 +28,9 @@ cpSync(join(ROOT, "src", "examples"), join(work, "src", "examples"), { recursive
 
 const py = await loadPyodide({ packageCacheDir: join(ROOT, "node_modules", ".cache", "iris-web") });
 const quiet = { messageCallback: () => {} };
-await py.loadPackage(["micropip", "numpy", "pandas", "scipy", "matplotlib", "statsmodels", "scikit-learn",
-  "pyarrow", "patsy", "pydantic", "fastapi", "xarray", "pytest"], quiet);
-await py.pyimport("micropip").install(["seaborn==0.13.2", "pingouin==0.6.1", "pandas-flavor==0.8.1",
-  "openpyxl==3.1.5", "et-xmlfile==2.0.0", "tabulate==0.10.0", "httpx"]);
+await py.loadPackage(["micropip", "numpy", "pandas", "scipy", "matplotlib", "statsmodels",
+  "pyarrow", "patsy", "pydantic", "fastapi", "pytest"], quiet);
+await py.pyimport("micropip").install(["openpyxl==3.1.5", "et-xmlfile==2.0.0", "httpx"]);
 
 py.FS.mkdirTree("/w");
 py.FS.mount(py.FS.filesystems.NODEFS, { root: work }, "/w");

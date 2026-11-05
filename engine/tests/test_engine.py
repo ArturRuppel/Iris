@@ -417,7 +417,7 @@ def test_document_roundtrip_keeps_reduce_clause():
 def test_health_reports_versions():
     r = client.get("/health")
     snap = r.json()["engine_snapshot"]
-    assert all(k in snap for k in ("scipy", "pingouin", "matplotlib"))
+    assert all(k in snap for k in ("scipy", "statsmodels", "matplotlib"))
 
 
 # ---------------- tier-2: plot marks ----------------

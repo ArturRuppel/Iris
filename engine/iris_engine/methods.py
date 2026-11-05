@@ -276,6 +276,8 @@ def software_line(manifest: dict) -> str:
     commit = engine.get("commit", "unknown")
     dirty = " (modified)" if engine.get("dirty") else ""
     snap = manifest.get("engine_snapshot") or {}
+    # pingouin computed the tests until 2026-11; a document saved then still
+    # carries it in its snapshot and is cited with it
     order = ["scipy", "pingouin", "statsmodels", "numpy", "pandas"]
     libs = [f"{lib} {snap[lib]}" for lib in order if lib in snap]
     lib_txt = (" using " + ", ".join(libs)) if libs else ""

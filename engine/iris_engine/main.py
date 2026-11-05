@@ -51,11 +51,21 @@ app.add_middleware(
 )
 
 
+def _version(dist: str) -> str:
+    """A library's version from its installed metadata, which does not import it
+    (scipy and statsmodels load on first use). A frozen build without metadata
+    falls back to importing the module."""
+    from importlib import import_module, metadata
+    try:
+        return metadata.version(dist)
+    except metadata.PackageNotFoundError:
+        return import_module(dist).__version__
+
+
 def engine_snapshot() -> dict:
-    import matplotlib, pingouin, scipy, seaborn
-    snapshot = {"python": sys.version.split()[0], "scipy": scipy.__version__,
-                "pingouin": pingouin.__version__, "matplotlib": matplotlib.__version__,
-                "seaborn": seaborn.__version__, "pandas": pd.__version__}
+    snapshot = {"python": sys.version.split()[0],
+                **{lib: _version(lib) for lib in ("scipy", "statsmodels", "numpy",
+                                                  "matplotlib", "pandas")}}
     if sys.platform == "emscripten":  # results computed in a browser say so
         import pyodide
         snapshot["pyodide"] = pyodide.__version__

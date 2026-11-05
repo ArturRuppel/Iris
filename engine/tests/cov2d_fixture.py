@@ -11,8 +11,8 @@ is raw ("negative"/"positive") and is recoded to
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
-import pingouin as pg
 from scipy.stats import ttest_rel
 
 KEY = ["experiment_id", "position_id", "cell_id"]
@@ -104,7 +104,9 @@ def paired_by_replicate_reference(pf: pd.DataFrame | None = None,
     vk = piv["VimentinKO"].to_numpy()
     nl = piv["NLS-mCherry"].to_numpy()
     tt = ttest_rel(vk, nl)
-    g = float(pg.compute_effsize(vk, nl, paired=True, eftype="hedges"))
+    # Hedges' g for paired samples (d_av, Cumming 2012)
+    d = (vk.mean() - nl.mean()) / np.sqrt((vk.var(ddof=1) + nl.var(ddof=1)) / 2)
+    g = float(d * (1 - 3 / (4 * (len(vk) + len(nl)) - 9)))
     return {"p": float(tt.pvalue), "t": float(tt.statistic), "g": g,
             "vk": vk.tolist(), "nl": nl.tolist(), "n": int(len(vk)),
             "piv": piv}

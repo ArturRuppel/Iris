@@ -14,9 +14,8 @@ write_stamp(Path(SPECPATH))
 hiddenimports = (
     # uvicorn picks loop/protocol/lifespan implementations at runtime
     collect_submodules("uvicorn")
-    # pingouin pulls these lazily / via pandas_flavor registration
-    + collect_submodules("pingouin")
-    + ["pandas_flavor", "seaborn", "scipy.special.cython_special"]
+    # imported inside functions, so static analysis can miss them
+    + ["scipy.stats", "statsmodels.api", "scipy.special.cython_special"]
     # pandas imports its Excel engine lazily inside read_excel()
     + ["openpyxl"]
     # matplotlib loads output backends dynamically at savefig() time;
@@ -25,7 +24,7 @@ hiddenimports = (
        "matplotlib.backends.backend_pdf"]
 )
 
-datas = collect_data_files("pingouin") + collect_data_files("matplotlib")
+datas = collect_data_files("matplotlib")
 
 a = Analysis(
     ["freeze_entry.py"],

@@ -14,7 +14,6 @@ same size; PNG only adds rasterization DPI.
 from __future__ import annotations
 
 import io
-import warnings
 import zlib
 
 from dataclasses import replace
@@ -533,7 +532,8 @@ def _apply_legend_offset(fig) -> None:
 
 def _apply_beeswarm(fig) -> None:
     """Pack each registered dot lane so its marks no longer overlap (the swarm
-    layout). Deferred to here because seaborn's `Beeswarm` solver works in pixel
+    layout). Deferred to here because the `Beeswarm` solver (beeswarm.py, vendored
+    from seaborn) works in pixel
     space and needs the final axis transform; assumes the canvas has already been
     drawn (by `_finalize_deferred`). Mirrors `_apply_legend_offset`: pops its
     stash so a second save is a no-op.
@@ -548,7 +548,7 @@ def _apply_beeswarm(fig) -> None:
     lanes = fig.__dict__.pop("_iris_beeswarm", None)
     if not lanes:
         return
-    from seaborn.categorical import Beeswarm, _get_transform_functions
+    from .beeswarm import Beeswarm, get_transform_functions
     dpi = fig.dpi
     for lane in lanes:
         ax, orient, center = lane["ax"], lane["orient"], lane["center"]
@@ -588,12 +588,9 @@ def _apply_beeswarm(fig) -> None:
         new_xy = new_xyr[:, [1, 0]] if orient == "y" else new_xyr[:, :2]
         cat_solved = ax.transData.inverted().transform(new_xy)[:, cat_idx].copy()
         # Clamp a dense lane to its gutter so it stops at the lane edge rather than
-        # bleeding into the neighbour. Iris has no notices channel, so suppress the
-        # solver's overflow warning and clamp silently (flat-edged dense lane).
-        t_fwd, t_inv = _get_transform_functions(ax, orient)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            bee.add_gutters(cat_solved, center, t_fwd, t_inv)
+        # bleeding into the neighbour (silently: a flat-edged dense lane).
+        t_fwd, t_inv = get_transform_functions(ax, orient)
+        bee.add_gutters(cat_solved, center, t_fwd, t_inv)
         # Write the solved categorical coordinate back per collection, keeping the
         # value coordinate exactly as drawn.
         for coll, (s, e) in zip(colls, slices):

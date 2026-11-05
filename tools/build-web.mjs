@@ -18,13 +18,10 @@ const CACHE = join(ROOT, "node_modules", ".cache", "iris-web");
 const NPM_PYO = join(ROOT, "node_modules", "pyodide");
 
 /* What the engine imports, resolved through Pyodide's own lock file. */
-const ROOTS = ["numpy", "pandas", "scipy", "matplotlib", "statsmodels", "scikit-learn",
-  "pyarrow", "patsy", "pydantic", "fastapi", "xarray"];
+const ROOTS = ["numpy", "pandas", "scipy", "matplotlib", "statsmodels", "pyarrow", "patsy",
+  "pydantic", "fastapi"];
 /* Pure Python packages that Pyodide does not carry, pinned to what the suite ran. */
-const PYPI = {
-  seaborn: "0.13.2", pingouin: "0.6.1", "pandas-flavor": "0.8.1", openpyxl: "3.1.5",
-  "et-xmlfile": "2.0.0", tabulate: "0.10.0",
-};
+const PYPI = { openpyxl: "3.1.5", "et-xmlfile": "2.0.0" };
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
