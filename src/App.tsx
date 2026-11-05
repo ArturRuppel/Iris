@@ -976,7 +976,7 @@ export default function App() {
               built beside the page; not in that file itself, and not over file:// */}
           {offerOffline && (
             <a className="tb-ghost tb-offline" href="./iris-offline.html" download="iris-offline.html"
-              title="Use Iris offline: download a single file (about 100 MB) that opens by double-click, with no install and no network">
+              title="Use Iris offline: download a single file (about 85 MB) that opens by double-click, with no install and no network">
               Use offline</a>
           )}
           <div className="tb-menuwrap">
