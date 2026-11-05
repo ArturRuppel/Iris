@@ -3,9 +3,11 @@
    Requests that arrive during boot wait for it, so the app's first health check
    resolves when Iris is ready.
 
-   Each package is a filesystem image built by tools/web-image.mjs (installed,
-   compiled to bytecode, gzipped), decompressed as it arrives and written into
-   the filesystem in one pass: nothing is unzipped or compiled from source here.
+   Boot overlaps the download. The manifest comes first; Python starts as soon as
+   Pyodide's own files are here, while the packages still arrive. Each package is
+   a filesystem image built by tools/web-image.mjs (installed, compiled to
+   bytecode, gzipped), so it is decompressed as it arrives and written into the
+   filesystem in one pass: nothing is unzipped or compiled from source here.
 
    Pyodide reads its files through the global `fetch`, so that is overridden to
    answer from memory for one reserved address. Its one file that must be imported
@@ -103,7 +105,7 @@ const syncAutosave = (populate: boolean) => new Promise<void>((resolve, reject) 
 });
 
 async function boot(manifest: Manifest) {
-  await Promise.all([...manifest.core, ...manifest.images].map(when));
+  await Promise.all(manifest.core.map(when));
   progress("Starting Python", 0);
   const { loadPyodide } = await importFile("pyodide.mjs");
   const createPyodideModule = (await importFile("pyodide.asm.mjs")).default;
@@ -115,20 +117,34 @@ async function boot(manifest: Manifest) {
   for (const name of manifest.core) files.delete(name);
   if (py._module?.GOT) fastUnresolvedScan(py._module.GOT);
 
-  /* Each package is one image: written into the filesystem in one pass. Then the
-     shared libraries the engine's imports need, in the order the imports load
-     them (the path Pyodide's own loadPackage takes: faster than letting each
-     import load its library synchronously). */
-  for (const [i, name] of manifest.images.entries()) {
-    progress("Preparing the statistics libraries", 0.3 + 0.2 * (i / manifest.images.length));
-    populate(py.FS, await images.get(name)!);
+  /* Each package goes in as it arrives, and the shared libraries the engine's
+     imports need are loaded as soon as their package is in, in the order the
+     imports load them (the path Pyodide's own loadPackage takes: faster than
+     letting each import load its library synchronously). The engine is imported
+     once those are in; the packages only the statistics need follow after. */
+  const pending = [...manifest.dynlibs.boot];
+  const present = new Set<string>();
+  const total = manifest.images.length + pending.length;
+  let units = 0;
+  let reporting = true;     // the packages added after the import report nothing
+  const step = () => reporting && progress("Preparing the statistics libraries", 0.3 + 0.4 * (++units / total));
+  const added = new Set<string>();
+  const add = async (name: string) => {
+    added.add(name);
+    await when(name);
+    for (const path of populate(py.FS, await images.get(name)!)) present.add(path);
     images.delete(name);
-  }
+    step();
+    while (pending.length && present.has(pending[0])) {
+      await py._api.loadDynlib(pending.shift()!);
+      step();
+    }
+  };
+  const late = new Set(manifest.late);
+  for (const name of manifest.images) if (!late.has(name)) await add(name);
+  for (const name of manifest.images) if (pending.length && !added.has(name)) await add(name);
   for (const name of manifest.packages) py.loadedPackages[name] = "default channel";
-  for (const [i, lib] of manifest.dynlibs.boot.entries()) {
-    if (i % 8 === 0) progress("Preparing the statistics libraries", 0.5 + 0.25 * (i / manifest.dynlibs.boot.length));
-    await py._api.loadDynlib(lib);
-  }
+
   py.FS.mkdirTree(AUTOSAVE_DIR);
   py.FS.mount(py.FS.filesystems.IDBFS, {}, AUTOSAVE_DIR);
   await syncAutosave(true);
@@ -142,6 +158,9 @@ from iris_engine import browser, main
 browser.install()
 `);
   bridge = py.pyimport("iris_engine.browser");
+  /* no request runs before every package is in, so nothing can find one missing */
+  reporting = false;
+  for (const name of manifest.images) if (!added.has(name)) await add(name);
   progress("Ready", 1);
   /* then the statistics: requests queue behind this, and the first test would
      have paid for it anyway */

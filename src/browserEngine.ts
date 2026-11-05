@@ -9,9 +9,10 @@
    Design: docs/superpowers/specs/2026-11-02-browser-runtime-design.md */
 import EngineWorker from "./engine.worker?worker&inline";
 
-/* `percent` runs from 0 to 100 across reading the files and then starting
-   Python: reading counts for READ_SHARE, the worker's stages for the rest, and
-   `ready` turns true when the engine answers. */
+/* `percent` runs from 0 to 100 across reading the files and starting Python.
+   The two overlap (Python starts while the packages still arrive), so the bar
+   is the sum of both shares: reading counts for READ_SHARE, the worker's stages
+   for the rest, and `ready` turns true when the engine answers. */
 export type BootState = { stage: string; percent: number; error?: string; ready?: boolean };
 type PayloadFile = { name: string; script: string; bytes: number };
 type Manifest = { core: string[]; images: string[]; late: string[]; packages: string[];
@@ -82,20 +83,24 @@ export function loadEmbeddedDocument(src: string): Promise<EmbeddedDocument> {
 /* A single-file build (tools/pack-iris.mjs) carries each file as inert text in the
    page. The browser is still parsing them when this runs, so it waits for the end. */
 async function sendInlinePayload(w: Worker, manifest: Manifest) {
-  if (document.readyState === "loading")
-    await new Promise((resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
   w.postMessage({ type: "manifest", manifest });
   const total = manifest.files.reduce((sum, f) => sum + f.bytes, 0);
   let read = 0;
   for (const [i, file] of manifest.files.entries()) {
-    await new Promise((resolve) => setTimeout(resolve));   // lets the progress bar paint
-    const tag = document.getElementById(`iris-file-${i}`);
+    /* each tag is passed on as soon as the parser is past it, so Python starts
+       while the rest of the file is still being read */
+    let tag = document.getElementById(`iris-file-${i}`);
+    while (!tag?.nextSibling && document.readyState === "loading") {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      tag = document.getElementById(`iris-file-${i}`);
+    }
     if (!tag?.textContent) throw new Error(`missing from this file: ${file.name}`);
     w.postMessage({ type: "file", name: file.name, base64: tag.textContent });
     tag.remove();
     read += file.bytes;
     readFraction = read / total;
     report();
+    await new Promise((resolve) => setTimeout(resolve));   // lets the progress bar paint
   }
 }
 
@@ -117,12 +122,18 @@ async function sendPayload(w: Worker) {
   scope.__irisPayload = (name, base64) => w.postMessage({ type: "file", name, base64 });
   const total = manifest.files.reduce((sum, f) => sum + f.bytes, 0);
   let read = 0;
-  for (const file of manifest.files) {
+  /* a few at a time, in manifest order, so Pyodide's own files come in first */
+  const queue = [...manifest.files];
+  const next = async (): Promise<void> => {
+    const file = queue.shift();
+    if (!file) return;
     await loadScript(root + file.script);
     read += file.bytes;
     readFraction = read / total;
     report();
-  }
+    return next();
+  };
+  await Promise.all([next(), next(), next()]);
 }
 
 function startWorker(): Worker {
