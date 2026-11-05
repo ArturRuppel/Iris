@@ -7,7 +7,7 @@ import * as pw from "playwright";
 
 /* A packed .iris opens by itself: alone in an empty folder, with the network off,
    and straight to its figure. Then the app packed alone (pack-iris --app, the
-   offline download of the hosted page) boots the same way and opens an example.
+   offline download of the hosted page) boots the same way and opens the default example.
 
      npm run build:web && node e2e/single_file_test.mjs
      BROWSER=firefox SHOTS=/tmp node e2e/single_file_test.mjs                    */
@@ -82,8 +82,7 @@ if (await app.locator("h1:has-text('could not start')").count()) fail("the app d
 console.log(`app at ${((Date.now() - t1) / 1000).toFixed(1)} s, file ${(statSync(join(alone, "iris-offline.html")).size / 1e6).toFixed(0)} MB`);
 if ((await app.title()) !== "Iris") fail(`title is ${await app.title()}`);
 if (await app.locator(".tb-offline").count()) fail("the offline file offers itself for download");
-await app.click("button:has-text('Workbench')").catch(() => {});
-await app.click("button:has-text('Open example')", { timeout: 15000 });
+// a first visit opens the default example by itself
 await app.waitForSelector("[data-testid='plot-card'] .figure-frame svg", { timeout: 120000 });
 if (await app.locator(".error-bar").count()) fail(await app.locator(".error-bar").innerText());
 const font = await app.evaluate(() => [...document.fonts].some((f) => f.family.includes("Archivo") && f.status === "loaded"));

@@ -3,7 +3,9 @@
 Publication-grade figures and honest statistics, from the GUI, from code, or both.
 
 **Try it at [arturruppel.github.io/Iris](https://arturruppel.github.io/Iris/).** It runs in your browser,
-with nothing to install, and your data stays on your computer.
+with nothing to install, and your data stays on your computer. A first visit opens
+a worked example (Fisher's iris, with Welch's t test); **New** gives a blank sheet,
+and `?example=<caseId>` links to any example in `src/examples/assets/manifest.json`.
 
 Iris is a desktop application built around one idea, the *reactive triad*: a
 typed data table, a figure, and a statistical analysis, linked so that editing

@@ -43,11 +43,13 @@ const context = await browser.newContext({ viewport: { width: 1500, height: 1000
 const hosts = new Set();
 context.on("request", (r) => { const u = new URL(r.url()); if (/^https?:$/.test(u.protocol) && u.host !== new URL(URL_).host && u.host !== "iris-payload.invalid") hosts.add(u.host); });
 
-async function open() {
-  const page = await context.newPage();
+const dialogs = [];
+async function open(query = "", ctx = context) {
+  const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("[pageerror]", e.message));
+  page.on("dialog", (d) => { dialogs.push(d.message()); void d.dismiss(); });
   const t0 = Date.now();
-  await page.goto(URL_, { waitUntil: "domcontentloaded" });
+  await page.goto(URL_ + query, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".app", { timeout: 180000 });
   return { page, seconds: (Date.now() - t0) / 1000 };
 }
@@ -71,6 +73,20 @@ if (await page.locator(".recovery-bar").count()) fail("recovery offered on a fre
 const offline = await page.locator("header a.tb-offline").count();
 if (overFile ? offline : offline !== 1) fail(`offline link count ${offline} over ${overFile ? "file://" : "http"}`);
 if (!overFile && await page.locator("header a.tb-offline").getAttribute("href") !== "./iris-offline.html") fail("offline link target");
+
+// ── a first visit lands on the default example: a table, a plot and a test ──
+await page.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
+await page.waitForFunction(() => /Welch/.test(document.body.innerText), null, { timeout: 60000 })
+  .catch(() => fail("the first visit shows no Welch's t test"));
+if (await page.locator(".error-bar").count()) fail(await page.locator(".error-bar").innerText());
+console.log("first visit opened the default example");
+// untouched, it is not unsaved work: New asks nothing and gives the blank sheet
+await page.waitForTimeout(2500); // past the autosave debounce
+await page.click("header .tb-ghost:has-text('New')");
+await page.waitForTimeout(500);
+if (dialogs.length) fail(`New on the untouched example asked: ${dialogs.join(" | ")}`);
+if (await page.locator("[data-testid='plot-card']").count()) fail("New kept the example's plots");
+console.log("New on the untouched example: no prompt, blank sheet");
 
 // ── a bundled example opens, because a file:// page cannot fetch one from disk ──
 await page.click("button:has-text('Workbench')").catch(() => {});
@@ -112,6 +128,9 @@ await page.close();
 const warm = await open();
 console.log(`warm boot ${warm.seconds.toFixed(1)} s`);
 await warm.page.waitForSelector(".recovery-bar", { timeout: 15000 });
+// a returning visitor is offered their work, not the default example
+await warm.page.waitForTimeout(3000);
+if (await warm.page.locator("[data-testid='plot-card']").count()) fail("the default example covered the restore offer");
 await warm.page.click(".recovery-bar button:has-text('Restore')");
 await warm.page.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
 console.log("autosave restored after closing the page");
@@ -131,6 +150,27 @@ if (hasPicker) {
   if (!download.suggestedFilename().endsWith(".iris")) fail(`saved ${download.suggestedFilename()}`);
 }
 console.log(`saved a document through ${hasPicker ? "the file picker" : "a download"}`);
+
+// ── ?example=<caseId> opens that example; an unknown id starts as usual ───────
+{
+  const fresh = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
+  const linked = (await open("?example=contingency-2x2", fresh)).page;
+  await linked.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
+  await linked.waitForFunction(() => /Aspirin/.test(document.body.innerText) && !/Petal length/.test(document.body.innerText), null, { timeout: 60000 })
+    .catch(async () => fail("?example=contingency-2x2 did not open that example: " + (await linked.evaluate(() => document.body.innerText)).slice(0, 1500)));
+  if (/example=/.test(linked.url())) fail(`the query stayed: ${linked.url()}`);
+  console.log("?example=contingency-2x2 opened it");
+  const warnings = [];
+  const unknown = await fresh.newPage();
+  unknown.on("console", (m) => { if (m.type() === "warning") warnings.push(m.text()); });
+  await unknown.goto(URL_ + "?example=no-such-example", { waitUntil: "domcontentloaded" });
+  await unknown.waitForSelector("[data-testid='plot-card'] svg", { timeout: 120000 });
+  await unknown.waitForFunction(() => /Welch/.test(document.body.innerText), null, { timeout: 60000 })
+    .catch(() => fail("an unknown ?example= did not fall back to the default"));
+  if (!warnings.some((w) => /no-such-example/.test(w))) fail("no warning for an unknown example");
+  console.log("unknown ?example= warned and fell back to the default");
+  await fresh.close();
+}
 
 // ── what left the machine ────────────────────────────────────────────────────
 // the fonts are bundled too: nothing at all leaves the machine

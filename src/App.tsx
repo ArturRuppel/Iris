@@ -34,6 +34,8 @@ import { colType } from "./channels";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 import { useDebouncedAsync } from "./useDebouncedAsync";
 
+/* what a first visit to the browser build opens (see the start example in App) */
+const DEFAULT_EXAMPLE = "iris-species-comparison";
 const EXAMPLE_IRIS = import.meta.glob("./examples/assets/*.iris", {
   query: "?url", import: "default", eager: true,
 }) as Record<string, string>;
@@ -208,7 +210,8 @@ export default function App() {
            A failed status check is not worth blocking startup over. */
         engine.autosaveStatus()
           .then((s) => { if (s.exists && !noAutosave) setRecovery(s); })
-          .catch(() => {});
+          .catch(() => {})
+          .then(() => setAutosaveChecked(true));
       })
       .catch(() => { wasDown.current = true; setEngineUp(false); });
   };
@@ -229,6 +232,9 @@ export default function App() {
   const autosaveKey = useAtomValue(autosaveKeyAtom);
   const [autosaveBaseline, setAutosaveBaseline] = useAtom(autosaveBaselineAtom);
   const [recovery, setRecovery] = useState<AutosaveStatus | null>(null);
+  /* set once the boot-time autosave check has answered, so the start example
+     below can tell a first visit (nothing to restore) from a returning one */
+  const [autosaveChecked, setAutosaveChecked] = useState(false);
   /* the offer only shows (and only blocks autosave) while the workspace is
      still empty: if the user ignores it and imports/loads instead, the banner
      yields and the new session's autosaves may overwrite the single slot. */
@@ -692,12 +698,14 @@ export default function App() {
      OS file handle, and we explicitly clear any retained one, so the next Save
      prompts for a location (Save As) — the shipped example is never overwritten
      in place. The empty workbench's "Open example" opens the first one. */
-  const handleOpenExample = async (caseId: string) => {
+  const handleOpenExample = async (caseId: string, opts: { onlyIfEmpty?: boolean } = {}) => {
     try {
       const url = EXAMPLE_IRIS[`./examples/assets/${caseId}.iris`];
       if (!url) throw new Error(`example "${caseId}" is not bundled`);
       const buf = await (await fetch(url)).arrayBuffer();
       const doc = await engine.loadDocument(fileToBase64(buf));
+      /* a start example yields to anything the visitor began while it loaded */
+      if (opts.onlyIfEmpty && store.get(tablesAtom).length > 0) return;
       await loadDocument({
         manifest: doc.manifest,
         analyses: doc.analyses.map(migrateSpec),
@@ -749,6 +757,36 @@ export default function App() {
   }, [labbookWritable]);
 
   const firstExample = (exampleManifest as { caseId: string }[])[0]?.caseId;
+
+  /* The start example. `?example=<caseId>` opens that bundled example (a link
+     from the website lands on a worked figure); a bare first visit to the
+     browser build, with no autosave to offer back, opens Fisher's iris, so a
+     newcomer sees a table, a plot and a test rather than an empty sheet. It is
+     loaded like any example: no bound file, baselined, so it is neither
+     autosaved nor counted as unsaved until the visitor edits it. `?labbook=`,
+     `?embedded=`, a packed document and `?open=` all win over it. */
+  const [exampleParam] = useState(() => new URLSearchParams(window.location.search).get("example"));
+  const openedStartExample = useRef(false);
+  useEffect(() => {
+    if (engineUp !== true || !autosaveChecked || openedStartExample.current) return;
+    if (noAutosave || new URLSearchParams(window.location.search).get("open")) {
+      openedStartExample.current = true; return;
+    }
+    let caseId: string | null = null;
+    if (exampleParam) {
+      if (recovery !== null) return;   // like ?open=: wait for the restore offer's answer
+      if (EXAMPLE_IRIS[`./examples/assets/${exampleParam}.iris`]) caseId = exampleParam;
+      else console.warn(`Iris: no bundled example "${exampleParam}"; starting as usual`);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("example");
+      window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    }
+    if (!caseId && browserRuntime && recovery === null && EXAMPLE_IRIS[`./examples/assets/${DEFAULT_EXAMPLE}.iris`])
+      caseId = DEFAULT_EXAMPLE;
+    openedStartExample.current = true;
+    if (!caseId || pool.length > 0) return;
+    void handleOpenExample(caseId, { onlyIfEmpty: true });
+  }, [engineUp, autosaveChecked, recovery]);
 
   /* `?open=<url>`: a link from another app on this host (the lab book) opens a
      .iris directly. Runs once, after any recovery prompt is answered; the query
