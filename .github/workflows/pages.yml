@@ -1,7 +1,9 @@
 # The zero-install web build on GitHub Pages (https://arturruppel.github.io/Iris/), with the
 # offline single file beside it. Everything the page loads is built in: Pyodide
 # from node_modules, its packages and the pinned PyPI wheels downloaded once and
-# checked against their SHA-256 (tools/build-web.mjs), the fonts from the repo.
+# checked against their SHA-256 (tools/build-web.mjs), installed and compiled by
+# Pyodide under Node into filesystem images (tools/web-image.mjs), the fonts from
+# the repo. No Python is needed on the runner.
 name: Pages
 
 on:
@@ -30,12 +32,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # after npm ci, which empties node_modules: the verified wheels, keyed on
-      # what pins them (the pyodide version in the lock file, the PyPI pins)
+      # after npm ci, which empties node_modules: the verified wheels and the
+      # filesystem images built from them, keyed on what pins and shapes them
+      # (the pyodide version in the lock file, the PyPI pins, the image builder)
       - uses: actions/cache@v4
         with:
           path: node_modules/.cache/iris-web
-          key: iris-web-${{ hashFiles('package-lock.json', 'tools/build-web.mjs') }}
+          key: iris-web-${{ hashFiles('package-lock.json', 'tools/build-web.mjs', 'tools/web-image.mjs', 'src/fsImage.ts') }}
           restore-keys: iris-web-
       - run: npm run build:web
       - run: node tools/pack-iris.mjs --app dist-web/iris-offline.html

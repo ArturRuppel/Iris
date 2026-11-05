@@ -1,13 +1,19 @@
 #!/usr/bin/env node
-/* Run the engine and validation suites under the same Pyodide the web build ships.
-   Run this after any change to the engine or to the versions in build-web.mjs,
-   because the web build's scipy and numpy differ from requirements.lock and the
-   validation corpus is what stands behind its numbers. */
-import { mkdtempSync, cpSync, mkdirSync, rmSync } from "node:fs";
+/* Run the engine and validation suites under the same Pyodide the web build ships,
+   on the same installed packages: the filesystem images in dist-web/ (compiled,
+   stripped), so a file the image left out fails here first. Run this after any
+   change to the engine or to the versions in build-web.mjs, because the web
+   build's scipy and numpy differ from requirements.lock and the validation
+   corpus is what stands behind its numbers.
+
+     npm run build:web && npm run test:pyodide                                    */
+import { existsSync, mkdtempSync, cpSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gunzipSync } from "node:zlib";
 import { loadPyodide } from "pyodide";
+import { populate } from "../src/fsImage.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -26,11 +32,25 @@ cpSync(join(ROOT, "engine"), join(work, "engine"), {
 mkdirSync(join(work, "src"));
 cpSync(join(ROOT, "src", "examples"), join(work, "src", "examples"), { recursive: true });
 
+const PYO = join(ROOT, "dist-web", "pyodide");
+if (!existsSync(join(PYO, "manifest.js"))) throw new Error("no web build: run npm run build:web first");
+const manifestScript = readFileSync(join(PYO, "manifest.js"), "utf8");
+const manifest = JSON.parse(manifestScript.slice(manifestScript.indexOf("(") + 1, manifestScript.lastIndexOf(")")));
+const payload = (name) => {
+  const text = readFileSync(join(PYO, `${name}.js`), "latin1");
+  return Buffer.from(text.slice(text.indexOf(',"') + 2, text.lastIndexOf('"')), "base64");
+};
+
 const py = await loadPyodide({ packageCacheDir: join(ROOT, "node_modules", ".cache", "iris-web") });
+/* the packages as the browser gets them (the engine image is replaced by the
+   source tree below), then only the test tools on top */
+for (const name of manifest.images) {
+  if (name !== "iris_engine.img") populate(py.FS, new Uint8Array(gunzipSync(payload(name))));
+}
+for (const name of manifest.packages) py.loadedPackages[name] = "default channel";
 const quiet = { messageCallback: () => {} };
-await py.loadPackage(["micropip", "numpy", "pandas", "scipy", "matplotlib", "statsmodels",
-  "pyarrow", "patsy", "pydantic", "fastapi", "pytest"], quiet);
-await py.pyimport("micropip").install(["openpyxl==3.1.5", "et-xmlfile==2.0.0", "httpx"]);
+await py.loadPackage(["micropip", "pytest"], quiet);
+await py.pyimport("micropip").install(["httpx"]);
 
 py.FS.mkdirTree("/w");
 py.FS.mount(py.FS.filesystems.NODEFS, { root: work }, "/w");

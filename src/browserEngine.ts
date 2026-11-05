@@ -9,13 +9,19 @@
    Design: docs/superpowers/specs/2026-11-02-browser-runtime-design.md */
 import EngineWorker from "./engine.worker?worker&inline";
 
-/* `percent` runs from 0 to 100 across reading the files and then starting Python. */
-export type BootState = { stage: string; percent: number; error?: string };
+/* `percent` runs from 0 to 100 across reading the files and then starting
+   Python: reading counts for READ_SHARE, the worker's stages for the rest, and
+   `ready` turns true when the engine answers. */
+export type BootState = { stage: string; percent: number; error?: string; ready?: boolean };
 type PayloadFile = { name: string; script: string; bytes: number };
-type Manifest = { packages: string[]; wheels: string[]; engine: string; files: PayloadFile[] };
+type Manifest = { core: string[]; images: string[]; late: string[]; packages: string[];
+  dynlibs: { boot: string[]; stats: string[] }; files: PayloadFile[] };
 
-const READ_SHARE = 60;
+const READ_SHARE = 40;
+const READING = "Reading the statistics libraries";
 let state: BootState = { stage: "Starting", percent: 0 };
+let readFraction = 0;
+let worker_: { stage: string; fraction: number } | null = null;
 const listeners = new Set<(s: BootState) => void>();
 const pending = new Map<number, { resolve: (r: Response) => void; reject: (e: Error) => void }>();
 let worker: Worker | null = null;
@@ -24,6 +30,16 @@ let nextId = 1;
 function setState(next: BootState) {
   state = { ...next, error: state.error ?? next.error }; // the first failure stays on screen
   listeners.forEach((listener) => listener(state));
+}
+
+/* the worker's stage once it has one, since that is what the wait is for */
+function report() {
+  const fraction = worker_?.fraction ?? 0;
+  setState({
+    stage: worker_ && (readFraction >= 1 || worker_.fraction > 0) ? worker_.stage : READING,
+    percent: readFraction * READ_SHARE + fraction * (100 - READ_SHARE),
+    ready: fraction >= 1,
+  });
 }
 
 export function onBootState(listener: (s: BootState) => void): () => void {
@@ -68,18 +84,19 @@ export function loadEmbeddedDocument(src: string): Promise<EmbeddedDocument> {
 async function sendInlinePayload(w: Worker, manifest: Manifest) {
   if (document.readyState === "loading")
     await new Promise((resolve) => document.addEventListener("DOMContentLoaded", resolve, { once: true }));
+  w.postMessage({ type: "manifest", manifest });
   const total = manifest.files.reduce((sum, f) => sum + f.bytes, 0);
   let read = 0;
   for (const [i, file] of manifest.files.entries()) {
-    setState({ stage: "Reading the statistics libraries", percent: (read / total) * READ_SHARE });
     await new Promise((resolve) => setTimeout(resolve));   // lets the progress bar paint
     const tag = document.getElementById(`iris-file-${i}`);
     if (!tag?.textContent) throw new Error(`missing from this file: ${file.name}`);
     w.postMessage({ type: "file", name: file.name, base64: tag.textContent });
     tag.remove();
     read += file.bytes;
+    readFraction = read / total;
+    report();
   }
-  w.postMessage({ type: "boot", packages: manifest.packages, wheels: manifest.wheels, engine: manifest.engine });
 }
 
 async function sendPayload(w: Worker) {
@@ -94,24 +111,26 @@ async function sendPayload(w: Worker) {
     scope.__irisManifest = resolve;
     loadScript(`${root}manifest.js`).catch(reject);
   });
-  /* the string goes to the worker for decoding, so that a large wheel does not
+  w.postMessage({ type: "manifest", manifest });
+  /* the string goes to the worker for decoding, so that a large package does not
      stall this thread, and the script tag is dropped so the text can be freed */
   scope.__irisPayload = (name, base64) => w.postMessage({ type: "file", name, base64 });
   const total = manifest.files.reduce((sum, f) => sum + f.bytes, 0);
   let read = 0;
   for (const file of manifest.files) {
-    setState({ stage: "Reading the statistics libraries", percent: (read / total) * READ_SHARE });
     await loadScript(root + file.script);
     read += file.bytes;
+    readFraction = read / total;
+    report();
   }
-  w.postMessage({ type: "boot", packages: manifest.packages, wheels: manifest.wheels, engine: manifest.engine });
 }
 
 function startWorker(): Worker {
   const w = new EngineWorker();
   w.onmessage = ({ data }) => {
     if (data.type === "progress") {
-      setState({ stage: data.stage, percent: READ_SHARE + (100 - READ_SHARE) * data.fraction });
+      worker_ = { stage: data.stage, fraction: data.fraction };
+      report();
     } else if (data.type === "failed") failAll(data.message);
     else if (data.type === "response") {
       const request = pending.get(data.id);

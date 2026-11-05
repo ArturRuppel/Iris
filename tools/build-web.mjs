@@ -2,14 +2,16 @@
 /* Build the static, zero-install site into dist-web/.
    Everything the page loads at run time is copied in, and each downloaded wheel
    is checked against a SHA-256 before it is used, so a deployed version cannot
-   change underneath a user. Design:
+   change underneath a user. The wheels are then installed and compiled here, in
+   Pyodide under Node (tools/web-image.mjs), and shipped as filesystem images, so
+   the browser has nothing to unzip or compile. Design:
    docs/superpowers/specs/2026-11-02-browser-runtime-design.md */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { zipSync } from "fflate";
+import { engineImage, packageImages } from "./web-image.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = join(ROOT, "dist-web");
@@ -22,6 +24,10 @@ const ROOTS = ["numpy", "pandas", "scipy", "matplotlib", "statsmodels", "pyarrow
   "pydantic", "fastapi"];
 /* Pure Python packages that Pyodide does not carry, pinned to what the suite ran. */
 const PYPI = { openpyxl: "3.1.5", "et-xmlfile": "2.0.0" };
+
+/* Installed last and read last: what only the statistics need, which the worker
+   loads after the app is up. Everything else is ordered as the lock file has it. */
+const LATE = ["scipy", "statsmodels", "patsy", "openpyxl", "et-xmlfile"];
 
 const sha256 = (buf) => createHash("sha256").update(buf).digest("hex");
 
@@ -53,7 +59,7 @@ function lockClosure(lock) {
   return [...names].sort();
 }
 
-function engineZip() {
+function engineFiles() {
   const dir = join(ROOT, "engine", "iris_engine");
   const files = {};
   const walk = (d) => {
@@ -73,7 +79,7 @@ function engineZip() {
   const dirty = describe.endsWith("-dirty");
   files["iris_engine/_build_stamp.py"] = Buffer.from(
     `VERSION = ${JSON.stringify(version)}\nCOMMIT = ${JSON.stringify(describe.replace(/-dirty$/, ""))}\nDIRTY = ${dirty ? "True" : "False"}\n`);
-  return { zip: zipSync(files, { level: 6 }), describe };
+  return { files, describe };
 }
 
 execFileSync("npx", ["tsc"], { cwd: ROOT, stdio: "inherit" });
@@ -93,33 +99,48 @@ function addPayload(name, bytes) {
   payload.push({ name, script, bytes: bytes.length });
 }
 
-for (const f of ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"]) {
-  addPayload(f, readFileSync(join(NPM_PYO, f)));
-}
 const version = JSON.parse(readFileSync(join(NPM_PYO, "package.json"), "utf8")).version;
 const lock = JSON.parse(readFileSync(join(NPM_PYO, "pyodide-lock.json"), "utf8"));
 const packages = lockClosure(lock);
 for (const name of packages) {
   const { file_name, sha256: expected } = lock.packages[name];
-  addPayload(file_name, await fetchVerified(
-    `https://cdn.jsdelivr.net/pyodide/v${version}/full/${file_name}`, file_name, expected));
+  await fetchVerified(`https://cdn.jsdelivr.net/pyodide/v${version}/full/${file_name}`, file_name, expected);
 }
-
 const wheels = [];
 for (const [name, pin] of Object.entries(PYPI)) {
   const res = await fetch(`https://pypi.org/pypi/${name}/${pin}/json`);
   if (!res.ok) throw new Error(`${name}==${pin}: HTTP ${res.status}`);
   const wheel = (await res.json()).urls.find((u) => u.filename.endsWith("py3-none-any.whl"));
   if (!wheel) throw new Error(`${name}==${pin}: no pure Python wheel`);
-  addPayload(wheel.filename, await fetchVerified(wheel.url, wheel.filename, wheel.digests.sha256));
+  await fetchVerified(wheel.url, wheel.filename, wheel.digests.sha256);
   wheels.push(wheel.filename);
 }
 
-const { zip, describe } = engineZip();
-addPayload("iris_engine.zip", zip);
-writeFileSync(join(PYO, "manifest.js"), `__irisManifest(${JSON.stringify(
-  { packages, wheels, engine: "iris_engine.zip", files: payload })});\n`);
+const images = await packageImages({ packages, wheels, cacheDir: CACHE, lock });
+const { files: engine, describe } = engineFiles();
+const built = await engineImage({ images, cacheDir: CACHE, engineFiles: engine });
+
+/* Pyodide's own files first, so the worker can start Python while the packages
+   are still arriving; then the packages, the engine, and what only the
+   statistics need. */
+const core = ["pyodide.mjs", "pyodide.asm.mjs", "pyodide.asm.wasm", "python_stdlib.zip", "pyodide-lock.json"];
+for (const f of core) addPayload(f, f === "python_stdlib.zip" ? built.stdlib : readFileSync(join(NPM_PYO, f)));
+const order = Object.keys(images).sort((a, b) => LATE.indexOf(a) - LATE.indexOf(b));
+const imageNames = [];
+for (const name of order) {
+  if (LATE.includes(name) && !imageNames.includes("iris_engine")) {
+    addPayload("iris_engine.img", built.image);
+    imageNames.push("iris_engine");
+  }
+  addPayload(`${name}.img`, images[name]);
+  imageNames.push(name);
+}
+writeFileSync(join(PYO, "manifest.js"), `__irisManifest(${JSON.stringify({
+  core, images: imageNames.map((n) => `${n}.img`), late: LATE.map((n) => `${n}.img`),
+  packages: Object.keys(images),
+  dynlibs: built.dynlibs, files: payload })});\n`);
 
 let bytes = 0;
 for (const f of readdirSync(PYO)) bytes += statSync(join(PYO, f)).size;
-console.log(`dist-web: engine ${describe}, Pyodide ${version}, ${packages.length + wheels.length} packages, ${(bytes / 1e6).toFixed(1)} MB under pyodide/`);
+console.log(`dist-web: engine ${describe}, Pyodide ${version}, ${packages.length + wheels.length} packages, ${(bytes / 1e6).toFixed(1)} MB under pyodide/`
+  + ` (${built.dynlibs.boot.length} libraries loaded at boot, ${built.dynlibs.stats.length} after)`);
