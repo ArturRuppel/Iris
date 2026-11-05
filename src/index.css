@@ -94,6 +94,9 @@ body { margin: 0; background: var(--bg); color: var(--ink);
 .tb-ghost:hover { color:var(--ink); }
 .tb-back { text-decoration:none; display:inline-flex; align-items:center; }
 .tb-back:hover { text-decoration:none; }
+.tb-offline { text-decoration:none; display:inline-flex; align-items:center; white-space:nowrap; }
+.tb-offline:hover { text-decoration:none; }
+@media (max-width: 600px) { .tb-offline { display:none; } }
 .tb-primary { font:600 12px/1 'Archivo'; border:1px solid var(--primary);
   border-radius: 0; padding:8px 18px; background:var(--primary); color:var(--primary-fg);
   cursor:pointer; box-shadow:none; }

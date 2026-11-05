@@ -67,6 +67,10 @@ console.log(`boot ${cold.seconds.toFixed(1)} s (${engineName}, ${overFile ? "fil
 const snapshot = await page.evaluate(() => document.body.innerText.length);
 if (!snapshot) fail("the app rendered nothing");
 if (await page.locator(".recovery-bar").count()) fail("recovery offered on a fresh profile");
+// served over http the page offers its one-file twin; over file:// it does not
+const offline = await page.locator("header a.tb-offline").count();
+if (overFile ? offline : offline !== 1) fail(`offline link count ${offline} over ${overFile ? "file://" : "http"}`);
+if (!overFile && await page.locator("header a.tb-offline").getAttribute("href") !== "./iris-offline.html") fail("offline link target");
 
 // ── a bundled example opens, because a file:// page cannot fetch one from disk ──
 await page.click("button:has-text('Workbench')").catch(() => {});

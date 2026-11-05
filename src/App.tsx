@@ -165,6 +165,9 @@ export default function App() {
      a detached copy. Like `?open=`, only a file next to this page is accepted. */
   const [embeddedUrl] = useState(() => browserRuntime ? new URLSearchParams(window.location.search).get("embedded") : null);
   const noAutosave = labbookFile !== null || embeddedDoc !== null || embeddedUrl !== null;
+  /* the hosted page links its offline twin; the packed file and lab-book copies do not */
+  const offerOffline = browserRuntime && /^https?:$/.test(window.location.protocol)
+    && !document.getElementById("iris-manifest") && embeddedUrl === null;
   const [labbookLoaded, setLabbookLoaded] = useState(false);
   const setOnePlotOnly = useSetAtom(onePlotOnlyAtom);
   const labbookSha = useRef<string | null>(null);
@@ -967,6 +970,13 @@ export default function App() {
                 </div>
               )}
             </div>
+          )}
+          {/* the hosted web build offers itself as one file (tools/pack-iris.mjs --app),
+              built beside the page; not in that file itself, and not over file:// */}
+          {offerOffline && (
+            <a className="tb-ghost tb-offline" href="./iris-offline.html" download="iris-offline.html"
+              title="Use Iris offline: download a single file (about 100 MB) that opens by double-click, with no install and no network">
+              Use offline</a>
           )}
           <div className="tb-menuwrap">
             <button className="tb-icon" aria-label="More actions"
