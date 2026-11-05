@@ -129,10 +129,9 @@ if (hasPicker) {
 console.log(`saved a document through ${hasPicker ? "the file picker" : "a download"}`);
 
 // ── what left the machine ────────────────────────────────────────────────────
-const allowed = new Set(["fonts.googleapis.com", "fonts.gstatic.com"]);
-const unexpected = [...hosts].filter((h) => !allowed.has(h));
-if (unexpected.length) fail(`contacted other hosts: ${unexpected.join(", ")}`);
-console.log(`other hosts contacted: ${[...hosts].join(", ") || "none"}`);
+// the fonts are bundled too: nothing at all leaves the machine
+if (hosts.size) fail(`contacted other hosts: ${[...hosts].join(", ")}`);
+console.log("other hosts contacted: none");
 
 console.log(`BROWSER RUNTIME E2E OK (${engineName})`);
 await browser.close();

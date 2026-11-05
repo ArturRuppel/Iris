@@ -13,7 +13,7 @@
  *
  *   - SERVER FIRST, ALWAYS. Every shell request goes to the network; the cache
  *     is read only when the network fails or does not answer within TIMEOUT_MS.
- *   - THE SHELL ONLY: the page itself, the built bundle (assets/…), the guide,
+ *   - THE SHELL ONLY: the page itself, the built bundle (assets/…), the guide, the fonts,
  *     and the icons/manifest beside the page, all under the directory the worker
  *     was registered from (the root, or /iris/ under the lab book). Every engine endpoint and every
  *     non-GET is left alone — no respondWith, so the browser behaves exactly as
@@ -34,6 +34,7 @@ function isShell(request, url) {
   if (url.origin !== self.location.origin) return false;
   if (request.mode === "navigate") return url.pathname === ROOT || url.pathname === ROOT + "index.html";
   return url.pathname.startsWith(ROOT + "assets/") || url.pathname.startsWith(ROOT + "guide/")
+    || url.pathname.startsWith(ROOT + "fonts/")
     || ROOT_FILE.test(url.pathname);
 }
 
