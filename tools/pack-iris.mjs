@@ -1,8 +1,12 @@
 #!/usr/bin/env node
-/* Fold the web build and one .iris into a single HTML file that needs nothing else:
-   no install, no neighbouring files and no network. Build the site first:
+/* Fold the web build, and optionally one .iris, into a single HTML file that needs
+   nothing else: no install, no neighbouring files and no network. Build the site first:
 
      npm run build:web && npm run pack:iris -- figure.iris [out.html]
+     npm run build:web && npm run pack:iris -- --app [out.html]
+
+   With a document the file opens straight to it; with --app it is the hosted page
+   in one file (the offline download), opening on the sample dataset.
 
    Each payload stays base64 text, now in an inert <script type="text/plain"> that
    src/browserEngine.ts reads and hands to the worker. The app comes before them, so
@@ -15,14 +19,19 @@ import { unzipSync } from "fflate";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(ROOT, "dist-web");
 
-const [input, outArg] = process.argv.slice(2);
-if (!input) throw new Error("usage: pack-iris <figure.iris> [out.html]");
-const document_ = readFileSync(input);
-if (!("manifest.json" in unzipSync(document_, { filter: (f) => f.name === "manifest.json" })))
-  throw new Error(`${input}: not a .iris file`);
+const args = process.argv.slice(2);
+const appOnly = args[0] === "--app";
+const [input, outArg] = appOnly ? [null, args[1]] : args;
+if (!appOnly && !input) throw new Error("usage: pack-iris <figure.iris> [out.html]  |  pack-iris --app [out.html]");
+let document_ = null;
+if (!appOnly) {
+  document_ = readFileSync(input);
+  if (!("manifest.json" in unzipSync(document_, { filter: (f) => f.name === "manifest.json" })))
+    throw new Error(`${input}: not a .iris file`);
+}
 if (!existsSync(join(DIST, "pyodide", "manifest.js"))) throw new Error("no web build: run npm run build:web first");
-const name = basename(input);
-const out = outArg ?? input.replace(/\.iris$/, "") + ".html";
+const name = appOnly ? null : basename(input);
+const out = outArg ?? (appOnly ? "iris-offline.html" : input.replace(/\.iris$/, "") + ".html");
 
 const safeInScript = (text) => text.replaceAll("</script", "<\\/script").replaceAll("<!--", "<\\!--");
 const safeInStyle = (text) => text.replaceAll("</style", "<\\/style");
@@ -43,8 +52,8 @@ for (const m of css) html = html.replace(m[0], "");
 html = html.replace(/<link[^>]*(rel="manifest"|rel="apple-touch-icon")[^>]*>\s*/g, "");
 const icon = readFileSync(join(DIST, "iris-favicon.svg")).toString("base64");
 html = html.replace(/<link[^>]*rel="icon"[^>]*>/, () => `<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,${icon}" />`);
-const title = name.replace(/\.iris$/, "").replace(/[<>&"]/g, "");
-html = html.replace(/<title>[^<]*<\/title>/, () => `<title>${title} · Iris</title>`);
+const title = appOnly ? null : name.replace(/\.iris$/, "").replace(/[<>&"]/g, "");
+if (title) html = html.replace(/<title>[^<]*<\/title>/, () => `<title>${title} · Iris</title>`);
 html = html.replace("</head>", () => `<style>${safeInStyle(appCss)}</style>\n</head>`);
 
 const manifestScript = readFileSync(join(DIST, "pyodide", "manifest.js"), "utf8");
@@ -55,7 +64,7 @@ const payloadOf = (file) => {
   return text.slice(text.indexOf(',"') + 2, text.lastIndexOf('"'));
 };
 
-const before = tag("iris-document", document_.toString("base64"), ` data-name="${title}.iris"`)
+const before = (document_ ? tag("iris-document", document_.toString("base64"), ` data-name="${title}.iris"`) : "")
   + tag("iris-manifest", JSON.stringify(manifest).replaceAll("<", "\\u003c"))
   + `<script>${safeInScript(readFileSync(join(DIST, js[1]), "utf8")
     .replaceAll("../iris-favicon.svg", `data:image/svg+xml;base64,${icon}`))}</script>\n`;
@@ -66,4 +75,5 @@ manifest.files.forEach((file, i) => parts.push(tag(`iris-file-${i}`, payloadOf(f
 parts.push(html.slice(closing));
 const bundle = Buffer.from(parts.join(""), "utf8");
 writeFileSync(out, bundle);
-console.log(`${out}: ${(bundle.length / 1e6).toFixed(1)} MB, ${(document_.length / 1e3).toFixed(0)} KB of it the document`);
+console.log(`${out}: ${(bundle.length / 1e6).toFixed(1)} MB` +
+  (document_ ? `, ${(document_.length / 1e3).toFixed(0)} KB of it the document` : ", the app alone"));
