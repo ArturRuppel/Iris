@@ -162,15 +162,23 @@ browser.install()
   reporting = false;
   for (const name of manifest.images) if (!added.has(name)) await add(name);
   progress("Ready", 1);
-  /* then the statistics: requests queue behind this, and the first test would
-     have paid for it anyway */
-  queue = queue.then(() => warmStatistics(manifest.dynlibs.stats));
+  /* then the statistics, in small steps that give way to any waiting request */
+  void warmStatistics(manifest.dynlibs.stats);
 }
 
+/* One step at a time through the request queue, and only when no request is
+   waiting, so the app answers at once while this runs. A test that arrives
+   before it finishes loads what is still missing itself. */
 async function warmStatistics(libs: string[]) {
+  const whenIdle = async (step: () => Promise<unknown>) => {
+    while (waiting) await queue;
+    const run = queue.then(step);
+    queue = run.then(() => {}, () => {});
+    await run;
+  };
   try {
-    for (const lib of libs) await py._api.loadDynlib(lib);
-    await py.runPythonAsync("import scipy.stats, statsmodels.api");
+    for (const lib of libs) await whenIdle(() => py._api.loadDynlib(lib));
+    await whenIdle(() => py.runPythonAsync("import scipy.stats, statsmodels.api"));
   } catch (err) {
     console.warn("statistics warm-up failed; the first test loads them instead:", err);
   }
@@ -197,6 +205,7 @@ async function answer(id: number, method: string, url: string, headers: unknown,
 /* Requests run strictly in order, because the engine is single-threaded and an
    overlap could interleave a syncfs with the next write. */
 let queue: Promise<void> = Promise.resolve();
+let waiting = 0;          // requests queued and not yet answered
 
 function fail(err: unknown) {
   bootFailed(err);
@@ -217,6 +226,8 @@ self.onmessage = ({ data }: MessageEvent) => {
     arrived.get(data.name)?.();
     arrived.delete(data.name);
   } else if (data.type === "request") {
-    queue = queue.then(() => answer(data.id, data.method, data.url, data.headers, data.body));
+    waiting++;
+    queue = queue.then(() => answer(data.id, data.method, data.url, data.headers, data.body))
+      .finally(() => { waiting--; });
   }
 };
