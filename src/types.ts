@@ -753,6 +753,9 @@ const baseUrl: Promise<string> = (async () => {
     }
   }
   if ((import.meta as any).env?.DEV) return loopback();
+  // the in-page engine (web build) is mounted nowhere: its routes start at "/".
+  // Over file:// the page's directory would be the whole filesystem path.
+  if (browserRuntime) return "";
   // the directory the page came from: "" at the root, "/iris" when the lab book
   // mounts the engine under a path on its own origin
   return new URL(".", window.location.href).pathname.replace(/\/$/, "");
