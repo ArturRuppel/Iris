@@ -1,4 +1,4 @@
-# The zero-install web build on GitHub Pages (https://ruppel.pro/Iris/), with the
+# The zero-install web build on GitHub Pages (https://arturruppel.github.io/Iris/), with the
 # offline single file beside it. Everything the page loads is built in: Pyodide
 # from node_modules, its packages and the pinned PyPI wheels downloaded once and
 # checked against their SHA-256 (tools/build-web.mjs), the fonts from the repo.

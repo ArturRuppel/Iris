@@ -77,7 +77,7 @@ likely to reorder everything below.
 ## Packaging and distribution
 
 - **Distribution is the hosted web build.** Every push to `main` deploys
-  `npm run build:web` to https://ruppel.pro/Iris/, with the app packed alone as
+  `npm run build:web` to https://arturruppel.github.io/Iris/, with the app packed alone as
   `iris-offline.html` beside it. That answers cross-platform without installers,
   signing or an update mechanism; the Tauri desktop shell stays Linux-only and
   unpackaged. Chromium and Firefox are tested, Safari is not yet. Boot time

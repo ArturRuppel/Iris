@@ -2,7 +2,7 @@
 
 Publication-grade figures and honest statistics, from the GUI, from code, or both.
 
-**Try it at [ruppel.pro/Iris](https://ruppel.pro/Iris/).** It runs in your browser,
+**Try it at [arturruppel.github.io/Iris](https://arturruppel.github.io/Iris/).** It runs in your browser,
 with nothing to install, and your data stays on your computer.
 
 Iris is a desktop application built around one idea, the *reactive triad*: a
@@ -103,7 +103,7 @@ There is also a build with nothing to install, and it is the one most people sho
 use. `npm run build:web` writes a static site to `dist-web/`, about 96 MB, that runs
 the whole engine in the browser through [Pyodide](https://pyodide.org). It opens
 directly from a folder or file share, or from any static host. Every push to `main`
-publishes it to GitHub Pages at [ruppel.pro/Iris](https://ruppel.pro/Iris/)
+publishes it to GitHub Pages at [arturruppel.github.io/Iris](https://arturruppel.github.io/Iris/)
 (`.github/workflows/pages.yml`), and the page makes no third-party request: the
 fonts are in the repo. Your data stays on your computer, and each `.iris` file records that it was computed this way. Its scipy and
 numpy are newer than the pinned desktop versions, so `npm run test:pyodide` runs the
