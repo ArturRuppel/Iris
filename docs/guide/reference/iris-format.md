@@ -3,7 +3,10 @@
 An analysis is saved as a single open file, the `.iris`. Everything the analysis
 needs lives in it: your input tables, the steps that shape them, the test you
 settled on, how the figure should look, and a note of where the data came from.
-One file can hold several input tables and several analyses over them.
+One file can hold several input tables and several analyses over them, and
+optionally a figure that draws several of those analyses as its panels
+(`figure.json`: which tagged analyses, in what order, and the layout). A file
+without one opens exactly as before.
 
 ## What it stores, and what it does not
 

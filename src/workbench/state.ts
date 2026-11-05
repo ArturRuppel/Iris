@@ -92,9 +92,9 @@ export const pushStashAtom = atom(
 /* The landing view of an analysis: the figure's plot in the display panel.
    Called after clearWorkbench on every analysis switch. The figure id is a stable
    graph constant, so no graph lookup is needed. */
+const DEFAULT_PLOT: Target = { kind: "node", id: FIGURE_ID, facet: "plot" };
 export const seedDefaultStashAtom = atom(null, (_get, set) => {
-  const plot: Target = { kind: "node", id: FIGURE_ID, facet: "plot" };
-  set(stashAtom, [{ id: cardId(plot), target: plot, cardKind: "plot" }]);
+  set(stashAtom, [{ id: cardId(DEFAULT_PLOT), target: DEFAULT_PLOT, cardKind: "plot" }]);
 });
 
 /* Focus mode: a pinned tile maximized to fill the whole workbench, hiding the
@@ -111,9 +111,13 @@ export const popStashAtom = atom(null, (get, set, id: string) => {
 
 /* Reset everything session-only — called when the active analysis changes so a
    stale card/selection/nudge from another analysis never sticks (design §3). */
-export const clearWorkbenchAtom = atom(null, (_get, set) => {
+export const clearWorkbenchAtom = atom(null, (get, set) => {
   set(stashAtom, []);
   set(selectedTargetAtom, null);
   set(nodePositionsAtom, {});
-  set(focusedStashIdAtom, null);
+  /* the maximized plot stays maximized across an analysis switch: its card id
+     is the same for every analysis and seedDefaultStash recreates it, so the
+     focus carries over and the next plot opens full-size too */
+  const focused = get(focusedStashIdAtom);
+  set(focusedStashIdAtom, focused === cardId(DEFAULT_PLOT) ? focused : null);
 });

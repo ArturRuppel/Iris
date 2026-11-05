@@ -78,11 +78,13 @@ def _read_state(dirpath: Path) -> dict | None:
 
 def write_snapshot(dirpath: Path, *, analyses: list[dict],
                    table_meta: list[dict], provenance: dict,
-                   fingerprint: str, iris_bytes) -> dict:
+                   fingerprint: str, iris_bytes, figure: dict | None = None) -> dict:
     """Refresh the slot. `iris_bytes` is a zero-arg callable producing the
     full `.iris` bytes — called ONLY when the data tier must be (re)written,
     so the common spec-only snapshot never touches the sessions.
-    `table_meta` is `[{name, hierarchy}]`, the sidecar's overlay payload."""
+    `table_meta` is `[{name, hierarchy}]`, the sidecar's overlay payload.
+    `figure` (the multi-panel assembly, or None) rides in the sidecar too: like
+    the specs it changes often and carries no table data."""
     with _LOCK:
         dirpath.mkdir(parents=True, exist_ok=True)
         state = _read_state(dirpath)
@@ -97,6 +99,7 @@ def write_snapshot(dirpath: Path, *, analyses: list[dict],
             "analyses": analyses,
             "tables": table_meta,
             "provenance": provenance,
+            "figure": figure,
         }, indent=2).encode("utf-8"))
         return {"data_written": data_stale}
 
@@ -126,6 +129,9 @@ def load_snapshot(dirpath: Path) -> dict:
     doc = document.load_document(data)
     doc["analyses"] = state.get("analyses", doc["analyses"])
     doc["provenance"] = state.get("provenance", doc.get("provenance"))
+    if "figure" in state:   # a sidecar older than assemblies has no key: keep the .iris's
+        from . import assembly
+        doc["figure"] = assembly.normalize(state["figure"])
     for tm in state.get("tables", []):
         name, hierarchy = tm.get("name"), tm.get("hierarchy")
         if name in doc["tables"] and hierarchy is not None:

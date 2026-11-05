@@ -31,15 +31,23 @@ from . import build_info
 # stored analysis spec drops its derived stats fields (chosen_by /
 # alternatives_offered / assumption_checks / report) — those are recomputed on
 # open. See docs/superpowers/specs/2026-06-24-iris-file-format-redesign-design.md.
+# Optional part, no version bump: `figure.json`, a multi-panel figure assembly
+# (assembly.py) — which tagged analyses form one figure, and its layout. Written
+# only when the document has one; a reader that predates it simply ignores the
+# entry, and a file without it loads with `figure = None`, exactly as before.
 FORMAT_VERSION = "2.2"
+FIGURE_PART = "figure.json"
 
 
 def save_document(tables: dict, analyses: list[dict],
-                  provenance: dict, engine_snapshot: dict) -> bytes:
+                  provenance: dict, engine_snapshot: dict,
+                  figure: dict | None = None) -> bytes:
     """Write a self-contained multi-table `.iris`.
 
     `tables` is `{name -> {"schema": dict, "hierarchy": dict, "rows": list[dict]}}`;
-    each table is stored once under `tables/<name>/`."""
+    each table is stored once under `tables/<name>/`. `figure` is the optional
+    multi-panel assembly (see assembly.py), normalized and stored as
+    `figure.json`; the panels are the analyses that carry a `tag`."""
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps({
@@ -71,6 +79,9 @@ def save_document(tables: dict, analyses: list[dict],
             z.writestr(f"analyses/{i:04d}-{an.get('id', 'analysis')}.json",
                        json.dumps(an, indent=2))
         z.writestr("provenance.json", json.dumps(provenance, indent=2))
+        if figure is not None:
+            from . import assembly
+            z.writestr(FIGURE_PART, json.dumps(assembly.normalize(figure), indent=2))
     return buf.getvalue()
 
 
@@ -106,9 +117,10 @@ def _version_tuple(v: str) -> tuple[int, ...]:
 
 
 def load_document(data: bytes) -> dict:
-    """Read a `.iris` into `{"manifest", "tables", "analyses", "provenance"}`,
-    where `tables` is `{name -> {"schema", "hierarchy", "rows"}}`. Tables ride
-    under `tables/<name>/` (2.1+)."""
+    """Read a `.iris` into `{"manifest", "tables", "analyses", "provenance",
+    "figure"}`, where `tables` is `{name -> {"schema", "hierarchy", "rows"}}`.
+    Tables ride under `tables/<name>/` (2.1+). `figure` is the normalized
+    multi-panel assembly, or None when the file has none."""
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         manifest = json.loads(z.read("manifest.json"))
         ver = _version_tuple(manifest.get("format_version", "0"))
@@ -120,6 +132,10 @@ def load_document(data: bytes) -> dict:
         analyses = [json.loads(z.read(n)) for n in sorted(names)
                     if n.startswith("analyses/")]
         provenance = json.loads(z.read("provenance.json"))
+        figure = None
+        if FIGURE_PART in names:
+            from . import assembly
+            figure = assembly.normalize(json.loads(z.read(FIGURE_PART)))
         tables = {}
         tnames = sorted({n.split("/")[1] for n in names
                          if n.startswith("tables/")})
@@ -133,7 +149,7 @@ def load_document(data: bytes) -> dict:
                 "rows": json.loads(df.to_json(orient="records")),
             }
     return {"manifest": manifest, "tables": tables,
-            "analyses": analyses, "provenance": provenance}
+            "analyses": analyses, "provenance": provenance, "figure": figure}
 
 
 # ----- sample dataset (mirrors the tier-0 demo's shape) -----

@@ -1,4 +1,5 @@
 import { browserFetch } from "./browserEngine";
+import type { FigureAssembly } from "./figure";
 /* Shared types mirroring the frozen analysis-spec schema (v1.0). */
 
 export interface ColumnDef {
@@ -377,8 +378,12 @@ export interface StyleOverrides {
   y_label?: string;
   /* written by dragging labels on the figure; SVG px, y down */
   offsets?: Record<string, [number, number]>;
-  /* written by dragging/resizing the plot area within the canvas:
-     [left, bottom, width, height] in figure fractions (y up). Unfaceted only. */
+  /* the plot area (axes box) pinned to a size in mm; where it sits is derived
+     by the engine from its labels (plotArea.ts). Unfaceted only. */
+  plot_w_mm?: number;
+  plot_h_mm?: number;
+  /* legacy: a whole pinned rect [left, bottom, width, height] in canvas
+     fractions (y up); read for its size, rewritten as a size on edit */
   axes_rect?: [number, number, number, number];
   /* axes & ticks */
   tick_direction?: "out" | "in" | "inout";
@@ -492,6 +497,10 @@ export interface AnalysisSpec {
      rooted in. Set by the save serializer; absent on a legacy 2.0 file, where the
      loader binds the analysis to the single loaded table. */
   table_id?: string;
+  /* the panel letter of a multi-panel figure (figure.ts): an analysis with a tag
+     is a panel of the document's figure assembly. Written by the save serializer
+     only — it is no input to the analysis's own render. */
+  tag?: string;
 }
 
 export interface Check {
@@ -631,7 +640,19 @@ export interface LoadedDocument {
   manifest: DocumentManifest;
   analyses: Record<string, unknown>[];
   provenance: Record<string, unknown> | null;
+  /* the multi-panel figure assembly (figure.json); null/absent when the file has none */
+  figure?: unknown;
   tables: LoadedTable[];
+}
+
+/* one panel of a figure request: the analysis as /analyze takes it, plus its letter */
+export interface FigurePanelRequest { table_token: string; spec: AnalysisSpec; tag: string }
+export interface FigureRenderResponse {
+  svg: string;
+  /* each panel's box in figure fractions from the top left: [x0, y0, x1, y1] */
+  panels: { id: string; tag: string; box: [number, number, number, number]; error: string | null }[];
+  width_mm: number;
+  height_mm: number;
 }
 
 /* the autosave slot's launch-time summary: what the recovery banner shows.
@@ -872,9 +893,17 @@ export const engine = {
   exportMethods: (tables: SaveTable[], analyses: AnalysisSpec[], format: "md" | "csv") =>
     post<{ filename: string; data_base64: string }>(
       "/export/methods", { tables, analyses, format }),
-  saveDocument: (tables: SaveTable[], analyses: AnalysisSpec[], provenance: unknown) =>
+  saveDocument: (tables: SaveTable[], analyses: AnalysisSpec[], provenance: unknown,
+                 figure: FigureAssembly | null = null) =>
     post<{ filename: string; data_base64: string }>(
-      "/document/save", { tables, analyses, provenance }),
+      "/document/save", { tables, analyses, provenance, ...(figure ? { figure } : {}) }),
+  /* the assembled multi-panel figure: a live preview (a failing panel shows its
+     error) or an export (strict: any failing panel fails it) */
+  figureRender: (panels: FigurePanelRequest[], figure: FigureAssembly) =>
+    post<FigureRenderResponse>("/figure/render", { panels, figure }),
+  figureExport: (panels: FigurePanelRequest[], figure: FigureAssembly, format: "svg" | "pdf" | "png") =>
+    post<{ filename: string; data_base64: string }>(
+      "/figure/export", { panels, figure, format, dpi: 300 }),
   /* ---- autosave / crash recovery: the engine owns an on-disk snapshot slot ---- */
   autosaveStatus: () => get<AutosaveStatus>("/autosave/status"),
   /* refresh the slot. Posted as text/plain — a CORS "simple request", no
@@ -882,13 +911,14 @@ export const engine = {
      while the page is being torn down. The payload is table REFERENCES + spec
      JSON (never rows), so it also fits keepalive's 64 KB body cap. */
   autosaveSnapshot: async (tables: SaveTable[], analyses: AnalysisSpec[],
-                           dataFingerprint: string, opts: { keepalive?: boolean } = {}) => {
+                           dataFingerprint: string, opts: { keepalive?: boolean } = {},
+                           figure: FigureAssembly | null = null) => {
     const r = await engineFetch((await baseUrl) + "/autosave/snapshot", {
       method: "POST",
       headers: { "Content-Type": "text/plain" },
       keepalive: opts.keepalive,
       body: JSON.stringify({ tables, analyses, provenance: {},
-        data_fingerprint: dataFingerprint }),
+        data_fingerprint: dataFingerprint, figure }),
     });
     if (!r.ok) throw new Error((await r.json().catch(() => null))?.detail ?? r.statusText);
     return r.json() as Promise<{ ok: boolean; data_written: boolean }>;

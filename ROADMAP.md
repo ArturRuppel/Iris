@@ -113,6 +113,16 @@ none is urgent; they are recorded so they are not rediscovered.
 
 ## Recorded decisions
 
+- **Multi-panel figures** (2026-11-04, built). A document-level assembly
+  (`figure.json`, `engine/iris_engine/assembly.py`) draws the tagged analyses as
+  the panels of one matplotlib figure, one subfigure each, through the ordinary
+  family builders; stacked panels are left-aligned after layout, and with a
+  shared x both edges line up. Not pasted SVGs, so every export format and the
+  lab-book SVG come from one renderer. A panel's dragged plot-area rect is
+  ignored inside an assembly (alignment owns the axes position). The older layer
+  `panel` tags (side-by-side panels inside ONE analysis, sharing its encodings)
+  are a different mechanism and stay.
+
 - **Identifier default vs time on X** (2026-06-22, left as is). A column named
   `frame` / `time` / `timepoint` defaults to `type: identifier`, so it is not
   axis-mappable without a manual retype: friction for the time-lapse use case
@@ -140,8 +150,6 @@ issue is the place to argue it.
   with diagnostic plots.
 - **Per-facet inferential testing** with multiple-comparisons correction: the
   testing that faceting deliberately deferred, landing once a real need shows up.
-- **Multi-panel figure composition**: a document-level figure object referencing
-  analyses.
 - **A fluid exploration mode** (D3-rendered, 60 fps brushing) feeding the same
   spec, with matplotlib still rendering the publication output.
 - **A natural-language layer** compiling utterances to spec edits.

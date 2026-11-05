@@ -28,6 +28,26 @@ from iris_engine import compiler, document, stats   # no FastAPI needed
 # (see iris_engine.compiler.build_figure)
 ```
 
+A multi-panel figure: tag the analyses that are panels, pass the assembly to
+`save_document`, and render it with `assembly.render_figure` (the same tables
+and analyses) or `assembly.render_iris` (the saved bytes):
+
+```python
+from iris_engine import assembly, compiler, document, main
+
+analyses = [{**spec_a, "tag": "A"}, {**spec_b, "tag": "B"}]
+figure = {"panels": [spec_a["id"], spec_b["id"]], "direction": "rows",
+          "share_x": True, "gap_mm": 3, "width_mm": 110}
+data = document.save_document(tables, analyses, provenance,
+                              main.engine_snapshot(), figure=figure)
+fig = assembly.render_figure(tables, analyses, figure)   # or assembly.render_iris(data)
+svg = compiler.figure_to_svg(fig)
+png = compiler.figure_to_bytes(fig, "png", dpi=110)
+compiler.close(fig)
+```
+
+The assembly fields and their defaults are in `iris_engine/assembly.py`.
+
 ## HTTP service
 
 ```bash

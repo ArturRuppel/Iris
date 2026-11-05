@@ -142,6 +142,23 @@ picture.
 
 ---
 
+## Several plots as one figure
+
+To put several analyses of one document side by side or above one another, give
+each a **tag** (A, B, …) in the box at the end of its row in the Analyses list,
+or add it in the **Figure** view. The tag is the panel's letter. The Figure view
+shows the assembled figure as it will export, with the layout beside it:
+stacked or side by side, the overall size in mm, the gap between panels,
+relative panel sizes, a shared x axis for stacked panels (one x range, labels on
+the bottom panel only), and the letters' size, weight and position. The panels'
+plot areas line up on the left. Tap a panel to open its analysis.
+
+In the Figure view, **Export** writes the whole figure; elsewhere it writes the
+analysis you are looking at. A lab-book figure with tagged panels saves the
+assembled figure as its picture.
+
+---
+
 You can draw more than one plot on the same axes with **+ add layer**, for
 example points over a box, or a regression line over a scatter. With a plot in
 place, the [Stats half](./test/choosing.md) adds a test, and the plot type you

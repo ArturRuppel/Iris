@@ -13,6 +13,7 @@ same size; PNG only adds rasterization DPI.
 """
 from __future__ import annotations
 
+import contextvars
 import io
 import zlib
 
@@ -37,6 +38,13 @@ from .specutil import col_type, is_identifier, resolve_cat_val
 
 MM = 1 / 25.4
 INK = "#0f172a"
+
+# Multi-panel assembly (assembly.py): while set, `_build_grid` draws into the
+# subfigure this callable hands out instead of opening a new figure. Unset (the
+# default) on every ordinary render, so a single analysis takes exactly the path
+# it always did.
+_PANEL_PARENT: contextvars.ContextVar = contextvars.ContextVar(
+    "iris_panel_parent", default=None)
 
 # Re-export from style.py — the single source of truth for defaults.
 STYLE_DEFAULTS = style_mod.STYLE_DEFAULTS
@@ -434,16 +442,16 @@ def _decorate(fig, ax, style: dict, extra: dict | None = None, *, faceted: bool 
             art.set_transform(art.get_transform() + mtransforms.ScaledTranslation(
                 off[0] / 72, -off[1] / 72, fig.dpi_scale_trans))
 
-    # Plot-area drag/resize: pin the axes to an explicit figure-fraction rect.
-    # Deferred to _finalize_deferred (like the legend nudge) so constrained
-    # layout solves first and is then frozen; only meaningful with one axes.
-    rect = style.get("axes_rect")
+    # Plot-area size: a pinned axes box (plot_w_mm × plot_h_mm) is placed by
+    # _place_plot once constrained layout has solved (from _finalize_deferred,
+    # like the legend nudge, or from the assembly); only meaningful with one axes.
     if not faceted:
         # Tag the axes background so the frontend can locate the plot-area
-        # rectangle and overlay its move/resize handles (gid 'plot-area').
+        # rectangle and overlay its resize grip (gid 'plot-area').
         ax.patch.set_gid("plot-area")
-        if rect and len(rect) == 4:
-            fig._iris_axes_rect = (ax, [float(v) for v in rect])
+        size = _plot_size_mm(style)
+        if size:
+            fig._iris_plot_size = (ax, *size)
 
 
 def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
@@ -496,21 +504,75 @@ def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
         # is drawn, from figure_to_svg/_bytes) resolves the auto-placed position
         # and re-anchors the legend by the offset.
         fig._iris_legend_nudge = (
-            leg, fig.transFigure if faceted else ax.transAxes, off)
+            # transSubfigure: the panel's own frame inside an assembly; for a
+            # plain Figure it is the very same object as transFigure.
+            leg, fig.transSubfigure if faceted else ax.transAxes, off)
     return leg
 
 
-def _apply_axes_rect(fig) -> None:
-    """Pin the plot area to its dragged/resized rect (offsets['axes_rect'] →
-    [left, bottom, width, height] in figure fractions). Run from
-    _finalize_deferred after constrained layout has solved and the legend has
-    been re-anchored, with the layout engine about to be frozen, so the explicit
-    position survives the save. Pops its stash, so a second save is a no-op."""
-    stash = fig.__dict__.pop("_iris_axes_rect", None)
+def _plot_size_mm(style) -> tuple[float | None, float | None] | None:
+    """The pinned plot-area size (width, height) in mm, a dimension None when it
+    is left to the layout; None when nothing is pinned. The legacy `axes_rect`
+    (a whole rect in canvas fractions) counts for its size only."""
+    w, h = style.get("plot_w_mm"), style.get("plot_h_mm")
+    rect = style.get("axes_rect")
+    if rect and len(rect) == 4:
+        if w is None:
+            w = float(rect[2]) * float(style["width_mm"])
+        if h is None:
+            h = float(rect[3]) * float(style["height_mm"])
+    if w is None and h is None:
+        return None
+    return (None if w is None else float(w), None if h is None else float(h))
+
+
+# room between the canvas edge and the outermost tick/axis label of a pinned plot
+PLOT_PAD_MM = 1.0
+
+
+def _place_plot(ax, w_mm, h_mm) -> None:
+    """Give the axes box a fixed size and derive where it sits: the left and
+    bottom margins are what its tick labels and axis labels need (plus
+    PLOT_PAD_MM), the rest of the canvas is free to the right and above (title,
+    a legend dragged beside the plot). A None dimension keeps the layout's. A
+    size the canvas cannot hold is still honoured: the box and what hangs off
+    its top and right (title, overhanging tick labels) stay inside the canvas,
+    and the bottom/left labels are what gets clipped — visibly, so the size or
+    the canvas gets corrected rather than the data silently cut. The canvas must
+    have been drawn once (layout solved) so the starting position and the text
+    extents are real; set_position takes the axes out of the layout engine,
+    which the caller then freezes. Two passes, since the tick labels (and so
+    the margins) can change with the box's size."""
+    fig = ax.figure                       # the panel's subfigure in an assembly
+    W, H = fig.bbox.width, fig.bbox.height
+    px = MM * fig.dpi                     # px per mm
+    pos = ax.get_position()               # fractions of the (sub)figure
+    w = pos.width if w_mm is None else w_mm * px / W
+    h = pos.height if h_mm is None else h_mm * px / H
+    left, bottom = pos.x0, pos.y0
+    pad = PLOT_PAD_MM * px
+    for _ in range(2):
+        ax.set_position([left, bottom, w, h])
+        fig.canvas.draw()
+        r = fig.canvas.get_renderer()
+        box, tight = ax.get_window_extent(r), ax.get_tightbbox(r)
+        need = lambda a, b: max(a - b, 0.0) + pad   # noqa: E731 — room for the decorations past an edge
+        left = min(need(box.x0, tight.x0) / W, 1 - w - need(tight.x1, box.x1) / W)
+        bottom = min(need(box.y0, tight.y0) / H, 1 - h - need(tight.y1, box.y1) / H)
+        left, bottom = max(left, 0.0), max(bottom, 0.0)
+    ax.set_position([left, bottom, w, h])
+
+
+def _apply_plot_size(fig) -> None:
+    """Place a pinned plot area (see _place_plot). Run from _finalize_deferred
+    after constrained layout has solved, before the beeswarm solve and the
+    legend re-anchor (both read the final axes), with the layout engine about to
+    be frozen so the position survives the save. Pops its stash, so a second
+    save is a no-op."""
+    stash = fig.__dict__.pop("_iris_plot_size", None)
     if not stash:
         return
-    ax, box = stash
-    ax.set_position(box)
+    _place_plot(*stash)
 
 
 def _apply_legend_offset(fig) -> None:
@@ -609,13 +671,13 @@ def _finalize_deferred(fig) -> None:
     a second save."""
     pending = (getattr(fig, "_iris_beeswarm", None)
                or "_iris_legend_nudge" in fig.__dict__
-               or "_iris_axes_rect" in fig.__dict__)
+               or "_iris_plot_size" in fig.__dict__)
     if not pending:
         return
     fig.canvas.draw()
+    _apply_plot_size(fig)
     _apply_beeswarm(fig)
     _apply_legend_offset(fig)
-    _apply_axes_rect(fig)
     fig.set_layout_engine("none")
 
 
@@ -697,7 +759,16 @@ def _build_grid(width_mm: float, height_mm: float, n_rows: int, n_cols: int,
     fit the fixed-size chrome (ticks, per-facet titles, shared legend) and
     collapsed the axes to zero size — i.e. "facets cannot be plotted" (item 12).
     For a 1×1 grid this is width_mm × height_mm, so the unfaceted path is
-    unchanged."""
+    unchanged.
+
+    Inside an assembly (`_PANEL_PARENT` set) the grid is drawn into the panel's
+    subfigure, which is returned in place of the figure: the builders' figure-level
+    chrome (suptitle, shared legend, colorbar) then lands in that panel."""
+    parent = _PANEL_PARENT.get()
+    if parent is not None:
+        sub = parent(width_mm * n_cols, height_mm * n_rows)
+        return sub, sub.subplots(n_rows, n_cols, sharex=sharex, sharey=sharey,
+                                 squeeze=False)
     return plt.subplots(n_rows, n_cols,
                         figsize=(width_mm * n_cols * MM, height_mm * n_rows * MM),
                         layout="constrained", sharex=sharex, sharey=sharey,

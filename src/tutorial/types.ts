@@ -12,7 +12,7 @@ import type { AnalysisSpec, AnalyzeResponse, Schema } from "../types";
 export type TutorialView = "data" | "workbench";
 
 export interface TutorialCtx {
-  viewMode: "data" | "workbench";
+  viewMode: "data" | "workbench" | "figure";
   plottable: Plottable | null;
   spec: AnalysisSpec | null;
   schema: Schema | null;              // effective (post-reduction) schema, for colType

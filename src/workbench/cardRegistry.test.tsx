@@ -106,18 +106,21 @@ describe("card bodies — each renders its panel inside the classed wrapper", ()
   });
 
   // the encoding rows (X, Y, …) moved out of the floating geom card into the
-  // Plot card, in one column with the figure, style and layers.
-  it("plot holds the encoding, style and layers in one column", () => {
+  // Plot card: one inspector under the figure, a tab bar over flat rows.
+  it("plot holds the encoding, style and layers in one tabbed inspector", () => {
     const { container } = renderBody("plot", false, true);
     const card = container.querySelector('[data-testid="plot-card"]')!;
-    const enc = card.querySelector("details.plot-encoding")!;
-    expect(enc).toBeInTheDocument();
-    expect(within(enc as HTMLElement).getByText("Encoding").tagName).toBe("SUMMARY");
+    const insp = card.querySelector(".plot-inspector") as HTMLElement;
+    expect(insp).toBeInTheDocument();
+    const tabs = within(insp).getAllByRole("tab").map((t) => t.textContent);
+    expect(tabs).toEqual(["Encoding", "Layers", "Axes", "Text", "Layout"]);
+    // Encoding is the default tab
+    expect(within(insp).getByRole("tab", { name: "Encoding" })).toHaveAttribute("aria-selected", "true");
     expect(card.querySelector(".encodings-card")).toBeInTheDocument();
-    expect(card.querySelector(".style-pane:not(.plot-encoding)")).toBeInTheDocument();
+    fireEvent.click(within(insp).getByRole("tab", { name: "Layers" }));
     expect(card.querySelector('[data-testid="layer-strip"]')).toBeInTheDocument();
-    // the figure pane no longer carries the style drawer itself
-    expect(card.querySelector(".figure-pane .style-pane")).toBeNull();
+    // the figure pane no longer carries the style controls itself
+    expect(card.querySelector(".figure-pane .plot-inspector")).toBeNull();
   });
 
   // the stats landing card shows BOTH halves of the StatsPanel module — the

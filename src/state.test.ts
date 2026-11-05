@@ -19,6 +19,8 @@ import {
   activeSchemaAtom,
   addPlottableAtom, duplicatePlottableAtom, loadDocumentAtom,
   undoSpecAtom, redoSpecAtom, specHistoryAtom, specRedoAtom, clearSpecHistoryAtom,
+  pushDragSnapshotAtom, undoDragAtom, redoDragAtom, dragHistoryAtom, dragRedoAtom,
+  figureAtom, figurePanelsAtom, setTagAtom, autosaveKeyAtom, autosaveBaselineAtom,
 } from "./state";
 import type { ReduceStep, Table, EngineReduceStep, EngineReduceDag } from "./types";
 import { EMPTY_HIERARCHY, engine } from "./types";
@@ -1194,5 +1196,108 @@ describe("undo history — spec mutations only", () => {
     store.set(clearSpecHistoryAtom);
     expect(store.get(specHistoryAtom)).toHaveLength(0);
     expect(store.get(specRedoAtom)).toHaveLength(0);
+  });
+});
+
+describe("drag history — manual figure edits", () => {
+  const seed = () => {
+    const store = createStore();
+    const p = makeDefaultPlottable();
+    store.set(plottablesAtom, [p]);
+    store.set(activePlottableIdAtom, p.id);
+    /* a drag release: snapshot the style, then commit the new one */
+    const drag = (style: Record<string, unknown>) => {
+      store.set(pushDragSnapshotAtom);
+      const cur = store.get(activePlottableAtom)!;
+      store.set(activePlottableAtom, { ...cur, style: { ...cur.style, ...style } });
+    };
+    return { store, p, drag };
+  };
+
+  it("undoes and redoes a drag without touching the spec history", () => {
+    const { store, drag } = seed();
+    drag({ width_mm: 90 });
+    drag({ plot_w_mm: 60, plot_h_mm: 40 });
+    expect(store.get(specHistoryAtom)).toHaveLength(0);
+    expect(store.get(undoDragAtom)).toBe(true);
+    store.set(undoDragAtom);
+    expect(store.get(activePlottableAtom)!.style).toEqual({ width_mm: 90 });
+    expect(store.get(redoDragAtom)).toBe(true);
+    store.set(undoDragAtom);
+    expect(store.get(activePlottableAtom)!.style).toEqual({});
+    expect(store.get(undoDragAtom)).toBe(false);
+    store.set(redoDragAtom);
+    store.set(redoDragAtom);
+    expect(store.get(activePlottableAtom)!.style).toEqual({ width_mm: 90, plot_w_mm: 60, plot_h_mm: 40 });
+    expect(store.get(redoDragAtom)).toBe(false);
+  });
+
+  it("a new drag after an undo drops the redo branch", () => {
+    const { store, drag } = seed();
+    drag({ width_mm: 90 });
+    store.set(undoDragAtom);
+    drag({ height_mm: 60 });
+    expect(store.get(dragRedoAtom)).toHaveLength(0);
+    expect(store.get(dragHistoryAtom)).toHaveLength(1);
+  });
+
+  it("only offers undo for the active analysis, and clears with the spec history", () => {
+    const { store, drag } = seed();
+    drag({ width_mm: 90 });
+    const other = makeDefaultPlottable();
+    store.set(plottablesAtom, [...store.get(plottablesAtom), other]);
+    store.set(activePlottableIdAtom, other.id);
+    expect(store.get(undoDragAtom)).toBe(false);
+    store.set(clearSpecHistoryAtom);
+    expect(store.get(dragHistoryAtom)).toHaveLength(0);
+  });
+});
+
+describe("multi-panel figure: tags and the document assembly", () => {
+  const lt = (name: string) => ({
+    name, id: `h_${name}`, schema: SCHEMA, hierarchy: { spine: [] as string[], fn: {} },
+    n: 1, version: 0, counts: { total: 1 }, rows: [],
+  });
+
+  it("loads the figure and the tags, and a file without one loads as before", async () => {
+    const store = createStore();
+    const a = { ...makeSpec("a", { xCol: "grp" }), tag: "A" };
+    const b = makeSpec("b", { xCol: "grp" });
+    await store.set(loadDocumentAtom, { analyses: [a, b], tables: [lt("table_1")],
+      figure: { share_x: true, panels: ["a"] } } as never);
+    expect(store.get(figureAtom)?.share_x).toBe(true);
+    expect(store.get(figurePanelsAtom).map((p) => p.id)).toEqual(["a"]);
+    expect(store.get(autosaveKeyAtom)).toBe(store.get(autosaveBaselineAtom));   // nothing unsaved
+    await store.set(loadDocumentAtom, { analyses: [b], tables: [lt("table_1")] } as never);
+    expect(store.get(figureAtom)).toBeNull();
+    expect(store.get(plottablesAtom)[0].tag).toBeUndefined();
+  });
+
+  it("tagging starts an assembly, counts as an edit, and rides on the save spec only", async () => {
+    const store = createStore();
+    await store.set(loadDocumentAtom, { analyses: [makeSpec("a", { xCol: "grp" })],
+      tables: [lt("table_1")] } as never);
+    const baseline = store.get(autosaveBaselineAtom);
+    store.set(setTagAtom, { id: "a", tag: " B " });
+    expect(store.get(figureAtom)).not.toBeNull();
+    expect(store.get(autosaveKeyAtom)).not.toBe(baseline);
+    const p = store.get(plottablesAtom)[0];
+    expect(p.tag).toBe("B");
+    const pool = poolFor(store.get(reduceStoreAtom), p.tableId);
+    const hier = { spine: [], fn: {} };
+    expect(specForSave(p, "group_comparison", undefined, {}, hier, {}, pool).tag).toBe("B");
+    expect("tag" in buildSpec(p, "group_comparison", undefined, {}, hier, {}, pool)).toBe(false);
+    expect(plottableFromSpec(specForSave(p, "group_comparison", undefined, {}, hier, {}, pool)).p.tag).toBe("B");
+    store.set(setTagAtom, { id: "a", tag: "" });
+    expect(store.get(plottablesAtom)[0].tag).toBeUndefined();
+    expect(store.get(figurePanelsAtom)).toEqual([]);
+  });
+
+  it("a duplicate is not a second panel", async () => {
+    const store = createStore();
+    await store.set(loadDocumentAtom, { analyses: [{ ...makeSpec("a", { xCol: "grp" }), tag: "A" }],
+      tables: [lt("table_1")] } as never);
+    store.set(duplicatePlottableAtom, "a");
+    expect(store.get(plottablesAtom).map((p) => p.tag)).toEqual(["A", undefined]);
   });
 });

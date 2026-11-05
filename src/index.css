@@ -205,9 +205,26 @@ td select { border: none; background: transparent; padding: 0; }
 /* overflow:hidden clips only the transform-scaled overflow when zoomed (item H);
    at zoom 1 the host is the SVG's natural size, so tall figures still grow the
    host and scroll the outer pane as before. */
-.figure-host { padding: 0; overflow: hidden; }
-.figure-host.pannable { cursor: grab; }
-.figure-host.pannable:active { cursor: grabbing; }
+/* the viewport: a fixed-height ground the figure sheet is panned and zoomed
+   over (FigurePane, "view"); empty (no figure) it collapses so the placeholder
+   stands alone */
+.figure-host { position: relative; padding: 0; overflow: hidden; background: var(--canvas);
+  height: var(--fig-max-h, 62vh); touch-action: none; cursor: grab; }
+.figure-host:empty { height: 0; }
+.figure-host:active { cursor: grabbing; }
+.figure-host > svg { position: absolute; left: 0; top: 0; transform-origin: 0 0;
+  background: #fff; box-shadow: 0 1px 4px rgba(15,23,42,.18); }
+.figure-frame { overflow: hidden; }
+/* the figure is edited by dragging: on the iPad a press on its text or the page
+   around it must not start a text selection or the callout */
+.figure-frame { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+/* drags on the grips and labels are ours, not a scroll or a selection */
+.resize-handle, .plot-resize, .figure-host [data-drag] { touch-action: none; }
+/* a finger needs a bigger target than the 12-14 px grips: an invisible ring */
+@media (pointer: coarse) {
+  .resize-handle::before, .plot-resize::before {
+    content: ""; position: absolute; inset: -14px; }
+}
 
 /* view-only zoom toolbar in the figure pane head */
 .figure-head-right { display: flex; align-items: center; gap: 10px; }
@@ -219,6 +236,12 @@ td select { border: none; background: transparent; padding: 0; }
 .figure-tools button.on { border-color: var(--accent); color: var(--accent);
   background: var(--primary-tint); }
 .figure-tools button:disabled { opacity: 0.4; cursor: default; }
+.figure-tools button.wide { width: auto; padding: 0 8px; }
+.figure-tools button.on:not(:disabled) { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+/* in Pan mode, or once zoomed in, a finger on the figure pans the figure itself:
+   without this Safari takes the drag as a page scroll and the pinch as a page
+   zoom, and the whole app moves instead of the plot */
+.figure-host.pan-mode [data-drag] { cursor: inherit; }
 .zoom-pct { font-size: 11px; color: var(--faint); font-family: var(--mono);
   min-width: 34px; text-align: center; }
 .resize-handle { position: absolute; width: 14px; height: 14px;
@@ -226,13 +249,10 @@ td select { border: none; background: transparent; padding: 0; }
   border-bottom: 2px solid var(--accent); border-radius: 0;
   opacity: 0.35; }
 .resize-handle:hover { opacity: 1; }
-.plot-move { position: absolute; width: 14px; height: 14px; cursor: move;
-  border-left: 2px solid var(--accent); border-top: 2px solid var(--accent);
-  border-radius: 0; opacity: 0.35; }
 .plot-resize { position: absolute; width: 12px; height: 12px; cursor: nwse-resize;
   border-right: 2px solid var(--accent); border-bottom: 2px solid var(--accent);
   border-radius: 0; opacity: 0.35; }
-.plot-move:hover, .plot-resize:hover { opacity: 1; }
+.plot-resize:hover { opacity: 1; }
 .hint { font-size: 11px; color: var(--faint); margin: 0; padding: 0 12px 10px; }
 
 .menu-backdrop { position: fixed; inset: 0; z-index: 60; }
@@ -244,26 +264,6 @@ td select { border: none; background: transparent; padding: 0; }
   padding: 6px 10px; border-radius: 0; font-size: 12px; }
 .context-menu button:hover { background: var(--primary-tint); color: var(--accent); }
 
-/* style drawer under the figure */
-.style-pane { border-top: 1px solid var(--line); padding: 0 12px 10px; }
-.style-pane > summary { font-size: 12px; color: var(--dim); cursor: pointer;
-  padding: 8px 0 6px; user-select: none; }
-.style-groups { display: flex; flex-wrap: wrap; gap: 8px; }
-.style-groups fieldset { border: 1px solid var(--line); border-radius: 0;
-  padding: 6px 10px 8px; margin: 0; min-width: 150px; flex: 1;
-  display: flex; flex-direction: column; gap: 4px; }
-.style-groups legend { font-size: 11px; text-transform: uppercase;
-  letter-spacing: 0.04em; color: var(--faint); padding: 0 4px; }
-.style-groups label { font-size: 11px; color: var(--dim); display: flex;
-  align-items: center; gap: 6px; justify-content: space-between; }
-.style-groups input[type="text"] { width: 110px; border: 1px solid var(--line2);
-  border-radius: 0; padding: 2px 5px; font-size: 11px; }
-.style-groups input[type="number"] { width: 58px; border: 1px solid var(--line2);
-  border-radius: 0; padding: 2px 5px; font-size: 11px; }
-.style-groups input.narrow { width: 44px; }
-.style-groups select { font-size: 11px; padding: 2px 4px; }
-.style-groups input[type="range"] { flex: 1; min-width: 60px; }
-.style-groups span.dim { min-width: 28px; text-align: right; font-size: 11px; }
 .color-swatch-btn { width: 28px; height: 22px; padding: 0; border: 1px solid var(--line2);
   border-radius: 0; cursor: pointer; }
 .color-popover { padding: 8px; gap: 6px; }
@@ -271,9 +271,6 @@ td select { border: none; background: transparent; padding: 0; }
   border-radius: 0; padding: 3px 6px; }
 .color-swatch-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
 .color-swatch-grid .color-swatch-btn { width: 22px; height: 22px; }
-.style-foot { margin-top: 8px; }
-.style-foot button { font-size: 11px; padding: 3px 9px; }
-.style-foot button:disabled { opacity: 0.45; cursor: default; }
 
 .stats-body { padding: 12px; font-size: 13px; }
 .stats-body h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
@@ -760,6 +757,10 @@ button.icon:disabled { opacity: 0.3; }
 .reduced-legend .legend-item.val::before { background:var(--sage-tint); }
 
 footer { padding: 0 18px 22px; }
+.edit-log-head { display: flex; align-items: center; gap: 10px; padding: 8px 0; font-size: 12px; }
+.edit-log-head .grow { flex: 1; }
+.edit-log-head button { font-size: 12px; padding: 3px 10px; }
+.edit-log pre { max-height: 40vh; overflow: auto; }
 footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   border-radius: 0; padding: 14px; overflow: auto; max-height: 320px; }
 .engine-down { max-width: 480px; margin: 18vh auto; text-align: center; }
@@ -779,14 +780,9 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   border-radius: 0; padding: 1px 4px; cursor: pointer; }
 .layer-geom:hover { border-color: var(--line); background: var(--panel); }
 .layer-actions .icon { margin-left: 2px; }
-.layer-params { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-.layer-param { display: flex; align-items: center; justify-content: space-between;
-  font-size: 12px; gap: 8px; }
-.layer-param input, .layer-param select { width: 90px; }
 .add-layer-btn { font-size: 13px; color: var(--primary); background: none; border: none;
   cursor: pointer; padding: 4px; text-align: left; }
 .add-layer-menu { display: flex; flex-direction: column; gap: 4px; }
-.layer-meta { font-size: 12px; color: var(--faint); margin-top: 6px; }
 
 .describe-toggle { display: flex; align-items: center; gap: 6px;
   font-size: 12px; color: var(--dim); margin: 4px 0 8px; }
@@ -884,7 +880,6 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   border: 1px solid var(--primary-tintline); border-radius: 0; padding: 2px 7px; cursor: pointer; }
 .chip-btn:hover { background: var(--primary-tint); }
 
-.layer-level { font-weight: 500; }
 .reduced-level select { font-size: 11px; }
 
 .analyses-loading { display: flex; flex-direction: column; align-items: center;
@@ -1583,21 +1578,8 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 
 /* the figure sits directly in the panel: no "Figure" card, no title row rule */
 .txw-card-plot .figure-pane { border: none; background: none; overflow: visible; }
-.txw-card-plot .style-pane { padding: 0; border-top: 1px solid var(--hm-hairline); margin-top: 8px; }
 .txw-card-plot .figure-tools button { border-color: transparent; background: none; }
 .txw-card-plot .figure-tools button:hover:not(:disabled) { border-color: var(--hm-hairline); }
-
-/* layers: one column, eyebrow headings, hairlines between, no boxes */
-.txw-card-plot .layer-strip { gap: 0; }
-.txw-card-plot .layer-list { gap: 0; }
-.txw-card-plot .layer-card { border: none; border-top: 1px solid var(--hm-hairline);
-  padding: 10px 0 10px; }
-.txw-card-plot .layer-geom { font: 600 11px/1.2 var(--mono); text-transform: uppercase;
-  letter-spacing: .08em; color: var(--hm-dim); padding: 2px 0; margin: 0 4px 0 0; }
-.txw-card-plot .layer-actions .icon { border-color: transparent; background: none; color: var(--hm-dim); }
-.txw-card-plot .layer-actions .icon:hover:not(:disabled) { border-color: var(--hm-hairline); }
-.txw-card-plot .add-layer { border-top: 1px solid var(--hm-hairline); padding-top: 6px; }
-.txw-card-plot .add-layer-btn { padding: 4px 0; }
 
 /* stats: the readout and the test editor are one column */
 .txw-card-stats .stats-pane { border: none; background: none; overflow: visible; }
@@ -1679,9 +1661,6 @@ main:has(> .workbench-mode) { padding: 0; gap: 0; }
 .workbench-start .tb-ghost { font-size: 13px; padding: 10px 14px; border: 1px solid var(--hm-hairline); }
 .workbench-start .tb-ghost:hover { border-color: var(--hm-divider); }
 
-/* the encoding section of the Plot card: the channel rows, unboxed */
-.txw-card-plot .plot-encoding .encodings-card { background: none; border: none; padding: 2px 0 10px; }
-.txw-card-plot .style-pane + .style-pane { margin-top: 0; }
 
 /* The browser runtime's boot progress, over the empty area of the app while
    Python starts (src/BrowserBoot.tsx). It does not take clicks, so the table
@@ -1711,20 +1690,201 @@ main { position: relative; }
    card sits in a narrow panel and in a full-screen tile on one screen. */
 .txw-card-plot { container: plot-card / inline-size; }
 .plot-figure-side { position: sticky; top: 0; z-index: 5; max-height: 45vh; overflow: auto;
-  background: var(--panel); }
+  background: var(--panel); --fig-max-h: 36vh; }
 /* pinned to the scroller's edge, not inside its padding, or the controls show above */
 .txw-slot-body .plot-figure-side { top: -12px; margin-top: -12px; padding-top: 12px; }
 .txw-focus-body .plot-figure-side { top: -14px; margin-top: -14px; padding-top: 14px; }
 .plot-controls { min-width: 0; }
-.plot-encoding { scroll-margin-top: 46vh; }
+.plot-inspector { scroll-margin-top: 46vh; }
 @container plot-card (min-width: 1000px) {
   .plot-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(460px, 44%);
     gap: 20px; align-items: start; }
-  .plot-figure-side { max-height: calc(100vh - 130px); }
-  .plot-controls > .style-pane:first-child { margin-top: 0; border-top: none; }
-  .plot-encoding { scroll-margin-top: 0; }
+  .plot-figure-side { max-height: calc(100vh - 130px); --fig-max-h: calc(100vh - 200px); }
+  .plot-inspector { scroll-margin-top: 0; margin-top: 0; }
 }
+
+/* ---- plot inspector (components/inspector): a tab bar over flat label | control
+   rows. One control per row, the label in a fixed column, a hairline between rows,
+   no boxes. A dot in the home colour before a label marks a customised knob (click
+   to reset). Rows are 32px under a mouse and 44px on touch. */
+.plot-inspector { --insp-row: 44px; --insp-ctl: 36px; --insp-lab: 160px;
+  margin-top: 10px; border-top: 2px solid var(--ink); font-size: 13px; color: var(--ink); }
+@media (pointer: fine) { .plot-inspector { --insp-row: 32px; --insp-ctl: 26px; } }
+@media (pointer: coarse) {
+  .plot-inspector { --insp-ctl: 38px; }
+  /* the app-wide 44px touch floor would push every control past its 44px row */
+  .plot-inspector button, .plot-inspector select,
+  .plot-inspector input:not([type=checkbox]):not([type=radio]):not([type=range]) { min-height: 0; }
+}
+
+.insp-bar { display: flex; align-items: center; gap: 8px; padding: 10px 0; }
+.insp-tabs, .insp-seg { display: inline-grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr);
+  gap: 1px; background: var(--ink); border: 1px solid var(--ink); }
+.insp-tabs { display: grid; flex: 1; min-width: 0; }
+.insp-seg { grid-auto-columns: auto; flex: none; max-width: 100%; }
+.insp-seg.fill { display: grid; grid-auto-columns: minmax(0, 1fr); width: 100%; }
+.insp-tabs > button, .insp-seg > button { display: flex; align-items: center; justify-content: center;
+  min-width: 0; margin: 0; padding: 0 10px; border: 0; border-radius: 0; background: var(--panel);
+  color: var(--ink); font: 600 12px/1 var(--hm-font); white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; cursor: pointer; }
+.insp-tabs > button { height: calc(var(--insp-row) - 2px); padding: 0 6px; font-size: 13px; }
+.insp-seg > button { height: calc(var(--insp-ctl) - 2px); }
+.insp-tabs > [aria-selected="true"], .insp-seg > [aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+@media (hover: hover) {
+  .insp-tabs > button:hover:not([aria-selected="true"]),
+  .insp-seg > button:hover:not([aria-pressed="true"]) { background: var(--panel2); }
+}
+.insp-tabs > button:focus-visible, .insp-seg > button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.insp-more { flex: none; width: var(--insp-row); height: var(--insp-row); padding: 0; border: 1px solid var(--line2);
+  background: none; color: var(--ink); font-size: 18px; line-height: 1; }
+
+.insp-panel { padding-bottom: 12px; }
+.insp-row, .insp-grid-row, .plot-inspector .enc-row { position: relative; display: grid;
+  grid-template-columns: var(--insp-lab) minmax(0, 1fr); column-gap: 12px; align-items: center;
+  min-height: var(--insp-row); padding: 3px 0 3px 14px; border-top: 1px solid var(--line); }
+.insp-label, .plot-inspector .enc-label { min-width: 0; font: 400 12px/1.2 var(--hm-font); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.insp-ctl { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.insp-dot { position: absolute; left: 2px; top: 50%; width: 7px; height: 7px; min-width: 0; min-height: 0; margin: -3.5px 0 0;
+  padding: 0; border: 0; border-radius: 50%; background: var(--accent); cursor: pointer; }
+.insp-dot::before { content: ""; position: absolute; inset: -8px -3px; }
+@media (pointer: coarse) { .insp-dot::before { inset: -18px -4px; } }
+
+/* fields: one height, hairline outline, square */
+.plot-inspector input[type="text"], .plot-inspector input[type="number"],
+.plot-inspector select.insp-select, .plot-inspector .enc-row select {
+  height: var(--insp-ctl); min-width: 0; margin: 0; padding: 0 6px; border: 1px solid var(--line2);
+  border-radius: 0; background: var(--field); color: var(--ink); font: 400 13px/1 var(--hm-font); }
+.plot-inspector input[type="text"]:focus, .plot-inspector input[type="number"]:focus,
+.plot-inspector select:focus { outline: none; border-color: var(--ink); }
+/* iOS zooms the page into a field whose text is under 16px */
+@media (pointer: coarse) {
+  .plot-inspector input[type="text"], .plot-inspector input[type="number"] { font-size: 16px; }
+}
+.insp-select { max-width: 100%; }
+.insp-select.fill { width: 100%; }
+.insp-text { flex: 1; width: 100%; }
+.insp-num { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.insp-num input { width: 64px; }
+.insp-num.fill { width: 100%; }
+.insp-num.fill input { flex: 1; width: 0; }
+.insp-unit { font-size: 12px; color: var(--faint); }
+.insp-frac { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; max-width: 280px; }
+.insp-frac input { flex: 1; min-width: 60px; margin: 0; }
+.insp-val { min-width: 34px; font: 400 12px/1 var(--mono); color: var(--dim); text-align: right;
+  font-variant-numeric: tabular-nums; }
+.insp-check { width: 16px; height: 16px; }
+@media (pointer: coarse) { .insp-check { width: 22px; height: 22px; } }
+.insp-swatch { width: 44px; height: calc(var(--insp-ctl) - 4px); }
+.insp-hint { font-size: 12px; line-height: 1.35; color: var(--faint); white-space: normal; }
+.insp-btn { height: var(--insp-ctl); padding: 0 10px; font-size: 12px; border: 1px solid var(--line2);
+  background: none; color: var(--ink); white-space: nowrap; }
+.insp-btn:disabled { opacity: 0.45; cursor: default; }
+.insp-foot { display: flex; gap: 8px; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.insp-sec { position: relative; display: flex; align-items: center; gap: 8px; margin-top: 14px;
+  padding: 16px 0 8px 14px; border-top: 2px solid var(--ink);
+  font: 700 11px/1 var(--hm-font); letter-spacing: .08em; text-transform: uppercase; color: var(--dim); }
+.insp-sec .insp-dot { top: calc(50% + 4px); }
+
+/* Axes: label | X | Y */
+.insp-grid-row { grid-template-columns: var(--insp-lab) minmax(0, 1fr) minmax(0, 1fr); }
+.insp-grid-head { min-height: 26px; border-top: 0; }
+.insp-grid-head > span { font: 700 11px/1 var(--hm-font); letter-spacing: .08em; color: var(--dim); }
+.insp-cell { position: relative; display: flex; align-items: center; min-width: 0; }
+/* the dot sits in the column gap, so a cell starts flush with the control column */
+.insp-cell > .insp-dot { left: -10px; }
+.insp-none { color: var(--faint); font-size: 12px; }
+
+/* Encoding: the channel rows as inspector rows */
+.plot-inspector .encodings-card { display: block; padding: 0; background: none; border: 0; }
+.plot-inspector .enc-row { grid-template-columns: calc(var(--insp-lab) + 12px) minmax(0, 1fr) auto; column-gap: 0; }
+.plot-inspector .enc-row > select { grid-column: 2; width: 100%; }
+.plot-inspector .enc-row > .enc-drop { grid-column: 3; grid-row: 1; height: var(--insp-ctl); min-width: var(--insp-ctl);
+  margin-left: 8px; padding: 0; font-size: 12px; }
+.plot-inspector .enc-row > .enc-warn { grid-column: 2 / -1; padding: 4px 0 2px; font-size: 11px; }
+.plot-inspector .enc-adder { padding: 3px 0 3px 14px; border-top: 1px solid var(--line); }
+.plot-inspector .enc-add-btn { height: var(--insp-ctl); padding: 0; font-size: 12px; }
+.plot-inspector .enc-add-menu { align-items: center; min-height: var(--insp-row); }
+.plot-inspector .enc-add-menu button { height: var(--insp-ctl); padding: 0 10px; }
+
+/* Layers: one flat card per layer, its rows inside */
+.plot-inspector .layer-strip { gap: 0; }
+.plot-inspector .layer-list { gap: 8px; }
+.plot-inspector .layer-card { border: 1px solid var(--line); padding: 0 10px 0 0; }
+.plot-inspector .layer-head { gap: 4px; min-height: var(--insp-row); padding: 3px 0 3px 4px; }
+.plot-inspector .layer-head .layer-toggle { width: var(--insp-ctl); height: var(--insp-ctl);
+  justify-content: center; color: var(--dim); }
+.plot-inspector .layer-toggle .chevron { font-size: 14px; line-height: 1; }
+.plot-inspector .layer-geom { flex: 0 1 auto; height: var(--insp-ctl); margin: 0 auto 0 0; padding: 0 6px;
+  border: 1px solid var(--line2); background: var(--field); font: 600 13px/1 var(--hm-font); color: var(--ink); }
+.plot-inspector .layer-actions { display: flex; gap: 2px; }
+.plot-inspector .layer-actions .icon { height: var(--insp-ctl); min-width: var(--insp-ctl); margin: 0;
+  border-color: transparent; background: none; color: var(--dim); font-size: 13px; }
+@media (hover: hover) {
+  .plot-inspector .layer-actions .icon:hover:not(:disabled) { border-color: var(--line2); }
+}
+.plot-inspector .add-layer { padding-top: 8px; }
+.plot-inspector .add-layer-btn { height: var(--insp-ctl); padding: 0; }
 
 /* The save state of a session bound to a lab-book figure. */
 .tb-labbook { max-width:38ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--dim); }
 .tb-labbook.error { color:var(--danger, #b3261e); white-space:normal; }
+
+/* ---- Figure view: several analyses as the panels of one figure ---- */
+.plottable-sidebar li input.plottable-tag { flex: 0 0 26px; width: 26px; height: 22px;
+  padding: 0; text-align: center; font-size: 12px; font-weight: 600;
+  border: 1px solid var(--line2); background: var(--field); color: var(--ink); }
+.plottable-sidebar li input.plottable-tag:placeholder-shown { color: var(--faint); }
+.plottable-sidebar li input.plottable-tag:focus { border-color: var(--accent); outline: none; }
+main:has(> .figure-mode) { padding: 0; gap: 0; }
+.figure-mode { display: flex; height: 100%; min-height: 0; }
+.figure-controls { flex: 0 0 260px; overflow: auto; background: var(--panel);
+  border-right: 1px solid var(--line); padding: 10px; display: flex;
+  flex-direction: column; gap: 14px; }
+.figure-controls section { display: flex; flex-direction: column; gap: 6px; }
+.figure-controls h3 { margin: 0; font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; color: var(--faint); }
+.figure-controls label { font-size: 12px; color: var(--dim); display: flex;
+  align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; }
+.figure-controls label.fig-check { justify-content: flex-start; }
+.figure-controls label.disabled { opacity: 0.45; }
+.figure-controls input[type="number"] { width: 64px; height: 26px; font-size: 12px;
+  border: 1px solid var(--line2); border-radius: 0; padding: 0 5px;
+  background: var(--field); color: var(--ink); }
+.figure-controls input[type="checkbox"] { width: 18px; height: 18px; margin: 0; }
+.figure-controls select { font-size: 12px; height: 26px; }
+.fig-hint { font-size: 12px; color: var(--faint); margin: 0; }
+.fig-panels, .fig-untagged { list-style: none; margin: 0; padding: 0;
+  display: flex; flex-direction: column; gap: 4px; }
+.fig-panels li, .fig-untagged li { display: flex; align-items: center; gap: 4px; min-height: 30px; }
+.fig-panels input.fig-tag { flex: 0 0 30px; width: 30px; height: 26px; padding: 0;
+  text-align: center; font-weight: 650; font-size: 13px; border: 1px solid var(--line2);
+  background: var(--field); color: var(--ink); border-radius: 0; }
+.fig-panels input.fig-tag:focus { border-color: var(--accent); outline: none; }
+.fig-panels input[type="number"] { width: 50px; }
+.fig-name { flex: 1; min-width: 0; text-align: left; font-size: 12px; border: none;
+  background: none; padding: 0 2px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; color: var(--ink); cursor: pointer; }
+span.fig-name { cursor: default; }
+button.fig-name:hover { color: var(--accent); }
+.fig-untagged { border-top: 1px solid var(--line); padding-top: 6px; }
+.fig-seg { align-self: flex-start; }
+.figure-preview { position: relative; flex: 1; min-width: 0; overflow: auto;
+  background: var(--canvas); padding: 16px; display: flex; flex-direction: column;
+  align-items: center; gap: 10px; }
+.fig-sheet { position: relative; background: #fff; box-shadow: 0 1px 4px rgba(15,23,42,.12);
+  flex: 0 0 auto; }
+.fig-sheet img { display: block; width: 100%; height: 100%; user-select: none;
+  -webkit-user-select: none; -webkit-touch-callout: none; }
+.fig-hit { position: absolute; background: transparent; border: 1px solid transparent;
+  border-radius: 0; padding: 0; cursor: pointer; }
+.fig-hit:hover, .fig-hit:focus-visible { border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent); outline: none; }
+.fig-hit.failed { border-color: var(--false); }
+.fig-busy { position: absolute; top: 6px; right: 10px; font-size: 11px; color: var(--faint); }
+@media (max-width: 760px) {
+  .figure-mode { flex-direction: column; }
+  .figure-controls { flex: 0 0 auto; max-height: 45vh; border-right: none;
+    border-bottom: 1px solid var(--line); }
+}
+.fig-seg button { padding: 5px 10px; font-size: 12px; }

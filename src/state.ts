@@ -1,8 +1,9 @@
 import { atom, type Getter, type Setter } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { dataFingerprint, snapshotStateKey } from "./autosave";
+import { FIGURE_DEFAULTS, normalizeFigure, panelOrder, type FigureAssembly } from "./figure";
 import type {
-  AnalysisSpec, AnalyzeResponse, ColumnDef, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
+  AnalysisSpec, AnalyzeResponse, ColumnDef, FigurePanelRequest, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName,
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
   ReduceDag, ReduceStepNode, ReduceSource, EngineReduceDag,
@@ -49,6 +50,15 @@ export const registryAtom = atom<Registry | null>(null);
 
 /* the style registry (also fetched once from /health); drives the style pane */
 export const styleRegistryAtom = atom<StyleKnob[]>([]);
+
+/* the plot area the engine laid out in the active figure, in mm from the canvas's
+   top-left (FigurePane reads it off the rendered SVG's #plot-area). Lets the
+   Layout tab show the automatic numbers before the user pins any. */
+export const autoPlotAreaAtom = atom<{ left: number; top: number; width: number; height: number } | null>(null);
+
+/* each plot's figure view (pan + zoom), remembered for the session by plottable
+   id once the user has touched it, so coming back to a plot finds it as left */
+export const figureViewMemoryAtom = atom<Record<string, { z: number; x: number; y: number }>>({});
 
 /* the data hierarchy is a property of the TABLE (defined in the Data tab), shared
    by every analysis: identifier columns form the ordered nesting spine, classifier
@@ -211,6 +221,9 @@ export interface Plottable {
      Absent -> the default chain generated from the table-level spine. */
   collapse?: CollapsePlan;
   testGrain?: GrainKey;
+  /* the panel letter in the document's multi-panel figure (figure.ts); absent =
+     not a panel. Saved on the spec as `tag`, never sent with a live render. */
+  tag?: string;
 }
 /* the whole plottable satisfies PlottablePin (tableId + output + post), so it can
    be passed straight to dagView. */
@@ -553,7 +566,38 @@ export function makeDefaultPlottable(tableId = ""): Plottable {
 
 export const plottablesAtom = atom<Plottable[]>([]);
 export const activePlottableIdAtom = atom<string | null>(null);
-export const viewModeAtom = atom<"data" | "workbench">("data");
+export const viewModeAtom = atom<"data" | "workbench" | "figure">("data");
+
+/* the document's multi-panel figure assembly (figure.json); null = none. The
+   panels are the tagged plottables, in figurePanelsAtom's order. */
+export const figureAtom = atom<FigureAssembly | null>(null);
+export const figurePanelsAtom = atom((get) => panelOrder(get(figureAtom), get(plottablesAtom)));
+
+/* the figure request's panels: each tagged plottable's LIVE spec (joins inlined
+   from the materialized cache, as the background renders use) and its table's
+   session. A panel whose table has no session yet is left out. */
+export const figureRequestAtom = atom((get): FigurePanelRequest[] => {
+  const specs = new Map(get(allSpecsAtom).map((sp) => [sp.id, sp]));
+  const tables = get(tablesAtom);
+  return get(figurePanelsAtom).flatMap((p) => {
+    const spec = specs.get(p.id);
+    const handle = tables.find((t) => t.id === p.tableId)?.handle;
+    return spec && handle ? [{ table_token: handle.id, spec, tag: p.tag!.trim() }] : [];
+  });
+});
+
+/* set (or clear, with "") an analysis's panel tag. Tagging the first panel of a
+   document without an assembly starts one with the default layout. */
+export const setTagAtom = atom(null, (get, set, arg: { id: string; tag: string }) => {
+  const tag = arg.tag.trim();
+  set(plottablesAtom, get(plottablesAtom).map((p) => {
+    if (p.id !== arg.id) return p;
+    const { tag: _old, ...rest } = p;
+    void _old;
+    return tag ? { ...rest, tag } : rest;
+  }));
+  if (tag && !get(figureAtom)) set(figureAtom, { ...FIGURE_DEFAULTS });
+});
 
 /* how many plot wizards are open right now (a count, so several plot cards can
    host one at once without clobbering each other). Session-only UI state: the
@@ -669,7 +713,62 @@ export const redoSpecAtom = atom(
 export const clearSpecHistoryAtom = atom(null, (_get, set) => {
   set(specHistoryAtom, []);
   set(specRedoAtom, []);
+  set(dragHistoryAtom, []);
+  set(dragRedoAtom, []);
 });
+
+/* ---- drag history (manual figure edits only) ----
+   Dragging on the figure — a label, the canvas corner, the plot-area grips —
+   writes `p.style` (offsets, width/height, plot_w_mm/plot_h_mm), which the spec history
+   above deliberately ignores. A misplaced drag is hard to reverse by hand, so
+   those commits get their own small stack: each drag release records the style
+   BEFORE it, tagged by plottable id. Undo/redo write plottablesAtom directly and
+   move the counterpart style onto the opposite stack. Cleared with the spec
+   history on an analysis switch or a document load. */
+export interface DragSnapshot { id: string; style: StyleOverrides; }
+export const dragHistoryAtom = atom<DragSnapshot[]>([]);
+export const dragRedoAtom = atom<DragSnapshot[]>([]);
+
+/* record the active plottable's current style as an undo point, before a drag
+   commit replaces it; prunes the redo branch. */
+export const pushDragSnapshotAtom = atom(null, (get, set) => {
+  const cur = get(activePlottableAtom);
+  if (!cur) return;
+  set(dragHistoryAtom, [...get(dragHistoryAtom).slice(-(HISTORY_LIMIT - 1)), { id: cur.id, style: cur.style }]);
+  set(dragRedoAtom, []);
+});
+
+const swapDragStyle = (get: Getter, set: Setter, snap: DragSnapshot): DragSnapshot | null => {
+  const cur = get(plottablesAtom).find((p) => p.id === snap.id);
+  if (!cur) return null;
+  set(plottablesAtom, get(plottablesAtom).map((p) => (p.id === snap.id ? { ...p, style: snap.style } : p)));
+  return { id: cur.id, style: cur.style };
+};
+
+/* read: whether the ACTIVE plottable has a drag to undo/redo (the buttons sit on
+   its figure); write: perform it. */
+export const undoDragAtom = atom(
+  (get) => { const h = get(dragHistoryAtom); return h.length > 0 && h[h.length - 1].id === get(activePlottableIdAtom); },
+  (get, set) => {
+    const hist = get(dragHistoryAtom);
+    const prev = hist[hist.length - 1];
+    if (!prev) return;
+    set(dragHistoryAtom, hist.slice(0, -1));
+    const here = swapDragStyle(get, set, prev);
+    if (here) set(dragRedoAtom, [...get(dragRedoAtom), here]);
+  },
+);
+export const redoDragAtom = atom(
+  (get) => { const r = get(dragRedoAtom); return r.length > 0 && r[r.length - 1].id === get(activePlottableIdAtom); },
+  (get, set) => {
+    const redo = get(dragRedoAtom);
+    const target = redo[redo.length - 1];
+    if (!target) return;
+    set(dragRedoAtom, redo.slice(0, -1));
+    const here = swapDragStyle(get, set, target);
+    if (here) set(dragHistoryAtom, [...get(dragHistoryAtom), here]);
+  },
+);
 
 /* the active plottable's reduce DAG VIEW — its reachable branch of the table's
    shared pool plus its output/post pin, reconstructed as the classic {sources,
@@ -1146,6 +1245,7 @@ export function plottableFromSpec(spec: AnalysisSpec): { p: Plottable; dag: Redu
     ...(dag.post?.length ? { post: dag.post } : {}),
     collapse: spec.collapse,
     testGrain: spec.test_grain,
+    ...(spec.tag?.trim() ? { tag: spec.tag.trim() } : {}),
   };
   return { p, dag };
 }
@@ -1158,6 +1258,8 @@ export interface LoadedDoc {
      opened from the export, or any .iris opened by URL */
   source?: DocumentSource | null;
   tables: LoadedTable[];                    // the full pool the engine rebuilt
+  /* the multi-panel figure assembly the file carries (raw; normalized on load) */
+  figure?: unknown;
   /* autosave: a restore-from-snapshot loads through this same atom but the
      recovered work still has no explicit save — keep it counting as unsaved
      (skip the baseline capture below) so autosaving resumes immediately. */
@@ -1170,7 +1272,7 @@ export interface LoadedDoc {
    loop in App runs only while the live key differs from it. */
 export const autosaveBaselineAtom = atom<string>(snapshotStateKey([], [], {}));
 export const autosaveKeyAtom = atom((get) =>
-  snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
+  snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom), get(figureAtom)));
 export const dataFingerprintAtom = atom((get) => dataFingerprint(get(tablesAtom)));
 
 /* swap in a loaded .iris: like loadTableAtom but rebuilds the FULL table pool from
@@ -1185,13 +1287,14 @@ export const documentSourceAtom = atom<DocumentSource | null>(null);
 
 export const loadDocumentAtom = atom(null, (get, set, doc: LoadedDoc) => {
   applyLoadedDoc(get, set, doc);
+  set(figureAtom, normalizeFigure(doc.figure ?? null));
   set(documentProvenanceAtom, doc.provenance ?? {});
   set(documentSourceAtom, doc.source ?? null);
   /* a freshly loaded document IS the persisted state — nothing to autosave
      until the user edits. Captured after the body so every exit path (empty
      doc, no analyses, full restore) rebaselines consistently. */
   if (!doc.keepDirty)
-    set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
+    set(autosaveBaselineAtom, get(autosaveKeyAtom));
 });
 
 /* New document: wipe the workspace back to its initial empty state — no tables,
@@ -1209,8 +1312,9 @@ export const newDocumentAtom = atom(null, (get, set) => {
   set(engineErrorAtom, null);
   set(documentProvenanceAtom, {});
   set(documentSourceAtom, null);
+  set(figureAtom, null);
   set(clearAnalysisCachesAtom);
-  set(autosaveBaselineAtom, snapshotStateKey(get(plottablesAtom), get(tablesAtom), get(reduceStoreAtom)));
+  set(autosaveBaselineAtom, get(autosaveKeyAtom));
 });
 
 function applyLoadedDoc(get: Getter, set: Setter, doc: LoadedDoc) {
@@ -1371,6 +1475,7 @@ export function specForSave(p: Plottable, family: StatsFamily, rec: TestName | u
     ...base,
     table_id: p.tableId,
     reduce: resolveSaveDag(dagView(pool, p)),
+    ...(p.tag?.trim() ? { tag: p.tag.trim() } : {}),
   };
 }
 
@@ -1493,8 +1598,10 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const cloned = cloneReduceDag(dagView(pool, src));
   set(reduceStoreAtom, { ...store,
     [src.tableId]: { sources: pool.sources, steps: [...pool.steps, ...cloned.steps] } });
+  const { tag: _tag, ...untagged } = src;   // a copy is not a second panel
+  void _tag;
   const copy: Plottable = {
-    ...src, id: nextId(), name: `${src.name} copy`,
+    ...untagged, id: nextId(), name: `${src.name} copy`,
     tableId: src.tableId,
     mappings: { ...src.mappings },
     rate: src.rate ? { ...src.rate } : null,

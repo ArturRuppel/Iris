@@ -24,7 +24,10 @@ import {
   autosaveBaselineAtom, autosaveKeyAtom, dataFingerprintAtom, onePlotOnlyAtom,
   activeReduceDagAtom, reduceStoreAtom,
   mintFromEntryAtom, entryHasContentAtom,
+  figureAtom, figurePanelsAtom, figureRequestAtom,
 } from "./state";
+import { FigureView } from "./components/FigureView";
+import { labbookSvgSource, normalizeFigure } from "./figure";
 import { fileName, labbookTarget, putFigure } from "./labbook";
 import { loadEmbeddedDocument } from "./browserEngine";
 import { base64ToBytes, browserRuntime, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
@@ -33,6 +36,7 @@ import type { AutosaveStatus, NodeShape } from "./types";
 import { colType } from "./channels";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
 import { useDebouncedAsync } from "./useDebouncedAsync";
+import { clearEditLogAtom, editLogAtom, formatEditLog } from "./editLog";
 
 /* what a first visit to the browser build opens (see the start example in App) */
 const DEFAULT_EXAMPLE = "iris-species-comparison";
@@ -48,6 +52,9 @@ const DataGlyph = () => (
 );
 const WorkbenchGlyph = () => (
   <svg {...G}><circle cx="3.2" cy="8" r="2.1" stroke="currentColor" strokeWidth="1.4" /><circle cx="12.8" cy="3.4" r="2.1" stroke="currentColor" strokeWidth="1.4" /><circle cx="12.8" cy="12.6" r="2.1" stroke="currentColor" strokeWidth="1.4" /><line x1="5" y1="7.1" x2="11" y2="4.2" stroke="currentColor" strokeWidth="1.4" /><line x1="5" y1="8.9" x2="11" y2="11.8" stroke="currentColor" strokeWidth="1.4" /></svg>
+);
+const FigureGlyph = () => (
+  <svg {...G}><rect x="1.5" y="1.5" width="13" height="5.6" rx="1" stroke="currentColor" strokeWidth="1.4" /><rect x="1.5" y="8.9" width="13" height="5.6" rx="1" stroke="currentColor" strokeWidth="1.4" /></svg>
 );
 const SunGlyph = () => (
   <svg {...G}><circle cx="8" cy="8" r="3.1" stroke="currentColor" strokeWidth="1.4" /><g stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><line x1="8" y1="1.5" x2="8" y2="3" /><line x1="8" y1="13" x2="8" y2="14.5" /><line x1="1.5" y1="8" x2="3" y2="8" /><line x1="13" y1="8" x2="14.5" y2="8" /><line x1="3.4" y1="3.4" x2="4.4" y2="4.4" /><line x1="11.6" y1="11.6" x2="12.6" y2="12.6" /><line x1="12.6" y1="3.4" x2="11.6" y2="4.4" /><line x1="4.4" y1="11.6" x2="3.4" y2="12.6" /></g></svg>
@@ -111,6 +118,9 @@ export default function App() {
   const error = useAtomValue(engineErrorAtom);
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
+  const [showLog, setShowLog] = useState(false);
+  const editLog = useAtomValue(editLogAtom);
+  const clearEditLog = useSetAtom(clearEditLogAtom);
 
   /* Continuous entry: going to Workbench with no table but a filled entry grid
      mints the table first (no explicit Create step). A mint failure surfaces and
@@ -250,6 +260,7 @@ export default function App() {
       store.get(allSaveSpecsAtom),
       store.get(dataFingerprintAtom),
       { keepalive },
+      savedFigure(),
     ).catch((e) => console.warn("autosave failed:", e));
     autosaveInFlight.current = p;
     return p;
@@ -297,6 +308,7 @@ export default function App() {
         manifest: doc.manifest,
         analyses: doc.analyses.map(migrateSpec),
         provenance: doc.provenance,
+        figure: doc.figure,
         tables: doc.tables,
         keepDirty: true,      // recovered work still has no explicit save
       });
@@ -549,6 +561,15 @@ export default function App() {
       activeId, active?.tableId, bgTick]);
 
   const doExport = async (format: "svg" | "pdf" | "png") => {
+    /* in the Figure view, Export writes the assembled figure */
+    const figure = store.get(figureAtom);
+    if (viewMode === "figure" && figure) {
+      try {
+        const f = await engine.figureExport(store.get(figureRequestAtom), figure, format);
+        downloadBase64(f.filename, f.data_base64);
+      } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+      return;
+    }
     if (!schema || !spec || !handle) return;
     const f = await engine.export({ token: handle.id }, spec, format);
     downloadBase64(f.filename, f.data_base64);
@@ -592,10 +613,14 @@ export default function App() {
     return { ...store.get(documentProvenanceAtom),
       ...(source ? { derived_from: { ...source, time: new Date().toISOString() } } : {}) };
   };
+  /* the assembly a save writes: only while some analysis is a panel, so a
+     document nobody tagged saves exactly as before */
+  const savedFigure = () =>
+    store.get(figurePanelsAtom).length > 0 ? store.get(figureAtom) : null;
   const saveDoc = (provenance: Record<string, unknown> = detachedProvenance()) =>
     engine.saveDocument(
       saveTablesFor(store.get(plottablesAtom), store.get(reduceStoreAtom), store.get(tablesAtom)),
-      store.get(allSaveSpecsAtom), provenance);
+      store.get(allSaveSpecsAtom), provenance, savedFigure());
   const writeIris = async (fh: FileSystemFileHandle) => {
     const f = await saveDoc();
     const w = await fh.createWritable();
@@ -686,6 +711,7 @@ export default function App() {
         manifest: doc.manifest,
         analyses: doc.analyses.map(migrateSpec),   // tolerate older .iris specs
         provenance: doc.provenance,
+        figure: doc.figure,
         tables: doc.tables,
       });
       setViewMode(doc.analyses.length ? "workbench" : "data");
@@ -710,6 +736,7 @@ export default function App() {
         manifest: doc.manifest,
         analyses: doc.analyses.map(migrateSpec),
         provenance: doc.provenance,
+        figure: doc.figure,
         tables: doc.tables,
       });
       fileHandleRef.current = null;                 // force Save -> Save As
@@ -724,13 +751,19 @@ export default function App() {
     try {
       const analyses = store.get(allSaveSpecsAtom);
       const liveSpec = store.get(specAtom), liveHandle = store.get(tableHandleAtom);
-      if (analyses.length !== 1) throw new Error(`a lab-book figure holds exactly one plot, not ${analyses.length}`);
-      if (!liveSpec || !liveHandle) throw new Error("the plot is not ready");
+      /* the SVG beside the .iris: the assembled figure when the document has one,
+         else its one plot (figure.ts labbookSvgSource) */
+      const figure = store.get(figureAtom);
+      const source = labbookSvgSource(analyses.length, figure, store.get(figurePanelsAtom).length);
+      if (source.kind === "error") throw new Error(source.message);
+      if (source.kind === "single" && (!liveSpec || !liveHandle)) throw new Error("the plot is not ready");
       const [doc, svg] = await Promise.all([
         /* the mark makes a build script refuse to overwrite this file
            (iris_engine.document.refuse_hand_edited) */
         saveDoc({ ...labbookProvenance.current, hand_edited: { time: new Date().toISOString(), session: labbookSession.current } }),
-        engine.export({ token: liveHandle.id }, liveSpec, "svg")]);
+        source.kind === "assembly"
+          ? engine.figureExport(store.get(figureRequestAtom), figure!, "svg")
+          : engine.export({ token: liveHandle!.id }, liveSpec!, "svg")]);
       labbookSha.current = await putFigure(labbookFile, {
         iris_base64: doc.data_base64,
         svg: new TextDecoder().decode(base64ToBytes(svg.data_base64)),
@@ -811,15 +844,17 @@ export default function App() {
           manifest: doc.manifest,
           analyses: doc.analyses.map(migrateSpec),
           provenance: doc.provenance,
+          figure: doc.figure,
           source: labbookFile ? null : { name: fileName(url.href), path: url.pathname, sha256: doc.sha256 },
           tables: doc.tables,
         });
         if (labbookFile) {
-          setOnePlotOnly(doc.analyses.length === 1);
+          /* a one-plot figure stays one plot; a figure assembly may gain panels. A
+             several-plot file without an assembly opens writable too: Save says
+             what is missing (tag the panels), and tagging them fixes it. */
+          setOnePlotOnly(doc.analyses.length === 1 && normalizeFigure(doc.figure ?? null) === null);
           labbookProvenance.current = (doc.provenance ?? {}) as Record<string, unknown>;
-          if (doc.analyses.length === 1) labbookSha.current = doc.sha256;
-          else setLabbookState({ kind: "readonly",
-            message: `This file holds ${doc.analyses.length} plots, so edits are not saved to the lab book.` });
+          labbookSha.current = doc.sha256;
           setLabbookLoaded(true);
         } else {
           window.history.replaceState(null, "", window.location.pathname);
@@ -856,6 +891,7 @@ export default function App() {
           manifest: doc.manifest,
           analyses: doc.analyses.map(migrateSpec),
           provenance: doc.provenance,
+          figure: doc.figure,
           source,
           tables: doc.tables,
         });
@@ -888,6 +924,7 @@ export default function App() {
         manifest: doc.manifest,
         analyses: [],                               // raw table — the user builds the analysis
         provenance: doc.provenance,
+        figure: doc.figure,
         tables: doc.tables,
       });
       fileHandleRef.current = null;                 // never overwrite the seed in place
@@ -977,6 +1014,10 @@ export default function App() {
               onClick={() => setViewMode("data")}><DataGlyph />Data</button>
             <button data-tour="mode-workbench" className={viewMode === "workbench" ? "active" : ""}
               onClick={() => void goWorkbench()}><WorkbenchGlyph />Workbench</button>
+            <button className={viewMode === "figure" ? "active" : ""}
+              disabled={plottables.length === 0}
+              title="Several analyses as the panels of one figure"
+              onClick={() => setViewMode("figure")}><FigureGlyph />Figure</button>
           </div>
         </nav>
         <div className="tb-right">
@@ -1038,6 +1079,8 @@ export default function App() {
                   <span style={{ width: 15 }} /><span className="grow">Start tutorial</span></button>}
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowSpec((s) => !s); }}>
                   <span style={{ width: 15 }} /><span className="grow">{showSpec ? "Hide" : "Show"} analysis spec</span></button>
+                <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowLog((s) => !s); }}>
+                  <span style={{ width: 15 }} /><span className="grow">{showLog ? "Hide" : "Show"} edit log</span></button>
               </div>
             )}
           </div>
@@ -1063,6 +1106,8 @@ export default function App() {
         {browserRuntime && engineUp === null && <BootStatus opening={openingName} />}
         {viewMode === "data" ? (
           <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataView /></div>
+        ) : viewMode === "figure" ? (
+          <FigureView />
         ) : dataLoading ? (
           <div className="analyses-loading">
             <span className="spinner" />
@@ -1088,6 +1133,20 @@ export default function App() {
       {showSpec && (
         <footer>
           <pre>{JSON.stringify(spec, null, 2)}</pre>
+        </footer>
+      )}
+      {showLog && (
+        <footer className="edit-log" data-testid="edit-log">
+          <div className="edit-log-head">
+            <strong>Edit log</strong>
+            <span className="dim">{editLog.length ? `${editLog.length} entries` : "no manual edits yet — drag a label, the plot area or a corner"}</span>
+            <span className="grow" />
+            <button type="button" disabled={!editLog.length}
+              onClick={() => void navigator.clipboard?.writeText(formatEditLog(editLog))}>Copy</button>
+            <button type="button" disabled={!editLog.length} onClick={() => clearEditLog()}>Clear</button>
+            <button type="button" onClick={() => setShowLog(false)}>Close</button>
+          </div>
+          <pre>{formatEditLog(editLog)}</pre>
         </footer>
       )}
       <TutorialOverlay />

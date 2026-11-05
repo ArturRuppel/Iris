@@ -1,8 +1,8 @@
 import type { Layer } from "../types";
+import { Row } from "./inspector/KnobControls";
 
-/* A layer card now shows only the "Data level" dropdown — geom knobs moved to
-   the centralized StylePane (driven by the style registry). The card remains
-   the place to choose which hierarchy level this layer draws from. */
+/* A layer's data rows: which hierarchy level it draws from and which panel it
+   draws into. Its style knobs follow these rows in the layer card (LayerStrip). */
 export function LayerCard(
   { layer, levels, maxPanel = 0, faceted = false, onChange }:
   { layer: Layer;
@@ -20,27 +20,23 @@ export function LayerCard(
   // where the engine ignores panels (faceting wins), so it's never offered as a
   // no-op. `maxPanel + 2` options = panels 0…maxPanel, then a fresh one.
   const showPanel = !faceted;
-  if (!showLevel && !showPanel) {
-    return <div className="layer-meta"><em>no options</em></div>;
-  }
+  const lid = layer.id ?? "layer";
 
   return (
-    <div className="layer-params">
+    <>
       {showLevel && (
-        <label className="layer-param layer-level"
-          title="Which level of the data hierarchy this layer draws — raw rows, or one mark per grain (e.g. one per cell, one per date).">
-          <span>Data level</span>
-          <select value={layer.level ?? ""}
+        <Row label="Data level" labelFor={`${lid}-level`} className="layer-level">
+          <select id={`${lid}-level`} className="insp-select" value={layer.level ?? ""}
+            title="Which level of the data hierarchy this layer draws — raw rows, or one mark per grain (e.g. one per cell, one per date)."
             onChange={(e) => setLevel(e.target.value)}>
             {levels.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
           </select>
-        </label>
+        </Row>
       )}
       {showPanel && (
-        <label className="layer-param layer-panel"
-          title="Which side-by-side figure panel this layer draws into. Move it to a new panel to show its data stage beside the primary plot instead of overlaid on it.">
-          <span>Panel</span>
-          <select value={String(layer.panel ?? 0)}
+        <Row label="Panel" labelFor={`${lid}-panel`} className="layer-panel">
+          <select id={`${lid}-panel`} className="insp-select" value={String(layer.panel ?? 0)}
+            title="Which side-by-side figure panel this layer draws into. Move it to a new panel to show its data stage beside the primary plot instead of overlaid on it."
             onChange={(e) => setPanel(Number(e.target.value))}>
             {Array.from({ length: maxPanel + 2 }, (_, p) => (
               <option key={p} value={p}>
@@ -48,8 +44,8 @@ export function LayerCard(
               </option>
             ))}
           </select>
-        </label>
+        </Row>
       )}
-    </div>
+    </>
   );
 }

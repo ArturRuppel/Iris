@@ -4,7 +4,7 @@ import {
   activePlottableIdAtom, addPlottableAtom, deletePlottableAtom, onePlotOnlyAtom,
   duplicatePlottableAtom, plottablesAtom, renamePlottableAtom,
   selectedPlottableIdsAtom, styleClipboardAtom, styleLibraryAtom,
-  styleRegistryAtom, pasteStyleAtom,
+  styleRegistryAtom, pasteStyleAtom, setTagAtom,
 } from "../state";
 import { captureStyle } from "../style/sheet";
 import type { StyleSheet } from "../style/sheet";
@@ -32,6 +32,7 @@ export function PlottableSidebar() {
   const dup = useSetAtom(duplicatePlottableAtom);
   const del = useSetAtom(deletePlottableAtom);
   const rename = useSetAtom(renamePlottableAtom);
+  const setTag = useSetAtom(setTagAtom);
   const [selectedIds, setSelectedIds] = useAtom(selectedPlottableIdsAtom);
   const [clipboard, setClipboard] = useAtom(styleClipboardAtom);
   const library = useAtomValue(styleLibraryAtom);
@@ -202,6 +203,13 @@ export function PlottableSidebar() {
               ) : (
                 <span className="plottable-name" title={p.name}>{p.name}</span>
               )}
+              {/* the panel letter: a tagged analysis is a panel of the Figure view */}
+              <input className="plottable-tag" value={p.tag ?? ""} maxLength={4}
+                placeholder="·" title="Panel tag: tagged analyses form the Figure"
+                aria-label={`Panel tag of ${p.name}`}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onChange={(e) => setTag({ id: p.id, tag: e.target.value })} />
             </li>
           );
         })}

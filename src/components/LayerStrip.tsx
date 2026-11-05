@@ -6,16 +6,20 @@ import {
   moveLayerAtom, registryAtom, removeLayerAtom, updateLayerAtom,
 } from "../state";
 import { axisTypes, geomGateReason } from "../channels";
-import type { Geom, Layer, Registry } from "../types";
+import type { Geom, Layer, Registry, StyleKnob } from "../types";
 import { levelOptions } from "../levels";
 import { LayerCard } from "./LayerCards";
+import { KnobRow } from "./inspector/KnobControls";
+import { useStyleEditor, type KnobTarget, type StyleEditor } from "./inspector/useStyleEditor";
 
-/* one geom layer, independently collapsible so a tall stack stays scannable.
+/* one geom layer, independently collapsible so a tall stack stays scannable,
+   holding its data rows and then its own style knobs.
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
    violin) without removing and re-adding it. Geoms incompatible with the current
    encoding types appear disabled-with-reason rather than hidden. */
-function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, maxPanel, faceted, onMove, onRemove, onChange }: {
+function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, maxPanel, faceted, knobs, target, ed, onMove, onRemove, onChange }: {
   layer: Layer; registry: Registry; i: number; last: boolean; retypeGeoms: Geom[];
+  knobs: StyleKnob[]; target: KnobTarget; ed: StyleEditor;
   gateReason: (g: Geom) => string | null;
   levels: { value: string; label: string }[];
   maxPanel: number; faceted: boolean;
@@ -58,6 +62,7 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
       </div>
       {open && <LayerCard layer={layer}
         levels={levels} maxPanel={maxPanel} faceted={faceted} onChange={onChange} />}
+      {open && knobs.map((k) => <KnobRow key={k.key} knob={k} ed={ed} target={target} />)}
     </li>
   );
 }
@@ -72,6 +77,7 @@ export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
   const updateLayer = useSetAtom(updateLayerAtom);
   const removeLayer = useSetAtom(removeLayerAtom);
   const moveLayer = useSetAtom(moveLayerAtom);
+  const ed = useStyleEditor();
   if (!active || !registry) return null;
 
   const { xType, yType } = axisTypes(active.mappings, schema);
@@ -87,6 +93,16 @@ export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
   const maxPanel = Math.max(0, ...layers.map((l) => l.panel ?? 0));
   const faceted = !!(active.facetRow || active.facetCol);
 
+  /* each card carries its geom's style knobs. A geom drawn once edits the shared
+     style.geoms.<geom> tier; a geom drawn more than once (item K — e.g. raw dots +
+     aggregate dots) edits each instance's own style.layers.<id> tier instead. */
+  const counts: Record<string, number> = {};
+  for (const l of layers) counts[l.geom] = (counts[l.geom] ?? 0) + 1;
+  const knobsOf = (geom: string) =>
+    ed.registry.filter((k) => k.scope === "geom" && k.group === geom);
+  const targetOf = (l: Layer): KnobTarget =>
+    counts[l.geom] > 1 && l.id ? { geom: l.geom, layerId: l.id } : { geom: l.geom };
+
   return (
     <div className="layer-strip" data-testid="layer-strip">
       {layers.length === 0 && <p className="rail-empty">No layers — add a geom.</p>}
@@ -96,6 +112,7 @@ export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
             last={i === layers.length - 1} retypeGeoms={allGeoms}
             gateReason={gateReason} levels={levelOptions(hierarchy, schema)}
             maxPanel={maxPanel} faceted={faceted}
+            knobs={knobsOf(layer.geom)} target={targetOf(layer)} ed={ed}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}
             onChange={(l) => updateLayer({ index: i, layer: l })} />

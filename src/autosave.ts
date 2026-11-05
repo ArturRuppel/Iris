@@ -11,6 +11,7 @@
 import type { Plottable, SharedPipeline } from "./state";
 import type { WorkspaceTable } from "./tables";
 import type { ReduceStep, ReduceStepNode } from "./types";
+import type { FigureAssembly } from "./figure";
 
 /* session-only fields that must not count as unsaved work: a step's React
    list key is regenerated every load. */
@@ -47,8 +48,11 @@ function reachable(steps: ReduceStepNode[], output: string): ReduceStepNode[] {
  *  table's shared pool by output-reachability, so the key mirrors the saved bytes. */
 export function snapshotStateKey(
   plottables: Plottable[], tables: WorkspaceTable[],
-  store: Record<string, SharedPipeline>): string {
+  store: Record<string, SharedPipeline>, figure: FigureAssembly | null = null): string {
   return JSON.stringify({
+    /* the multi-panel figure assembly; absent when there is none, so a document
+       without one keys exactly as before */
+    ...(figure ? { figure } : {}),
     plottables: plottables.map((p) => ({
       ...p,
       reduce: {

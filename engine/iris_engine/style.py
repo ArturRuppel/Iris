@@ -83,8 +83,13 @@ def _swatch(key, label, group, default, *, scope="figure", transferable=True):
 
 STYLE_REGISTRY: list[dict] = [
     # ---- figure (always shown, transferable) ----
-    _num("width_mm", "Width", "figure", 140.0, lo=40, hi=300, step=5),
-    _num("height_mm", "Height", "figure", 100.0, lo=30, hi=250, step=5),
+    _num("width_mm", "Canvas width", "figure", 140.0, lo=40, hi=300, step=5),
+    _num("height_mm", "Canvas height", "figure", 100.0, lo=30, hi=250, step=5),
+    # the plot area (the axes box) is sized, never placed: None = whatever the
+    # layout gives; a number pins that dimension in mm and the engine derives
+    # where the box sits from what its labels need (compiler._place_plot)
+    _num("plot_w_mm", "Plot width", "figure", None, lo=5, hi=300, step=1),
+    _num("plot_h_mm", "Plot height", "figure", None, lo=5, hi=250, step=1),
     _num("font_pt", "Font size", "figure", 9, lo=5, hi=16, step=0.5),
     _num("axis_linewidth", "Axis width", "figure", 0.8, lo=0.3, hi=2.5, step=0.1),
     _num("line_width", "Stat lines", "figure", 1.4, lo=0.5, hi=3.0, step=0.1),
@@ -241,8 +246,12 @@ STYLE_REGISTRY: list[dict] = [
           scope="geom", geoms=["tile"]),
 ]
 
-# offsets and axes_rect are drag-only (no widget); tracked here for
-# resolve_style but not in the registry payload (no user-facing control).
+# offsets are drag-only (no widget); tracked here for resolve_style but not in
+# the registry payload (no user-facing control). axes_rect is the legacy pinned
+# plot-area rect ([left, bottom, width, height] in canvas fractions): old
+# documents still carry it, and the compiler reads its SIZE as the plot size
+# (plot_w_mm/plot_h_mm) when those are unset; the frontend rewrites it as a size
+# on the first edit.
 _DRAG_ONLY = {
     "offsets": {},
     "axes_rect": None,

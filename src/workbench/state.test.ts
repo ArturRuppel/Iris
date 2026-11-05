@@ -54,6 +54,21 @@ describe("workbench state", () => {
     expect(s.get(selectedTargetAtom)).toBeNull();
     expect(s.get(nodePositionsAtom)).toEqual({});
   });
+
+  it("keeps the default plot card maximized across clear + reseed (analysis switch)", () => {
+    const s = createStore();
+    s.set(seedDefaultStashAtom);
+    const plotId = s.get(stashAtom)[0].id;
+    s.set(focusedStashIdAtom, plotId);
+    s.set(clearWorkbenchAtom); s.set(seedDefaultStashAtom);
+    expect(s.get(focusedStashIdAtom)).toBe(plotId);
+    expect(s.get(stashAtom).map((e) => e.id)).toEqual([plotId]);
+    // any other maximized card is dropped with the stash
+    s.set(pushStashAtom, { target: tNode("x"), cardKind: "plot" as const });
+    s.set(focusedStashIdAtom, s.get(stashAtom).find((e) => e.id !== plotId)!.id);
+    s.set(clearWorkbenchAtom);
+    expect(s.get(focusedStashIdAtom)).toBeNull();
+  });
 });
 
 describe("pop stash", () => {

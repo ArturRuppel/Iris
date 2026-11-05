@@ -36,7 +36,7 @@ from pydantic import BaseModel
 # this exact wall; registering the type here removes the dependency.
 mimetypes.add_type("application/manifest+json", ".webmanifest")
 
-from . import (autosave, build_info, compiler, document, geoms, guards,
+from . import (assembly, autosave, build_info, compiler, document, geoms, guards,
                hierarchy, importer, methods as methods_mod,
                reduce as reduce_mod, render as render_mod, session as session_mod,
                shape as shape_mod, specnorm, style as style_mod)
@@ -106,6 +106,24 @@ class SaveRequest(BaseModel):
     tables: list[SaveTable]
     analyses: list[dict]
     provenance: dict = {}
+    # the multi-panel figure assembly (assembly.py); None = the document has none
+    figure: dict | None = None
+
+
+class FigurePanel(BaseModel):
+    # one panel of a figure assembly: an analysis and its table, as /analyze takes them
+    table: dict | None = None
+    table_token: str | None = None
+    spec: dict
+    tag: str = ""
+
+
+class FigureRequest(BaseModel):
+    # the panels in figure order (the client resolves which analyses are tagged)
+    panels: list[FigurePanel]
+    figure: dict | None = None
+    format: str = "svg"
+    dpi: int = 300
 
 
 class LoadRequest(BaseModel):
@@ -120,6 +138,7 @@ class AutosaveRequest(BaseModel):
     tables: list[SaveTable]
     analyses: list[dict]
     provenance: dict = {}
+    figure: dict | None = None
     # the client's data identity: pool ids + session ids + versions. Equal
     # fingerprints mean the table data is unchanged, so only the spec sidecar
     # is rewritten (the .iris data tier is left alone).
@@ -269,7 +288,7 @@ _STATS_CACHE_LOCK = threading.Lock()
 # is a denylist on purpose — everything else stays in the key, so a future
 # analysis field can never be silently served stale. The conservative direction
 # for a correctness-critical tool: an over-broad key only costs a recompute.
-_STATS_IRRELEVANT = frozenset({"style", "stat_model", "engine_snapshot"})
+_STATS_IRRELEVANT = frozenset({"style", "stat_model", "engine_snapshot", "tag"})
 
 
 def _table_identity(table: dict | None, token: str | None) -> str | None:
@@ -921,6 +940,45 @@ def export(req: ExportRequest):
             "data_base64": base64.b64encode(data).decode()}
 
 
+def _figure(req: FigureRequest, strict: bool):
+    """Build a figure assembly through the cached per-panel pipeline (`_run`)."""
+    panels = []
+    for p in req.panels:
+        def draw(p=p):
+            fig, *_ = _run(lambda: _resolve_table(p.table, p.table_token), p.spec,
+                           _table_identity(p.table, p.table_token))
+            return fig
+        panels.append({"id": p.spec.get("id"), "tag": p.tag.strip(), "draw": draw})
+    try:
+        return assembly.build(panels, req.figure, strict=strict)
+    except assembly.AssemblyError as e:
+        raise HTTPException(422, str(e)) from e
+
+
+@app.post("/figure/render")
+def figure_render(req: FigureRequest):
+    """The live preview of a figure assembly: the SVG plus where each panel sits
+    (figure fractions from the top left), so a tap can open that analysis. A
+    panel that fails is drawn as its error rather than failing the preview."""
+    fig = _figure(req, strict=False)
+    svg = compiler.figure_to_svg(fig)
+    panels, (w, h) = fig._iris_panels, fig._iris_size_mm
+    compiler.close(fig)
+    return {"svg": svg, "panels": panels, "width_mm": w, "height_mm": h}
+
+
+@app.post("/figure/export")
+def figure_export(req: FigureRequest):
+    """The assembled figure as svg/pdf/png. Strict: any panel failing is a 422."""
+    if req.format not in ("svg", "pdf", "png"):
+        raise HTTPException(400, "format must be svg, pdf, or png")
+    fig = _figure(req, strict=True)
+    data = compiler.figure_to_bytes(fig, req.format, dpi=req.dpi)
+    compiler.close(fig)
+    return {"filename": f"figure.{req.format}",
+            "data_base64": base64.b64encode(data).decode()}
+
+
 @app.post("/export/methods")
 def export_methods(req: ExportMethodsRequest):
     """Assemble a methods paragraph + statistics table across the whole document.
@@ -1044,14 +1102,18 @@ def _document_response(doc: dict) -> dict:
                     "version": sess.version, "counts": sess.counts(),
                     "rows": sess.window(0, 200)})  # first window only
     return {"manifest": doc["manifest"], "analyses": doc["analyses"],
-            "provenance": doc["provenance"], "tables": out}
+            "provenance": doc["provenance"], "figure": doc.get("figure"),
+            "tables": out}
 
 
 @app.post("/document/save")
 def doc_save(req: SaveRequest):
-    data = document.save_document(_resolve_save_tables(req.tables),
-                                  req.analyses, req.provenance,
-                                  engine_snapshot())
+    try:
+        data = document.save_document(_resolve_save_tables(req.tables),
+                                      req.analyses, req.provenance,
+                                      engine_snapshot(), figure=req.figure)
+    except assembly.AssemblyError as e:
+        raise HTTPException(422, str(e)) from e
     return {"filename": "document.iris",
             "data_base64": base64.b64encode(data).decode()}
 
@@ -1101,7 +1163,7 @@ async def autosave_snapshot(request: Request):
         # snapshot never touches the sessions.
         return document.save_document(_resolve_save_tables(req.tables),
                                       req.analyses, req.provenance,
-                                      engine_snapshot())
+                                      engine_snapshot(), figure=req.figure)
 
     res = autosave.write_snapshot(
         autosave.default_dir(),
@@ -1110,7 +1172,8 @@ async def autosave_snapshot(request: Request):
                     for st in req.tables],
         provenance=req.provenance,
         fingerprint=req.data_fingerprint,
-        iris_bytes=iris_bytes)
+        iris_bytes=iris_bytes,
+        figure=assembly.normalize(req.figure))
     return {"ok": True, **res}
 
 
