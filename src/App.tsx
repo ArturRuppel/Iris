@@ -28,7 +28,7 @@ import {
 import { fileName, labbookTarget, putFigure } from "./labbook";
 import { loadEmbeddedDocument } from "./browserEngine";
 import { base64ToBytes, browserRuntime, downloadBase64, engine, fileToBase64, hasFsAccess, migrateSpec, pickFileFallback, servedMode } from "./types";
-import { BrowserBoot, BrowserBootFailed } from "./BrowserBoot";
+import { BootStatus, BrowserBootFailed } from "./BrowserBoot";
 import type { AutosaveStatus, NodeShape } from "./types";
 import { colType } from "./channels";
 import { shapeCountsAtom, guardsAtom, explorerGraphAtom } from "./explorer/graphAtom";
@@ -861,8 +861,9 @@ export default function App() {
      Screen there is no reload button, and the remedy is waking the laptop, not
      starting a Python module. No figures, tables or stats are shown from any
      cache — they all come from the engine, and there is none to ask. */
+  /* the browser runtime shows the app at once (BootStatus says the engine is
+     still starting) and only takes the page over if it could not start */
   if (browserRuntime && engineUp === false) return <BrowserBootFailed />;
-  if (browserRuntime && engineUp === null) return <BrowserBoot />;
   if (engineUp === false) return servedMode ? (
     <div className="engine-down">
       <div className="tb-brand engine-down-brand">
@@ -881,7 +882,7 @@ export default function App() {
       <p>Start it with <code>python -m iris_engine.main</code> in <code>engine/</code>, then reload.</p>
     </div>
   );
-  if (engineUp === null) return (
+  if (engineUp === null && !browserRuntime) return (
     <div className="engine-down">
       <h1>{servedMode ? "Connecting…" : "Starting engine…"}</h1>
     </div>
@@ -889,7 +890,7 @@ export default function App() {
 
   return (
     <div className="app">
-      {openingName && (
+      {openingName && engineUp && (
         <div className="app-opening" role="status">
           <h1>Opening {openingName}</h1>
           <p>A large file can take a minute or more. Keep this page in front.</p>
@@ -1021,6 +1022,7 @@ export default function App() {
       )}
       {(error || renderError) && <div className="error-bar" role="alert">{error || renderError}</div>}
       <main>
+        {browserRuntime && engineUp === null && <BootStatus opening={openingName} />}
         {viewMode === "data" ? (
           <div className="data-mode" data-tour="data-types"><TableList /><HierarchyPanel /><DataView /></div>
         ) : dataLoading ? (
