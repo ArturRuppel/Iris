@@ -28,6 +28,6 @@ const [dl] = await Promise.all([page.waitForEvent("download"), page.tap(".tx-exp
 const body = (await (await dl.createReadStream()).toArray()).join("");
 if (!body.includes('"c, d"')) fail(`CSV should quote a comma: ${body}`);
 console.log("csv:", JSON.stringify(body));
-await page.screenshot({ path: process.env.SHOT ?? "/dev/null" });
+if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
 console.log("PASS");
 await browser.close();

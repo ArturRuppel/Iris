@@ -10,8 +10,9 @@ import {
   effectivePlanAtom,
 } from "../state";
 import type { ExplorerNode } from "../explorer/graph";
-import { engine, type Table, type ColumnDef } from "../types";
+import { engine, type Table, type ColumnDef, type Row } from "../types";
 import { gridTheme } from "./gridTheme";
+import { ExportButtons, csvName } from "./TableExport";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -61,8 +62,9 @@ export function buildColumnDefs(
 /* Render a (schema, rows, n_total) triple as the AG grid — the body lifted from
    ReducedTable so the data tab looks identical regardless of which node it shows. */
 function Grid(
-  { table, total, groupRoles, axisNames }:
-  { table: Table; total: number; groupRoles?: boolean; axisNames?: string[] },
+  { table, total, groupRoles, axisNames, loadAll, name }:
+  { table: Table; total: number; groupRoles?: boolean; axisNames?: string[];
+    loadAll?: () => Promise<Row[]>; name?: string },
 ) {
   const shown = table.rows.length;
   const colDefs = buildColumnDefs(table.schema.columns, { groupRoles, axisNames });
@@ -76,6 +78,9 @@ function Grid(
           : `${total.toLocaleString()} row${total === 1 ? "" : "s"}`}
         {" · "}{table.schema.columns.length} column
         {table.schema.columns.length === 1 ? "" : "s"}
+        {/* the whole table, not just the rows shown: the preview stops at 500 */}
+        <ExportButtons columns={table.schema.columns} n={total} filename={csvName(name ?? "")}
+          load={async () => (shown >= total || !loadAll ? table.rows : await loadAll())} />
       </div>
       <div className="grid-host reduced-table">
         <AgGridReact
@@ -170,12 +175,27 @@ export function NodeTable({ node, groupRoles }: { node: ExplorerNode; groupRoles
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handle?.id, handle?.version, fetchKey]);
 
+  /* every row of this node's table, fetched the way its preview was */
+  const loadAll = async (): Promise<Row[]> => {
+    if (!handle) return [];
+    const steps = resolveEngineSteps(activeSteps, materialized);
+    const tbl = node.table;
+    const res = tbl.via === "at_step"
+      ? await engine.reduce({ token: handle.id }, steps, hierarchy, tbl.at_step, undefined, undefined, true)
+      : tbl.via === "grain"
+        ? await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, collapse, tbl.grain, true)
+        : await engine.reduce({ token: handle.id }, steps, hierarchy, undefined, undefined, undefined, true);
+    return res.preview.rows;
+  };
+
   // plot/stats (or a no-table node) → the live final reduced table.
   if (node.table.via === "none") {
     if (!preview) return <div className="reduced-empty">Building preview…</div>;
-    return <Grid table={preview.preview} total={preview.n_total} groupRoles={groupRoles} axisNames={axisNames} />;
+    return <Grid table={preview.preview} total={preview.n_total} groupRoles={groupRoles} axisNames={axisNames}
+      loadAll={loadAll} name={node.label} />;
   }
   if (err) return <div className="reduced-empty">Could not load this node: {err}</div>;
   if (loading || !table) return <div className="reduced-empty">Loading {node.label}…</div>;
-  return <Grid table={table} total={total} groupRoles={groupRoles} axisNames={axisNames} />;
+  return <Grid table={table} total={total} groupRoles={groupRoles} axisNames={axisNames}
+    loadAll={loadAll} name={node.label} />;
 }

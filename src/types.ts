@@ -910,9 +910,11 @@ export const engine = {
   /* steps are EngineReduceStep[]: every join must already have its right table
      INLINED (via resolveEngineSteps over the materialized cache) — a raw step
      carrying only a rightTableId reaches the engine with no rows and fails. */
+  /* `full`: every row, not the first PREVIEW_CAP (copying a node's table whole) */
   reduce: (t: TableRef, steps: EngineReduceStep[], hierarchy?: Hierarchy, at_step?: number,
-           collapse?: CollapsePlan, grain?: GrainKey) =>
-    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, at_step, collapse, grain }),
+           collapse?: CollapsePlan, grain?: GrainKey, full?: boolean) =>
+    post<ReducePreview>("/reduce", { ...tableField(t), steps, hierarchy, at_step, collapse, grain,
+      ...(full ? { full: true } : {}) }),
   shapeCounts: (
     t: TableRef, steps: EngineReduceStep[], hierarchy?: Hierarchy,
     extra?: { collapse?: CollapsePlan; test_grain?: GrainKey; qualifier?: string | null },

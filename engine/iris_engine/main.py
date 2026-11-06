@@ -169,6 +169,9 @@ class ReduceRequest(BaseModel):
     # joined by '/'). Takes precedence over `level` when both are set.
     collapse: list[dict] | None = None
     grain: str | None = None
+    # every row instead of the first PREVIEW_CAP: a node's table copied or
+    # exported whole from the Workbench
+    full: bool = False
 
 
 class ShapeCountsRequest(BaseModel):
@@ -779,7 +782,7 @@ def reduce_preview(req: ReduceRequest):
         trace = [{"n_rows_out": int(len(cache[nid][0])), "schema_out": cache[nid][1]}
                  for nid in order if by_id[nid].get("kind") == "step"]
         out = out.drop(columns=["row_ids"], errors="ignore")
-        return {"preview": _to_table(out.head(PREVIEW_CAP), sch),
+        return {"preview": _to_table(out if req.full else out.head(PREVIEW_CAP), sch),
                 "n_total": int(len(out)),
                 "trace": trace,
                 "summary": _column_summary(out, sch)}
@@ -808,7 +811,7 @@ def reduce_preview(req: ReduceRequest):
         if req.grain in gmats:
             out, sch = gmats[req.grain]
     out = out.drop(columns=["row_ids"], errors="ignore")
-    return {"preview": _to_table(out.head(PREVIEW_CAP), sch),
+    return {"preview": _to_table(out if req.full else out.head(PREVIEW_CAP), sch),
             "n_total": int(len(out)),
             "trace": trace,
             "summary": _column_summary(out, sch)}
