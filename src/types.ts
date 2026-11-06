@@ -82,6 +82,7 @@ export interface PairwiseComparison {
 export type Geom =
   | "dot" | "summary" | "box" | "violin" | "bar" | "pointrange"
   | "scatter" | "regression" | "distribution" | "tile"
+  | "rule"
   | "histogram" | "density";
 
 /* Data-hierarchy redesign: a layer draws from a data *level* of the hierarchy
@@ -103,7 +104,31 @@ export type Geom =
    draws into. Absent/0 = the primary panel (today's single plot). Layers sharing
    a panel share an axes; `nodeId` still says which pipeline node feeds the layer,
    so a second panel can show a different stage of the same pipeline. */
-export interface Layer { id?: string; geom: Geom; level: string; nodeId?: string; panel?: number }
+/* `params` is carried only by the `rule` annotation geom, whose knobs are its
+   data binding (which column, which label) and differ per instance — so they
+   ride on the layer, not in style.overrides.geoms. The engine leaves a rule's
+   params on the layer (specnorm._migrate_layer_params). */
+export interface Layer {
+  id?: string; geom: Geom; level: string; nodeId?: string; panel?: number;
+  params?: RuleParams;
+}
+
+/* The `rule` geom: one thin line per row of its level (per distinct value, per
+   colour group, per facet cell) at `column`'s value along the plot's value axis.
+   An annotation, not a statistic — engine/iris_engine/compiler._draw_rules. */
+export type RuleLabelWhere = "first" | "all" | "none";
+export type RuleLineStyle = "dashed" | "solid" | "dotted";
+export interface RuleParams {
+  column?: string | null;
+  label?: string;
+  label_where?: RuleLabelWhere;
+  linestyle?: RuleLineStyle;
+  linewidth?: number;
+}
+/* mirrors geoms.RULE_DEFAULTS */
+export const RULE_DEFAULTS: Required<Omit<RuleParams, "column">> & { column: string | null } = {
+  column: null, label: "", label_where: "first", linestyle: "dashed", linewidth: 0.8,
+};
 
 /* How finer rows aggregate into a coarser grain — the set the engine's
    `materialize_levels` honors (hierarchy._AGG). This is the only aggregation
@@ -176,10 +201,12 @@ export interface StyleKnob {
 }
 
 export interface GeomMeta {
-  label: string; family: StatsFamily; aggregates: boolean;
+  /* "annotation" = the `rule` geom: overlays any family, never a test */
+  label: string; family: StatsFamily | "annotation"; aggregates: boolean;
   needs: string[];
   /* Phase 3: the column type each axis requires, driving type-match gating.
-     "categorical" | "numeric" | "none" ("none" = the axis must be absent). */
+     "categorical" | "numeric" | "none" ("none" = the axis must be absent) |
+     "any" (no demand: the `rule` annotation overlays whatever is drawn). */
   x_type: string; y_type: string;
   /* Phase 3c: true on group-comparison geoms that render horizontally when the
      encoding has numeric x + categorical y; lets the offer rule surface
@@ -198,7 +225,7 @@ export interface StatModel {
   factors: { column: string; role: string }[];
   test: TestName | null;
   facet_handling: { per_facet: boolean; correction: "holm" | "bonferroni" | null } | null;
-  chosen_by: "inferred" | "describe_only";
+  chosen_by: "inferred" | "describe_only" | "off";
   /* Hierarchy redesign: the spine present after reduction, the pairing verdict
      for the comparison qualifier (derived from the spine), and the inferential
      grain — the coarsest level any layer draws at, the grain the test actually
@@ -485,6 +512,11 @@ export interface AnalysisSpec {
        test. A decision, so it is stored (was carried in the removed `chosen_by`).
        Omitted when false. */
     describe_only?: boolean;
+    /* the user's "no statistics" decision — the analysis is a plot only: the
+       engine runs no test and no descriptives and annotates nothing, and the UI
+       hides every stats surface (Stats section, test edge, test grain). Stored;
+       omitted when false. */
+    off?: boolean;
     alpha: number;
   };
   style: { overrides: StyleOverrides };
@@ -565,6 +597,10 @@ export interface StatsResult {
   }[];
   alpha: number;
   methods_text: string;
+  /* set (true) when the analysis has statistics turned off (`stats.off`): the
+     payload carries no test or descriptives, only `levels` (palette names) and,
+     for a tile, the count matrix the figure draws. */
+  off?: boolean;
   /* set when the requested test couldn't run but the figure still renders (e.g. a
      paired test on unpaired data). The result carries test "none" (no brackets);
      the panel surfaces this and keeps the picker live so the user can switch. */

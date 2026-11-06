@@ -10,7 +10,9 @@ Modern:  encodings{x,y,color,size,shape} layers[{geom, params}]
 
 `_override` carries the user's pinned test (from `stats.override`) so
 statmodel.infer can honor it; `_describe_only` carries the describe-only decision
-(from `stats.describe_only`). Both are read by main._run, not persisted.
+(from `stats.describe_only`); `_stats_off` carries the no-statistics decision
+(from `stats.off`: no test, no descriptives, no stats annotation on the figure).
+All three are read by the render path, not persisted.
 """
 from __future__ import annotations
 
@@ -21,6 +23,10 @@ from __future__ import annotations
 # own here — it only needs to be recognized as "already modern".
 MODERN_VERSIONS = ("2.0", "2.1", "2.2")
 
+# geoms whose `params` stay on the layer (mirrors geoms.LAYER_PARAM_GEOMS; kept
+# literal so specnorm stays import-free)
+_LAYER_PARAM_GEOMS = {"rule"}
+
 
 def normalize(spec: dict) -> dict:
     if spec.get("spec_version") in MODERN_VERSIONS:
@@ -29,6 +35,7 @@ def normalize(spec: dict) -> dict:
         _migrate_layer_params(out)
         out.setdefault("_override", _override_of(spec))
         out.setdefault("_describe_only", _describe_only_of(spec))
+        out.setdefault("_stats_off", _stats_off_of(spec))
         _norm_stats(out)
         return out
 
@@ -61,6 +68,7 @@ def normalize(spec: dict) -> dict:
     out["hierarchy"] = {"spine": [], "fn": {}}
     out["_override"] = _override_of(spec)
     out["_describe_only"] = _describe_only_of(spec)
+    out["_stats_off"] = _stats_off_of(spec)
     _norm_stats(out)
     return out
 
@@ -102,6 +110,10 @@ def _migrate_layer_params(spec: dict) -> None:
             continue
         geom = layer.get("geom") or layer.get("mark", "")
         if not geom:
+            continue
+        # a `rule` layer's params ARE its data binding (which column, which
+        # label) and differ per instance, so they stay on the layer.
+        if geom in _LAYER_PARAM_GEOMS:
             continue
         dest = geoms_ov.setdefault(geom, {})
         for k, v in params.items():
@@ -157,3 +169,9 @@ def _override_of(spec: dict) -> str | None:
 def _describe_only_of(spec: dict) -> bool:
     # Describe-only is a stored decision (`stats.describe_only`).
     return bool(spec.get("stats", {}).get("describe_only"))
+
+
+def _stats_off_of(spec: dict) -> bool:
+    # "No statistics" is a stored decision (`stats.off`): the analysis is a plot
+    # only. Absent/false keeps the historical behaviour exactly.
+    return bool((spec.get("stats") or {}).get("off"))

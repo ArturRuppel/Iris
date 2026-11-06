@@ -217,6 +217,7 @@ export function renderStatus(
    the current (xType, yType) satisfies its (x_type, y_type) requirement.
    Returns null when compatible, else a teaching reason for the disabled state. --- */
 function typeSatisfied(required: string, actual: ColType | null): boolean {
+  if (required === "any") return true;
   if (required === "none") return actual === null;
   return required === actual;
 }
@@ -294,7 +295,7 @@ export function geomSatisfiableByColumns(
   const canSatisfy = (xReq: string, yReq: string): boolean => {
     const demand: Record<ColType, number> = { categorical: 0, numeric: 0 };
     for (const req of [xReq, yReq]) {
-      if (req === "none") continue;
+      if (req === "none" || req === "any") continue;
       if (req !== "categorical" && req !== "numeric") return false;
       demand[req as ColType]++;
     }

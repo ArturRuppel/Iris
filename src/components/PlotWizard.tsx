@@ -64,7 +64,10 @@ export function PlotWizard({ mode, onDone, onCancel }: {
             {(Object.keys(registry.geoms) as Geom[])
               .filter((g) => {
                 const meta = registry.geoms[g];
-                return meta ? geomSatisfiableByColumns(meta, columns, registry) : false;
+                if (!meta) return false;
+                // an annotation (rule) overlays a plot; it can't be the first layer
+                if (meta.family === "annotation" && mode === "first") return false;
+                return geomSatisfiableByColumns(meta, columns, registry);
               })
               .map((g) => (
                 <button key={g} className="wiz-geom" onClick={() => pickGeom(g)}>

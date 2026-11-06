@@ -317,6 +317,143 @@ def _draw_reference_line(ax, value, label, horizontal: bool, style: dict) -> Non
                         annotation_clip=False)
 
 
+_RULE_LABEL_INK = "#475569"
+
+
+def _rule_frame(df: pd.DataFrame, schema: dict, spec: dict, layer: dict,
+                split_cols: list[str]) -> pd.DataFrame:
+    """The rows a `rule` layer draws: the figure's reduced frame at the layer's
+    level, collapsed with the analysis hierarchy exactly as the other layers'
+    levels are (the split columns — colour, facets — kept in the grain so each
+    row still knows its group and cell). Level "" (raw) or a level the spine no
+    longer carries draws from the reduced rows as they are."""
+    level = layer.get("level") or hierarchy_mod.RAW
+    if level == hierarchy_mod.RAW:
+        return df
+    hier = spec.get("hierarchy") or {}
+    spine = hierarchy_mod.spine_present(df, hier.get("spine") or [])
+    if level not in spine:
+        return df
+    src = df if "id" in df.columns else df.assign(
+        id=[str(i + 1) for i in range(len(df))])
+    try:
+        levels, _ = hierarchy_mod.materialize_levels(
+            src, schema, spine, hier.get("fn"),
+            [c for c in split_cols if c in src.columns])
+    except Exception:  # noqa: BLE001 — an annotation never breaks the figure
+        return df
+    return hierarchy_mod.resolve_level(levels, level)[0]
+
+
+def _draw_rules(cells, df: pd.DataFrame, schema: dict, spec: dict, style: dict,
+                sc, *, value_on_x: bool, row_col, col_col) -> None:
+    """Draw every `rule` layer (an annotation, not a statistic): one thin line per
+    distinct value of `params.column` per colour group per facet cell, along the
+    VALUE axis — vertical (axvline) when the value is on x (a distribution, a
+    horizontal comparison), horizontal otherwise. Values are rounded to 1e-9
+    before de-duplicating, so a column constant within a field drawn from raw
+    rows gives one line per field, not one per row. Each line takes its row's
+    colour-group swatch (the shared palette), behind the marks (zorder 1.5).
+
+    `cells` is the grid in reading order as ``(ax, rlevel, clevel, panel)``;
+    `panel` is None unless the figure is split into side-by-side panels, in
+    which case a rule draws only in the panel its layer is tagged with. The
+    label is drawn once per cell per layer ("all"), only in the first cell that
+    has a line ("first", the default), or never ("none").
+
+    Called after the marks (and significance) so the line never moves a
+    statistic's anchor; it widens the value axis to show an out-of-range line
+    unless the user pinned that end of the axis."""
+    rules = [l for l in spec.get("layers", []) if l.get("geom") == "rule"]
+    if not rules:
+        return
+    color_col = (sc.color_col if sc is not None and sc.color_col
+                 and not sc.color_numeric else None)
+    split = [c for c in (color_col, row_col, col_col) if c]
+    lo_key, hi_key = ("x_min", "x_max") if value_on_x else ("y_min", "y_max")
+    for li, layer in enumerate(rules):
+        p = {**geoms_mod.RULE_DEFAULTS, **(layer.get("params") or {})}
+        col = p.get("column")
+        if not col or col not in df.columns:
+            continue
+        rows = _rule_frame(df, schema, spec, layer, split)
+        if col not in rows.columns:
+            continue
+        rows = rows.assign(**{col: pd.to_numeric(rows[col], errors="coerce")})
+        rows = rows[rows[col].notna()]
+        ls = _REF_DASHES.get(p.get("linestyle"), _REF_DASHES["dashed"])
+        try:
+            lw = float(p.get("linewidth"))
+        except (TypeError, ValueError):
+            lw = geoms_mod.RULE_DEFAULTS["linewidth"]
+        label = str(p.get("label") or "")
+        where = p.get("label_where") if p.get("label_where") in (
+            "first", "all", "none") else "first"
+        layer_panel = int(layer.get("panel", 0) or 0)
+        labelled = False
+        for ci, (ax, rlevel, clevel, panel) in enumerate(cells):
+            if panel is not None and panel != layer_panel:
+                continue
+            cell = rows
+            if row_col is not None and rlevel is not None and row_col in cell:
+                cell = cell[cell[row_col].astype(str) == rlevel]
+            if col_col is not None and clevel is not None and col_col in cell:
+                cell = cell[cell[col_col].astype(str) == clevel]
+            if not len(cell):
+                continue
+            value_log = (ax.get_xscale() if value_on_x else ax.get_yscale()) == "log"
+            if color_col and color_col in cell.columns:
+                groups = [(sc.color_for(str(k)), g)
+                          for k, g in cell.groupby(cell[color_col].astype(str),
+                                                   sort=False)]
+            else:
+                groups = [(_group_color(style, 0), cell)]
+            drawn = []
+            for colour, g in groups:
+                vals = np.unique(np.round(g[col].to_numpy(dtype=float), 9))
+                for v in vals:
+                    if not np.isfinite(v) or (value_log and v <= 0):
+                        continue
+                    if value_on_x:
+                        ax.axvline(v, color=colour, linestyle=ls, lw=lw, zorder=1.5)
+                    else:
+                        ax.axhline(v, color=colour, linestyle=ls, lw=lw, zorder=1.5)
+                    drawn.append(float(v))
+            if not drawn:
+                continue
+            # widen the value axis to show the line, unless that end is pinned
+            lo, hi = ax.get_xlim() if value_on_x else ax.get_ylim()
+            vmin, vmax = min(drawn), max(drawn)
+            if vmin < lo or vmax > hi:
+                pad = 0.03 * (max(hi, vmax) - min(lo, vmin) or 1.0)
+                new_lo = (lo if style.get(lo_key) is not None or vmin >= lo
+                          else vmin - pad)
+                new_hi = (hi if style.get(hi_key) is not None or vmax <= hi
+                          else vmax + pad)
+                if value_on_x:
+                    ax.set_xlim(new_lo, new_hi)
+                else:
+                    ax.set_ylim(new_lo, new_hi)
+            if not label or where == "none" or (where == "first" and labelled):
+                continue
+            labelled = True
+            fs = style["font_pt"] - 2
+            if value_on_x:
+                # rotated up the rightmost line, hanging from the top of the axes:
+                # narrow facet cells have height to spare, not width
+                ax.annotate(label, (vmax, 1), xycoords=("data", "axes fraction"),
+                            xytext=(1.5, -2), textcoords="offset points",
+                            rotation=90, ha="left", va="top", fontsize=fs,
+                            color=_RULE_LABEL_INK, annotation_clip=False,
+                            gid=f"rule-label-{li}-{ci}")
+            else:
+                ax.annotate(label, (1, vmax), xycoords=("axes fraction", "data"),
+                            xytext=(-2, 1.5), textcoords="offset points",
+                            ha="right", va="bottom", fontsize=fs,
+                            color=_RULE_LABEL_INK, annotation_clip=False,
+                            gid=f"rule-label-{li}-{ci}")
+
+
 def _draw_location_significance(ax, res: dict, levels: list, horizontal: bool,
                                 style: dict) -> None:
     """One-sample (location family) significance: a compact star per LANE just
@@ -1371,6 +1508,14 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 _draw_significance(primary_ax, stats, layout["levels"],
                                    layout["h_orient"], style)
 
+        # rule layers (annotations) after significance, so a line never moves
+        # the bracket anchor; along the value axis (x when horizontal).
+        _draw_rules([(axes[ri][cj], rl, cl, panels[pi] if multi_panel else None)
+                     for ri, rl in enumerate(row_levels)
+                     for cj, (cl, pi) in enumerate(col_panel_cells)],
+                    df, schema, spec, style, sc_global, value_on_x=h,
+                    row_col=row_col, col_col=col_col)
+
         cbar = sc_global.colorbar_spec()
         if cbar:
             cbar_ax = axes.ravel().tolist() if grid_mode else last_ax
@@ -1470,7 +1615,7 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                 ax = axes[ri][ci]
                 cell_rows = _facet_cell_df(rows, row_col, col_col, rlevel, clevel)
                 cell_stats = (stats_mod.describe_pairs(cell_rows, x, y, alpha=alpha)
-                              if faceted else stats)
+                              if faceted and not stats.get("off") else stats)
 
                 # Three regression renderings, all keeping the raw points drawn:
                 #  • Stratified (categorical colour): one line + readout per
@@ -1552,6 +1697,11 @@ def build_scatter_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict
                         ax.set_title(title, fontsize=style["font_pt"] - 1)
                 last_ax = ax
 
+        _draw_rules([(axes[ri][ci], rl, cl, None)
+                     for ri, rl in enumerate(row_levels)
+                     for ci, cl in enumerate(col_levels)],
+                    df, schema, spec, style, sc_global, value_on_x=False,
+                    row_col=row_col, col_col=col_col)
         cbar = sc_global.colorbar_spec()
         if cbar:
             cbar_ax = axes.ravel().tolist() if faceted else last_ax
@@ -1671,6 +1821,11 @@ def build_timeseries_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                         ax.set_title(title, fontsize=style["font_pt"] - 1)
                 last_ax = ax
 
+        _draw_rules([(axes[ri][ci], rl, cl, None)
+                     for ri, rl in enumerate(row_levels)
+                     for ci, cl in enumerate(col_levels)],
+                    df, schema, spec, style, sc_global, value_on_x=False,
+                    row_col=row_col, col_col=col_col)
         if faceted:
             style["x_label"] = style["x_label"] or _axis_label(cols, x)
             style["y_label"] = style["y_label"] or _axis_label(cols, y)
@@ -1916,8 +2071,10 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                 # The pooled median axvline reads a single distribution; over
                 # overlaid group curves it is ambiguous, so it is only drawn
                 # ungrouped (each group has its own distribution).
-                cell_result = (stats_mod.descriptive(cell_df, y, alpha=alpha)
-                              if faceted else stats)
+                # statistics off (`stats.off`): no median readout in any cell.
+                cell_result = ({} if stats.get("off")
+                               else stats_mod.descriptive(cell_df, y, alpha=alpha)
+                               if faceted else stats)
                 med = cell_result.get("result", {}).get("median")
                 if style["show_annotation"] and not grouped and med is not None:
                     ax.axvline(med, color="#475569",
@@ -1946,6 +2103,12 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                         ax.set_title(title, fontsize=style["font_pt"] - 1)
                 last_ax = ax
 
+        # rule layers (annotations): vertical, the value is on x here
+        _draw_rules([(axes[ri][ci], rl, cl, None)
+                     for ri, rl in enumerate(row_levels)
+                     for ci, cl in enumerate(col_levels)],
+                    df, schema, spec, style, sc, value_on_x=True,
+                    row_col=row_col, col_col=col_col)
         if faceted:
             style["x_label"] = style["x_label"] or _axis_label(cols, y)
             style["y_label"] = style["y_label"] or count_label

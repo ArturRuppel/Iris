@@ -32,6 +32,11 @@ export const STATS_GLOSSARY = {
     what: "A rank test computes its p-value from a finite set of equally likely arrangements, so it has a smallest possible p set by the sample size alone. Below that n it can never reach significance — the Wilcoxon signed-rank test's floor is 2/2ⁿ (0.25 at n = 3), so it needs ≥ 6 pairs to cross 0.05; Mann–Whitney, Spearman and Kruskal–Wallis have analogous floors.",
     read: "When the small-sample rule would pick a rank test that cannot resolve at your n, Iris recommends the parametric test instead and notes that its normality assumption is unverifiable at this n. The override still lets you pin the rank test. (GraphPad Prism FAQ 1684 documents the Wilcoxon case.)",
   },
+  stats_off: {
+    term: "No statistics",
+    what: "Makes this analysis a plot only: no test, no group summaries, no annotation on the figure, and no Stats section or test wire in the Workbench.",
+    read: "Use it when the figure is the point and no statistic is wanted — e.g. a profile or distribution you only look at. \"Add statistics\" (a node's + menu, or the figure's menu) brings the test back.",
+  },
   describe_only: {
     term: "Describe only",
     what: "Skips the inferential test entirely. You get group means, spread, and the figure, but no p-value or effect size.",

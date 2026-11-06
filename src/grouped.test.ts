@@ -180,3 +180,29 @@ describe("pivotOverflow — the near-diagonal blow-up is still refused", () => {
     expect(pivotOverflow(rows, groupedSpec(cellSizeSchema, cellSizeSpine.spine))).toBeNull();
   });
 });
+
+describe("a spine that stops above the row grain", () => {
+  // spine [field] over a table of dots, several per field: the field cannot align
+  // rows, so it becomes the band and each field's dots stack under it
+  const s = schema(col("field", "identifier"), col("z", "numeric"));
+  const spec = groupedSpec(s, ["field"]);
+  const rows: Row[] = [
+    rid("1", { field: "A", z: 1 }), rid("2", { field: "A", z: 2 }),
+    rid("3", { field: "A", z: 3 }), rid("4", { field: "B", z: 4 }),
+  ];
+
+  it("shows every record, one column per field, ragged", () => {
+    const sheet = longToWide(rows, spec);
+    expect(sheet.grain).toBeNull();
+    expect(sheet.bands[0].map((c) => c.label)).toEqual(["A", "B"]);
+    expect(sheet.nRows).toBe(3);
+    expect(sheet.values).toEqual([[1, 4], [2, null], [3, null]]);
+    expect(pivotCost(rows, spec)).toEqual({ nRows: 3, nCols: 2, cells: 6 });
+  });
+
+  it("keeps aligning when the grain is unique per group", () => {
+    const sheet = longToWide([rows[0], rows[3]], spec);
+    expect(sheet.grain?.name).toBe("field");
+    expect(sheet.nRows).toBe(2);
+  });
+});

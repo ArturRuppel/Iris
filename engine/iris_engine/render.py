@@ -62,6 +62,22 @@ def _load_frame(table: dict) -> tuple[pd.DataFrame, dict]:
     return df, {**schema, "columns": norm_cols}
 
 
+def stats_off_result(alpha: float = 0.05, levels: list | None = None) -> dict:
+    """The stats payload of a "no statistics" analysis (`stats.off`): no test, no
+    descriptives. Shaped like every other stats result (so a reader indexing
+    `result.test` / `recommendation.test` doesn't break) but flagged ``off: True``
+    — the frontend keys on that flag to hide every stats surface. It carries no
+    `family`, so the figure builders draw the plain (non-location, non-rate)
+    figure, and an empty `result`, so no bracket/readout/median is annotated."""
+    return {
+        "off": True, "levels": list(levels or []), "checks": [],
+        "recommendation": {"test": "none", "reason": "statistics are off"},
+        "chosen_by": "off",
+        "result": {"test": "none"},
+        "summaries": [], "alpha": alpha, "methods_text": "",
+    }
+
+
 def render(table: dict, spec: dict, *, memo=None):
     """Render `spec` over `table`, returning
     ``(fig, res, df, schema, model, issues, level_tables)``.
@@ -132,6 +148,14 @@ def render(table: dict, spec: dict, *, memo=None):
     # faceted; fold that back into the local flag so the stats dispatch below
     # (which branches on `describe_only`, not on the model) skips the real test.
     describe_only = describe_only or model["chosen_by"] == "describe_only"
+    # "No statistics" (`stats.off`): the analysis is a plot only — no test, no
+    # descriptives, no stats annotation. The data path (reduction, hierarchy,
+    # collapse plan) still runs, since the figure draws from it; only the
+    # terminal stats call is replaced by `stats_off_result` below.
+    stats_off = bool(spec.get("_stats_off")) and model["family"] != "none"
+    if stats_off:
+        model["chosen_by"] = "off"
+        model["test"] = None
     spec["stat_model"] = model
 
     issues = guards.evaluate(df, schema, spec, model)
@@ -178,7 +202,7 @@ def render(table: dict, spec: dict, *, memo=None):
         # The rate family sums counts + exposures to the inferential unit (the GLM
         # wants per-unit totals, not per-row means), so force a sum aggregation at
         # every spine level; every other family keeps the spec's per-level fn.
-        agg_fn = ({lv: "sum" for lv in spine} if family == "rate"
+        agg_fn = ({lv: "sum" for lv in spine} if family == "rate" and not stats_off
                   else hier.get("fn"))
         level_tables, present_spine = hierarchy.materialize_levels(
             df, schema, spine, agg_fn, split_cols)
@@ -189,8 +213,11 @@ def render(table: dict, spec: dict, *, memo=None):
         # a summary at `date` reports spread across dates — the honest n). With no
         # spine, or layers left at the raw level, this resolves to the raw reduced
         # rows, so the spineless path is unchanged.
+        # a `rule` layer is an annotation, not a statistic: its level never
+        # moves the inferential grain.
         layer_levels = [layer.get("level", hierarchy.RAW)
-                        for layer in spec.get("layers", [])]
+                        for layer in spec.get("layers", [])
+                        if layer.get("geom") != "rule"]
         # An explicit per-analysis collapse plan + chosen test grain (the
         # un-forced-nesting path) override the derived grain: the test runs at
         # the grain the user picked, materialized by the plan. Absent both, this
@@ -229,7 +256,10 @@ def render(table: dict, spec: dict, *, memo=None):
         cat_schema = next((c for c in stat_schema["columns"] if c["name"] == cat_col),
                           cat_schema)
         levels = cat_schema.get("levels", []) if cat_schema else []
-        if describe_only:
+        if stats_off:
+            # `levels` rides along: the palette knob names its series from it.
+            res = stats_off_result(alpha, levels=levels)
+        elif describe_only:
             # faceted / describe-only: no inferential test, for either family.
             res = memo(lambda: stats.describe_groups(
                 stat_df, cat_col, val_col, levels=levels, alpha=alpha))
@@ -284,7 +314,7 @@ def render(table: dict, spec: dict, *, memo=None):
                 df, schema = reduce_mod.apply_reduction(df, schema, post_steps)
             except reduce_mod.ReduceError as e:
                 raise RenderError(f"post-collapse reduction failed: {e}") from e
-        res = memo(lambda: (
+        res = stats_off_result(alpha) if stats_off else memo(lambda: (
                stats.describe_pairs(df, enc["x"]["column"], enc["y"]["column"],
                                     alpha=alpha)
                if describe_only else
@@ -314,10 +344,10 @@ def render(table: dict, spec: dict, *, memo=None):
                 df, schema = reduce_mod.apply_reduction(df, schema, post_steps)
             except reduce_mod.ReduceError as e:
                 raise RenderError(f"post-collapse reduction failed: {e}") from e
-        res = memo(lambda: stats.timeseries(
+        res = stats_off_result(alpha) if stats_off else memo(lambda: stats.timeseries(
                    df, enc["x"]["column"], enc["y"]["column"], alpha=alpha))
     elif family == "descriptive":
-        res = memo(lambda: stats.descriptive(
+        res = stats_off_result(alpha) if stats_off else memo(lambda: stats.descriptive(
                    df, enc["y"]["column"], alpha=alpha))
     elif family == "contingency":
         # Phase 3d: tile/heatmap — count rows per (x_level, y_level) cell.
@@ -329,12 +359,20 @@ def render(table: dict, spec: dict, *, memo=None):
             str(v) for v in df[enc_x].dropna().unique())
         y_levels = ((y_sch.get("levels") or []) if y_sch else []) or sorted(
             str(v) for v in df[enc_y].dropna().unique())
-        res = memo(lambda: (
-               stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels,
-                                        alpha=alpha)
-               if describe_only else
-               stats.contingency_test(df, enc_x, enc_y, x_levels, y_levels,
-                                      alpha=alpha, override=override)))
+        if stats_off:
+            # the tile figure draws its cells from the count matrix, which is the
+            # plotted data itself (not a statistic), so it is still tabulated.
+            cc = stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels,
+                                          alpha=alpha)
+            res = {**stats_off_result(alpha),
+                   **{k: cc[k] for k in ("x_levels", "y_levels", "counts", "total")}}
+        else:
+            res = memo(lambda: (
+                stats.contingency_counts(df, enc_x, enc_y, x_levels, y_levels,
+                                         alpha=alpha)
+                if describe_only else
+                stats.contingency_test(df, enc_x, enc_y, x_levels, y_levels,
+                                       alpha=alpha, override=override)))
     else:
         raise RenderError("no statistical model — map X / Y to analyze")
     # A *recoverable* stats error (a paired test on unpaired data) is not a render

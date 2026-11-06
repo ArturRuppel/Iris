@@ -59,7 +59,7 @@ function accentKind(node: ExplorerNode, delta?: NodeDelta): string {
    incoming edge, so the box reads as data and the wire above it as the verb. The
    terminal (figure) carries two named sections (plot + stats) instead. */
 export function nodeShapeProps(
-  node: ExplorerNode, delta?: NodeDelta, sourceName = "Table",
+  node: ExplorerNode, delta?: NodeDelta, sourceName = "Table", statsOff = false,
 ): RFNodeData {
   const c = node.count;
   // a single plot section is just "Plot"; several panels label as "Panel 1/2/…"
@@ -80,7 +80,7 @@ export function nodeShapeProps(
     rows: c?.rows, cols: c?.cols,
     inEdge: delta?.inEdge ? { id: delta.inEdge.id, kind: delta.inEdge.kind } : undefined,
     missing: node.missing,
-    options: affordances(node),
+    options: affordances(node, statsOff),
     stepIndex: node.stepIndex,
     acceptsRightInput: node.acceptsRightInput,
   };

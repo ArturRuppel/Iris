@@ -241,13 +241,18 @@ def _band_mm(lay: dict) -> float:
     return letters["size_pt"] * 1.3 / 72 * 25.4 + 2.0
 
 
-def _letter_in_band(fig, sub, tag: str, letters: dict, index: int, band_mm: float) -> None:
+def _letter_in_band(fig, sub, tag: str, letters: dict, index: int, band_mm: float,
+                    top_px: float | None = None) -> None:
     """The letter at the top-left of the band above the panel, placed in figure
-    fractions once the layout is final (so every export dpi agrees)."""
+    fractions once the layout is final (so every export dpi agrees). `top_px`
+    is the top of the panels' row when panels sit side by side: a shorter panel
+    is bottom-aligned, so its own top would put its letter lower than the
+    others; every letter of a row stands on the same line instead."""
     b = sub.bbox
     W, H = fig.bbox.width, fig.bbox.height
+    top = b.y1 if top_px is None else top_px
     off = mtransforms.ScaledTranslation(1 / 72, -1 / 72, fig.dpi_scale_trans)
-    t = fig.text(b.x0 / W, (b.y1 + band_mm * compiler.MM * fig.dpi) / H, tag,
+    t = fig.text(b.x0 / W, (top + band_mm * compiler.MM * fig.dpi) / H, tag,
                  transform=fig.transFigure + off, **_letter_kw(letters, index))
     t.set_in_layout(False)
 
@@ -352,12 +357,14 @@ def build(panels: list[dict], figure: dict | None, *, strict: bool = True):
         if rows and band > 0:   # the panel below its own letter band
             slot = slot.subgridspec(2, 1, height_ratios=[band, share[i]], hspace=0)[1, 0]
         size = probed[i]
-        if size and across_fixed is None:
-            a = size[0] if rows else size[1]
-            if across_max - a > 0.5:   # left-aligned in a stack, bottom-aligned in a row
-                slot = (slot.subgridspec(1, 2, width_ratios=[a, across_max - a], wspace=0)[0, 0]
-                        if rows else
-                        slot.subgridspec(2, 1, height_ratios=[across_max - a, a], hspace=0)[1, 0])
+        # stacked, a narrower panel keeps its own width, left-aligned. Side by
+        # side every panel takes the row's height: a shorter one bottom-aligned
+        # under empty space would pull the tops of the others' plot areas down
+        # to its own when the tops are lined up (_align), squashing them.
+        if size and across_fixed is None and rows:
+            a = size[0]
+            if across_max - a > 0.5:
+                slot = slot.subgridspec(1, 2, width_ratios=[a, across_max - a], wspace=0)[0, 0]
         made: dict = {}
 
         def parent(w_mm, h_mm, slot=slot, made=made):
@@ -414,9 +421,10 @@ def build(panels: list[dict], figure: dict | None, *, strict: bool = True):
            lay["share_x"], fixed)
     fig.canvas.draw()
     if band > 0:
+        row_top = None if rows else max(s.bbox.y1 for s in subs)
         for i, (s, p) in enumerate(zip(subs, panels)):
             if p.get("tag"):
-                _letter_in_band(fig, s, p["tag"], lay["letters"], i, band)
+                _letter_in_band(fig, s, p["tag"], lay["letters"], i, band, row_top)
     for owner in [fig, *subs]:
         compiler._apply_beeswarm(owner)
         compiler._apply_legend_offset(owner)

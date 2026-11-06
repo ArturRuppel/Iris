@@ -7,7 +7,8 @@ def test_every_known_geom_is_registered():
                 "scatter", "regression", "distribution",
                 "tile",  # Phase 3d; distribution = histogram+density unified
                 "line", "trend",  # time series: per-unit + aggregate
-                "pointrange"}  # item Q: estimate ± CI (rate family)
+                "pointrange",  # item Q: estimate ± CI (rate family)
+                "rule"}  # annotation: per-row line on the value axis
     assert set(geoms.GEOMS) == expected
 
 
@@ -80,10 +81,12 @@ def test_registry_payload_carries_axis_types():
     assert payload["geoms"]["dot"]["y_type"] == "numeric"
     assert payload["geoms"]["scatter"]["x_type"] == "numeric"
     assert payload["geoms"]["distribution"]["x_type"] == "none"
+    # the rule annotation overlays any plot: no demand on either axis
+    assert payload["geoms"]["rule"]["x_type"] == payload["geoms"]["rule"]["y_type"] == "any"
     # every geom exposes both fields with a legal value
     for name, g in payload["geoms"].items():
-        assert g["x_type"] in ("categorical", "numeric", "none"), name
-        assert g["y_type"] in ("categorical", "numeric", "none"), name
+        assert g["x_type"] in ("categorical", "numeric", "none", "any"), name
+        assert g["y_type"] in ("categorical", "numeric", "none", "any"), name
 
 
 def test_registry_payload_carries_aes():

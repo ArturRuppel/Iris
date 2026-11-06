@@ -39,6 +39,35 @@ FORMAT_VERSION = "2.2"
 FIGURE_PART = "figure.json"
 
 
+def table_hierarchies(tables: dict, analyses: list[dict]) -> dict:
+    """The hierarchy each table has in the app, by the app's rule
+    (src/state.ts, document load): the table's own when it has a spine, else the
+    first analysis's when that has one, else the identifier columns. The
+    hierarchy is a property of the table: every analysis of a table collapses
+    with it, whatever its own copy says."""
+    first = (analyses[0].get("hierarchy") if analyses else None) or {}
+    out = {}
+    for name, t in tables.items():
+        h = t.get("hierarchy") or {}
+        if h.get("spine"):
+            out[name] = {"spine": list(h["spine"]), "fn": dict(h.get("fn") or {})}
+        elif first.get("spine"):
+            out[name] = {"spine": list(first["spine"]), "fn": dict(first.get("fn") or {})}
+        else:
+            cols = (t.get("schema") or {}).get("columns", [])
+            out[name] = {"spine": [c["name"] for c in cols if c.get("identifier")], "fn": {}}
+    return out
+
+
+def unify_hierarchies(tables: dict, analyses: list[dict]) -> list[dict]:
+    """The analyses with each one's hierarchy replaced by its table's (see
+    table_hierarchies), so a file renders the same in the app and in a build
+    script. An analysis naming an unknown table is left as it is."""
+    hs = table_hierarchies(tables, analyses)
+    return [{**a, "hierarchy": hs[a["table_id"]]} if a.get("table_id") in hs else a
+            for a in analyses]
+
+
 def save_document(tables: dict, analyses: list[dict],
                   provenance: dict, engine_snapshot: dict,
                   figure: dict | None = None) -> bytes:
@@ -48,6 +77,7 @@ def save_document(tables: dict, analyses: list[dict],
     each table is stored once under `tables/<name>/`. `figure` is the optional
     multi-panel assembly (see assembly.py), normalized and stored as
     `figure.json`; the panels are the analyses that carry a `tag`."""
+    analyses = unify_hierarchies(tables, analyses)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("manifest.json", json.dumps({
@@ -149,7 +179,8 @@ def load_document(data: bytes) -> dict:
                 "rows": json.loads(df.to_json(orient="records")),
             }
     return {"manifest": manifest, "tables": tables,
-            "analyses": analyses, "provenance": provenance, "figure": figure}
+            "analyses": unify_hierarchies(tables, analyses),
+            "provenance": provenance, "figure": figure}
 
 
 # ----- sample dataset (mirrors the tier-0 demo's shape) -----

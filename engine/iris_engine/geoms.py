@@ -34,8 +34,10 @@ class GeomDef:
     # family) decides which geoms are offerable. "none" means the axis must be
     # absent (histogram/density have no x). `family` above is kept as a label the
     # stats engine reads; it no longer gates the UI — the type-match does.
-    x_type: str = "categorical"       # "categorical" | "numeric" | "none"
-    y_type: str = "numeric"           # "categorical" | "numeric" | "none"
+    x_type: str = "categorical"       # "categorical" | "numeric" | "none" | "any"
+    y_type: str = "numeric"           # "categorical" | "numeric" | "none" | "any"
+    #   "any" (the `rule` annotation): the geom places no demand on that axis —
+    #   it overlays whatever the primary geom drew, so it never gates or narrows.
     # Phase 3c: True on group-comparison geoms that render horizontally when
     # the encoding has numeric x + categorical y. Lets the offer rule surface
     # categorical columns on the Y channel and the gate rule enable these geoms
@@ -106,7 +108,22 @@ GEOMS: dict[str, GeomDef] = {
     "tile": GeomDef(
         "Tile (heatmap)", "contingency", True, ["x", "y"],
         x_type="categorical", y_type="categorical"),
+    # Rule: an annotation, not a statistic — one thin line per row of its level
+    # at a numeric column's value along the primary geom's VALUE axis (vertical
+    # on a distribution, horizontal over categorical x / numeric y). Unlike the
+    # other geoms its knobs are per-layer `params` (column, label, label_where,
+    # linestyle, linewidth), since two rules on one plot mark different columns.
+    # It overlays any family, so it constrains neither axis ("any").
+    "rule": GeomDef(
+        "Rule (per-row line)", "annotation", True, [],
+        x_type="any", y_type="any", aes=["color"]),
 }
+
+# Layer `params` defaults for the geoms whose knobs live on the layer itself
+# rather than in style.overrides.geoms (see specnorm._migrate_layer_params).
+RULE_DEFAULTS = {"column": None, "label": "", "label_where": "first",
+                 "linestyle": "dashed", "linewidth": 0.8}
+LAYER_PARAM_GEOMS = {"rule"}
 
 
 def registry_payload() -> dict:

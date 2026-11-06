@@ -462,6 +462,9 @@ dd.strong { font-weight: 600; }
 
 /* ---- grouped-sheet lens: the tidy table projected wide (read-only) ---- */
 .dv-toggle { margin: 0; gap: 0; }
+.tx-export { margin: 0 0 0 6px; gap: 0; position: relative; }
+.tx-note { position: absolute; top: 100%; left: 0; margin-top: 3px; white-space: nowrap;
+  font-size: 11px; color: var(--muted, #666); background: var(--panel); padding: 1px 4px; z-index: 5; }
 .seg button:disabled { opacity: 0.4; cursor: not-allowed; }
 /* the sheet fills whatever height the pane has (the pane is a flex column; the
    560px basis is only the fallback where no height flows down) */

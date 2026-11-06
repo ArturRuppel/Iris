@@ -11,10 +11,13 @@ import { chromium } from "playwright";
       the range to one cell.
    Needs the engine and the vite dev server (APP_URL, default localhost:5173). */
 
+// `rep` is a unique row id (import marks it the identifier): a per-group index
+// would repeat, and the sheet then bands by it instead of aligning rows on it
 const rows = ["group,day,rep,value"];
+let id = 0;
 for (const g of ["Control", "Treatment"])
   for (const d of ["D1", "D2", "D3"])
-    for (let r = 1; r <= 40; r++) rows.push(`${g},${d},${r},${r * (d === "D1" ? 1 : d === "D2" ? 2 : 3)}`);
+    for (let r = 1; r <= 40; r++) rows.push(`${g},${d},${++id},${r * (d === "D1" ? 1 : d === "D2" ? 2 : 3)}`);
 const csv = rows.join("\n");
 
 const URL = process.env.APP_URL ?? "http://localhost:5173";
@@ -51,7 +54,7 @@ if (gap > 4) fail(`the sheet should reach the bottom of its pane, ${Math.round(g
 if (sheet.height < 700) fail(`at 1024px tall the sheet should be tall, got ${Math.round(sheet.height)}`);
 console.log("sheet fills the pane:", Math.round(sheet.height), "px tall,", Math.round(gap), "px gap");
 
-const nCols = await page.locator(".gs-header .gs-leaf").count();   // 6 (2 groups × 3 days)
+const nCols = await page.locator(".gs-header .gs-leaf").count();   // 3 leaf columns: group, day, value
 const nRows = 40;
 
 /* 2. corner → all; row head → row (mouse) */

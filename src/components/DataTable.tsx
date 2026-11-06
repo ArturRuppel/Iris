@@ -10,6 +10,7 @@ import type { SwatchKey } from "../state";
 import { engine, type Row } from "../types";
 import { gridTheme } from "./gridTheme";
 import { DataViewToggle } from "./DataViewToggle";
+import { TableExport } from "./TableExport";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -116,6 +117,7 @@ export function DataTable() {
       <div className="pane-head">
         <h2>Data</h2>
         <DataViewToggle />
+        <TableExport />
         <div className="type-legend" title="Data-type colours — click a swatch to recolour">
           {(Object.keys(typeColors) as SwatchKey[]).map((t) => (
             <label key={t} className="type-chip" style={{ "--chip": typeColors[t] } as CSSProperties}>

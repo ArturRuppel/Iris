@@ -6,9 +6,9 @@ import type {
   AnalysisSpec, AnalyzeResponse, ColumnDef, FigurePanelRequest, CollapsePlan, DocumentManifest, GrainKey, Hierarchy, Layer, LevelFn, LoadedTable, Registry, SaveTable, Schema,
   StatsFamily, StyleKnob, StyleOverrides, Table, TableCounts, TableHandle, TestName,
   ReduceStep, ReduceStepKind, ReducePreview, EngineReduceStep,
-  ReduceDag, ReduceStepNode, ReduceSource, EngineReduceDag,
+  ReduceDag, ReduceStepNode, ReduceSource, EngineReduceDag, RuleParams,
 } from "./types";
-import { RAW_LEVEL, engine, tableFromColumnar } from "./types";
+import { RAW_LEVEL, RULE_DEFAULTS, engine, tableFromColumnar } from "./types";
 import { type EntryCell, freshColumns, freshRows, buildEntryImport } from "./entryMelt";
 import { defaultPlan, grainKey, planGrains } from "./collapse";
 import { familyForMappingsRef, type RateOpts } from "./channels";
@@ -208,6 +208,9 @@ export interface Plottable {
      exclusive with `reference` (the TestPicker enforces it). */
   rate: RateOpts | null;
   describeOnly: boolean;    // user asked to render without a test
+  /* "no statistics": a plot-only analysis — no test, no descriptives, no stats
+     surface anywhere (round-trips as `stats.off`). Absent = false. */
+  statsOff?: boolean;
   style: StyleOverrides;
   /* this plottable's terminal into its table's SHARED reduce pipeline
      (reduceStoreAtom[tableId]): `output` is the node its stats + unpinned layers
@@ -539,8 +542,26 @@ export function mergeIntoPool(
   pool: SharedPipeline, dag: ReduceDag,
 ): { pool: SharedPipeline; output: string; post?: ReduceStep[] } {
   const oldSrc = dag.sources[0]?.id ?? SHARED_SRC;
-  const remap = (id: string) => (id === oldSrc ? SHARED_SRC : id);
-  const incoming = dag.steps.map((s) => ({ ...s, inputs: s.inputs.map(remap) }));
+  // A file written outside the app (a build script) may reuse a short id such as
+  // "s0" in two analyses for two DIFFERENT steps. Keeping the first would hand the
+  // second analysis the wrong step, so a clashing id whose step differs is renamed
+  // within this DAG (in order, so its downstream inputs follow). Same id + same
+  // step is a genuinely shared node and is kept once, as before.
+  const poolById = new Map(pool.steps.map((s) => [s.id, s] as const));
+  const rename = new Map<string, string>();
+  const remap = (id: string) => (id === oldSrc ? SHARED_SRC : rename.get(id) ?? id);
+  const sameStep = (a: ReduceStepNode, b: ReduceStepNode) =>
+    JSON.stringify({ ...a, id: "", inputs: [] }) === JSON.stringify({ ...b, id: "", inputs: [] })
+    && a.inputs.join("\u0000") === b.inputs.join("\u0000");
+  const incoming: ReduceStepNode[] = [];
+  for (const s0 of dag.steps) {
+    const s = { ...s0, inputs: s0.inputs.map(remap) };
+    const clash = poolById.get(s.id);
+    if (clash && !sameStep(clash, s)) {
+      const id = nextNodeId(); rename.set(s0.id, id); s.id = id;
+    }
+    incoming.push(s);
+  }
   const have = new Set(pool.steps.map((s) => s.id));
   const steps = [...pool.steps, ...incoming.filter((s) => !have.has(s.id))];
   return { pool: { sources: pool.sources, steps }, output: remap(dag.output),
@@ -1202,8 +1223,11 @@ export function plottableFromSpec(spec: AnalysisSpec): { p: Plottable; dag: Redu
   // tolerate (and drop) a vestigial `params` key on a layer — no spec carries geom
   // knobs there anymore; they ride in style.overrides.geoms.
   const layers = (spec.layers ?? []).map((l) => {
-    const { params: _drop, ...rest } = l as Layer & { params?: unknown };
-    return { ...rest, id: rest.id ?? nextLayerId() };
+    const { params, ...rest } = l as Layer & { params?: unknown };
+    // ...except a `rule` layer, whose params are its data binding
+    const keep = rest.geom === "rule" && params && typeof params === "object"
+      ? { params: params as RuleParams } : {};
+    return { ...rest, ...keep, id: rest.id ?? nextLayerId() };
   });
   const p: Plottable = {
     id: spec.id || nextId(),
@@ -1233,6 +1257,7 @@ export function plottableFromSpec(spec: AnalysisSpec): { p: Plottable; dag: Redu
       ? { exposure: s?.exposure ?? "", model: s?.model ?? "nb" }
       : null,
     describeOnly: s?.describe_only ?? false,
+    ...(s?.off ? { statsOff: true } : {}),
     style,
     /* the plottable's terminal into its table's shared pool: `output` and `post`
        come from the adopted DAG below (a saved join step's right rides as a
@@ -1410,7 +1435,9 @@ export function buildSpec(p: Plottable, family: StatsFamily,
   // location family: carry the tested constant and, unless the user already set
   // one, default the reference line to it so the figure draws the chance line the
   // one-sample test is measured against.
-  const reference = family === "location" ? (p.reference ?? 0) : null;
+  // With statistics off there is no tested constant: only a reference line the
+  // user set as style survives.
+  const reference = family === "location" && !p.statsOff ? (p.reference ?? 0) : null;
   const style: StyleOverrides = reference != null && p.style.reference_value == null
     ? { ...p.style, reference_value: reference }
     : p.style;
@@ -1452,6 +1479,8 @@ export function buildSpec(p: Plottable, family: StatsFamily,
       } : {}),
       // describe-only is a decision; omit when false to keep specs clean.
       ...(p.describeOnly ? { describe_only: true } : {}),
+      // "no statistics" is a decision too; omitted when false (old files unchanged).
+      ...(p.statsOff ? { off: true } : {}),
       alpha: 0.05,
     },
     style: { overrides: style },
@@ -1578,7 +1607,8 @@ export const duplicatePlottableAtom = atom(null, (get, set, id: string) => {
   const layers = src.layers.map((l) => {
     const nid = nextLayerId();
     if (l.id) layerIdMap.set(l.id, nid);
-    return { id: nid, geom: l.geom, level: l.level };
+    return { id: nid, geom: l.geom, level: l.level,
+      ...(l.params ? { params: { ...l.params } } : {}) };
   });
   const style = structuredClone(src.style);
   if (style.layers) {
@@ -1870,8 +1900,16 @@ export const addLayerAtom = atom(null, (get, set, geom: Layer["geom"]) =>
   // a new layer draws the raw reduced rows by default; the user binds it to a
   // coarser level (one mark per grain) to build the superplot's bold marks.
   // Geom knobs live in style.overrides.geoms, not on the layer.
+  // A `rule` is the exception: its knobs (column, label…) are per-layer params.
   updateActive(get, set, (p) =>
-    ({ ...p, layers: [...p.layers, { id: nextLayerId(), geom, level: RAW_LEVEL }] })));
+    ({ ...p, layers: [...p.layers, { id: nextLayerId(), geom, level: RAW_LEVEL,
+      ...(geom === "rule" ? { params: defaultRuleParams() } : {}) }] })));
+
+/* a fresh rule's params: the engine defaults, column unset until picked */
+export function defaultRuleParams(): RuleParams {
+  const { column: _c, ...rest } = RULE_DEFAULTS;
+  return { ...rest };
+}
 
 /* add a layer PINNED to a reduce-DAG node (spec 2.3 Stage 1): the raw-vs-filtered
    overlay. `nodeId` names an upstream node in the active plottable's reduce DAG;

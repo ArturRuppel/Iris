@@ -24,6 +24,7 @@ const statsInputAtom = atom<StatsInput | null>((get) => {
     test: res?.stats?.result?.test ?? p.override ?? null,
     describeOnly: p.describeOnly,
     annotate: annotateEnabled(p.style),
+    off: !!p.statsOff,
   };
 });
 

@@ -202,6 +202,27 @@ def test_side_by_side_plot_areas_share_top_and_bottom():
         compiler.close(fig)
 
 
+def test_side_by_side_a_shorter_panel_does_not_squash_the_other():
+    # B asks for less height than A: side by side both take the row's height,
+    # so A's plot area keeps the height it has alone, and the letters of the
+    # row stand on one line
+    a, b = _two()
+    b["style"]["overrides"]["height_mm"] = 30
+    alone = assembly.render_figure(TABLES, [a], {"direction": "columns"})
+    fig = assembly.render_figure(TABLES, [a, b], {"direction": "columns"})
+    try:
+        h_alone = alone.subfigs[0].axes[0].get_window_extent().height
+        ea, eb = (s.axes[0].get_window_extent() for s in fig.subfigs)
+        assert ea.height == pytest.approx(h_alone, rel=0.02)
+        assert abs(ea.y1 - eb.y1) < 0.5
+        r = fig.canvas.get_renderer()
+        ys = [t.get_window_extent(r).y1 for t in fig.texts
+              if (t.get_gid() or "").startswith("panel-letter-")]
+        assert len(ys) == 2 and abs(ys[0] - ys[1]) < 0.5
+    finally:
+        compiler.close(alone); compiler.close(fig)
+
+
 def test_rows_are_left_aligned_without_shared_x():
     fig = assembly.render_figure(TABLES, _two(), {})
     try:

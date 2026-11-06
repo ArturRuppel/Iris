@@ -1,4 +1,5 @@
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { setStatsOffAtom } from "../workbench/state";
 import { activePlottableAtom, analysisAtom, effectiveSchemaAtom } from "../state";
 import type { StatsResult, TestName } from "../types";
 import type { RateModel } from "../channels";
@@ -234,11 +235,30 @@ const WAITING = (
   </section>
 );
 
+/* Shown in place of every stats surface when the analysis has statistics turned
+   off (`stats.off`) — reached only through a stale card; the way back is the same
+   "Add statistics" the + menu offers. */
+export function StatsOffNotice() {
+  const setStatsOff = useSetAtom(setStatsOffAtom);
+  return (
+    <section className="pane stats-pane" data-testid="stats-off-notice">
+      <div className="stats-body">
+        <p className="hint">Statistics are off for this analysis <InfoTip k="stats_off" /></p>
+        <button className="chip" onClick={() => setStatsOff(false)}>Add statistics</button>
+      </div>
+    </section>
+  );
+}
+
 /* The test-result readout: the `Result`, per-group summary, and methods text for
    the active analysis. Reads only the analysis atom. */
 export function StatsResults() {
   const analysis = useAtomValue(analysisAtom);
+  const active = useAtomValue(activePlottableAtom);
+  if (active?.statsOff) return <StatsOffNotice />;
   if (!analysis) return WAITING;
+  // a response from before the toggle landed (engine flagged it off): nothing to read
+  if (analysis.stats.off) return null;
   const s = analysis.stats;
 
   // The requested test couldn't run (e.g. paired on unpaired data): the figure
@@ -319,9 +339,13 @@ export function TestPicker() {
   const setRateModel = (model: RateModel) =>
     active?.rate && setActive({ ...active, rate: { ...active.rate, model } });
   const schema = useAtomValue(effectiveSchemaAtom);
+  const setStatsOff = useSetAtom(setStatsOffAtom);
+  if (active?.statsOff) return <StatsOffNotice />;
   if (!analysis) return WAITING;
 
   const s = analysis.stats;
+  // a stale "off" response while statistics are being turned back on
+  if (s.off) return WAITING;
   const model = analysis.stat_model;
   const rec = s.recommendation;
   // Paired cells are only offered when the data has a pairing structure (derived
@@ -351,6 +375,15 @@ export function TestPicker() {
           Describe only — run no test
           <InfoTip k="describe_only" />
         </label>
+        {/* stronger than describe-only: no stats at all, and every stats surface
+            (this card, the figure's Stats section, the test wire) goes away. */}
+        <div className="describe-toggle stats-off-row">
+          <button className="chip" data-testid="stats-off" onClick={() => setStatsOff(true)}>
+            No statistics
+          </button>
+          <span>plot only — hide all stats</span>
+          <InfoTip k="stats_off" />
+        </div>
         {(model.family === "group_comparison" || model.family === "location"
           || model.family === "descriptive") && (
           /* Opt this numeric plot into a vs-reference (one-sample) test — each

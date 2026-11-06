@@ -3,10 +3,10 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import {
   activePlottableAtom, effectiveSchemaAtom, hierarchyAtom,
-  moveLayerAtom, registryAtom, removeLayerAtom, updateLayerAtom,
+  defaultRuleParams, moveLayerAtom, registryAtom, removeLayerAtom, updateLayerAtom,
 } from "../state";
 import { axisTypes, geomGateReason } from "../channels";
-import type { Geom, Layer, Registry, StyleKnob } from "../types";
+import type { ColumnDef, Geom, Layer, Registry, StyleKnob } from "../types";
 import { levelOptions } from "../levels";
 import { LayerCard } from "./LayerCards";
 import { KnobRow } from "./inspector/KnobControls";
@@ -17,8 +17,9 @@ import { useStyleEditor, type KnobTarget, type StyleEditor } from "./inspector/u
    The plot type is a dropdown so a layer can be re-typed in place (e.g. box →
    violin) without removing and re-adding it. Geoms incompatible with the current
    encoding types appear disabled-with-reason rather than hidden. */
-function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, maxPanel, faceted, knobs, target, ed, onMove, onRemove, onChange }: {
+function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, maxPanel, faceted, columns, knobs, target, ed, onMove, onRemove, onChange }: {
   layer: Layer; registry: Registry; i: number; last: boolean; retypeGeoms: Geom[];
+  columns: ColumnDef[];
   knobs: StyleKnob[]; target: KnobTarget; ed: StyleEditor;
   gateReason: (g: Geom) => string | null;
   levels: { value: string; label: string }[];
@@ -32,8 +33,15 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
      The layer `id` is preserved: it keys this layer's per-instance style
      (style.overrides.layers.<id>), so dropping it would orphan those overrides
      and let a repeated geom collapse into the shared tier (item K). */
-  const retype = (geom: Geom) =>
-    onChange({ ...layer, geom, level: layer.level });
+  /* A rule's params are its data binding: retyping into a rule seeds them, and
+     retyping out of one drops them (the engine would otherwise hoist them into
+     the new geom's shared style). */
+  const retype = (geom: Geom) => {
+    const { params, ...rest } = layer;
+    onChange(geom === "rule"
+      ? { ...rest, geom, level: layer.level, params: params ?? defaultRuleParams() }
+      : { ...rest, geom, level: layer.level });
+  };
   return (
     <li className="layer-card">
       <div className="layer-head">
@@ -61,7 +69,8 @@ function LayerItem({ layer, registry, i, last, retypeGeoms, gateReason, levels, 
         </span>
       </div>
       {open && <LayerCard layer={layer}
-        levels={levels} maxPanel={maxPanel} faceted={faceted} onChange={onChange} />}
+        levels={levels} maxPanel={maxPanel} faceted={faceted} columns={columns}
+        onChange={onChange} />}
       {open && knobs.map((k) => <KnobRow key={k.key} knob={k} ed={ed} target={target} />)}
     </li>
   );
@@ -111,7 +120,7 @@ export function LayerStrip({ addSlot }: { addSlot?: ReactNode }) {
           <LayerItem key={layer.id ?? i} layer={layer} registry={registry} i={i}
             last={i === layers.length - 1} retypeGeoms={allGeoms}
             gateReason={gateReason} levels={levelOptions(hierarchy, schema)}
-            maxPanel={maxPanel} faceted={faceted}
+            maxPanel={maxPanel} faceted={faceted} columns={schema?.columns ?? []}
             knobs={knobsOf(layer.geom)} target={targetOf(layer)} ed={ed}
             onMove={(dir) => moveLayer({ index: i, dir })}
             onRemove={() => removeLayer(i)}

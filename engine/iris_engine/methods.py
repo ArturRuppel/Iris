@@ -259,7 +259,8 @@ def shaping_prose(spec: dict) -> str:
     parts = []
     if phrases:
         parts.append("Data were " + "; ".join(phrases) + ".")
-    if spine:
+    # a "no statistics" analysis (`stats.off`) computed nothing on the summaries
+    if spine and not (spec.get("stats") or {}).get("off"):
         nest = " > ".join(spine)
         parts.append(
             f"Observations were nested by {nest}, and statistics were computed "

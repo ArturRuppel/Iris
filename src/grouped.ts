@@ -93,6 +93,25 @@ function levelOf(row: Row, name: string): string {
   return v == null ? "" : String(v);
 }
 
+/* The finest identifier can only align rows when it is unique within each band
+   combination. When it is not — the spine stops above the row grain, e.g. spine
+   [field] over a table of dots, several per field — aligning by it would pile every
+   record of a group onto one row and keep only the last, silently showing one row
+   per group. Then the finest identifier becomes the innermost band instead and the
+   sub-tables stack ragged, so every record is still shown. Pure; one O(rows) pass. */
+export function resolveSpec(rows: Row[], spec: GroupedSpec): GroupedSpec {
+  const { bandCols, vertical } = spec;
+  if (!vertical) return spec;
+  const names = [...bandCols.map((c) => c.name), vertical.name];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const key = names.map((n) => levelOf(row, n)).join("\u0000");
+    if (seen.has(key)) return { ...spec, bandCols: [...bandCols, vertical], vertical: null };
+    seen.add(key);
+  }
+  return spec;
+}
+
 /* The largest dense grid longToWide will build before it's refused. longToWide
    materializes the full nRows x nCols body eagerly (holes and all), *before* the
    windowed renderer trims it — so a near-diagonal pivot (a near-unique column as
@@ -108,8 +127,8 @@ export interface PivotCost { nRows: number; nCols: number; cells: number }
    longToWide's own dimensioning exactly (band combos x value sub-columns for the
    width; distinct vertical grain values, or the deepest ragged stack, for the
    height) so the guard and the builder can't disagree on the cost. */
-export function pivotCost(rows: Row[], spec: GroupedSpec): PivotCost {
-  const { bandCols, vertical, values } = spec;
+export function pivotCost(rows: Row[], given: GroupedSpec): PivotCost {
+  const { bandCols, vertical, values } = resolveSpec(rows, given);
   const bandNames = bandCols.map((c) => c.name);
   const vPer = Math.max(1, values.length);
   const combos = new Set<string>();
@@ -136,8 +155,9 @@ export function pivotCost(rows: Row[], spec: GroupedSpec): PivotCost {
    finest grain and its cardinality, because the usual cause is a measurement column
    mis-marked an identifier (which makes it the finest grain) — the same value-under-
    test-as-a-key mistake the figure guards already block, surfaced here for the lens. */
-export function pivotOverflow(rows: Row[], spec: GroupedSpec): { cost: PivotCost; reason: string } | null {
-  const cost = pivotCost(rows, spec);
+export function pivotOverflow(rows: Row[], given: GroupedSpec): { cost: PivotCost; reason: string } | null {
+  const cost = pivotCost(rows, given);
+  const spec = resolveSpec(rows, given);
   if (cost.cells <= GROUPED_CELL_CAP) return null;
   const dims = `${cost.nCols.toLocaleString()} × ${cost.nRows.toLocaleString()}`;
   const grain = spec.vertical;
@@ -156,7 +176,8 @@ export function pivotOverflow(rows: Row[], spec: GroupedSpec): { cost: PivotCost
    expanded by the value columns. Rows = the vertical grain's distinct values in
    first-seen order (holes where a column lacks that grain value); with no vertical
    axis, rows are a ragged per-column stack. */
-export function longToWide(rows: Row[], spec: GroupedSpec): GroupedSheet {
+export function longToWide(rows: Row[], given: GroupedSpec): GroupedSheet {
+  const spec = resolveSpec(rows, given);
   const { bandCols, vertical, values } = spec;
   const bandNames = bandCols.map((c) => c.name);
   const valueCols = values.length ? values : [];

@@ -67,7 +67,8 @@ export function CollapseRoutingPanel() {
           {addable.map((d) => <button key={d} onClick={() => add(d)}>{label(d)}</button>)}
         </div>
       )}
-      <label className="cr-testgrain">
+      {/* no statistics: there is no test, so no grain for it to read at */}
+      {!p.statsOff && <label className="cr-testgrain">
         <span>Test reads at</span>
         <select aria-label="test reads at" value={testGrain}
           onChange={(e) => setTestGrain(e.target.value)}>
@@ -76,7 +77,7 @@ export function CollapseRoutingPanel() {
             return <option key={k} value={k}>{grainLabel(k)}{n != null ? ` (n = ${n})` : ""}</option>;
           })}
         </select>
-      </label>
+      </label>}
       <button className="cr-reset" onClick={() => reset()}>Reset to default</button>
     </aside>
   );

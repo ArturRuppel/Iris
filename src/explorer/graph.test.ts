@@ -379,5 +379,63 @@ describe("buildGraph", () => {
       .toEqual(["Welch's t-test", "on figure"]);
     expect(g.edges.some((e) => (e.kind as string) === "annotate")).toBe(false);
   });
-});
 
+  describe("statistics off (stats.off)", () => {
+    const OFF = { test: "Welch's t-test", describeOnly: false, off: true };
+
+    it("the figure has no Stats section and there is no test edge", () => {
+      const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, OFF);
+      const fig = g.nodes.find((n) => n.id === "figure")!;
+      expect(fig.sections).toEqual([{ kind: "plot", panel: 0, facts: ["dots"] }]);
+      expect(g.edges.some((e) => e.kind === "test")).toBe(false);
+      expect(g.statsOff).toBe(true);
+    });
+
+    it("a collapse chain that only fed the test is not drawn (the z-profile case)", () => {
+      // a one-level spine and a raw-level distribution layer: the per-level
+      // grain is read by nothing but the test.
+      const spine = ["experiment"];
+      const plan = defaultPlan(spine, {});
+      const layers: Layer[] = [{ geom: "distribution", level: RAW_LEVEL }];
+      const g = buildGraph(linearDag([]), spine, plan, layers, SCHEMA, OFF);
+      expect(g.nodes.map((n) => n.id)).toEqual(["source", "figure"]);
+      expect(g.edges.map((e) => e.kind)).toEqual(["geom"]);
+      // with statistics on, the same analysis draws the grain + test edge
+      const on = buildGraph(linearDag([]), spine, plan, layers, SCHEMA, { ...OFF, off: false });
+      expect(on.nodes.map((n) => n.id)).toContain("grain:experiment");
+      expect(edge(on, "grain:experiment", "figure", "test")).toBeTruthy();
+    });
+
+    it("a grain a plot layer reads is still drawn, with the chain up to it; grains past it go", () => {
+      const layers: Layer[] = [
+        { geom: "dot", level: RAW_LEVEL },
+        { geom: "box", level: "cell" },          // reads grain:experiment/cell
+      ];
+      const g = buildGraph(linearDag([]), SPINE, PLAN, layers, SCHEMA, OFF);
+      const ids = g.nodes.map((n) => n.id);
+      expect(ids).toContain("grain:experiment/cell");
+      expect(ids).not.toContain("grain:experiment");
+      expect(edge(g, "source", "grain:experiment/cell", "collapse")).toBeTruthy();
+      expect(edge(g, "grain:experiment/cell", "figure", "geom")?.label).toBe("box");
+      expect(g.edges.some((e) => e.toId === "grain:experiment" || e.fromId === "grain:experiment")).toBe(false);
+    });
+
+    it("the coarsest grain stays when a layer reads it (SuperPlot)", () => {
+      const layers: Layer[] = [
+        { geom: "dot", level: RAW_LEVEL },
+        { geom: "box", level: "experiment" },
+      ];
+      const g = buildGraph(linearDag([]), SPINE, PLAN, layers, SCHEMA, OFF);
+      expect(g.nodes.map((n) => n.id)).toEqual(
+        ["source", "grain:experiment/cell", "grain:experiment", "figure"]);
+      expect(g.edges.some((e) => e.kind === "test")).toBe(false);
+    });
+
+    it("statistics on (no off flag) is unchanged: no statsOff key on the graph", () => {
+      const g = buildGraph(linearDag([]), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA,
+        { test: "Welch's t-test", describeOnly: false });
+      expect("statsOff" in g).toBe(false);
+      expect(g.nodes.find((n) => n.id === "figure")!.sections?.some((s) => s.kind === "stats")).toBe(true);
+    });
+  });
+});

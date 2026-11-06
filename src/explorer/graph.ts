@@ -89,9 +89,15 @@ export interface ExplorerGraph {
      against — the hierarchy spine buildGraph was given, recorded so consumers
      don't reverse-engineer it from async counts. */
   spine: string[];
+  /* the analysis has statistics turned off — the authoring menus offer "Add
+     statistics" instead of the test editor. Absent = false. */
+  statsOff?: boolean;
 }
 
-export interface StatsInput { test: string | null; describeOnly: boolean; annotate?: boolean }
+/* `off` = the analysis has statistics turned off (`stats.off`): the figure gets
+   no Stats section, there is no test edge, and a collapse grain that only fed the
+   test is not drawn. */
+export interface StatsInput { test: string | null; describeOnly: boolean; annotate?: boolean; off?: boolean }
 
 export const SOURCE_ID = "source";
 export const FIGURE_ID = "figure";
@@ -187,6 +193,7 @@ function stepEdgeLabel(step: ReduceStep, schema: Schema | null): string {
 const GEOM_LABEL: Record<string, string> = {
   dot: "dots", box: "box", violin: "violin", bar: "bars", line: "line",
   distribution: "distribution", summary: "mean ± SD", interval: "mean ± SD",
+  rule: "rule",
 };
 const geomLabel = (geom: string): string => GEOM_LABEL[geom] ?? geom;
 
@@ -286,6 +293,7 @@ export function buildGraph(
   const rawNodeId = mapId(dag.output);
 
   let cprev = rawNodeId;
+  const grainChain: string[] = [];           // collapse-chain grain ids, in order
   let prevKeep: string[] = spine;            // raw carries the full spine identity
   for (const step of plan) {
     const kept = step.keep.filter((d) => spine.includes(d));
@@ -297,6 +305,7 @@ export function buildGraph(
     edges.push({ id: `e:${cprev}->${id}`, kind: "collapse",
       label: collapseEdgeLabel(schema, step.fn, removed, kept),
       fromId: cprev, toId: id, guards: [flattenInfo(schema, step.fn, removed, kept)] });
+    grainChain.push(id);
     cprev = id;
     prevKeep = kept;
   }
@@ -323,11 +332,13 @@ export function buildGraph(
   const testFact = stats?.describeOnly ? "describe"
     : (stats?.test ? testLabel(stats.test) : "describe");
   const annotated = !!(stats && !stats.describeOnly && stats.annotate);
+  const statsOff = !!stats?.off;
   nodes.push({ id: FIGURE_ID, kind: "figure", phase: "terminal", label: "Figure",
     table: { via: "none" },
     sections: [
       ...panelList.map((p) => ({ kind: "plot" as const, panel: p, facts: factsByPanel.get(p) ?? [] })),
-      { kind: "stats" as const, facts: [testFact, ...(annotated ? ["on figure"] : [])] },
+      ...(statsOff ? [] : [
+        { kind: "stats" as const, facts: [testFact, ...(annotated ? ["on figure"] : [])] }]),
     ] });
 
   // one edge per (panel, grain) the plot reads, labelled with the geom(s) that
@@ -361,6 +372,24 @@ export function buildGraph(
     edges.push({ id: "g:plain", kind: "geom", label: "", fromId: rawNodeId, toId: FIGURE_ID });
   }
 
+  if (statsOff) {
+    // No test: the collapse chain is drawn only as far as the coarsest grain a
+    // plot layer actually reads — a grain past that fed nothing but the test.
+    // A post-collapse chain still runs on the coarsest grain (the engine applies
+    // it to the figure's level table), so it keeps the whole chain.
+    const read = new Set(edges.filter((e) => e.kind === "geom").map((e) => e.fromId));
+    let last = -1;
+    grainChain.forEach((id, i) => { if (read.has(id)) last = i; });
+    if (post.length) last = grainChain.length - 1;
+    const drop = new Set(grainChain.slice(last + 1));
+    if (drop.size) {
+      for (let i = nodes.length - 1; i >= 0; i--) if (drop.has(nodes[i].id)) nodes.splice(i, 1);
+      for (let i = edges.length - 1; i >= 0; i--) {
+        if (drop.has(edges[i].toId) || drop.has(edges[i].fromId)) edges.splice(i, 1);
+      }
+    }
+  }
+
   const grainsList = planGrains(plan);            // ["", ...keys]
   const coarsest = grainsList[grainsList.length - 1] ?? "";
   // post-collapse reduce phase: steps run on the chosen test grain, drawn as a
@@ -379,8 +408,10 @@ export function buildGraph(
       fromId: testFromId, toId: id, guards });
     testFromId = id;
   });
-  edges.push({ id: "t:test", kind: "test",
-    label: testFact, fromId: testFromId, toId: FIGURE_ID });
+  if (!statsOff) {
+    edges.push({ id: "t:test", kind: "test",
+      label: testFact, fromId: testFromId, toId: FIGURE_ID });
+  }
 
-  return { nodes, edges, spine };
+  return { nodes, edges, spine, ...(statsOff ? { statsOff: true } : {}) };
 }

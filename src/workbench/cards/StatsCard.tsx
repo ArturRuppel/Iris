@@ -1,9 +1,9 @@
 import { useAtomValue } from "jotai";
 import { useEffect, useRef } from "react";
 import { displayFocusAtom } from "../state";
-import { specAtom, effectiveSchemaAtom } from "../../state";
+import { specAtom, effectiveSchemaAtom, activePlottableAtom } from "../../state";
 import { dataCardStates } from "../cardGating";
-import { StatsResults, TestPicker } from "../../components/StatsPanel";
+import { StatsResults, TestPicker, StatsOffNotice } from "../../components/StatsPanel";
 import type { CardBodyProps } from "../cardRegistry";
 
 /* The figure's stats card. Gates on the plot (nothing to test without a rendered
@@ -14,6 +14,7 @@ export function StatsCard(_props: CardBodyProps) {
   const spec = useAtomValue(specAtom);
   const schema = useAtomValue(effectiveSchemaAtom);
   const { statsEnabled } = dataCardStates(spec, schema);
+  const statsOff = !!useAtomValue(activePlottableAtom)?.statsOff;
   /* the test edge (and "Edit test…") asks for the test picker: bring it into view. */
   const focus = useAtomValue(displayFocusAtom);
   const pickRef = useRef<HTMLDivElement>(null);
@@ -23,7 +24,7 @@ export function StatsCard(_props: CardBodyProps) {
 
   return (
     <div className="txw-card-stats" data-testid="stats-card" data-tour="stats">
-      {statsEnabled ? (
+      {statsOff ? <StatsOffNotice /> : statsEnabled ? (
         <>
           <StatsResults />
           <div ref={pickRef} className="stats-picker"><TestPicker /></div>

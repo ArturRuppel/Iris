@@ -18,15 +18,18 @@ export interface AuthorOption { label: string; action: AuthorAction }
    (`node.pinSource`, spec 2.3) the Plot option becomes "Add to plot" and adds a
    layer pinned to that node — the raw-vs-filtered overlay. Everywhere else it
    opens the primary plot's editor, as before. Collapse/Stats are unchanged: they
-   still edit the primary analysis (a test names one node — the output). */
-function terminalOptions(node: ExplorerNode): AuthorOption[] {
+   still edit the primary analysis (a test names one node — the output). With
+   statistics turned off (`stats.off`) the Stats option reads "Add statistics":
+   the same test action, which turns statistics back on as it opens the editor
+   (openCardAtom). */
+function terminalOptions(node: ExplorerNode, statsOff: boolean): AuthorOption[] {
   const geom: AuthorOption = node.pinSource
     ? { label: "Add to plot", action: { kind: "geom", pinNodeId: node.pinSource } }
     : { label: "Plot (geom)", action: { kind: "geom" } };
   return [
     { label: "Collapse", action: { kind: "collapse" } },
     geom,
-    { label: "Stats (test)", action: { kind: "test" } },
+    { label: statsOff ? "Add statistics" : "Stats (test)", action: { kind: "test" } },
   ];
 }
 
@@ -41,17 +44,17 @@ export function phaseOf(node: ExplorerNode): Phase {
 }
 
 /* the options shown at a node's `+`. */
-export function affordances(node: ExplorerNode): AuthorOption[] {
+export function affordances(node: ExplorerNode, statsOff = false): AuthorOption[] {
   switch (phaseOf(node)) {
     case "reduce":
       return [
         ...REDUCE_KIND_ORDER.map((step) => ({
           label: REDUCE_KIND_LABEL[step], action: { kind: "reduce", step } as AuthorAction,
         })),
-        ...terminalOptions(node),
+        ...terminalOptions(node, statsOff),
       ];
     case "grain":
-      return terminalOptions(node);
+      return terminalOptions(node, statsOff);
     case "join-input":
     case "post":
     case "terminal":

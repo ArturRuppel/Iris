@@ -75,7 +75,7 @@ export function toRF(
       // wire from the right edge into the left edge: RF derives edge endpoints
       // from these node fields, not from the <Handle> dot placement.
       sourcePosition: Position.Right, targetPosition: Position.Left,
-      data: nodeShapeProps(n.node, deltas.get(n.id), sourceName) as unknown as Record<string, unknown>,
+      data: nodeShapeProps(n.node, deltas.get(n.id), sourceName, !!graph.statsOff) as unknown as Record<string, unknown>,
     })),
     edges: L.edges.map((e) => ({
       id: e.id, source: e.source, target: e.target, type: "workbench",
@@ -204,7 +204,8 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
       setMenu({ x: e.clientX, y: e.clientY, items: [
         { label: "Edit plot…", onClick: () =>
           openCard({ target: { kind: "node", id: n.id, facet: "plot" }, cardKind: "geom-editor" }) },
-        { label: "Edit test…", onClick: () =>
+        // statistics off: the same entry turns them back on (openCardAtom)
+        { label: active?.statsOff ? "Add statistics" : "Edit test…", onClick: () =>
           openCard({ target: { kind: "node", id: n.id, facet: "stats" }, cardKind: "test-editor" }) },
       ] });
       return;

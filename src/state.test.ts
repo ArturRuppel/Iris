@@ -123,6 +123,12 @@ describe("location (vs-reference) family round-trips through save/load", () => {
     expect(spec.style.overrides.reference_value).toBe(0);
   });
 
+  it("with statistics off, buildSpec draws no reference line from the test", () => {
+    const p = { ...makeDefaultPlottable(), mappings: { x: "grp", y: "val" }, reference: 0, statsOff: true };
+    const spec = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {}, emptyPipeline(""));
+    expect(spec.style.overrides.reference_value ?? null).toBeNull();
+  });
+
   it("a full save→load→save cycle preserves the location family", () => {
     const { p, dag } = plottableFromSpec(locationSpec());
     const resaved = buildSpec(p, "location", undefined, {}, EMPTY_HIERARCHY, {},

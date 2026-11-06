@@ -13,6 +13,7 @@ import { colOffsets, visibleCols, visibleRows } from "../gridWindow";
 import { clampCell, cellText, edgesOf, type Cell, type Rect } from "../gridSelect";
 import { useGridSelection } from "../useGridSelection";
 import { DataViewToggle } from "./DataViewToggle";
+import { TableExport } from "./TableExport";
 import { DataEntry } from "./DataEntry";
 
 /* The grouped-sheet lens: the active tidy table projected into the wide,
@@ -115,9 +116,11 @@ export function GroupedSheet() {
     setNotice(null);
     const t = to.trim();
     if (!avail.ok || t === "" || t === from) return;
-    const column = level < avail.spec.bandCols.length
-      ? avail.spec.bandCols[level]?.name : undefined;
-    if (!column || !sheet) return;
+    if (!sheet) return;
+    // the sheet's own spec: resolveSpec may have turned the grain into a band
+    const column = level < sheet.spec.bandCols.length
+      ? sheet.spec.bandCols[level]?.name : undefined;
+    if (!column) return;
     const siblings = level < sheet.bands.length
       ? new Set(sheet.bands[level].map((c) => c.label))
       : new Set(sheet.columnLabels);
@@ -193,6 +196,7 @@ export function GroupedSheet() {
       <div className="pane-head">
         <h2>Data</h2>
         <DataViewToggle />
+        <TableExport />
         <span className="provenance">
           {!handle ? "new table"
             : avail.ok && sheet ? `${sheet.nRows} × ${sheet.nCols}`

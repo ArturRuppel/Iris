@@ -1,6 +1,7 @@
 import { atom } from "jotai";
 import type { CardKind, Target } from "./cardRegistry";
 import { FIGURE_ID } from "../explorer/graph";
+import { activePlottableAtom } from "../state";
 
 export type { CardKind, Target } from "./cardRegistry";
 
@@ -60,6 +61,8 @@ export const openCardAtom = atom(
       return;
     }
     if (arg.cardKind === "test-editor") {
+      // asking for the test on a no-statistics analysis is "Add statistics"
+      if (get(activePlottableAtom)?.statsOff) set(setStatsOffAtom, false);
       set(pushStashAtom, { target: { kind: "node", id: FIGURE_ID, facet: "stats" }, cardKind: "stats" });
       bump("test");
       return;
@@ -120,4 +123,39 @@ export const clearWorkbenchAtom = atom(null, (get, set) => {
      focus carries over and the next plot opens full-size too */
   const focused = get(focusedStashIdAtom);
   set(focusedStashIdAtom, focused === cardId(DEFAULT_PLOT) ? focused : null);
+});
+
+/* Turn statistics off (the "No statistics" choice) or back on for the active
+   analysis. Off: the plot is all there is, so a Stats card on show gives way to
+   the figure's plot card — nothing stats-shaped is left on screen. On: the Stats
+   card opens at its test picker so the user lands where the choice is made. */
+export const setStatsOffAtom = atom(null, (get, set, off: boolean) => {
+  const p = get(activePlottableAtom);
+  if (!p) return;
+  if (!!p.statsOff !== off) {
+    const { statsOff: _drop, ...rest } = p;
+    void _drop;
+    // a reference line that is the tested constant (the location test defaults
+    // style.reference_value to it, and a save keeps it) goes with the test; a
+    // line the user set to some other value stays as style
+    const style = off && p.reference != null && p.style.reference_value === p.reference
+      ? (({ reference_value: _r, ...st }) => (void _r, st))(p.style) : p.style;
+    set(activePlottableAtom, off ? { ...rest, style, statsOff: true } : rest);
+  }
+  if (off) {
+    const stash = get(stashAtom);
+    if (stash.some((e) => e.cardKind === "stats" || e.cardKind === "test-editor")) {
+      const kept = stash.filter((e) => e.cardKind !== "stats" && e.cardKind !== "test-editor");
+      const plotId = cardId(DEFAULT_PLOT);
+      set(stashAtom, kept.some((e) => e.id === plotId) ? kept
+        : [...kept, { id: plotId, target: DEFAULT_PLOT, cardKind: "plot" as const }].slice(-STASH_SLOTS));
+      const focused = get(focusedStashIdAtom);
+      if (focused && !get(stashAtom).some((e) => e.id === focused)) set(focusedStashIdAtom, null);
+    }
+    const sel = get(selectedTargetAtom);
+    if (sel && (sel.facet === "stats" || sel.id === "t:test")) set(selectedTargetAtom, null);
+  } else {
+    set(pushStashAtom, { target: { kind: "node", id: FIGURE_ID, facet: "stats" }, cardKind: "stats" });
+    set(displayFocusAtom, { section: "test", n: (get(displayFocusAtom)?.n ?? 0) + 1 });
+  }
 });
