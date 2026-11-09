@@ -105,7 +105,7 @@ export function HierarchyPanel() {
             const naturalRole = col.type === "categorical" ? "classifier" : "measure";
             return (
               <div key={name} className="hp-role-row">
-                <span className="hp-col">{labelFor(name)}</span>
+                <span className="hp-col" title={labelFor(name)}>{labelFor(name)}</span>
                 <div className="seg">
                   <button className={isId ? "on" : ""}
                     onClick={() => applyRole(name, true)}>identifier</button>

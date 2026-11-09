@@ -242,9 +242,29 @@ function Empty({ children }: { children: ReactNode }) {
 const ROW_H = 25;          // body + row-index cell height
 const HEAD_ROW_H = 26;     // each band row and the leaf-label row
 const ROWHEAD_W = 76;      // the pinned grain column (the finest identifier) + corner
-const DEFAULT_COL_W = 84;  // starting per-column width
+const DEFAULT_COL_W = 84;  // starting per-column width (a label shorter than this gets it)
+const MAX_COL_W = 240;     // a label wider than this wraps onto a second header line instead
 const MIN_COL_W = 44;      // resize floor
 const OVERSCAN = 2;        // extra rows/cols each side of the visible window
+const HEAD_PAD = 2 * 7 + 18;  // the leaf cell's padding plus room for its × button
+
+/* the one thing that is content-measured: the leaf labels (a few hundred
+   strings, never the body). Each column starts wide enough for its label, between
+   the uniform default and the cap, so "nucleus centroid x (µm)" reads in full.
+   Without a canvas (tests) a flat per-character estimate stands in. */
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+function labelWidth(label: string): number {
+  if (measureCtx === undefined) {
+    measureCtx = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+    if (measureCtx) {
+      const family = typeof getComputedStyle === "function" ? getComputedStyle(document.body).fontFamily : "";
+      measureCtx.font = `600 12px ${family || "sans-serif"}`;
+    }
+  }
+  return measureCtx ? measureCtx.measureText(label).width : label.length * 7;
+}
+const fitWidths = (labels: string[]): number[] =>
+  labels.map((l) => Math.min(MAX_COL_W, Math.max(DEFAULT_COL_W, Math.ceil(labelWidth(l) + HEAD_PAD))));
 
 const rng = (a: number, b: number): number[] => {
   const out: number[] = [];
@@ -295,9 +315,13 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scroll, setScroll] = useState({ left: 0, top: 0 });
   const [port, setPort] = useState({ w: 0, h: 0 });
-  const [widths, setWidths] = useState<number[]>(() => Array<number>(nCols).fill(DEFAULT_COL_W));
-  // a different pivot is a different set of columns: reset widths to the default.
-  useEffect(() => { setWidths(Array<number>(nCols).fill(DEFAULT_COL_W)); }, [nCols]);
+  const [widths, setWidths] = useState<number[]>(() => fitWidths(columnLabels));
+  // a different pivot is a different set of columns: reset widths to fit the new labels.
+  const labelKey = columnLabels.join("\u0000");
+  useEffect(() => { setWidths(fitWidths(columnLabels)); }, [nCols, labelKey]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // a label the cap cannot hold wraps: the leaf row is then two lines tall
+  const leafWrap = useMemo(() => columnLabels.some((l) => labelWidth(l) + HEAD_PAD > MAX_COL_W), [labelKey]);  // eslint-disable-line react-hooks/exhaustive-deps
+  const leafH = leafWrap ? 2 * HEAD_ROW_H - 10 : HEAD_ROW_H;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -310,7 +334,7 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
 
   const offsets = useMemo(() => colOffsets(widths), [widths]);
   const totalW = offsets[nCols] ?? 0;
-  const headerH = (bands.length + 1) * HEAD_ROW_H;
+  const headerH = bands.length * HEAD_ROW_H + leafH;
   const bodyH = nRows * ROW_H;
   const vCols = visibleCols(offsets, scroll.left, port.w, OVERSCAN);
   // the body scrolls under the pinned header, so its scroll origin is offset by it
@@ -629,9 +653,10 @@ function Grid({ sheet, onCommit, onApply, onRelabel, onDelete, colType }: {
             const editing = head?.key === key;
             const label = columnLabels[c];
             return (
-              <div key={key} data-c={c} data-c0={c} data-c1={c} className={`gs-head gs-leaf${colBlockSelected(c, c) ? " gs-sel" : ""}`}
-                title={factorLabels[factorLabels.length - 1]}
-                style={{ left: ROWHEAD_W + offsets[c], top: bands.length * HEAD_ROW_H, width: widths[c], height: HEAD_ROW_H }}
+              <div key={key} data-c={c} data-c0={c} data-c1={c}
+                className={`gs-head gs-leaf${leafWrap ? " gs-wrap" : ""}${colBlockSelected(c, c) ? " gs-sel" : ""}`}
+                title={hasFactors ? `${factorLabels[factorLabels.length - 1]}: ${label}` : label}
+                style={{ left: ROWHEAD_W + offsets[c], top: bands.length * HEAD_ROW_H, width: widths[c], height: leafH }}
                 onMouseDown={editing ? undefined : (e) => colMouseDown(c, c, e.shiftKey, e.ctrlKey || e.metaKey)}
                 onMouseEnter={() => gsel.onColMouseEnter(c, c)}
                 onDoubleClick={hasFactors ? () => startHead(key, leafLevel, label) : undefined}>
