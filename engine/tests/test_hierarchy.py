@@ -393,3 +393,37 @@ def test_all_nan_qualifier_in_grain_does_not_crash_or_drop_rows():
     assert len(raw) == len(df)
     total_ids = sum(len(ids) for ids in grains["subject"][0]["row_ids"])
     assert total_ids == len(df)
+
+
+def test_connect_joins_each_units_marks_across_groups_and_follows_the_swarm():
+    """`connect` on a coarse dot layer draws one line per unit between the lanes
+    (the paired-test picture); after the deferred swarm solve the line ends sit
+    exactly on the packed marks."""
+    from matplotlib.collections import PathCollection
+    df = _paired_df()
+    schema = _schema()
+    levels, _ = hierarchy.materialize_levels(df, schema, SPINE, {}, ["group"])
+    spec = _spec([{"geom": "dot", "params": {}, "level": "subject", "id": "means"}])
+    spec["style"]["overrides"]["layers"] = {"means": {"connect": True, "layout": "swarm"}}
+    fig = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    ax = fig.axes[0]
+    lines = [l for l in ax.lines if l.get_gid() == "connector"]
+    assert len(lines) == 3                      # three subjects, two lanes → one line each
+    compiler.figure_to_svg(fig)                 # runs the deferred beeswarm + connector pass
+    dots = np.concatenate([np.asarray(c.get_offsets()) for c in ax.collections
+                           if isinstance(c, PathCollection)])
+    for l in lines:
+        for end in np.column_stack(l.get_data()):
+            assert np.min(np.hypot(*(dots - end).T)) < 1e-9   # each end lies on a mark
+    assert "_iris_connectors" not in fig.__dict__             # stash consumed
+    compiler.close(fig)
+
+
+def test_connect_off_draws_no_connectors():
+    df = _paired_df()
+    schema = _schema()
+    levels, _ = hierarchy.materialize_levels(df, schema, SPINE, {}, ["group"])
+    fig = compiler.build_comparison_figure(
+        df, schema, _spec([{"geom": "dot", "params": {}, "level": "subject"}]), {}, levels)
+    assert not [l for l in fig.axes[0].lines if l.get_gid() == "connector"]
+    compiler.close(fig)

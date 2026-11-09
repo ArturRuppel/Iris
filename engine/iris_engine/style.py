@@ -145,6 +145,12 @@ STYLE_REGISTRY: list[dict] = [
          scope="geom", geoms=["dot"]),
     _num("alpha", "Opacity", "dot", 0.55, lo=0.05, hi=1.0, step=0.05,
          scope="geom", geoms=["dot"]),
+    # paired display: join each unit's marks across the x groups (one line per
+    # replicate between neighbouring lanes), the picture of a paired test
+    _bool("connect", "Connect across groups", "dot", False,
+          scope="geom", geoms=["dot"]),
+    _num("connect_width", "Connector width", "dot", 0.9, lo=0.2, hi=3.0, step=0.1,
+         scope="geom", geoms=["dot"], visible_when={"key": "connect", "equals": True}),
 
     # ---- geom-scoped: scatter ----
     _num("marker_size", "Point size", "scatter", 22.0, lo=4, hi=140, step=2,

@@ -807,6 +807,7 @@ def _finalize_deferred(fig) -> None:
     relayout the result away. Each pass pops its own stash, so this is a no-op on
     a second save."""
     pending = (getattr(fig, "_iris_beeswarm", None)
+               or "_iris_connectors" in fig.__dict__
                or "_iris_legend_nudge" in fig.__dict__
                or "_iris_plot_size" in fig.__dict__)
     if not pending:
@@ -814,6 +815,7 @@ def _finalize_deferred(fig) -> None:
     fig.canvas.draw()
     _apply_plot_size(fig)
     _apply_beeswarm(fig)
+    _apply_connectors(fig)
     _apply_legend_offset(fig)
     fig.set_layout_engine("none")
 
@@ -1020,6 +1022,7 @@ def _group(rows, lv, pos, color, layout):
     ys = rows[val_col].to_numpy(dtype=float) if val_col in rows else np.array([])
     return {"pos": pos, "lv": lv, "ys": ys, "color": color,
             "keys": rows["id"].tolist() if "id" in rows else list(range(len(ys))),
+            "rows": rows,
             "summary": stats_mod._summary(lv, ys),
             **_aes_arrays(rows, sc, num_color_col, cat_color_col)}
 
@@ -1191,8 +1194,20 @@ def _geom_dot(ax, ctx, layer):
     jitter = gs.get("jitter", 0.18) * ctx["wscale"]
     msize = gs.get("marker_size", 22.0)
     malpha = gs.get("alpha", 0.55)
+    # `connect`: one line per unit between neighbouring lanes. The unit is the
+    # layer's level column (the grain the marks stand for: one per experiment), or
+    # else the colour column when it names a discrete key. Each mark is remembered
+    # with its artist and index so the line can follow the swarm packing.
+    unit_col = None
+    if gs.get("connect"):
+        for cand in (layer.get("level"), ctx.get("color_col")):
+            if cand and all(cand in g["rows"].columns for g in ctx["groups"] if len(g["ys"])):
+                unit_col = cand
+                break
+    marks: dict = {}          # unit -> [(lane pos, collection, index in collection, colour)]
     for grp in ctx["groups"]:
         ys, keys = grp["ys"], grp["keys"]
+        units = grp["rows"][unit_col].astype(str).to_numpy() if unit_col else None
         # swarm draws every mark at the lane centre and defers the no-overlap
         # packing to the final-draw solve (_apply_beeswarm); jitter offsets each
         # mark along the categorical axis by its stable level-row id so a redraw
@@ -1232,6 +1247,10 @@ def _geom_dot(ax, ctx, layer):
             else:
                 coll = ax.scatter(px, py, color=grp["color"], **common)
             lane_colls.append(coll)
+            if units is not None:
+                for j, k in enumerate(sel):
+                    colour = ccols[k] if ccols is not None else grp["color"]
+                    marks.setdefault(units[k], []).append((grp["pos"], coll, j, colour))
         # All of a group's (marker) sub-series pack jointly against each other in
         # one lane, so the silhouette reflects the whole group, not each sub-series
         # in isolation. Stash for the deferred pixel-space solve, which needs the
@@ -1243,7 +1262,40 @@ def _geom_dot(ax, ctx, layer):
             fig._iris_beeswarm.append(
                 {"ax": ax, "collections": lane_colls, "center": grp["pos"],
                  "orient": "y" if h else "x", "width": 0.8 * ctx["wscale"]})
+    if marks:
+        _draw_connectors(ax, marks, h, gs.get("connect_width", 0.9), malpha)
     return None
+
+
+def _draw_connectors(ax, marks, h, width, alpha):
+    """One thin line per unit between its marks in neighbouring lanes (sorted by
+    lane position), in the unit's colour, under the marks. The endpoints are the
+    marks' offsets at draw time; `_apply_connectors` moves them onto the packed
+    positions after the beeswarm solve."""
+    fig = ax.figure
+    if not hasattr(fig, "_iris_connectors"):
+        fig._iris_connectors = []
+    for unit, ends in marks.items():
+        ends = sorted(ends, key=lambda e: e[0])
+        for a, b in zip(ends, ends[1:]):
+            if a[0] == b[0]:
+                continue                          # two marks of one unit in one lane
+            pa = np.asarray(a[1].get_offsets())[a[2]]
+            pb = np.asarray(b[1].get_offsets())[b[2]]
+            line, = ax.plot([pa[0], pb[0]], [pa[1], pb[1]], color=a[3], linewidth=width,
+                            alpha=min(1.0, alpha * 0.9), solid_capstyle="round", zorder=2.5)
+            line.set_gid("connector")
+            fig._iris_connectors.append({"line": line, "ends": ((a[1], a[2]), (b[1], b[2]))})
+
+
+def _apply_connectors(fig) -> None:
+    """Move every connector onto its marks' final (packed) positions. Runs after
+    `_apply_beeswarm`; pops its stash so a second save is a no-op."""
+    for c in fig.__dict__.pop("_iris_connectors", None) or []:
+        (ca, ia), (cb, ib) = c["ends"]
+        pa = np.asarray(ca.get_offsets())[ia]
+        pb = np.asarray(cb.get_offsets())[ib]
+        c["line"].set_data([pa[0], pb[0]], [pa[1], pb[1]])
 
 
 def _geom_summary(ax, ctx, layer):

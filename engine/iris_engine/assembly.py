@@ -427,6 +427,7 @@ def build(panels: list[dict], figure: dict | None, *, strict: bool = True):
                 _letter_in_band(fig, s, p["tag"], lay["letters"], i, band, row_top)
     for owner in [fig, *subs]:
         compiler._apply_beeswarm(owner)
+        compiler._apply_connectors(owner)
         compiler._apply_legend_offset(owner)
     fig.__dict__.pop("_iris_plot_size", None)
     for i, s in enumerate(subs):
