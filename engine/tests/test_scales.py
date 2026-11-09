@@ -75,7 +75,7 @@ def test_numeric_color_emits_colorbar_not_legend_swatches():
     assert [e for e in sc.legend_entries() if e["channel"] == "color"] == []
     # … instead a colorbar spec carries label + range + cmap
     cb = sc.colorbar_spec()
-    assert cb == {"label": "dose", "vmin": 0.0, "vmax": 10.0,
+    assert cb == {"column": "dose", "label": "dose", "vmin": 0.0, "vmax": 10.0,
                   "cmap": scales.COLOR_CMAP}
 
 

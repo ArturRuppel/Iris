@@ -28,10 +28,12 @@ from .specutil import col_type, is_identifier
 # with Paul Tol's qualitative hues (also colourblind-friendly) rather than
 # wrapping back to colour 0, so 9+ series stay distinct. Black sits at index 7 so
 # a single-series plot still leads with a coloured mark and the canonical
-# 8-series look is unchanged. (Frontend mirror: state.ts DEFAULT_PALETTE.)
-PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
+# 8-series look is unchanged. Okabe-Ito's yellow (#F0E442) is too pale on a white
+# page, so it trades places with Tol's wine (#882255) and only appears as the
+# twelfth series. (Frontend mirror: state.ts DEFAULT_PALETTE.)
+PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#882255",
            "#0072B2", "#D55E00", "#CC79A7", "#000000",
-           "#332288", "#117733", "#88CCEE", "#882255",
+           "#332288", "#117733", "#88CCEE", "#F0E442",
            "#999933", "#AA4499", "#44AA99", "#661100"]
 
 # marker area (pt²) at the min / max of a numeric size channel; chosen to read
@@ -81,6 +83,12 @@ class Scales:
     size_hi: float = 1.0
     shape_col: str | None = None
     shape_levels: list[str] = field(default_factory=list)
+    # the schema labels of the mapped columns: what the legend and the colorbar
+    # are titled with (the column NAME is an identifier, not a thing to read)
+    labels: dict = field(default_factory=dict)
+
+    def label_of(self, col: str | None) -> str | None:
+        return None if col is None else self.labels.get(col, col)
 
     @property
     def mapped(self) -> set[str]:
@@ -114,7 +122,7 @@ class Scales:
         of discrete swatches; None when color is unmapped or categorical."""
         if self.color_col is None or not self.color_numeric:
             return None
-        return {"label": self.color_col, "vmin": self.color_lo,
+        return {"column": self.color_col, "label": self.label_of(self.color_col), "vmin": self.color_lo,
                 "vmax": self.color_hi, "cmap": self.color_cmap}
 
     def legend_entries(self) -> list[dict]:
@@ -128,22 +136,22 @@ class Scales:
         # numeric color is a colorbar (colorbar_spec), not legend swatches
         if self.color_col is not None and not self.color_numeric:
             if merged:
-                out.append({"channel": "color+shape", "label": self.color_col,
+                out.append({"channel": "color+shape", "column": self.color_col, "label": self.label_of(self.color_col),
                             "swatches": [{"value": lv, "color": self._color_map[lv],
                                           "marker": self.marker_for(lv)}
                                          for lv in self.color_levels]})
             else:
-                out.append({"channel": "color", "label": self.color_col,
+                out.append({"channel": "color", "column": self.color_col, "label": self.label_of(self.color_col),
                             "swatches": [{"value": lv, "color": self._color_map[lv]}
                                          for lv in self.color_levels]})
         if self.size_col is not None:
             ticks = sorted({self.size_lo, (self.size_lo + self.size_hi) / 2,
                             self.size_hi})
-            out.append({"channel": "size", "label": self.size_col,
+            out.append({"channel": "size", "column": self.size_col, "label": self.label_of(self.size_col),
                         "swatches": [{"value": v, "size": self.size_for(v)}
                                      for v in ticks]})
         if self.shape_col is not None and not merged:
-            out.append({"channel": "shape", "label": self.shape_col,
+            out.append({"channel": "shape", "column": self.shape_col, "label": self.label_of(self.shape_col),
                         "swatches": [{"value": lv, "marker": self.marker_for(lv)}
                                      for lv in self.shape_levels]})
         return out
@@ -154,6 +162,7 @@ def resolve_scales(encodings: dict, df: pd.DataFrame, schema: dict,
     palette = style.get("palette") or ["#0e7490"]
     sc = Scales(palette0=palette[0])
     present = {c["name"] for c in schema["columns"]}
+    sc.labels = {c["name"]: c["label"] for c in schema["columns"] if c.get("label")}
 
     color = _col(encodings, "color", present)
     if color:

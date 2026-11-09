@@ -602,7 +602,7 @@ def _draw_legend(fig, ax, sc, style, x_col, *, faceted: bool = False):
     legend outside the grid) rather than inside whichever cell's `ax` is
     passed in."""
     entries = [e for e in sc.legend_entries()
-               if not (e["channel"] == "color" and e["label"] == x_col)]
+               if not (e["channel"] == "color" and e["column"] == x_col)]
     pref = style.get("show_legend")
     if pref is False or not entries:
         return

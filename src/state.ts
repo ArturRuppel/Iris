@@ -83,9 +83,9 @@ function reconcileSpine(order: string[], ids: string[]): string[] {
 /* must match scales.PALETTE (Okabe–Ito + Paul Tol) so the swatches shown in the
    style panel for an unset palette are the exact colors the engine draws; the
    style panel edits copies of it */
-export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#F0E442",
+export const DEFAULT_PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#882255",
   "#0072B2", "#D55E00", "#CC79A7", "#000000",
-  "#332288", "#117733", "#88CCEE", "#882255",
+  "#332288", "#117733", "#88CCEE", "#F0E442",
   "#999933", "#AA4499", "#44AA99", "#661100"];
 
 export type ColumnType = ColumnDef["type"];

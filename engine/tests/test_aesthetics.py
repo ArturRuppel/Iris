@@ -238,7 +238,7 @@ def test_color_and_shape_on_same_column_make_one_merged_legend():
     assert leg is not None
     # exactly one row per level — not duplicated across two blocks
     assert [t.get_text() for t in leg.get_texts()] == ["a", "b"]
-    assert leg.get_title().get_text() == "grp"        # single titled block
+    assert leg.get_title().get_text() == "Group"      # single block, titled by the column label
     # each handle shows both the color (from the palette) and a non-default marker
     handles = leg.legend_handles
     assert len(handles) == 2
