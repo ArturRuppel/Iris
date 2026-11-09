@@ -29,11 +29,11 @@ from .specutil import col_type, is_identifier
 # wrapping back to colour 0, so 9+ series stay distinct. Black sits at index 7 so
 # a single-series plot still leads with a coloured mark and the canonical
 # 8-series look is unchanged. Okabe-Ito's yellow (#F0E442) is too pale on a white
-# page, so it trades places with Tol's wine (#882255) and only appears as the
-# twelfth series. (Frontend mirror: state.ts DEFAULT_PALETTE.)
-PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#882255",
+# page, so the fourth series is tab10's purple (#9467BD) instead. (Frontend
+# mirror: state.ts DEFAULT_PALETTE.)
+PALETTE = ["#E69F00", "#56B4E9", "#009E73", "#9467BD",
            "#0072B2", "#D55E00", "#CC79A7", "#000000",
-           "#332288", "#117733", "#88CCEE", "#F0E442",
+           "#332288", "#117733", "#88CCEE", "#882255",
            "#999933", "#AA4499", "#44AA99", "#661100"]
 
 # marker area (pt²) at the min / max of a numeric size channel; chosen to read
