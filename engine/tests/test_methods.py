@@ -331,3 +331,22 @@ def test_csv_empty_is_header_only():
     text = methods.stats_csv([DESCRIBE])
     reader = list(csv.reader(io.StringIO(text)))
     assert reader == [methods.TABLE_COLUMNS]
+
+
+def test_shaping_names_columns_by_their_label():
+    schema = {"columns": [
+        {"name": "step_um", "type": "numeric", "label": "displacement since the previous frame (µm)"},
+        {"name": "group", "type": "categorical", "label": "genotype"},
+        {"name": "cell_uid", "type": "categorical", "label": "cell"},
+    ]}
+    spec = {"reduce": {"steps": [
+        {"kind": "filter", "conditions": [{"column": "step_um", "op": "not-null"}]},
+        {"kind": "derive", "column": "value", "expr": "step_um / 0.25"},
+        {"kind": "derive", "column": "v2", "expr": "`step_um` + `genotype` + \"step_um\""},
+    ]}, "hierarchy": {"spine": ["cell_uid"]}}
+    out = methods.shaping_prose(spec, schema)
+    assert "kept rows where displacement since the previous frame (µm) is present" in out
+    assert "derived value = `displacement since the previous frame (µm)` / 0.25" in out
+    # a backticked name or label reads as the label; a string literal is left alone
+    assert "derived v2 = `displacement since the previous frame (µm)` + genotype + \"step_um\"" in out
+    assert "nested by cell," in out

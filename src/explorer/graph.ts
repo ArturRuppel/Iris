@@ -2,6 +2,7 @@ import type { AxisDesc, CollapsePlan, GuardVerdict, Layer, ReduceDag, ReduceStep
 import { RAW_LEVEL } from "../types";
 import { grainKey, planGrains } from "../collapse";
 import { labelForCol } from "../levels";
+import { exprToDisplay } from "../exprLabels";
 
 /* Nodes are DATA (a table at some grain, or a terminal figure output); edges
    are TRANSFORMATIONS (filter/drop/collapse between tables, geom + test into the
@@ -171,7 +172,7 @@ function stepEdgeLabel(step: ReduceStep, schema: Schema | null): string {
     case "drop":
       return step.columns.map((c) => labelForCol(schema, c)).join(", ");
     case "derive":
-      return `${step.column} = ${step.expr}`;
+      return `${labelForCol(schema, step.column)} = ${exprToDisplay(step.expr, schema?.columns ?? [])}`;
     case "recode":
       return labelForCol(schema, step.column);
     case "join":

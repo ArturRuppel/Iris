@@ -306,7 +306,7 @@ describe("buildGraph", () => {
     ];
     const g = buildGraph(linearDag(steps), SPINE, PLAN, [{ geom: "dot", level: RAW_LEVEL }], SCHEMA, null);
     expect(edge(g, "source", "step:0")?.label).toBe("Area > 1");
-    expect(edge(g, "step:0", "step:1")?.label).toBe("q = perimeter / sqrt(area)");
+    expect(edge(g, "step:0", "step:1")?.label).toBe("q = perimeter / sqrt(Area)");
   });
 
   it("a join emits a referenced right node and two 'join on <keys>' edges", () => {

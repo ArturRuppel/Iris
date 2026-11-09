@@ -15,6 +15,7 @@ from __future__ import annotations
 import csv
 import io
 import math
+import re
 
 # Human names for the test ids stats.py emits (result["test"]).
 TEST_NAMES = {
@@ -203,8 +204,38 @@ _FILTER_OP = {"==": "=", "!=": "≠", "<": "<", "<=": "≤", ">": ">", ">=": "�
               "in": "in", "not-in": "not in"}
 
 
-def _cond_phrase(c: dict) -> str:
-    col, op = c.get("column"), c.get("op")
+def _label_of(schema: dict | None, name: str) -> str:
+    for c in (schema or {}).get("columns", []):
+        if c.get("name") == name:
+            return c.get("label") or name
+    return name
+
+
+_EXPR_TOKEN = re.compile(r"`[^`]*`|\"[^\"]*\"|'[^']*'|[A-Za-z_][A-Za-z0-9_]*")
+
+
+def _expr_with_labels(expr: str, schema: dict | None) -> str:
+    """The expression as the reader sees it in the app: every column reference
+    (bare name or backticked name/label) shown by its label."""
+    names = {c.get("name"): c.get("label") or c.get("name")
+             for c in (schema or {}).get("columns", [])}
+    labels = set(names.values())
+
+    def swap(m: re.Match) -> str:
+        tok = m.group(0)
+        if tok[0] in "\"'":
+            return tok
+        ref = tok[1:-1].strip() if tok[0] == "`" else tok
+        label = names.get(ref) or (ref if ref in labels else None)
+        if label is None:
+            return tok
+        return label if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", label) else f"`{label}`"
+
+    return _EXPR_TOKEN.sub(swap, expr or "")
+
+
+def _cond_phrase(c: dict, schema: dict | None = None) -> str:
+    col, op = _label_of(schema, c.get("column")), c.get("op")
     if op == "is-null":
         return f"{col} is missing"
     if op == "not-null":
@@ -215,25 +246,26 @@ def _cond_phrase(c: dict) -> str:
     return f"{col} {_FILTER_OP.get(op, op)} {val}"
 
 
-def _step_phrase(step: dict) -> str | None:
+def _step_phrase(step: dict, schema: dict | None = None) -> str | None:
     kind = step.get("kind")
+    lab = lambda n: _label_of(schema, n)  # noqa: E731
     if kind == "drop":
-        cols = ", ".join(step.get("columns", []))
+        cols = ", ".join(lab(c) for c in step.get("columns", []))
         return f"dropped {cols}" if cols else None
     if kind == "filter":
-        conds = [_cond_phrase(c) for c in step.get("conditions", [])]
+        conds = [_cond_phrase(c, schema) for c in step.get("conditions", [])]
         return "kept rows where " + " and ".join(conds) if conds else None
     if kind == "derive":
-        return f"derived {step.get('column')} = {step.get('expr')}"
+        return f"derived {lab(step.get('column'))} = {_expr_with_labels(step.get('expr'), schema)}"
     if kind == "recode":
-        return f"recoded {step.get('column')}"
+        return f"recoded {lab(step.get('column'))}"
     if kind == "join":
-        on = ", ".join(step.get("on", []))
+        on = ", ".join(lab(c) for c in step.get("on", []))
         return f"joined a second table on {on}" if on else "joined a second table"
     if kind == "pivot":
-        return f"pivoted {step.get('column')} to columns"
+        return f"pivoted {lab(step.get('column'))} to columns"
     if kind == "grid_complete":
-        by = ", ".join(step.get("by", []))
+        by = ", ".join(lab(c) for c in step.get("by", []))
         return f"completed a count grid over {by}" if by else "completed a count grid"
     return None
 
@@ -248,13 +280,14 @@ def _reduce_step_list(reduce: dict) -> list[dict]:
     return list(reduce.get("steps", []))
 
 
-def shaping_prose(spec: dict) -> str:
+def shaping_prose(spec: dict, schema: dict | None = None) -> str:
     """One sentence describing the reduce pipeline + nesting for an analysis, or ""
-    when there is nothing to say (no reduce steps and no spine)."""
+    when there is nothing to say (no reduce steps and no spine). Columns are
+    named by their schema label when a schema is given."""
     reduce = spec.get("reduce") or {}
     steps = _reduce_step_list(reduce) + list(reduce.get("post", []))
-    phrases = [p for p in (_step_phrase(s) for s in steps) if p]
-    spine = (spec.get("hierarchy") or {}).get("spine") or []
+    phrases = [p for p in (_step_phrase(s, schema) for s in steps) if p]
+    spine = [_label_of(schema, s) for s in ((spec.get("hierarchy") or {}).get("spine") or [])]
 
     parts = []
     if phrases:
@@ -309,7 +342,7 @@ def methods_markdown(analyses: list[dict], manifest: dict) -> str:
         title = a.get("title") or "Analysis"
         stats = a.get("stats") or {}
         methods_text = stats.get("methods_text", "")
-        shaping = shaping_prose(a.get("spec") or {})
+        shaping = shaping_prose(a.get("spec") or {}, a.get("schema"))
         para = f"**{title}.** " + " ".join(p for p in (shaping, methods_text) if p)
         out.append(para.rstrip())
         out.append("")

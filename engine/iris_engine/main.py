@@ -1003,6 +1003,7 @@ def export_methods(req: ExportMethodsRequest):
             continue      # an incomplete/unrenderable analysis: nothing to report
         compiler.close(fig)
         computed.append({"title": spec.get("title") or "Analysis", "spec": spec,
+                         "schema": tbl["schema"],
                          "stats": _json_safe(res), "stat_model": model})
     manifest = {"engine": build_info.build_identity(),
                 "engine_snapshot": engine_snapshot()}

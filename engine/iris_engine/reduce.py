@@ -12,6 +12,7 @@ Quantity-agnostic and pandas-only (no matplotlib, no FastAPI).
 from __future__ import annotations
 
 import ast
+import re
 
 import numpy as np
 import pandas as pd
@@ -47,6 +48,34 @@ def _coerce(value, col_type: str):
         except (TypeError, ValueError) as e:
             raise ReduceError(f"{value!r} is not numeric") from e
     return value
+
+
+# A column may be referenced in an expression by its name as a bare identifier
+# (`step_um / 0.25`) or, in backticks, by its name OR its label — so a column
+# whose name has spaces or units (`speed (µm/h)`) is still addressable. The
+# backticked references are swapped for placeholder identifiers before the
+# Python parse and bound to the real column afterwards.
+_QUOTED_REF = re.compile(r"`([^`]*)`")
+
+
+def _unquote_refs(expr: str, df: pd.DataFrame, schema: dict | None,
+                  where: str) -> tuple[str, pd.DataFrame]:
+    """(expr with placeholders, df carrying the placeholder columns)."""
+    by_label = {c.get("label"): c["name"] for c in (schema or {}).get("columns", [])
+                if c.get("label")}
+    extra: dict[str, pd.Series] = {}
+
+    def swap(m: re.Match) -> str:
+        ref = m.group(1).strip()
+        name = ref if ref in df.columns else by_label.get(ref)
+        if name is None or name not in df.columns:
+            raise ReduceError(f"{where}: unknown column {ref!r}")
+        ph = f"_ref{len(extra)}"
+        extra[ph] = df[name]
+        return ph
+
+    out = _QUOTED_REF.sub(swap, expr)
+    return out, (df.assign(**extra) if extra else df)
 
 
 # filter bound: an expression-valued comparison threshold computed over the
@@ -86,9 +115,10 @@ def _eval_bound(node, df: pd.DataFrame):
     raise ReduceError("filter bound: unsupported expression")
 
 
-def _eval_bound_scalar(expr: str, df: pd.DataFrame) -> float:
+def _eval_bound_scalar(expr: str, df: pd.DataFrame, schema: dict | None = None) -> float:
+    src, df = _unquote_refs(expr, df, schema, "filter bound")
     try:
-        tree = ast.parse(expr, mode="eval")
+        tree = ast.parse(src, mode="eval")
     except SyntaxError as e:
         raise ReduceError(f"filter bound: malformed expr {expr!r}") from e
     value = _eval_bound(tree, df)
@@ -123,7 +153,7 @@ def _apply_filter(df: pd.DataFrame, schema: dict,
             mask &= ~m if op == "not-in" else m
         elif op in _NUMERIC_OPS:
             if "bound" in cond:
-                v = _eval_bound_scalar(cond["bound"], df)
+                v = _eval_bound_scalar(cond["bound"], df, schema)
                 realized.append(v)
             else:
                 v = _coerce(cond["value"], ctype)
@@ -223,11 +253,12 @@ def _apply_derive(df: pd.DataFrame, schema: dict,
     col, expr = step.get("column"), step.get("expr")
     if not col or not expr:
         raise ReduceError("derive needs a `column` and an `expr`")
+    src, frame = _unquote_refs(expr, df, schema, "derive")
     try:
-        tree = ast.parse(expr, mode="eval")
+        tree = ast.parse(src, mode="eval")
     except SyntaxError as e:
         raise ReduceError(f"derive: malformed expr {expr!r}") from e
-    series = _eval_derive(tree, df)
+    series = _eval_derive(tree, frame)
     out = df.copy()
     out[col] = series
     names = {c["name"] for c in schema["columns"]}

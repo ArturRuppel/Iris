@@ -696,6 +696,7 @@ dd.strong { font-weight: 600; }
 .filter-row select { font-size: 12px; min-width: 0; }
 .filter-row input { font-size: 12px; flex: 1 1 110px; min-width: 0;
   border: 1px solid var(--line2); border-radius: 0; padding: 3px 6px; }
+.filter-row input.expr { flex: 3 1 200px; }  /* a long label in backticks needs the room */
 .reduced-table { height: 240px; }
 .iris-section .section-body .reduced-table { height: 320px; }
 
