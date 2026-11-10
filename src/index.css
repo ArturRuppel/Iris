@@ -1974,3 +1974,17 @@ button.fig-name:hover { color: var(--accent); }
   .hp-role-row .seg button { min-height: 36px; font-size: 13px; padding: 2px 10px; }
   .hp-col { font-size: 14px; }
 }
+
+/* The same slab problem wherever small icon buttons (reorder arrows, remove)
+   sit in a row: on touch every one is a 36px square, and the control beside it
+   in the collapse routing matches that height. */
+@media (pointer: coarse) {
+  button.icon { min-height: 0; height: 36px; width: 36px; min-width: 36px;
+    padding: 0; font-size: 15px; line-height: 1; }
+  .cr-ctl { gap: 4px; }
+  .cr-step { gap: 8px; padding: 6px 0; }
+  .cr-grain { font-size: 14px; }
+  .cr-step select { min-height: 0; height: 36px; width: 96px; font-size: 13px; }
+  .cr-testgrain select { min-height: 0; height: 36px; font-size: 13px; }
+  .cr-add button, .cr-reset { min-height: 36px; font-size: 13px; }
+}
