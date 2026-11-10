@@ -56,8 +56,15 @@ _WELCH_STATS = {
 _WELCH_MODEL = {"family": "group_comparison", "chosen_by": "inferred"}
 
 
+_GEOM_TITLE = {"box": "Box plot", "violin": "Violin plot", "bar": "Bar chart",
+               "summary": "Mean and error bar", "dot": "Dot plot"}
+
+
 def _analysis(geom, params, figure, style=None):
-    spec = {**_SPEC_BASE, "layers": [{"geom": geom, "params": params}]}
+    # the five analyses differ only in the mark, so the mark leads each title:
+    # the Analyses list shows the start of a name
+    spec = {**_SPEC_BASE, "title": f"{_GEOM_TITLE[geom]}: petal length, versicolor vs virginica",
+            "layers": [{"geom": geom, "params": params}]}
     if style is not None:
         spec = {**spec, "style": style}
     return {

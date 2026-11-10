@@ -21,6 +21,10 @@ SPINE = ["experiment_id", "position_id", "cell_id", "frame"]
 # trt speeds run higher than ctrl; per-experiment offset gives replicate spread
 BASE = {"ctrl": 1.0, "trt": 1.6}
 EXP_OFFSET = {"E1": 0.0, "E2": 0.1, "E3": -0.1}
+# the treatment effect differs a little between experiments, so the three paired
+# differences are not identical: identical differences have no spread, and a
+# paired t-test on them is undefined
+TRT_LIFT = {"E1": 0.0, "E2": 0.08, "E3": -0.05}
 
 SCHEMA_OVERRIDES = {
     "experiment_id": {"identifier": True},
@@ -65,7 +69,7 @@ def regenerate_data() -> None:
                     "condition", "speed"])
         for e in EXPERIMENTS:
             for cond in CONDITIONS:
-                base = BASE[cond] + EXP_OFFSET[e]
+                base = BASE[cond] + EXP_OFFSET[e] + (TRT_LIFT[e] if cond == "trt" else 0.0)
                 for p in POSITIONS:
                     for ci, c in enumerate(CELLS):
                         cell = f"{e}_{p}_{cond}_{c}"

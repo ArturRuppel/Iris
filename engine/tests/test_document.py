@@ -129,3 +129,21 @@ def test_document_roundtrips_a_dag_analysis():
     doc = document.load_document(blob)
     assert doc["analyses"][0]["reduce"]["output"] == "n0"
     assert doc["manifest"]["format_version"] == "2.2"
+
+
+def test_load_rewrites_a_legacy_identifier_type():
+    """A file saved before the identifier role became orthogonal to the value
+    type has `"type": "identifier"`. Load turns that into the flag plus the type
+    of what the column holds."""
+    schema = {"schema_version": "1.0", "columns": [
+        {"name": "exp", "type": "identifier", "label": "Exp"},
+        {"name": "frame", "type": "identifier", "label": "Frame"},
+        {"name": "y", "type": "numeric", "label": "Y"}]}
+    rows = [{"id": "1", "exp": "E1", "frame": 0, "y": 1.0},
+            {"id": "2", "exp": "E2", "frame": 1, "y": 2.0}]
+    doc = document.load_document(
+        document.save_document(_tables(schema=schema, rows=rows), [], PROV, {}))
+    cols = {c["name"]: c for c in doc["tables"]["table_1"]["schema"]["columns"]}
+    assert cols["exp"]["type"] == "categorical" and cols["exp"]["identifier"] is True
+    assert cols["frame"]["type"] == "numeric" and cols["frame"]["identifier"] is True
+    assert "identifier" not in cols["y"]

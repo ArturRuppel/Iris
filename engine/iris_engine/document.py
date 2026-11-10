@@ -146,6 +146,22 @@ def _version_tuple(v: str) -> tuple[int, ...]:
         return (0,)
 
 
+def _modern_schema(schema: dict, df: pd.DataFrame) -> dict:
+    """Rewrite a schema saved before the identifier role became orthogonal to the
+    value type. Such a file types a nesting key `"type": "identifier"`; today that
+    is `"identifier": true` on a column whose type says what it contains. Without
+    this the Data tab lists the column twice and shows it as a measure."""
+    cols = []
+    for c in schema.get("columns", []):
+        if c.get("type") == "identifier":
+            numeric = (c["name"] in df.columns
+                       and pd.api.types.is_numeric_dtype(df[c["name"]]))
+            c = {**c, "type": "numeric" if numeric else "categorical",
+                 "identifier": True}
+        cols.append(c)
+    return {**schema, "columns": cols}
+
+
 def load_document(data: bytes) -> dict:
     """Read a `.iris` into `{"manifest", "tables", "analyses", "provenance",
     "figure"}`, where `tables` is `{name -> {"schema", "hierarchy", "rows"}}`.
@@ -174,7 +190,8 @@ def load_document(data: bytes) -> dict:
                 io.BytesIO(z.read(f"tables/{name}/table.parquet")),
                 engine="pyarrow")
             tables[name] = {
-                "schema": json.loads(z.read(f"tables/{name}/schema.json")),
+                "schema": _modern_schema(
+                    json.loads(z.read(f"tables/{name}/schema.json")), df),
                 "hierarchy": json.loads(z.read(f"tables/{name}/hierarchy.json")),
                 "rows": json.loads(df.to_json(orient="records")),
             }
