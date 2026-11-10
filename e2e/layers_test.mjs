@@ -1,4 +1,4 @@
-import { openApp, importCsv, addFirstPlot, openMode, inspectorTab, fail } from "./helpers.mjs";
+import { openApp, importCsv, addFirstPlot, openMode, inspectorTab, backToCanvas, fail } from "./helpers.mjs";
 
 /* Smoke for the composable layer stack: add/remove mutate the stack. No
    fixture CSV exists on disk, so the table is imported via an in-memory
@@ -6,8 +6,10 @@ import { openApp, importCsv, addFirstPlot, openMode, inspectorTab, fail } from "
    (the card offers only "+ add plot"); the add-plot wizard seeds the first
    layer, the Layers tab of the plot inspector lists one `.layer-card` per
    layer, and its "+ add layer" button reopens the wizard in add-layer mode
-   (plot type, then grain). Everything is scoped to the plot card. Needs the
-   engine and the vite dev server. */
+   (plot type, then grain). Everything is scoped to the plot card, which opens
+   full-screen over the canvas from the figure node's Plot section (before any
+   plot) or its "+ add plot" (wizard already started). Needs the engine and the
+   vite dev server. */
 
 const csv = [
   "group,value",
@@ -20,6 +22,7 @@ await importCsv(page, "layers_fixture.csv", csv);
 
 // A fresh plottable starts with zero layers: the plot card offers only "+ add plot".
 await openMode(page, "Workbench");
+await page.locator(".react-flow__node-arrayShape .txw-figsec.k-geom").first().click();
 const card = page.locator("[data-testid='plot-card']");
 await card.waitFor({ state: "visible", timeout: 15000 });
 await card.locator(".txw-add-plot").waitFor({ state: "visible", timeout: 10000 });
@@ -34,6 +37,9 @@ await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
 const geomLabel = (await page.locator(".wiz-geom").first().textContent()).trim();
 await page.click("[data-testid='plot-wizard'] .cancel");
 await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
+await card.locator(".txw-add-plot").waitFor({ state: "visible", timeout: 5000 })
+  .catch(() => fail("cancelling the add-plot wizard did not return to the empty plot card"));
+await backToCanvas(page);
 await addFirstPlot(page, { geom: geomLabel, x: "group", y: "value" });
 await inspectorTab(page, "Layers");
 const seeded = await card.locator(".layer-card").count();

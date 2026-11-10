@@ -121,3 +121,48 @@ describe("ArrayShapeNode", () => {
     expect(screen.getByText("4×2")).toBeInTheDocument();
   });
 });
+
+describe("ArrayShapeNode figure variant", () => {
+  const fig = (sections: ArrayShapeNodeProps["sections"], thumb?: string) =>
+    render(<ArrayShapeNode variant="figure" kind="geom" eyebrow="Figure" detail=""
+      spine={[]} live={[]} shed={[]} values={[]} sections={sections} thumb={thumb} />);
+  const sections = (over: { onPlot?: () => void; onStats?: () => void; onAdd?: () => void } = {}) => [
+    { kind: "plot" as const, label: "Plot", facts: ["box"], onView: over.onPlot, onAdd: over.onAdd },
+    { kind: "stats" as const, label: "Stats", facts: ["Welch t"], onView: over.onStats },
+  ];
+
+  it("with a thumb: the picture button and one stats line, no sections", () => {
+    const onPlot = vi.fn(), onStats = vi.fn();
+    const { container } = fig(sections({ onPlot, onStats }), "<svg xmlns='http://www.w3.org/2000/svg'/>");
+    expect(container.querySelector(".txw-node.figure.picture")).toBeTruthy();
+    expect(container.querySelector(".txw-figsec")).toBeNull();
+    expect(container.querySelectorAll(".txw-figstat")).toHaveLength(1);
+    expect(screen.getByText("Welch t")).toBeInTheDocument();
+    const img = container.querySelector("img.txw-figthumb") as HTMLImageElement;
+    expect(img.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
+    fireEvent.click(screen.getByRole("button", { name: "Plot summary" }));
+    expect(onPlot).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Stats summary" }));
+    expect(onStats).toHaveBeenCalledTimes(1);
+  });
+
+  it("without a thumb: one section per facet, no picture", () => {
+    const { container } = fig(sections());
+    expect(container.querySelector(".txw-figthumb")).toBeNull();
+    expect(container.querySelectorAll(".txw-figsec")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Plot summary" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stats summary" })).toBeInTheDocument();
+    expect(container.querySelector(".txw-node-add-plot")).toBeNull();   // no onAdd, no control
+  });
+
+  it("an empty plot section with onAdd offers + add plot, which does not also open the plot", () => {
+    const onPlot = vi.fn(), onAdd = vi.fn();
+    const { container } = fig(sections({ onPlot, onAdd }));
+    const add = container.querySelector(".txw-node-add-plot")!;
+    expect(add).toBeTruthy();
+    expect(add.textContent).toBe("+ add plot");
+    fireEvent.click(add);
+    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(onPlot).not.toHaveBeenCalled();
+  });
+});

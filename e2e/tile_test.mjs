@@ -5,7 +5,8 @@ import { openApp, importCsv, openMode, waitForFigure, fail } from "./helpers.mjs
    for that pair; adding it must draw a figure rather than crash the UI wiring
    (this is the exact class of bug — TEST_BY_FAMILY contingency key — that
    111243b showed only surfaces through the UI). The plot editor is the Plot
-   card: a fresh analysis offers "+ add plot", whose wizard lists the plot types
+   card: a fresh analysis's figure node offers "+ add plot", which opens the
+   plot card (full-screen over the canvas) with its wizard started; it lists the plot types
    the table's columns can satisfy (two categorical columns, no numeric one),
    then maps X and Y. Needs the engine and the vite dev server. */
 
@@ -20,9 +21,10 @@ const { browser, page } = await openApp();
 await importCsv(page, "tile_fixture.csv", csv);
 
 await openMode(page, "Workbench");
+// the empty figure node's "+ add plot" opens the plot card with the wizard started
+await page.locator(".react-flow__node-arrayShape .txw-node-add-plot").first().click();
 const card = page.locator("[data-testid='plot-card']");
 await card.waitFor({ state: "visible", timeout: 15000 });
-await page.click(".txw-add-plot");
 await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
 
 // The tile must be offered for a table of two categorical columns.

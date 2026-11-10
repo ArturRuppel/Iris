@@ -4,12 +4,11 @@ import irisMark from "./assets/iris-mark.svg";
 import { DataView } from "./components/DataView";
 import { HierarchyPanel } from "./components/HierarchyPanel";
 import { ImportWizard, type ImportWizardHandle } from "./components/ImportWizard";
-import { PlottableSidebar } from "./components/PlottableSidebar";
 import { TableList } from "./components/TableList";
 import { TutorialOverlay } from "./tutorial/TutorialOverlay";
 import { startTutorialAtom } from "./tutorial/state";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
-import { lanesAtom, lanesEnabledAtom } from "./workbench/lanes";
+import { lanesAtom } from "./workbench/lanes";
 import { clearWorkbenchAtom, seedDefaultStashAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
@@ -120,7 +119,6 @@ export default function App() {
   const [engineUp, setEngineUp] = useState<boolean | null>(null);
   const [showSpec, setShowSpec] = useState(false);
   const [showLog, setShowLog] = useState(false);
-  const [lanesOn, setLanesOn] = useAtom(lanesEnabledAtom);
   const lanes = useAtomValue(lanesAtom);
   const editLog = useAtomValue(editLogAtom);
   const clearEditLog = useSetAtom(clearEditLogAtom);
@@ -1111,10 +1109,6 @@ export default function App() {
                 <div className="tb-menu-sep" />
                 {!labbookFile && <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void doSaveAs(); }}>
                   <span style={{ width: 15 }} /><span className="grow">Save As…</span></button>}
-                <button className="tb-menu-item" data-testid="lanes-toggle"
-                  onClick={() => { setOpenMenu(null); setLanesOn(!lanesOn); }}>
-                  <span style={{ width: 15 }} /><span className="grow">Analyses on the canvas (experiment)</span>
-                  {lanesOn && <span className="check">✓</span>}</button>
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowSpec((s) => !s); }}>
                   <span style={{ width: 15 }} /><span className="grow">{showSpec ? "Hide" : "Show"} analysis spec</span></button>
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowLog((s) => !s); }}>
@@ -1161,9 +1155,8 @@ export default function App() {
           </div>
         ) : (
           <div className="workbench-mode">
-            {!lanesOn && <PlottableSidebar />}
             {explorerGraph
-              ? <WorkbenchCanvas graph={explorerGraph} lanes={lanesOn ? lanes : undefined} />
+              ? <WorkbenchCanvas graph={explorerGraph} lanes={lanes} />
               : <div className="analyses-empty"><span>Build a step or add a layer to see the graph.</span></div>}
           </div>
         )}

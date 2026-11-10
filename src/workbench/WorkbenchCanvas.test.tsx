@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { WorkbenchCanvas, applyNudge, toRF, onConnectDelegate, frameViewport, MIN_READABLE_ZOOM } from "./WorkbenchCanvas";
-import { nodePositionsAtom, stashAtom, seedDefaultStashAtom } from "./state";
+import { WorkbenchCanvas, applyNudge, onConnectDelegate, frameViewport, MIN_READABLE_ZOOM } from "./WorkbenchCanvas";
+import { nodePositionsAtom, stashAtom, seedDefaultStashAtom, focusedStashIdAtom } from "./state";
+import { toRFLanes, headId, ADD_LANE_ID, type Lane } from "./lanes";
 import { targetToCardKind } from "./cardRegistry";
+import { activePlottableIdAtom } from "../state";
 import type { ExplorerGraph } from "../explorer/graph";
 
 const graph: ExplorerGraph = {
@@ -19,10 +21,16 @@ const graph: ExplorerGraph = {
   spine: [],
 };
 
+/* the test's graph as the one (active) analysis on the canvas */
+const lanesOf = (g: ExplorerGraph): Lane[] => [{
+  id: "p1", name: "Analysis 1", tag: "", marks: "Dots", active: true,
+  tableName: "Source", statsOff: false, graph: g, svg: null,
+}];
+
 function mount(g: ExplorerGraph = graph) {
   const store = createStore();
   const utils = render(
-    <Provider store={store}><WorkbenchCanvas graph={g} /></Provider>,
+    <Provider store={store}><WorkbenchCanvas graph={g} lanes={lanesOf(g)} /></Provider>,
   );
   return { store, ...utils };
 }
@@ -50,10 +58,13 @@ describe("onConnectDelegate", () => {
 });
 
 describe("WorkbenchCanvas", () => {
-  it("renders one React Flow node per graph node, plus a tidy control", () => {
+  it("renders one React Flow node per graph node, a lane header and the add-lane node, plus a tidy control", () => {
     const { container } = mount();
     expect(screen.getByRole("button", { name: /tidy/i })).toBeInTheDocument();
-    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
+    expect(container.querySelectorAll(".react-flow__node-arrayShape")).toHaveLength(3);
+    expect(container.querySelector(`.react-flow__node[data-id="${headId("p1")}"]`)).toBeTruthy();
+    expect(container.querySelector(`.react-flow__node[data-id="${ADD_LANE_ID}"]`)).toBeTruthy();
+    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(5);
   });
 
   it("puts undo, redo and tidy in the canvas control cluster", () => {
@@ -71,7 +82,7 @@ describe("WorkbenchCanvas", () => {
     expect(screen.getByRole("button", { name: "Undo" })).toBeDisabled();
   });
 
-  it("clicking a node pins its data card into the stash (not a floating popup)", () => {
+  it("clicking a node shows its data card and opens it over the canvas", () => {
     const { store, container } = mount();
     const node = container.querySelector('.react-flow__node[data-id="plot"]')!;
     expect(node).toBeTruthy();
@@ -79,6 +90,7 @@ describe("WorkbenchCanvas", () => {
     const stash = store.get(stashAtom);
     expect(stash).toHaveLength(1);
     expect(stash[0]).toMatchObject({ cardKind: "plot", target: { kind: "node", id: "plot", facet: "plot" } });
+    expect(store.get(focusedStashIdAtom)).toBe(stash[0].id);
   });
 
   // React Flow does not render any `.react-flow__edge` DOM under jsdom (edges
@@ -97,7 +109,7 @@ describe("WorkbenchCanvas", () => {
 
   it("re-flows when the graph structure changes (adds a node)", () => {
     const { container, rerender, store } = mount();
-    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(3);
+    expect(container.querySelectorAll(".react-flow__node-arrayShape")).toHaveLength(3);
     const bigger: ExplorerGraph = {
       nodes: [...graph.nodes,
         { id: "step:1", kind: "table", phase: "reduce", label: "derived", table: { via: "at_step", at_step: 1 } }],
@@ -105,14 +117,14 @@ describe("WorkbenchCanvas", () => {
         { id: "e1", kind: "derive", label: "x = 1", fromId: "step:0", toId: "step:1" }],
       spine: [],
     };
-    rerender(<Provider store={store}><WorkbenchCanvas graph={bigger} /></Provider>);
-    expect(container.querySelectorAll(".react-flow__node")).toHaveLength(4);
+    rerender(<Provider store={store}><WorkbenchCanvas graph={bigger} lanes={lanesOf(bigger)} /></Provider>);
+    expect(container.querySelectorAll(".react-flow__node-arrayShape")).toHaveLength(4);
   });
 
   it("tidy clears persisted node positions", () => {
     const store = createStore();
     store.set(nodePositionsAtom, { plot: { x: 999, y: 999 } });
-    render(<Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
+    render(<Provider store={store}><WorkbenchCanvas graph={graph} lanes={lanesOf(graph)} /></Provider>);
     fireEvent.click(screen.getByRole("button", { name: /tidy/i }));
     expect(store.get(nodePositionsAtom)).toEqual({});
   });
@@ -125,8 +137,8 @@ describe("WorkbenchCanvas", () => {
     expect(prev).toEqual({ source: { x: 1, y: 2 } });
   });
 
-  it("toRF places overridden nodes at their nudged position", () => {
-    const { nodes } = toRF(graph, { plot: { x: 30, y: 40 } }, "iris");
+  it("toRFLanes places overridden nodes of the active lane at their nudged position", () => {
+    const { nodes } = toRFLanes(lanesOf(graph), { plot: { x: 30, y: 40 } });
     expect(nodes.find(n => n.id === "plot")!.position).toEqual({ x: 30, y: 40 });
     expect(nodes.find(n => n.id === "source")!.position).not.toEqual({ x: 30, y: 40 });
   });
@@ -142,16 +154,15 @@ describe("WorkbenchCanvas", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit test/i }));
     expect(store.get(stashAtom)).toMatchObject([{ cardKind: "stats", target: { id: "figure", facet: "stats" } }]);
 
-    // a fresh right-click → "Edit plot…" shows the Plot card in the display
-    // panel (its encoding section), not a floating geom editor.
+    // a fresh right-click → "Edit plot…" shows the Plot card (its encoding
+    // section), not a separate geom editor.
     fireEvent.contextMenu(figureNode);
     fireEvent.click(screen.getByRole("menuitem", { name: /Edit plot/i }));
     expect(store.get(stashAtom)).toMatchObject([{ cardKind: "plot", target: { id: "figure", facet: "plot" } }]);
   });
 
   // an edge is a thin target, so the step's editor is also reachable from the
-  // node it produced: the context menu and a double-click both open it in the
-  // display panel.
+  // node it produced: the context menu and a double-click both open it.
   it("opens a step's editor from its node: context menu and double-click", () => {
     const { store, container } = mount();
     const stepNode = container.querySelector('.react-flow__node[data-id="step:0"]')!;
@@ -170,15 +181,25 @@ describe("WorkbenchCanvas", () => {
     expect(screen.queryByRole("menuitem", { name: /Edit step/i })).toBeNull();
   });
 
-  it("shows the seeded plot in the display panel beside the DAG", () => {
+  it("the seeded plot card stays closed until shown, then opens over the DAG", () => {
     const store = createStore();
     store.set(seedDefaultStashAtom);
     const { container } = render(
-      <Provider store={store}><WorkbenchCanvas graph={graph} /></Provider>);
-    expect(screen.getByTestId("plot-card")).toBeInTheDocument();
+      <Provider store={store}><WorkbenchCanvas graph={graph} lanes={lanesOf(graph)} /></Provider>);
+    expect(container.querySelector(".txw-focus")).toBeNull();
+    fireEvent.click(container.querySelector('.react-flow__node[data-id="plot"]')!);
+    const focus = container.querySelector(".txw-focus")!;
+    expect(focus).toBeTruthy();
+    expect(focus.contains(screen.getByTestId("plot-card"))).toBe(true);
     expect(screen.queryByTestId("table-card")).toBeNull();
     expect(screen.queryByTestId("stats-card")).toBeNull();
     expect(container.querySelectorAll(".react-flow__node").length).toBeGreaterThan(0);
+  });
+
+  it("clicking a lane header selects its analysis", () => {
+    const { store, container } = mount();
+    fireEvent.click(container.querySelector(`.react-flow__node[data-id="${headId("p1")}"] .txw-lanehead`)!);
+    expect(store.get(activePlottableIdAtom)).toBe("p1");
   });
 });
 

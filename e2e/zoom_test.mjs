@@ -12,7 +12,9 @@ import { openApp, importCsv, addFirstPlot, fail } from "./helpers.mjs";
    Edit | Pan switch: in Edit the grips (canvas corner `.resize-handle`,
    plot-area corner `.plot-resize`) stay usable at any zoom, in Pan they are
    hidden and a plain wheel zooms / a drag pans. Ctrl-wheel zooms in either
-   mode. "Fit" (⤢) returns to the fitted view.
+   mode. "Fit" (⤢) returns to the fitted view. The toolbar floats over the
+   figure and only takes pointer events while the pointer is over the figure
+   (fine pointer), so the test hovers the figure before using it, as a user does.
 
    Needs the engine and the vite dev server. */
 
@@ -33,6 +35,8 @@ const scaleOf = (t) => { const m = /scale\(([\d.]+)\)/.exec(t); return m ? parse
 const txOf = (t) => { const m = /translate\(([-\d.]+)px/.exec(t); return m ? parseFloat(m[1]) : 0; };
 const pct = async () => (await card.locator(".zoom-pct").innerText()).trim();
 const fitBtn = tools.locator("button[title='Fit the whole figure in view']");
+const frame = card.locator(".figure-frame");
+const tool = async (loc) => { await frame.hover(); await loc.click(); };
 const grips = async () => ({
   canvas: await card.locator(".resize-handle").count(),
   plot: await card.locator(".plot-resize").count(),
@@ -47,7 +51,7 @@ if (g.canvas !== 1 || g.plot !== 1) fail(`expected the canvas and plot-area grip
 if (!(await fitBtn.isDisabled())) fail("Fit should be disabled while already fitted");
 
 // Zoom in via the toolbar "+" button.
-await tools.locator("button[title='Zoom in']").click();
+await tool(tools.locator("button[title='Zoom in']"));
 await page.waitForTimeout(150);
 const zin = scaleOf(await transform());
 if (!(zin > fitScale * 1.01)) fail(`zoom-in button did not scale the svg (fit ${fitScale} → ${zin})`);
@@ -57,7 +61,7 @@ g = await grips();
 if (g.canvas !== 1 || g.plot !== 1) fail(`grips should stay usable while zoomed in Edit mode, got ${JSON.stringify(g)}`);
 
 // Fit resets everything.
-await fitBtn.click();
+await tool(fitBtn);
 await page.waitForTimeout(150);
 if (Math.abs(scaleOf(await transform()) - fitScale) > 1e-6) fail("Fit did not reset the zoom transform");
 if ((await pct()) !== "100%") fail(`Fit did not reset the toolbar to 100% (got ${await pct()})`);
@@ -71,7 +75,7 @@ await page.keyboard.up("Control");
 await page.waitForTimeout(150);
 const zwheel = scaleOf(await transform());
 if (!(zwheel > fitScale * 1.01)) fail(`Ctrl-scroll did not zoom (fit ${fitScale} → ${zwheel})`);
-await fitBtn.click();
+await tool(fitBtn);
 await page.waitForTimeout(100);
 
 // A plain wheel in Edit mode is left to the page (the inspector must still scroll).
@@ -81,7 +85,7 @@ await page.waitForTimeout(150);
 if (Math.abs(scaleOf(await transform()) - fitScale) > 1e-6) fail("a plain wheel zoomed in Edit mode");
 
 // Pan mode: grips hide, a plain wheel zooms, then a drag pans (translate changes).
-await tools.locator("button", { hasText: /^Pan$/ }).click();
+await tool(tools.locator("button", { hasText: /^Pan$/ }));
 g = await grips();
 if (g.canvas !== 0 || g.plot !== 0) fail(`grips should hide in Pan mode, got ${JSON.stringify(g)}`);
 const box2 = await svg.boundingBox();
@@ -100,7 +104,7 @@ const tx1 = txOf(await transform());
 if (Math.abs(tx1 - tx0) < 20) fail(`drag did not pan in Pan mode (tx ${tx0} → ${tx1})`);
 
 // Back to Edit: the grips return.
-await tools.locator("button", { hasText: /^Edit$/ }).click();
+await tool(tools.locator("button", { hasText: /^Edit$/ }));
 g = await grips();
 if (g.canvas !== 1 || g.plot !== 1) fail(`grips should return in Edit mode, got ${JSON.stringify(g)}`);
 

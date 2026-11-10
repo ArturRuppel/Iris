@@ -1,4 +1,4 @@
-import { openApp, importCsv, addFirstPlot, inspectorTab, fail } from "./helpers.mjs";
+import { openApp, importCsv, addFirstPlot, inspectorTab, backToCanvas, fail } from "./helpers.mjs";
 
 /* E2E for the transformation explorer's collapse-routing UI — the integration
    proof for the un-force-nesting feature. Reusing the superplot harness:
@@ -13,7 +13,8 @@ import { openApp, importCsv, addFirstPlot, inspectorTab, fail } from "./helpers.
         start with no engine round-trip.
      3. Setting "Test reads at" → Raw trips the engine's pseudoreplication
         guard: an amber `.edge-badge.caution` appears on the test edge AND the
-        figure's Stats section grows a `.node-caution-dot`.
+        figure node's stats summary (`.txw-figstat`, the node is a picture once
+        the plot rendered) grows a `.node-caution-dot`.
      4. Removing a collapse step (the × button) drops one fewer `.cr-step`.
 
    (Guard-badge rendering was reconnected 2026-07-13 — the reskin had dropped
@@ -25,7 +26,10 @@ import { openApp, importCsv, addFirstPlot, inspectorTab, fail } from "./helpers.
    The plot is built in the Plot card (add-plot wizard, then the Layers tab's
    add-layer wizard for the subject-grain dots), and the collapse-routing panel
    is its own card (opened via the source node's `+` handle -> "Collapse"),
-   not a fixed side panel.
+   not a fixed side panel. The plot card opens full-screen over the canvas, so
+   the test goes back to the canvas before using the handle; the collapse card
+   opens as a sheet, with the canvas (edge badges, figure node) dimmed but
+   visible behind it.
 
    Needs the engine and the vite dev server; Chromium runs on a machine that
    has one. */
@@ -61,7 +65,9 @@ const dotLevel = await card.locator(".layer-card").nth(1).locator(".layer-level 
 if (dotLevel !== "subject") fail(`the Dots layer should read the subject grain, reads '${dotLevel}'`);
 await page.waitForTimeout(500);
 
-// Open the collapse-editor card via the source node's `+` handle.
+// Back on the canvas (the plot card covers it), open the collapse-editor card
+// via the source node's `+` handle.
+await backToCanvas(page);
 await page.locator(".txw-handle-add").first().click();
 await page.waitForSelector(".txw-add-menu-float", { timeout: 5000 });
 await page.locator(".txw-add-menu-float [role='menuitem']", { hasText: "Collapse" }).click();

@@ -2,9 +2,11 @@ import { openApp, importCsv, openMode, showPlot, showStats, showTable, waitForFi
 
 /* E2E: workbench landing → add first plot → add second layer.
    Imports a 2-group numeric CSV (group = categorical, value = numeric),
-   opens the Workbench and confirms the landing state of each card the display
-   panel can show (one at a time): the plot card shows the add-plot CTA, the
-   stats card its "add a plot first" stub, and the table card is populated.
+   opens the Workbench and confirms the landing state: the canvas opens no card
+   by itself, and the empty figure node offers "+ add plot". Then each card a
+   node opens (over the canvas, one at a time) is checked: the stats card shows
+   its "add a plot first" stub, the table card is populated, and the plot card
+   shows the add-plot CTA.
    Then drives the PlotWizard through "first" mode (type → map X/Y → Done),
    verifies the plot card populates (CTA gone, figure + layer strip in the
    inspector's Layers tab) and the stats stub clears, then runs "addLayer" mode
@@ -25,12 +27,13 @@ console.log("dataset imported");
 
 // ── navigate to Workbench ─────────────────────────────────────────────────────
 await openMode(page, "Workbench");
-await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
-console.log("workbench landed (plot card shown)");
+await page.locator(".react-flow__node-arrayShape .txw-node-add-plot").first()
+  .waitFor({ state: "visible", timeout: 15000 });
+if (await page.locator(".txw-focus").count())
+  fail("a card opened over the canvas by itself on landing");
+console.log("workbench landed: canvas only, figure node offers '+ add plot'");
 
 // ── 1. landing state, card by card ────────────────────────────────────────────
-await page.locator(".txw-add-plot").waitFor({ state: "visible", timeout: 5000 });
-console.log("plot card: add-plot CTA shown");
 
 await showStats(page);
 await page.locator("[data-testid='stats-card'] .txw-card-stub").waitFor({ state: "visible", timeout: 5000 });
@@ -48,6 +51,8 @@ await page.waitForFunction(() => {
 console.log("table card: populated");
 
 await showPlot(page);
+await page.locator(".txw-add-plot").waitFor({ state: "visible", timeout: 5000 });
+console.log("plot card: add-plot CTA shown");
 
 // ── 2. click "+ add plot" ─────────────────────────────────────────────────────
 await page.click(".txw-add-plot");

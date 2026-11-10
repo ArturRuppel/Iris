@@ -626,6 +626,9 @@ export const setTagAtom = atom(null, (get, set, arg: { id: string; tag: string }
    tutorial reads it to tell "still building" from "done", since a layer is added
    the moment a geom is picked, well before the wizard closes. */
 export const plotWizardOpenCountAtom = atom(0);
+/* the figure node's "+ add plot" asks the plot card it opens to start the
+   wizard at once; the card clears it */
+export const plotWizardRequestAtom = atom(false);
 
 
 /* ---- undo history (spec mutations only) ----

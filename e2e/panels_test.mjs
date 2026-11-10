@@ -3,11 +3,16 @@ import { openApp, importCsv, addFirstPlot, inspectorTab, fail } from "./helpers.
 /* Live walkthrough for spec 2.3 Stage 2 (panels): a plot is ONE figure that can
    hold several side-by-side panels, and a layer chooses which panel it draws
    into. This exercises the full loop the unit/engine tests only cover in pieces:
-   author a second panel in the UI -> the canvas figure node shows two plot sinks
-   ("Panel 1" / "Panel 2") -> the engine renders a figure with a second axes.
+   author a second panel in the UI -> the canvas figure node grows a second plot
+   sink -> the engine renders a figure with a second axes.
 
    The honesty property under test: the canvas advertises exactly as many panels
-   as the render draws. The plot editor is the Plot card: the first layer comes
+   as the render draws. Once a plot has rendered, the figure node is a picture
+   (the rendered figure itself as a thumbnail) instead of labelled "Panel 1" /
+   "Panel 2" sections, so the canvas side is read two ways: the figure node's
+   per-panel target handles (`in-plot`, `in-plot-<panel>`, one per plot sink),
+   and the axes in the thumbnail it shows, which must match the plot card's
+   render. The plot editor is the Plot card: the first layer comes
    from the "+ add plot" wizard, the second from the inspector's "+ add layer"
    (plot type, then grain), and each layer's "Panel" row lives on its card in
    the Layers tab. Needs the engine and the vite dev server. */
@@ -41,13 +46,22 @@ if (nLayers !== 2) fail(`expected 2 layers, got ${nLayers}`);
 await page.waitForTimeout(1500);
 const axesCount = async () =>
   card.locator(".figure-host svg g[id^='axes_']").count();
-const plotSinks = () => page.locator(".react-flow__node .txw-figsec.k-geom");
+const figNode = page.locator(".react-flow__node-arrayShape:has(.txw-node.figure)");
+const plotSinks = () => figNode.locator(".react-flow__handle[data-handleid^='in-plot']");
+// the axes drawn in the canvas picture (an <img> of the rendered svg)
+const thumbAxes = async () => {
+  const src = await figNode.locator("img.txw-figthumb").getAttribute("src");
+  const svg = decodeURIComponent(src.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""));
+  return (svg.match(/<g[^>]*\bid="axes_/g) ?? []).length;
+};
 
 const baseSinks = await plotSinks().count();
 const baseAxes = await axesCount();
-console.log(`baseline: ${baseSinks} plot sink(s), ${baseAxes} axes`);
+const baseThumb = await thumbAxes();
+console.log(`baseline: ${baseSinks} plot sink(s), ${baseAxes} axes, ${baseThumb} axes on the canvas picture`);
 if (baseSinks !== 1) fail(`expected 1 plot sink before splitting, got ${baseSinks}`);
 if (baseAxes < 1) fail(`expected a rendered axes, got ${baseAxes}`);
+if (baseThumb !== baseAxes) fail(`canvas picture shows ${baseThumb} axes, the render ${baseAxes}`);
 
 // --- move the SECOND layer onto a new panel ---
 const panelSelect = card.locator(".layer-card").nth(1).locator(".layer-panel select");
@@ -55,14 +69,14 @@ await panelSelect.waitFor({ state: "visible", timeout: 10000 });
 // options are Primary(0) then "New panel"(maxPanel+1); pick the last (new panel)
 await panelSelect.selectOption({ label: "New panel" });
 
-// --- the canvas must now show two labeled panel sinks ---
-await plotSinks().nth(1).waitFor({ state: "visible", timeout: 10000 });
+// --- the canvas figure node must now have two panel sinks ---
+await plotSinks().nth(1).waitFor({ state: "attached", timeout: 10000 });
 const splitSinks = await plotSinks().count();
 if (splitSinks !== 2) fail(`expected 2 plot sinks after splitting, got ${splitSinks}`);
-const sinkLabels = await plotSinks().locator(".txw-eyebrow-text").allInnerTexts();
-console.log("panel sink labels:", JSON.stringify(sinkLabels));
-if (!sinkLabels.some((t) => /panel 1/i.test(t)) || !sinkLabels.some((t) => /panel 2/i.test(t)))
-  fail(`expected "Panel 1" and "Panel 2" labels, got ${JSON.stringify(sinkLabels)}`);
+const sinkIds = await plotSinks().evaluateAll((hs) => hs.map((h) => h.dataset.handleid));
+console.log("panel sink handles:", JSON.stringify(sinkIds));
+if (!sinkIds.includes("in-plot") || !sinkIds.includes("in-plot-1"))
+  fail(`expected sinks "in-plot" (panel 1) and "in-plot-1" (panel 2), got ${JSON.stringify(sinkIds)}`);
 
 // --- and the render must actually grow a second axes ---
 await page.waitForTimeout(2000);
@@ -74,6 +88,10 @@ if (await page.locator(".error-bar").count() > 0) {
 }
 if (splitAxes <= baseAxes)
   fail(`expected more axes after splitting into panels (was ${baseAxes}, now ${splitAxes})`);
+const splitThumb = await thumbAxes();
+console.log(`canvas picture after split: ${splitThumb} axes`);
+if (splitThumb !== splitAxes)
+  fail(`canvas picture shows ${splitThumb} axes, the render ${splitAxes}`);
 
 if (page.errors.length) fail("page errors: " + page.errors.slice(0, 4).join(" | "));
 

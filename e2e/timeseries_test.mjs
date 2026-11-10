@@ -10,9 +10,10 @@ import { openApp, openMode, waitForFigure, showPlot, showStats, inspectorTab, fa
    `frame` is an identifier token, so the test retypes it numeric in the import
    wizard before mapping it to X (the real time-on-X workflow). The plot editor
    is the Plot card: the first layer (Trajectories) comes from the "+ add plot"
-   wizard (plot type, then X/Y), the trend from the inspector's "+ add layer"
+   on the empty figure node, which opens the plot card with its wizard started
+   (plot type, then X/Y), the trend from the inspector's "+ add layer"
    (plot type, then grain). The stats are their own card, shown by clicking the
-   figure node's Stats section. Needs the engine and the vite dev server. */
+   figure node's stats summary (cards open over the canvas one at a time). Needs the engine and the vite dev server. */
 
 // Fixture: a measure (area) over an ordered numeric x (frame), two conditions.
 const rows = ["condition,frame,area"];
@@ -43,9 +44,10 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await openMode(page, "Workbench");
+// the empty figure node's "+ add plot" opens the plot card with the wizard started
+await page.locator(".react-flow__node-arrayShape .txw-node-add-plot").first().click();
 const card = page.locator("[data-testid='plot-card']");
 await card.waitFor({ state: "visible", timeout: 15000 });
-await page.click(".txw-add-plot");
 await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
 
 // Trajectories (line) and Mean ± band (trend) are offered on numeric/numeric.

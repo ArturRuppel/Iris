@@ -68,7 +68,7 @@ async function importFixture(page) {
   await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
   await page.click(".tb-seg button:has-text('Workbench')");
   await page.waitForSelector(".workbench-mode", { timeout: 60000 });
-  await page.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
+  await page.waitForSelector(".txw-lanehead", { timeout: 60000 });
 }
 
 const browser = await chromium.launch();
@@ -117,15 +117,16 @@ await page2.goto(URL, { waitUntil: "domcontentloaded" });
 await page2.waitForSelector(".app", { timeout: 30000 });
 
 await page2.click("header .tb-ghost:text-is('Open')");
-// A successful load switches to analyses mode and shows the plottable + the
-// loaded data (engine /document/load rebuilt the session from the saved bytes).
+// A successful load switches to the Workbench and shows the analysis as a lane
+// (one `.txw-lanehead` per analysis) + the loaded data (engine /document/load
+// rebuilt the session from the saved bytes).
 await page2.waitForSelector(".workbench-mode", { timeout: 60000 });
-await page2.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
+await page2.waitForSelector(".txw-lanehead", { timeout: 60000 });
 if (await page2.locator(".error-bar").count() > 0)
   fail("error bar after load: " + await page2.locator(".error-bar").innerText());
-const loadedCount = await page2.locator(".plottable-sidebar li").count();
-if (loadedCount < 1) fail(`loaded doc shows no plottables (${loadedCount})`);
-console.log("loaded the saved .iris in a fresh page;", loadedCount, "plottable(s) restored");
+const loadedCount = await page2.locator(".txw-lanehead").count();
+if (loadedCount < 1) fail(`loaded doc shows no analysis lanes (${loadedCount})`);
+console.log("loaded the saved .iris in a fresh page;", loadedCount, "analysis lane(s) restored");
 
 console.log("save/load e2e ok");
 await browser.close();

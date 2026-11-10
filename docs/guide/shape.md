@@ -1,8 +1,11 @@
 # Shape it
 
-The Workbench shows an analysis as a chain that flows left to right: your table
-on the left, the figure on the right, and between them the steps that shape the
-data. Each box in the chain is the table as it stands at that point; each arrow
+The Workbench shows every analysis as a row that flows left to right: its name,
+then your table, then the steps that shape the data, and the figure at the end,
+drawn as the plot itself. One row is active and can be edited; tap another row
+to work on that analysis instead, and **+ Analysis** under the last row adds
+one. The ⋯ beside a name renames, duplicates or deletes the analysis and copies
+a plot's style from one analysis to another. Each box in the chain is the table as it stands at that point; each arrow
 between boxes is a step. If your table is already the shape you want, the chain
 is short, table then figure, and you can skip this page. The steps exist for
 when it is not.
@@ -18,8 +21,9 @@ the middle of a chain, not only at the end.
 Click a step to open its editor and change its settings. To remove a step,
 right-click its box and choose **Delete**, or select it and press the Delete
 key. Each box shows how many rows and columns its table has, so you can see at
-a glance what a step did; click a box to open the table itself in a card below
-the canvas and check the rows.
+a glance what a step did; click a box to open the table itself and check the
+rows, and **Back** to return to the canvas. The plot and the statistics open the
+same way: tap the picture for the plot, the line under it for the statistics.
 
 When you change a step, everything after it recomputes, through to the figure
 and the statistics. **Undo** and **Redo** in the top bar step back and forward

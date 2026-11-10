@@ -1,5 +1,5 @@
 import { chromium } from "playwright";
-import { showTable } from "./helpers.mjs";
+import { showTable, backToCanvas } from "./helpers.mjs";
 
 /* Smoke test for the reduction-pipeline UI: the Workbench's on-canvas step
    authoring (add a step via a node's `+`, a prefix-grouped column picker),
@@ -13,8 +13,9 @@ import { showTable } from "./helpers.mjs";
    (`.txw-handle-add`), picking a step kind from the floating menu, which
    inserts the step AND opens its editor as an `[data-testid='op-editor-card']`
    card. The reduced-table preview (`.reduced-note`, unchanged) lives in the
-   `[data-testid='table-card']`, shown by clicking the table node (the
-   display panel shows one card at a time).
+   `[data-testid='table-card']`, opened over the canvas by clicking the table
+   node (one card at a time; it must be closed before the canvas is clicked
+   again).
 
    The step itself also changed semantics: the old "Select columns" step
    PROJECTED TO the chosen columns (blank = keep nothing). It no longer
@@ -26,8 +27,10 @@ import { showTable } from "./helpers.mjs";
    capability under test (a step with a prefix-grouped column picker whose
    toggles change the step's live effect) is unchanged.
 
-   `.plottable-sidebar` (Analyses list + CRUD) is unchanged and still renders
-   unconditionally in Workbench mode. `.step-card`/`.step-rows` have no
+   The old `.plottable-sidebar` (Analyses list + CRUD) is gone: every analysis
+   is now a row (lane) of the canvas with a header `.txw-lanehead`, a new one
+   is added with `.txw-laneadd` ("+ Analysis") under the last lane, and
+   clicking a lane's header makes that analysis active. `.step-card`/`.step-rows` have no
    current equivalent (the op-editor card shows one step at a time, not a
    stacked list), so per-plottable step COUNTS are read through the DEV-only
    window.__iris seam (the same seam multitable_test.mjs uses) rather than
@@ -67,9 +70,8 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-// Switch to Workbench, then click the table node: the display panel shows one
-// card at a time, and the table card (with the reduced preview) is not the one
-// shown at landing any more (the plot card is).
+// Switch to Workbench, then click the table node: its card (with the reduced
+// preview) opens over the canvas.
 await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".workbench-mode", { timeout: 60000 });
 await showTable(page);
@@ -80,7 +82,9 @@ const noteFull = await page.locator("[data-testid='table-card'] .reduced-note").
 if (!/\d+ column/.test(noteFull)) fail("reduced note missing column count: " + noteFull);
 console.log("initial preview:", noteFull.replace(/\s+/g, " "));
 
-// Add a "Drop columns" step via the source table node's `+` handle.
+// Add a "Drop columns" step via the source table node's `+` handle (the table
+// card covers the canvas, so close it first).
+await backToCanvas(page);
 await page.waitForSelector(".txw-handle-add", { timeout: 10000 });
 await page.locator(".txw-handle-add").first().click();
 await page.waitForSelector(".txw-add-menu-float", { timeout: 5000 });
@@ -118,19 +122,27 @@ if (await page.locator(".error-bar").count() > 0) {
   fail("unexpected error-bar after authoring a drop step: " + msg);
 }
 
-// Plottable CRUD: add a second analysis (starts with an empty pipeline).
-await page.click(".add-plottable");
-const count = await page.locator(".plottable-sidebar li").count();
-if (count !== 2) fail(`expected 2 plottables, got ${count}`);
+// Plottable CRUD: add a second analysis (starts with an empty pipeline). The
+// step editor sheet covers the canvas; close it first.
+await backToCanvas(page);
+await page.click(".txw-laneadd");
+await page.waitForFunction(() => document.querySelectorAll(".txw-lanehead").length === 2,
+  null, { timeout: 10000 }).catch(() => {});
+const count = await page.locator(".txw-lanehead").count();
+if (count !== 2) fail(`expected 2 analysis lanes, got ${count}`);
+const newIsActive = await page.locator(".txw-lanehead").nth(1).evaluate((el) => el.classList.contains("active"));
+if (!newIsActive) fail("the added analysis is not the active lane");
 const stepsOnNew = await page.evaluate(() => {
   const { store, atoms } = window.__iris;
   return store.get(atoms.activeReduceDagAtom).steps.length;
 });
 if (stepsOnNew !== 0) fail(`new plottable should have 0 steps, got ${stepsOnNew}`);
 
-// Switch back to the first plottable — its Drop step is still there.
-// Click the li's left padding (not the rename input, which stops propagation).
-await page.locator(".plottable-sidebar li").first().click({ position: { x: 2, y: 8 } });
+// Switch back to the first plottable (click its lane header) — its Drop step
+// is still there.
+await page.locator(".txw-lanehead .txw-lanehead-name").first().click();
+await page.waitForFunction(() => document.querySelector(".txw-lanehead")?.classList.contains("active"),
+  null, { timeout: 10000 }).catch(() => fail("clicking the first lane header did not activate it"));
 await page.waitForTimeout(300);
 const stepsOnFirst = await page.evaluate(() => {
   const { store, atoms } = window.__iris;

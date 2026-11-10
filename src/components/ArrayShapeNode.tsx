@@ -14,6 +14,7 @@ export interface FigureSection {
   slotNum?: number | null;// stash slot badge when this facet is pinned
   caution?: boolean;      // a guard flagged the test feeding this section
   panel?: number;         // which figure panel a plot section is (spec 2.3 Stage 2)
+  onAdd?: () => void;     // an empty plot: start the add-plot wizard
 }
 
 export interface ArrayShapeNodeProps {
@@ -37,7 +38,7 @@ export interface ArrayShapeNodeProps {
   sections?: FigureSection[];
   onEdit?: () => void;             // detail click → open this step's editor
   /* the rendered figure (SVG text), shown as a picture in the figure node: the
-     lanes experiment, where the canvas is where analyses are told apart */
+     canvas is where analyses are told apart */
   thumb?: string;
 }
 
@@ -149,6 +150,12 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
                   <span key={f} className="txw-fact" role="listitem">{f}</span>
                 ))}
               </span>
+              {sec.onAdd && (
+                <span className="txw-node-add-plot" role="button" tabIndex={0} data-tour="add-plot"
+                  onClick={(e) => { e.stopPropagation(); sec.onAdd!(); }}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault(); e.stopPropagation(); sec.onAdd!(); } }}>+ add plot</span>
+              )}
             </button>
           ))}
         </div>

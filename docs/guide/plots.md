@@ -1,7 +1,7 @@
 # Plot types
 
-A plot is one half of the figure. You add it on the Plot half of the figure
-node with **+ add plot**, and Iris offers only the plot types your columns can
+A plot is one half of the figure. You add it with **+ add plot** on the figure
+box at the end of an analysis's row, and Iris offers only the plot types your columns can
 draw: a plot that needs a group on the x axis and a number on the y axis is
 offered when you have a categorical column and a numeric one, and not
 otherwise. So the list you see is already filtered to what your data supports.
@@ -145,8 +145,8 @@ picture.
 ## Several plots as one figure
 
 To put several analyses of one document side by side or above one another, give
-each a **tag** (A, B, …) in the box at the end of its row in the Analyses list,
-or add it in the **Figure** view. The tag is the panel's letter. The Figure view
+each a **tag** (A, B, …) in the small box under its name at the start of its
+row in the Workbench, or add it in the **Figure** view. The tag is the panel's letter. The Figure view
 shows the assembled figure as it will export, with the layout beside it:
 stacked or side by side, the overall size in mm, the gap between panels,
 relative panel sizes, a shared x axis for stacked panels (one x range, labels on

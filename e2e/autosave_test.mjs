@@ -80,8 +80,9 @@ await importFixture(page);
 console.log("dataset imported");
 
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".txw-add-plot", { timeout: 15000 });
-await page.click(".txw-add-plot");
+// the empty figure node's "+ add plot" opens the plot card with the wizard started
+await page.waitForSelector(".react-flow__node-arrayShape .txw-node-add-plot", { timeout: 15000 });
+await page.click(".react-flow__node-arrayShape .txw-node-add-plot");
 await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
 await page.locator(".wiz-geom", { hasText: "Box" }).click();
 await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });
@@ -114,7 +115,10 @@ console.log("recovery banner shown on fresh launch");
 
 await page2.click(".recovery-bar button:has-text('Restore')");
 await page2.waitForSelector(".recovery-bar", { state: "detached", timeout: 15000 });
-await page2.waitForSelector("[data-testid='plot-card']", { timeout: 30000 });
+// the restored analysis is back on the canvas: its lane, and its rendered
+// figure as the figure node's picture (no card opens by itself any more)
+await page2.waitForSelector(".txw-lanehead", { timeout: 30000 });
+await page2.waitForSelector(".react-flow__node-arrayShape .txw-node.figure.picture", { timeout: 30000 });
 const specAfter = await readSpec(page2);
 
 // the restore must reproduce the exact built state — encodings, layers, title.

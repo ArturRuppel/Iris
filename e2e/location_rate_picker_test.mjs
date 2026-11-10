@@ -6,10 +6,14 @@ import { chromium } from "playwright";
    app-side proof for the two "engine can, GUI can't" families (TODO: App-side
    test-picker controls for the location & rate families).
 
-   Flow per case: import a fixture → Workbench → add a plot via the wizard →
-   open the test editor (right-click figure → Edit test…, which shows the stats
-   card with its test picker) → tick the new picker control (reference / rate)
-   → read back the family and the resolved test from the stats card.
+   Flow per case: import a fixture → Workbench → add a plot via the wizard
+   (the empty figure node's "+ add plot") → back to the canvas → open the test
+   editor (right-click figure → Edit test…, which shows the stats card with its
+   test picker, full-screen over the canvas) → tick the new picker control
+   (reference / rate) → read back the family and the resolved test from the
+   stats card. "Figure rendered" means the figure node shows the plot's
+   thumbnail (the node is a picture once a render landed), since the plot card
+   is closed while the stats card is open.
 
    Needs the engine (8765, with statsmodels for the rate GLM) and the vite dev
    server (5173). Uses Playwright's bundled Chromium by default; pass
@@ -39,8 +43,23 @@ async function importCsv(name, csv) {
   await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 }).catch(() => {});
 }
 
+// A card opens full-screen over the canvas: close it before touching a node.
+async function backToCanvas() {
+  const exit = page.locator(".txw-focus-exit");
+  if (await exit.count()) {
+    await exit.click();
+    await page.locator(".txw-focus").waitFor({ state: "detached", timeout: 5000 });
+  }
+}
+// the empty figure node's "+ add plot" opens the plot card with the wizard started
+async function addPlot() {
+  await page.locator(".react-flow__node-arrayShape .txw-node-add-plot").first().click();
+  await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
+}
+
 async function figureMenu(itemRe, cardTestId) {
-  const figure = page.locator(".txw-node.figure").first();
+  await backToCanvas();
+  const figure = page.locator(".react-flow__node-arrayShape .txw-node.figure").first();
   await figure.waitFor({ state: "visible", timeout: 15000 });
   await figure.click({ button: "right" });
   await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
@@ -77,8 +96,7 @@ async function statsText() {
   await importCsv("loc.csv", rows.join("\n"));
   await page.click(".tb-seg button:has-text('Workbench')");
 
-  await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
-  await page.click(".txw-add-plot");
+  await addPlot();
   await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
   await page.locator(".wiz-geom", { hasText: "Dots" }).first().click();
   await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });
@@ -106,7 +124,7 @@ async function statsText() {
   console.log("location: reference toggle enabled (reference = 0)");
 
   // figure must render and the stats panel must report a one-sample test.
-  const figSvg = await page.locator(".txw-node.figure svg, [data-testid='plot-card'] svg").count();
+  const figSvg = await page.locator(".txw-node.figure.picture .txw-figthumb, [data-testid='plot-card'] svg").count();
   if (figSvg === 0) fail("location: no figure rendered after enabling the reference test");
   const st = await statsText();
   console.log("  stats results:", st.slice(0, 300));
@@ -139,8 +157,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
   await importCsv("rate.csv", rows.join("\n"));
   await page.click(".tb-seg button:has-text('Workbench')");
 
-  await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
-  await page.click(".txw-add-plot");
+  await addPlot();
   await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
   // Estimate ± CI (pointrange) is the rate geom; it is categorical×numeric.
   const pr = page.locator(".wiz-geom", { hasText: /Estimate|CI/i });
@@ -165,7 +182,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
   await testCard.locator("select[aria-label='exposure column']").selectOption("hours");
   console.log("rate: rate toggle enabled, exposure = hours");
 
-  const figSvg = await page.locator(".txw-node.figure svg, [data-testid='plot-card'] svg").count();
+  const figSvg = await page.locator(".txw-node.figure.picture .txw-figthumb, [data-testid='plot-card'] svg").count();
   if (figSvg === 0) fail("rate: no figure rendered after enabling the rate model");
   const st = await statsText();
   console.log("  stats results:", st.slice(0, 300));

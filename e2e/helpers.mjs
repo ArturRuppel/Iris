@@ -43,35 +43,48 @@ export async function openMode(page, mode /* "Data" | "Workbench" | "Figure" */)
   await page.click(`.tb-seg button:has-text('${mode}')`);
 }
 
-/* Show a card in the display panel and return its locator. */
+/* The workbench is one canvas: every analysis is a row (lane) of nodes, the
+   active one editable. A card (plot, statistics, table) opens over the canvas
+   full-screen, a step's editor as a sheet; `backToCanvas` closes whichever is
+   open. The show* helpers close an open card first, so they can be called one
+   after the other. */
+const ACTIVE = ".react-flow__node-arrayShape";   // a node of the active lane
+export async function backToCanvas(page) {
+  const exit = page.locator(".txw-focus-exit");
+  if (await exit.count()) { await exit.click(); await page.locator(".txw-focus").waitFor({ state: "detached", timeout: 5000 }); }
+}
 export async function showPlot(page) {
-  await page.locator(".txw-figsec.k-geom").first().click();
+  await backToCanvas(page);
+  await page.locator(`${ACTIVE} .txw-figthumb-btn, ${ACTIVE} .txw-figsec.k-geom`).first().click();
   const card = page.locator("[data-testid='plot-card']");
   await card.waitFor({ state: "visible", timeout: 15000 });
   return card;
 }
 export async function showStats(page) {
-  await page.locator(".txw-figsec.k-test").first().click();
+  await backToCanvas(page);
+  await page.locator(`${ACTIVE} .txw-figstat, ${ACTIVE} .txw-figsec.k-test`).first().click();
   const card = page.locator("[data-testid='stats-card']");
   await card.waitFor({ state: "visible", timeout: 15000 });
   return card;
 }
 export async function showTable(page, index = 0) {
-  await page.locator(".react-flow__node:not(:has(.txw-figsec))").nth(index).click();
+  await backToCanvas(page);
+  await page.locator(`${ACTIVE}:not(:has(.txw-node.figure))`).nth(index).click();
   const card = page.locator("[data-testid='table-card']");
   await card.waitFor({ state: "visible", timeout: 15000 });
   return card;
 }
 
 /* From a freshly imported table: go to the Workbench and build the first plot
-   through the wizard (plot type, then X and Y). Returns the plot card, which
+   through the wizard (plot type, then X and Y), started from the "+ add plot"
+   on the empty figure node. Returns the plot card (open full-screen), which
    then holds the figure and the inspector. `geom` is the label on the wizard's
    tile ("Box", "Dots", "Violin", …). */
 export async function addFirstPlot(page, { geom, x, y }) {
   await openMode(page, "Workbench");
+  await page.locator(".txw-node-add-plot").first().click();
   const card = page.locator("[data-testid='plot-card']");
   await card.waitFor({ state: "visible", timeout: 15000 });
-  await page.click(".txw-add-plot");
   await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
   await page.locator(".wiz-geom", { hasText: geom }).first().click();
   await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });

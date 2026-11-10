@@ -138,7 +138,7 @@ console.log("authored join: cells ⋈ annot on key (inner), mapped x=label y=val
 // ── Phase 2: render — the join materializes + computes, no error bar ──────────
 await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".workbench-mode", { timeout: 60000 });
-await page.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
+await page.waitForSelector(".txw-lanehead", { timeout: 60000 });
 // Give the materialize → reduce → render round trips time to settle.
 await page.waitForTimeout(3000);
 if (await page.locator(".error-bar").count() > 0)
@@ -176,7 +176,7 @@ await page2.waitForSelector(".app", { timeout: 30000 });
 
 await page2.click("header .tb-ghost:text-is('Open')");
 await page2.waitForSelector(".workbench-mode", { timeout: 60000 });
-await page2.waitForSelector(".plottable-sidebar li", { timeout: 60000 });
+await page2.waitForSelector(".txw-lanehead", { timeout: 60000 });
 await page2.waitForTimeout(3000);
 if (await page2.locator(".error-bar").count() > 0)
   fail("error bar after load: " + await page2.locator(".error-bar").innerText());

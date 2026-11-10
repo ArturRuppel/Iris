@@ -4,14 +4,14 @@ import {
   selectedTargetAtom, nodePositionsAtom,
   openCardAtom, clearWorkbenchAtom,
   stashAtom, pushStashAtom, popStashAtom, seedDefaultStashAtom, STASH_SLOTS,
-  focusedStashIdAtom, displayCollapsedAtom, displayFocusAtom,
+  focusedStashIdAtom, displayFocusAtom,
 } from "./state";
 import type { Target } from "./cardRegistry";
 
 const tNode = (id: string): Target => ({ kind: "node", id });
 
 describe("workbench state", () => {
-  it("the geom editor shows the Plot card in the display panel, focused on Encoding", () => {
+  it("the geom editor shows the Plot card, focused on Encoding", () => {
     const s = createStore();
     s.set(openCardAtom, { target: { kind: "edge", id: "g0" }, cardKind: "geom-editor" as const });
     expect(s.get(stashAtom)).toMatchObject([{ cardKind: "plot", target: { kind: "node", id: "figure", facet: "plot" } }]);
@@ -27,7 +27,7 @@ describe("workbench state", () => {
     expect(s.get(displayFocusAtom)?.section).toBe("test");
   });
 
-  it("a step editor is the display panel's card, replacing the shown one, and selects its edge", () => {
+  it("a step editor is the shown card, replacing the one shown, and selects its edge", () => {
     const s = createStore();
     s.set(seedDefaultStashAtom);
     const edge: Target = { kind: "edge", id: "e0" };
@@ -38,11 +38,12 @@ describe("workbench state", () => {
     expect(s.get(stashAtom)).toMatchObject([{ cardKind: "collapse-editor" }]);
   });
 
-  it("opening an editor un-hides a collapsed display panel", () => {
+  it("opening an editor opens it over the canvas (focuses its card)", () => {
     const s = createStore();
-    s.set(displayCollapsedAtom, true);
     s.set(openCardAtom, { target: { kind: "edge", id: "e0" }, cardKind: "op-editor" as const });
-    expect(s.get(displayCollapsedAtom)).toBe(false);
+    expect(s.get(focusedStashIdAtom)).toBe("edge:e0");
+    s.set(openCardAtom, { target: { kind: "edge", id: "g0" }, cardKind: "geom-editor" as const });
+    expect(s.get(focusedStashIdAtom)).toBe("node:figure:plot");
   });
 
   it("clearWorkbench resets stash, selection, and node positions", () => {
@@ -55,17 +56,19 @@ describe("workbench state", () => {
     expect(s.get(nodePositionsAtom)).toEqual({});
   });
 
-  it("keeps the default plot card maximized across clear + reseed (analysis switch)", () => {
+  it("an analysis switch (clear + reseed) closes an open card", () => {
     const s = createStore();
     s.set(seedDefaultStashAtom);
     const plotId = s.get(stashAtom)[0].id;
     s.set(focusedStashIdAtom, plotId);
-    s.set(clearWorkbenchAtom); s.set(seedDefaultStashAtom);
-    expect(s.get(focusedStashIdAtom)).toBe(plotId);
+    s.set(clearWorkbenchAtom);
+    expect(s.get(focusedStashIdAtom)).toBeNull();
+    s.set(seedDefaultStashAtom);
     expect(s.get(stashAtom).map((e) => e.id)).toEqual([plotId]);
-    // any other maximized card is dropped with the stash
-    s.set(pushStashAtom, { target: tNode("x"), cardKind: "plot" as const });
-    s.set(focusedStashIdAtom, s.get(stashAtom).find((e) => e.id !== plotId)!.id);
+    expect(s.get(focusedStashIdAtom)).toBeNull();   // reseeding does not reopen it
+    // any other open card is closed too
+    s.set(pushStashAtom, { target: tNode("x"), cardKind: "table" as const });
+    expect(s.get(focusedStashIdAtom)).toBe("node:x");
     s.set(clearWorkbenchAtom);
     expect(s.get(focusedStashIdAtom)).toBeNull();
   });
@@ -98,20 +101,27 @@ describe("pop stash", () => {
     expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["c"]);
   });
 
-  it("showing a card opens a collapsed display", () => {
+  it("showing a card opens it over the canvas (sets focus)", () => {
     const s = createStore();
-    s.set(displayCollapsedAtom, true);
     s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
-    expect(s.get(displayCollapsedAtom)).toBe(false);
+    expect(s.get(focusedStashIdAtom)).toBe(s.get(stashAtom)[0].id);
   });
 
-  it("clears focus when the focused card is replaced", () => {
+  it("showing a card already in the stash focuses it again (no duplicate)", () => {
     const s = createStore();
     s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
-    s.set(focusedStashIdAtom, s.get(stashAtom)[0].id);
+    s.set(focusedStashIdAtom, null);                 // the user closed it
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
+    expect(s.get(stashAtom)).toHaveLength(1);
+    expect(s.get(focusedStashIdAtom)).toBe("node:a");
+  });
+
+  it("replacing the focused card moves focus to the new one (no stale id)", () => {
+    const s = createStore();
+    s.set(pushStashAtom, { target: tNode("a"), cardKind: "table" as const });
     s.set(pushStashAtom, { target: tNode("b"), cardKind: "table" as const });
     expect(s.get(stashAtom).map((e) => e.target.id)).toEqual(["b"]);
-    expect(s.get(focusedStashIdAtom)).toBeNull();
+    expect(s.get(focusedStashIdAtom)).toBe("node:b");
   });
 
   it("popStash removes the shown card by id", () => {

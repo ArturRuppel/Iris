@@ -12,13 +12,10 @@ import { layoutGraph } from "./layout";
 import { nodeDeltas } from "./nodeDelta";
 import { nodeShapeProps } from "./ArrayShapeRFNode";
 
-/* EXPERIMENT: every analysis as a lane on the one canvas, in place of the
-   Analyses list. Each lane is one analysis's graph with a header on its left;
-   the active lane is the editable graph the workbench has always shown, the
-   others are read-only previews that become active on a click. Off by default:
-   the ⋯ menu's "Analyses on the canvas" or ?lanes=1 turns it on. */
-
-export { lanesEnabledAtom } from "./lanesFlag";
+/* Every analysis is a lane on the one canvas: its graph with a header on its
+   left (what a row of the old Analyses list was). The active lane is the
+   editable graph; the others are read-only previews that become active on a
+   click. */
 
 export interface Lane {
   id: string;              // the analysis (plottable) id

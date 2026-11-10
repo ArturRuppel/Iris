@@ -91,7 +91,7 @@ export function WorkbenchEdge(props: EdgeProps) {
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
   const openCard = useSetAtom(openCardAtom);
   const setActive = useSetAtom(activePlottableIdAtom);
-  // an edge of an inactive lane (the lanes experiment): its chip selects that
+  // an edge of an inactive lane (lanes.ts): its chip selects that
   // analysis instead of opening an editor for the wrong graph
   const ghostLane = (data as { ghostLane?: string } | undefined)?.ghostLane;
   // hovering the step chip floats a before/after schematic of what the op does,

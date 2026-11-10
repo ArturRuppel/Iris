@@ -680,31 +680,22 @@ dd.strong { font-weight: 600; }
 .hp-measures { font-size: 11px; margin: 0; }
 
 .analyses-mode { display: flex; gap: 12px; height: 100%; min-height: 0; }
-.plottable-sidebar { position: relative; width: 200px; flex: 0 0 auto; overflow: auto;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 0;
-  padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-.plottable-sidebar.collapsed { width: 34px; padding: 8px 4px; align-items: center; }
-.sidebar-resize { position: absolute; top: 0; right: 0; width: 6px; height: 100%;
-  cursor: col-resize; }
-.sidebar-resize:hover { background: var(--accent); opacity: 0.3; }
-.plottable-sidebar ul { list-style: none; margin: 0; padding: 0; }
-.plottable-sidebar li { display: flex; align-items: center; gap: 4px; padding: 2px 4px;
-  cursor: pointer; border-radius: 0; }
-.plottable-sidebar li.active { background: var(--primary-tint); color: var(--primary-text); }
+
+
+
+
+
+
+
 /* a name wraps to two lines before it is cut: names that share a beginning
    ("Petal length: …") were indistinguishable on one. The marks of the plot sit
    under it, so analyses that differ only in the plot can still be told apart. */
-.plottable-sidebar li { padding: 4px; }
-.plottable-sidebar li .plottable-text { flex: 1; min-width: 0; display: flex;
-  flex-direction: column; gap: 1px; }
-.plottable-sidebar li .plottable-name { font-size: 13px; line-height: 1.25;
-  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
-  line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
-.plottable-sidebar li .plottable-meta { font-size: 11px; color: var(--faint);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.plottable-sidebar li input { flex: 1; min-width: 0; border: 1px solid var(--accent);
-  background: var(--panel); border-radius: 0; font: inherit; font-size: 13px; cursor: text; }
-.add-plottable { font-size: 12px; }
+
+
+
+
+
+
 .iris { flex: 1 1 auto; min-width: 0; overflow: auto; display: flex;
   flex-direction: column; gap: 8px; }
 .iris-section { background: var(--panel); border: 1px solid var(--line); border-radius: 0;
@@ -729,7 +720,7 @@ dd.strong { font-weight: 600; }
 .pipeline-section { display: flex; flex-direction: column; gap: 8px;
   border-top: 1px solid var(--line); padding-top: 8px; margin-top: 2px; }
 .rail-expand { writing-mode: vertical-rl; font-size: 12px; padding: 8px 2px; }
-.rail-head { display: flex; align-items: center; justify-content: space-between; }
+
 .rail-empty, .reduced-empty { font-size: 12px; color: var(--faint); padding: 6px 2px; }
 .rail-hint { font-size: 11px; color: var(--accent); padding: 4px 2px; display: block; }
 .step-list { list-style: none; margin: 0; padding: 0; display: flex;
@@ -925,7 +916,7 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   height: 100%; color: var(--dim); font-size: 14px; }
 
 /* ---- style sheets (item F) ---- */
-.plottable-sidebar li.selected { background: var(--chip-bg); }
+
 .context-menu-sep { border: none; border-top: 1px solid var(--line); margin: 2px 6px; }
 .submenu-wrap { position: relative; }
 .submenu-trigger { width: 100%; }
@@ -1186,12 +1177,7 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 /* center the empty-state CTA/stub inside a stash slot on BOTH axes, without
    touching populated table/plot/stats bodies, which need top-aligned scroll. The
    seeded plot/stats default slots use these before a plot exists. */
-.txw-slot-body:has(.txw-add-plot),
-.txw-slot-body:has(.txw-card-stub) {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+
 .txw-add-plot {
   display: block;
   padding: 10px 18px; font-size: 14px; font-weight: 600;
@@ -1348,43 +1334,24 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
    editors alike; nothing floats over the canvas. */
 .txw-card-stub { font-size: 12px; color: var(--dim); }
 :root { --display-w: 560px; }
-.txw-rfcanvas.with-display { right: min(var(--display-w), calc(100% - 200px)); }
-.txw-rfcanvas.display-hidden { right: 34px; }
 
-.txw-stash {
-  position: absolute;
-  inset: 0 0 0 auto;
-  width: var(--display-w);
-  max-width: calc(100% - 200px);
-  display: flex;
-  flex-direction: column;
-  background: var(--panel);
-  border-left: 1px solid var(--line);
-  z-index: 6;
-}
-.txw-stash > .txw-slot, .txw-stash > .txw-slot.sel { flex: 1; border: none; box-shadow: none; }
-.txw-stash .txw-slot-bar { align-items: center; }
-.txw-stash .txw-slot-body:has(.txw-card-table) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
-.txw-stash .txw-card-table, .txw-focus-body .txw-card-table { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
+
+
+
+
+
+
+ .txw-focus-body .txw-card-table { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
 .txw-card-table .reduced-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
 .txw-card-table .reduced-note { padding: 8px 12px; }
 .txw-card-table .grid-host.reduced-table { flex: 1 1 0; min-height: 0; height: 0; max-height: none; }
 .txw-card-table .reduced-legend { flex: none; padding: 6px 12px; }
-.txw-stash.collapsed { width: 34px; padding: 8px 0; align-items: center; }
-.txw-display-resize { position: absolute; top: 0; left: 0; width: 8px; height: 100%; cursor: ew-resize; touch-action: none; z-index: 1; }
-.txw-display-resize:hover { background: var(--accent); opacity: 0.3; }
-.txw-display-empty { padding: 12px; display: flex; flex-direction: column; align-items: flex-start; gap: 12px; color: var(--ink); font-size: 13px; }
-.txw-slot {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--line2);
-  border-radius: 0;
-  background: var(--panel);
-  overflow: hidden;
-}
+
+
+
+
+
 
 /* ---- stash ↔ graph association: a numbered, colour-coded disc on each pinned
    node (top-left) and on its stash card, so slot 1/2/3 read as the same thing in
@@ -1427,21 +1394,9 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   background: var(--slot-color, #6366f1);
 }
 
-.txw-slot.sel { border-color: #6366f1; box-shadow: 0 0 0 1px #6366f1; }
-.txw-slot.ghost {
-  border-style: dashed;
-  border-color: var(--line);
-  background: repeating-linear-gradient(135deg, var(--panel2), var(--panel2) 9px, var(--panel2) 9px, var(--panel2) 18px);
-}
-.txw-slot-bar {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 5px 6px 5px 10px;
-  background: var(--panel2);
-  border-bottom: 1px solid var(--line);
-  user-select: none;
-}
+
+
+
 .txw-slot-title { font-size: 12px; font-weight: 600; color: var(--ink); }
 .txw-slot-sub {
   flex: 1;
@@ -1452,29 +1407,11 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.txw-slot-close {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  padding: 2px 5px;
-  color: var(--dim);
-  border-radius: 0;
-}
-.txw-slot-close:hover { background: var(--chip-bg); }
-.txw-slot-max {
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-size: 12px;
-  line-height: 1;
-  padding: 2px 5px;
-  color: var(--dim);
-  border-radius: 0;
-}
-.txw-slot-max:hover { background: var(--chip-bg); }
-.txw-slot-body { flex: 1; overflow: auto; padding: 10px; }
+
+
+
+
+
 
 /* focus mode: the maximized tile filling the workbench below the topbar, over
    the DAG + stash. Below the add/context menus (z 59/60) so those still pop. */
@@ -1580,7 +1517,7 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
  .tb-icon { width: 44px; height: 44px; }
  .topbar { height: auto; min-height: 64px; }
  .tb-menu { top: 48px; }
- .txw-stash .txw-slot-close, .txw-stash .txw-slot-max, .txw-focus-exit { min-width: 44px; font-size: 16px; }
+  .txw-focus-exit { min-width: 44px; font-size: 16px; }
 }
 
 /* Two rows keep file actions and mode switching separate on tablets. */
@@ -1601,17 +1538,16 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
    hairlines, with no card nested in a card. */
 main:has(> .workbench-mode) { padding: 0; gap: 0; }
 .workbench-mode { background: var(--hm-ground); }
-.plottable-sidebar { border: none; border-right: 1px solid var(--hm-hairline);
-  background: var(--hm-ground); padding: 10px 10px 8px; }
-.plottable-sidebar .rail-head strong { font-size: 13px; }
-.plottable-sidebar .rail-head .icon { border-color: transparent; background: none; color: var(--hm-dim); }
-.plottable-sidebar .rail-head .icon:hover { border-color: var(--hm-hairline); }
-.add-plottable { background: none; border-color: var(--hm-hairline); text-align: left; }
+
+
+
+
+
 .txw-overlay.txw-embedded { background: var(--hm-ground); }
-.txw-stash { border-left: 1px solid var(--hm-hairline); background: var(--hm-raised); }
-.txw-stash .txw-slot-bar { background: none; border-bottom: 1px solid var(--hm-hairline); }
-.txw-stash .txw-slot.sel { box-shadow: none; }
-.txw-stash .txw-slot-body { padding: 12px 16px 24px; }
+
+
+
+
 
 /* the figure sits directly in the panel: no "Figure" card, no title row rule */
 .txw-card-plot .figure-pane { border: none; background: none; overflow: visible; }
@@ -1729,12 +1665,12 @@ main { position: relative; }
 /* A size container has no intrinsic width, so in the centred empty slot the card
    collapsed to zero and squeezed "+ add plot" into a column one word wide. There
    the card takes the slot's width and centres the button itself. */
-.txw-slot-body:has(.txw-add-plot) > .txw-card-plot { width: 100%; display: flex; justify-content: center; }
+
 .txw-add-plot { white-space: nowrap; }
 .plot-figure-side { position: sticky; top: 0; z-index: 5; max-height: 45vh; overflow: auto;
   background: var(--panel); --fig-max-h: 36vh; }
 /* pinned to the scroller's edge, not inside its padding, or the controls show above */
-.txw-slot-body .plot-figure-side { top: -12px; margin-top: -12px; padding-top: 12px; }
+
 .txw-focus-body .plot-figure-side { top: -14px; margin-top: -14px; padding-top: 14px; }
 .plot-controls { min-width: 0; }
 .plot-inspector { scroll-margin-top: 46vh; }
@@ -1873,14 +1809,11 @@ main { position: relative; }
 .tb-labbook.error { color:var(--danger, #b3261e); white-space:normal; }
 
 /* ---- Figure view: several analyses as the panels of one figure ---- */
-.plottable-sidebar li input.plottable-tag { flex: 0 0 26px; width: 26px; height: 22px;
-  padding: 0; text-align: center; font-size: 12px; font-weight: 600;
-  border: 1px solid var(--line2); background: var(--field); color: var(--ink); }
+
 /* untagged: a quiet dashed slot, so the list does not read as a column of
    empty boxes; it turns into a solid letter box once it holds a tag */
-.plottable-sidebar li input.plottable-tag:placeholder-shown { color: var(--faint);
-  background: none; border-style: dashed; font-weight: 400; }
-.plottable-sidebar li input.plottable-tag:focus { border-color: var(--accent); outline: none; }
+
+
 main:has(> .figure-mode) { padding: 0; gap: 0; }
 .figure-mode { display: flex; height: 100%; min-height: 0; }
 .figure-controls { flex: 0 0 260px; overflow: auto; background: var(--panel);
@@ -1945,16 +1878,7 @@ button.fig-name:hover { color: var(--accent); }
    each gets the full width. Keyed on the workspace's own width, not the
    window's, because the Analyses list beside it is resizable. */
 .txw-workspace { container: txw-workspace / inline-size; }
-@container txw-workspace (max-width: 900px) {
-  .txw-rfcanvas.with-display { right: 0; bottom: 60%; }
-  .txw-rfcanvas.display-hidden { right: 0; bottom: 44px; }
-  .txw-stash { inset: auto 0 0 0; width: auto; max-width: none; height: 60%;
-    border-left: none; border-top: 2px solid var(--hm-ink); }
-  .txw-stash.collapsed { width: auto; height: 44px; padding: 0 8px;
-    flex-direction: row; align-items: center; }
-  .txw-stash.collapsed .rail-expand { writing-mode: horizontal-tb; transform: none; }
-  .txw-display-resize { display: none; }
-}
+
 
 /* Touch screens give every button a 44px minimum height, which made the nesting
    arrows tall slabs beside a much shorter select. In the hierarchy panel the
@@ -1989,7 +1913,7 @@ button.fig-name:hover { color: var(--accent); }
   .cr-add button, .cr-reset { min-height: 36px; font-size: 13px; }
 }
 
-/* ---- the lanes experiment: every analysis a row on the canvas ---- */
+/* ---- the lanes: every analysis a row on the canvas ---- */
 .txw-lanehead { box-sizing: border-box; width: 190px; min-height: 64px; padding: 8px 6px 8px 10px;
   display: flex; align-items: center; gap: 4px; cursor: pointer;
   background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); }
@@ -2091,3 +2015,12 @@ button.fig-name:hover { color: var(--accent); }
 .txw-lanehead-text { flex: 1 0 100%; }
 .txw-lanehead-tag { margin-left: 0; }
 .txw-lanehead-more { margin-right: auto; }
+
+/* ---- lanes are the workbench (2026-11-10): the old list and docked panel are gone ---- */
+.txw-node-badge { display: none; }
+.txw-node-add-plot { display: inline-block; margin: 6px 10px 10px; padding: 6px 12px; font-size: 13px; font-weight: 600;
+  color: var(--primary-fg); background: var(--primary); cursor: pointer; white-space: nowrap; }
+.txw-node-add-plot:hover { filter: brightness(1.1); }
+.txw-focus-body > .txw-card-plot:has(.txw-add-plot) { display: flex; justify-content: center; padding-top: 48px; }
+.lane-toast { position: fixed; left: 50%; right: auto; bottom: 24px; transform: translateX(-50%);
+  font-size: 13px; padding: 8px 16px; z-index: 60; }

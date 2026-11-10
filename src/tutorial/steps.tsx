@@ -58,8 +58,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     body: (
       <>
         <p>
-          The figure has two halves, a plot and its statistics. On the plot half,
-          click <strong>+ add plot</strong>.
+          Your analysis is a row: the table, then a figure box that is still
+          empty. On that box, click <strong>+ add plot</strong>.
         </p>
         <p>
           Iris offers only the plot types your columns can satisfy. Pick whichever

@@ -63,7 +63,7 @@ export const CARD: Record<CardKind, CardSpec> = {
   "collapse-editor": { title: "Collapse",
     body: staticBody("txw-card-collapse", "collapse-card", () => <CollapseRoutingPanel />) },
   // the geom editor is the Plot card (encoding + layers live there); openCardAtom
-  // routes it to the display panel, so this entry only keeps the record total.
+  // routes it to the Plot card, so this entry only keeps the record total.
   "geom-editor": { title: "Plot", body: PlotCard },
   "test-editor": { title: "Test",
     body: staticBody("txw-card-test", "test-card", () => <TestPicker />) },

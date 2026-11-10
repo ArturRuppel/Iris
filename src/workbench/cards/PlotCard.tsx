@@ -1,6 +1,6 @@
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useRef, useState } from "react";
-import { specAtom, effectiveSchemaAtom, plotWizardOpenCountAtom } from "../../state";
+import { specAtom, effectiveSchemaAtom, plotWizardOpenCountAtom, plotWizardRequestAtom } from "../../state";
 import { dataCardStates } from "../cardGating";
 import { FigurePane } from "../../components/FigurePane";
 import { PlotInspector, inspectorTabAtom } from "../../components/inspector/PlotInspector";
@@ -24,6 +24,13 @@ export function PlotCard(_props: CardBodyProps) {
   const schema = useAtomValue(effectiveSchemaAtom);
   const { plotEnabled } = dataCardStates(spec, schema);
   const [wizard, setWizard] = useState<WizardMode | null>(null);
+  // opened from the figure node's "+ add plot": go straight to the wizard
+  const [wizardRequest, setWizardRequest] = useAtom(plotWizardRequestAtom);
+  useEffect(() => {
+    if (!wizardRequest) return;
+    setWizardRequest(false);
+    if (!plotEnabled) setWizard("first");
+  }, [wizardRequest, setWizardRequest, plotEnabled]);
 
   /* Publish "a wizard is open here" while one is, so the tutorial can wait for the
      user to actually finish building rather than fire the moment a geom is picked. */

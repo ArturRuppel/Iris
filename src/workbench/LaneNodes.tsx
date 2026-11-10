@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { Handle, Position } from "@xyflow/react";
-import { useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { ArrayShapeNode } from "../components/ArrayShapeNode";
 import { figHandleTop, type RFNodeData } from "./ArrayShapeRFNode";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
@@ -9,12 +9,14 @@ import type { Lane } from "./lanes";
 import {
   activePlottableIdAtom, addPlottableAtom, deletePlottableAtom, duplicatePlottableAtom,
   onePlotOnlyAtom, plottablesAtom, renamePlottableAtom, setTagAtom,
+  selectedPlottableIdsAtom, styleClipboardAtom, styleLibraryAtom, styleRegistryAtom, pasteStyleAtom,
 } from "../state";
+import { captureStyle, type StyleSheet } from "../style/sheet";
 
-/* The lanes experiment's three extra node types. None is draggable; the canvas
+/* The lane node types beside the graph nodes. None is draggable; the canvas
    pans from them like from the empty pane. */
 
-/* the lane header: what a row of the Analyses list was. Click selects the
+/* the lane header: what a row of the old Analyses list was. Click selects the
    analysis, double-click renames it, ⋯ (or right-click) duplicates / deletes,
    and the panel letter is typed in place. */
 export function LaneHeadNode({ data }: { data: { lane: Lane } }) {
@@ -25,9 +27,30 @@ export function LaneHeadNode({ data }: { data: { lane: Lane } }) {
   const del = useSetAtom(deletePlottableAtom);
   const setTag = useSetAtom(setTagAtom);
   const onePlotOnly = useAtomValue(onePlotOnlyAtom);
-  const count = useAtomValue(plottablesAtom).length;
+  const plottables = useAtomValue(plottablesAtom);
+  const count = plottables.length;
   const [draft, setDraft] = useState<string | null>(null);
   const [menu, setMenu] = useState<NodeMenu | null>(null);
+  // a plot's look travels between analyses: copy it here, paste it on another
+  // lane (or on all of them), or apply one saved in the style library
+  const [clipboard, setClipboard] = useAtom(styleClipboardAtom);
+  const library = useAtomValue(styleLibraryAtom);
+  const styleRegistry = useAtomValue(styleRegistryAtom);
+  const setSelected = useSetAtom(selectedPlottableIdsAtom);
+  const pasteStyle = useSetAtom(pasteStyleAtom);
+  const [toast, setToast] = useState<string | null>(null);
+  const say = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2200); };
+  const copyStyle = () => {
+    const src = plottables.find((p) => p.id === lane.id);
+    if (!src) return;
+    setClipboard({ iris_style_version: "1.0", name: "", style: captureStyle(src.style, styleRegistry) });
+    say("Style copied");
+  };
+  const applyStyle = (sheet: StyleSheet, ids: string[], what: string) => {
+    setSelected(ids);
+    pasteStyle(sheet);
+    say(`${what} applied to ${ids.length === 1 ? "this analysis" : `${ids.length} analyses`}`);
+  };
   const commit = () => {
     const name = draft?.trim();
     if (name) rename({ id: lane.id, name });
@@ -36,6 +59,12 @@ export function LaneHeadNode({ data }: { data: { lane: Lane } }) {
   const openMenu = (x: number, y: number) => setMenu({ x, y, items: [
     { label: "Rename", onClick: () => setDraft(lane.name) },
     ...(onePlotOnly ? [] : [{ label: "Duplicate", onClick: () => dup(lane.id) }]),
+    { label: "Copy style", onClick: copyStyle },
+    ...(clipboard ? [{ label: "Paste style", onClick: () => applyStyle(clipboard, [lane.id], "Style") }] : []),
+    ...(clipboard && count > 1 ? [{ label: "Paste style to all analyses",
+      onClick: () => applyStyle(clipboard, plottables.map((p) => p.id), "Style") }] : []),
+    ...library.map((s, i) => ({ label: `Apply style: ${s.name || `saved ${i + 1}`}`,
+      onClick: () => applyStyle(s, [lane.id], `"${s.name || "Saved style"}"`) })),
     ...(count > 1 ? [{ label: "Delete analysis", danger: true, onClick: () => del(lane.id) }] : []),
   ] });
   return (
@@ -62,6 +91,7 @@ export function LaneHeadNode({ data }: { data: { lane: Lane } }) {
         onClick={(e) => { e.stopPropagation();
           const r = e.currentTarget.getBoundingClientRect(); openMenu(r.left, r.bottom + 4); }}>⋯</button>
       {menu && createPortal(<NodeContextMenu menu={menu} onClose={() => setMenu(null)} />, document.body)}
+      {toast && createPortal(<div className="sidebar-toast lane-toast" role="status">{toast}</div>, document.body)}
     </div>
   );
 }
