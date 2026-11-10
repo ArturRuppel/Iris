@@ -2,6 +2,7 @@ import { atom } from "jotai";
 import type { CardKind, Target } from "./cardRegistry";
 import { FIGURE_ID } from "../explorer/graph";
 import { activePlottableAtom } from "../state";
+import { lanesEnabledAtom } from "./lanesFlag";
 
 export type { CardKind, Target } from "./cardRegistry";
 
@@ -81,7 +82,9 @@ export const pushStashAtom = atom(
     set(displayCollapsedAtom, false);
     const id = cardId(arg.target);
     const stash = get(stashAtom);
-    if (stash.some((e) => e.id === id)) return;
+    // the lanes experiment has no docked panel: a card opens full-screen
+    const lanes = get(lanesEnabledAtom);
+    if (stash.some((e) => e.id === id)) { if (lanes) set(focusedStashIdAtom, id); return; }
     const next = [...stash, { id, target: arg.target, cardKind: arg.cardKind }];
     const sliced = next.slice(-STASH_SLOTS);
     set(stashAtom, sliced);
@@ -89,6 +92,7 @@ export const pushStashAtom = atom(
     // canvas swallowing the next Escape.
     const focused = get(focusedStashIdAtom);
     if (focused && !sliced.some((e) => e.id === focused)) set(focusedStashIdAtom, null);
+    if (lanes) set(focusedStashIdAtom, id);
   },
 );
 

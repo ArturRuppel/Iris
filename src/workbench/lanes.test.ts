@@ -33,7 +33,7 @@ describe("toRFLanes", () => {
     const yA = rf.nodes.find((n) => n.id === headId("a"))!.position.y;
     const yB = rf.nodes.find((n) => n.id === headId("b"))!.position.y;
     expect(yA).toBe(0);
-    expect(yB).toBeGreaterThan(300);          // a figure node with its picture is tall
+    expect(yB).toBeGreaterThan(250);          // a figure node with its picture is tall
     expect(rf.activeOffset).toBe(yB);
   });
   it("applies a nudge relative to the lane", () => {

@@ -5,8 +5,7 @@ import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
 import { reduceStepInEdgeId, type EdgeKind, type ExplorerNode } from "../explorer/graph";
 import { insertStepAtom, activeReduceDagAtom, addLayerAtNodeAtom } from "../state";
-import { openCardAtom, pushStashAtom, stashAtom, focusedStashIdAtom } from "./state";
-import { lanesEnabledAtom } from "./lanesFlag";
+import { openCardAtom, pushStashAtom, stashAtom } from "./state";
 import { nodeTableName } from "./nodeName";
 import type { NodeDelta } from "./nodeDelta";
 import { affordances, authorDispatch, type AuthorAction, type AuthorOption } from "./authoring";
@@ -87,6 +86,12 @@ export function nodeShapeProps(
   };
 }
 
+/* where a figure section's wire lands on the node's left edge: spread evenly
+   down the sections, or, when the node is the plot's picture with the test as a
+   line under it (the lanes experiment), on the picture and on that line. */
+export const figHandleTop = (kind: "plot" | "stats", i: number, n: number, picture: boolean): string =>
+  picture ? (kind === "stats" ? "93%" : "45%") : `${((i + 0.5) / n) * 100}%`;
+
 /* React Flow custom node: the existing presentational node, flanked by connection
    handles (left = target, right = source). The left handle is hidden by default;
    an unfilled-input node shows it as an open "missing" circle. The right (source)
@@ -101,8 +106,6 @@ export function ArrayShapeRFNode(
   const openCard = useSetAtom(openCardAtom);
   const addLayerAtNode = useSetAtom(addLayerAtNodeAtom);
   const pushStash = useSetAtom(pushStashAtom);
-  const lanesOn = useAtomValue(lanesEnabledAtom);
-  const setFocused = useSetAtom(focusedStashIdAtom);
   // the add menu is positioned in screen space and portalled to <body>, not
   // nested in this node: each React Flow node is its own stacking context, so a
   // menu drawn inside an upstream node would paint UNDER any node stacked over
@@ -123,11 +126,10 @@ export function ArrayShapeRFNode(
     return {
       ...sec,
       slotNum: secSlot >= 0 ? secSlot + 1 : null,
-      onView: () => {
-        pushStash({ target: { kind: "node", id: id!, facet: sec.kind }, cardKind: sec.kind });
-        // lanes: the plot opens full-screen (see WorkbenchCanvas.pinNode)
-        if (lanesOn && sec.kind === "plot") setFocused(`node:${id}:plot`);
-      },
+      onView: () => pushStash({
+        target: { kind: "node", id: id!, facet: sec.kind },
+        cardKind: sec.kind,
+      }),
     };
   });
 
@@ -177,7 +179,7 @@ export function ArrayShapeRFNode(
           : (sec.panel ? `in-plot-${sec.panel}` : "in-plot");
         return (
           <Handle key={id} id={id} type="target" position={Position.Left}
-            style={{ top: `${((i + 0.5) / all.length) * 100}%`, opacity: 0 }} />
+            style={{ top: figHandleTop(sec.kind, i, all.length, !!shape.thumb), opacity: 0 }} />
         );
       })}
       {/* a join's right (slot 1) input: a distinct drop target, lower on the left

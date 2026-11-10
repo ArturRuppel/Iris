@@ -166,7 +166,6 @@ function Canvas({ graph, lanes }: { graph: ExplorerGraph; lanes?: Lane[] }) {
 
   const openCard = useSetAtom(openCardAtom);
   const pushStash = useSetAtom(pushStashAtom);
-  const setFocusedId = useSetAtom(focusedStashIdAtom);
   const displayCollapsed = useAtomValue(displayCollapsedAtom);
   const setDisplayCollapsed = useSetAtom(displayCollapsedAtom);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -230,10 +229,7 @@ function Canvas({ graph, lanes }: { graph: ExplorerGraph; lanes?: Lane[] }) {
       ? { ...target, facet: "plot" } : target;
     const kind = targetToCardKind(graph, t);
     if (kind) pushStash({ target: t, cardKind: kind });
-    // lanes: the canvas already shows the plot, so opening it means editing it,
-    // and that takes the whole workspace
-    if (kind === "plot" && lanes) setFocusedId("node:figure:plot");
-  }, [graph, pushStash, lanes, setFocusedId]);
+  }, [graph, pushStash]);
 
   // clicking an edge shows its editor in the display panel, like a node's card.
   const openEdge = useCallback((target: Target) => {
@@ -448,7 +444,8 @@ function Canvas({ graph, lanes }: { graph: ExplorerGraph; lanes?: Lane[] }) {
           <NodeContextMenu menu={menu} onClose={() => setMenu(null)} />
         )}
       </div>
-      <Stash graph={graph} />
+      {/* lanes: no docked panel; a card opens full-screen (pushStashAtom) */}
+      {!lanes && <Stash graph={graph} />}
       <StashFocus graph={graph} />
       </div>
     </div>

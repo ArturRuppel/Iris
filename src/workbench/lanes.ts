@@ -112,7 +112,7 @@ export function toRFLanes(
           laneId: lane.id,
         } as unknown as Record<string, unknown>,
       });
-      bottom = Math.max(bottom, n.y + NODE_H + (isFig ? THUMB_H : 0));
+      bottom = Math.max(bottom, n.y + (isFig && lane.svg ? THUMB_H + 40 : NODE_H));
     }
     for (const e of L.edges) {
       edges.push({

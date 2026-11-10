@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { Handle, Position } from "@xyflow/react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { ArrayShapeNode } from "../components/ArrayShapeNode";
-import type { RFNodeData } from "./ArrayShapeRFNode";
+import { figHandleTop, type RFNodeData } from "./ArrayShapeRFNode";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
 import type { Lane } from "./lanes";
 import {
@@ -78,7 +78,7 @@ export function GhostNode({ data }: { data: RFNodeData & { laneId: string } }) {
       {shape.variant === "figure" && (shape.sections ?? []).map((sec, i, all) => {
         const id = sec.kind === "stats" ? "in-test" : (sec.panel ? `in-plot-${sec.panel}` : "in-plot");
         return <Handle key={id} id={id} type="target" position={Position.Left} isConnectable={false}
-          style={{ ...hidden, top: `${((i + 0.5) / all.length) * 100}%` }} />;
+          style={{ ...hidden, top: figHandleTop(sec.kind, i, all.length, !!shape.thumb) }} />;
       })}
       <ArrayShapeNode {...shape} />
       <Handle id="out" type="source" position={Position.Right} style={hidden} isConnectable={false} />

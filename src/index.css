@@ -2015,8 +2015,22 @@ button.fig-name:hover { color: var(--accent); }
 .txw-lanes .txw-node.figure { width: 260px; }
 .txw-ghost .txw-node:not(.figure) { height: auto; min-height: 44px; }
 .txw-figthumb { display: block; width: 100%; height: 190px; object-fit: contain;
-  background: #fff; border-bottom: 1px solid var(--line); pointer-events: none; }
+  background: #fff; pointer-events: none; }
 @media (pointer: coarse) {
   .txw-lanehead-tag, .txw-lanehead-more { flex-basis: 34px; width: 34px; height: 34px; }
   .txw-lanehead { min-height: 72px; }
 }
+
+/* lanes, second pass: the figure node is the picture with the test as one line
+   under it, and there is no docked panel, so the canvas takes the whole width */
+.txw-rfcanvas.txw-lanes { right: 0 !important; bottom: 0 !important; }
+.txw-node.figure.picture { min-height: 0; }
+.txw-figthumb-btn { display: block; width: 100%; padding: 0; margin: 0; border: none; background: #fff;
+  cursor: pointer; min-height: 0; }
+.txw-figthumb-btn .txw-figthumb { border-bottom: none; }
+.txw-figstat { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 30px; padding: 4px 8px;
+  border: none; border-top: 1px solid var(--line); background: var(--panel); cursor: pointer;
+  font-size: 11px; color: var(--ink); text-align: left; }
+.txw-figstat:hover { background: var(--primary-tint); }
+.txw-figstat-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (pointer: coarse) { .txw-figstat { min-height: 40px; font-size: 13px; } }

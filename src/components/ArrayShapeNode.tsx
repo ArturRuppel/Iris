@@ -99,11 +99,35 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   const thumbSrc = useMemo(() => props.thumb
     ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(props.thumb)}` : null, [props.thumb]);
 
+  if (variant === "figure" && props.sections && thumbSrc) {
+    // the picture is the plot: a click on it opens the plot. The test is one
+    // line under it, which opens the statistics.
+    const plot = props.sections.find((s) => s.kind === "plot");
+    const stats = props.sections.find((s) => s.kind === "stats");
+    const go = (sec?: FigureSection) => sec?.onView
+      ? (e: { stopPropagation: () => void }) => { e.stopPropagation(); sec.onView!(); } : undefined;
+    return (
+      <div className="txw-node figure picture">
+        <div className="txw-nbar" aria-hidden />
+        <button type="button" className="txw-figthumb-btn k-geom" aria-label="Plot summary" onClick={go(plot)}>
+          <img className="txw-figthumb" src={thumbSrc} alt="" draggable={false} />
+        </button>
+        {stats && (
+          <button type="button" className="txw-figstat k-test" aria-label="Stats summary" onClick={go(stats)}>
+            <span className="txw-nicon" aria-hidden><NodeIcon variant="stats" /></span>
+            <span className="txw-figstat-text">{stats.facts.join(" · ") || "Statistics"}</span>
+            {stats.caution && <span className="node-caution-dot"
+              title="A guard flagged this test — see the test edge." />}
+          </button>
+        )}
+      </div>
+    );
+  }
+
   if (variant === "figure" && props.sections) {
     return (
       <div className="txw-node figure">
         <div className="txw-nbar" aria-hidden />
-        {thumbSrc && <img className="txw-figthumb" src={thumbSrc} alt="" draggable={false} />}
         <div className="txw-nbody txw-figsections">
           {props.sections.map((sec) => (
             <button
