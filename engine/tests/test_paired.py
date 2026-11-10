@@ -258,3 +258,41 @@ def test_endpoint_paired_override_without_spine_renders_with_error():
     assert body["figure"]["svg"]                           # the plot still drew
     assert "no pairing structure" in body["stats"]["error"]
     assert body["stats"]["result"]["test"] == "none"       # no brackets drawn
+
+
+# ── a t statistic needs a standard error that is not zero ────────────────────
+
+def test_identical_pair_differences_give_no_result():
+    """Every pair differs by exactly the same amount: the differences have no
+    spread, t is undefined, and rounding would print it as ~1e15. The engine
+    reports no test and keeps the picker live instead."""
+    rows = []
+    for s, base in enumerate([1.0, 1.1, 0.9]):
+        for grp, shift in (("A", 0.0), ("B", 0.6)):
+            rows.append({"subject": f"s{s}", "rep": 0, "group": grp, "y": base + shift})
+    df = pd.DataFrame(rows)
+    pairing = {**PAIRING, "n_units": 3, "n_complete": 3}
+    res = stats.group_comparison(df, "group", "y", ["A", "B"], pairing=pairing,
+                                 override="paired_t")
+    assert res["result"]["test"] == "none"
+    assert res["recoverable"] is True
+    assert "no spread" in res["error"]
+    assert "1e" not in res["methods_text"] and "0000000" not in res["methods_text"]
+
+
+def test_constant_groups_give_no_welch_result():
+    df = pd.DataFrame({"group": ["A"] * 4 + ["B"] * 4, "y": [1.0] * 4 + [2.0] * 4})
+    res = stats.group_comparison(df, "group", "y", ["A", "B"], override="welch_t")
+    assert res["result"]["test"] == "none"
+    assert "do not vary" in res["error"]
+
+
+def test_spread_far_below_the_mean_still_tests():
+    """The guard is about rounding noise only: a real spread, however small next
+    to the values, is tested."""
+    df = _paired_df()
+    df["y"] = 1e6 + df["y"] * 1e-3
+    res = stats.group_comparison(df, "group", "y", ["A", "B"], pairing=PAIRING,
+                                 override="paired_t")
+    assert res["result"]["test"] == "paired_t"
+    assert np.isfinite(res["result"]["t"])

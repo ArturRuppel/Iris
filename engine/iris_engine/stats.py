@@ -53,6 +53,15 @@ def _t_ci(center: float, se: float, dof: float, conf: float = 0.95) -> list[floa
     return [center - half, center + half]
 
 
+def _no_spread(se: float, *centers: float) -> bool:
+    """True when a standard error is zero up to float rounding, so a t statistic
+    built on it is undefined (it comes out as ±inf, or as a number like 1e15 that
+    is rounding noise). R's t.test stops at the same threshold with "data are
+    essentially constant"."""
+    scale = max((abs(float(c)) for c in centers), default=0.0)
+    return (not np.isfinite(se)) or se <= 10 * np.finfo(float).eps * scale
+
+
 def _hedges_g(a: np.ndarray, b: np.ndarray, paired: bool = False) -> float:
     """Hedges' g: Cohen's d times the small-sample factor 1 − 3/(4(na+nb) − 9).
     Independent groups standardise by the pooled SD; paired ones by the root mean
@@ -532,9 +541,9 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             "reason": assume_reason, "options": ["parametric", "robust"]},
     }
 
-    if rejected_paired:
-        # The requested paired test couldn't run, so report no inferential result
-        # (test "none" → the figure draws no brackets), but carry the full guided
+    def _no_result(error: str, methods: str) -> dict:
+        # The chosen test couldn't run, so report no inferential result (test
+        # "none" → the figure draws no brackets), but carry the full guided
         # context so the picker stays live and one pick switches to a valid test.
         summaries = [_summary(lv, sub.loc[sub[x] == lv, y].to_numpy(dtype=float))
                      for lv in found]
@@ -546,19 +555,45 @@ def group_comparison(df: pd.DataFrame, x: str, y: str, levels: list[str],
             "result": {"test": "none",
                        "effect": {"name": "none", "value": 0.0, "ci": None}},
             "summaries": summaries, "alpha": alpha, "recoverable": True,
-            "error": ("a paired test was requested but the data has no pairing "
-                      "structure (no shared unit spans the two groups)"),
-            "methods_text": ("A paired comparison was requested, but the data has "
-                             "no pairing structure (no shared unit spans the two "
-                             "groups), so no test was run — pick an applicable "
-                             "test to run it."),
+            "error": error, "methods_text": methods,
         }
+
+    if rejected_paired:
+        return _no_result(
+            "a paired test was requested but the data has no pairing "
+            "structure (no shared unit spans the two groups)",
+            "A paired comparison was requested, but the data has no pairing "
+            "structure (no shared unit spans the two groups), so no test was "
+            "run — pick an applicable test to run it.")
 
     nA, nB = len(a), len(b)
     pair_note = ""
     if structural_chosen == "paired":
         pair_note += (f" n counts {nA} complete pairs across "
                       f"{pairing.get('across')}.")
+
+    # A t statistic divides by a standard error. When that is zero (every pair
+    # differs by the same amount; no value varies within either group) the
+    # statistic is undefined, and floating-point rounding would otherwise print
+    # it as a number of the order of 1e15. Report no result and say why.
+    if test == "paired_t":
+        d = a - b
+        if _no_spread(float(np.sqrt(np.var(d, ddof=1) / nA)), np.mean(a), np.mean(b)):
+            md = float(np.mean(d))
+            return _no_result(
+                f"all {nA} pairs differ by the same amount ({md:.2f}), so the "
+                "differences have no spread and the paired t statistic is undefined",
+                f"{y} differed between {found[0]} and {found[1]} by {md:.2f} in "
+                f"each of the {nA} matched pairs. The differences have no spread, "
+                "so the paired t statistic is undefined and no test was run.")
+    elif test == "welch_t":
+        se = float(np.sqrt(np.var(a, ddof=1) / nA + np.var(b, ddof=1) / nB))
+        if _no_spread(se, np.mean(a), np.mean(b)):
+            return _no_result(
+                "the values do not vary within either group, so Welch's t "
+                "statistic is undefined",
+                f"{y} does not vary within {found[0]} or within {found[1]}, so "
+                "Welch's t statistic is undefined and no test was run.")
 
     if test == "paired_t":
         tt = sps.ttest_rel(a, b)
@@ -725,8 +760,11 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
         v = arrays[lv]
         n = len(v)
         diff = v - reference
-        if n < MIN_LOCATION_N:
-            # too few units to test this group; report n but no inferential
+        no_spread = (test == "one_sample_t" and n >= MIN_LOCATION_N and _no_spread(
+            float(np.std(v, ddof=1) / np.sqrt(n)), np.mean(v), reference))
+        if n < MIN_LOCATION_N or no_spread:
+            # too few units to test this group, or values that do not vary (the
+            # t statistic is then undefined); report n but no inferential
             # numbers (guards.py warns about the small group separately).
             per_group.append({"level": lv, "test": "none", "p": None, "stars": "",
                               "effect": _no_effect(), "n": n,
