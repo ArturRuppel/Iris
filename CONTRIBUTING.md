@@ -84,14 +84,22 @@ npm run build                                    # strict TypeScript + productio
 npm run test:pyodide                             # engine + validation under the browser runtime
 ```
 
-The end-to-end tests drive a real browser against a running dev stack, so start
-one first:
+The end-to-end tests drive a real browser against a dev stack. The runner starts
+one for the run and stops it afterwards:
 
 ```bash
 npx playwright install chromium   # once
-./dev.sh                          # in another terminal
-node e2e/superplot_test.mjs       # any file in e2e/
+node e2e/run.mjs                  # every test
+node e2e/run.mjs zoom panels      # only these
 ```
+
+The run's engine listens on its own port and autosaves into a temporary folder,
+so it never touches your recovery snapshot; it needs port 5173 free, so stop
+`./dev.sh` first. A test can also be run alone against a stack you started
+yourself (`APP_URL=… ENGINE_URL=… node e2e/zoom_test.mjs`). The steps every test
+shares (open the app, import a table, build a first plot, show a card) live in
+`e2e/helpers.mjs`: when the interface changes, change them there. Four tests
+drive the built web site or a lab book instead and say how in their header.
 
 If you touch the engine's statistics or its rendering, the validation corpus
 (`engine/validation/`) is the one that matters. Read its

@@ -7,9 +7,9 @@ import { chromium } from "playwright";
    test-picker controls for the location & rate families).
 
    Flow per case: import a fixture → Workbench → add a plot via the wizard →
-   open the test editor card (right-click figure → Edit test…) → tick the new
-   picker control (reference / rate) → read back the family and the resolved
-   test from the stats card.
+   open the test editor (right-click figure → Edit test…, which shows the stats
+   card with its test picker) → tick the new picker control (reference / rate)
+   → read back the family and the resolved test from the stats card.
 
    Needs the engine (8765, with statsmodels for the rate GLM) and the vite dev
    server (5173). Uses Playwright's bundled Chromium by default; pass
@@ -30,7 +30,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
 if (await page.locator(".engine-down").count() > 0) fail("engine down on 8765");
 
 async function importCsv(name, csv) {
-  await page.click(".tb-btn:has-text('Import')");
+  await page.click(".topbar button:has-text('Import')");
   await page.setInputFiles("input[type=file]", {
     name, mimeType: "text/csv", buffer: Buffer.from(csv),
   });
@@ -47,17 +47,21 @@ async function figureMenu(itemRe, cardTestId) {
   await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: itemRe }).click();
   await page.waitForSelector(`[data-testid='${cardTestId}']`, { timeout: 15000 });
 }
-const openTestEditor = () => figureMenu(/edit test/i, "test-card");
-const openPlotEditor = () => figureMenu(/edit plot/i, "geom-card");
+// "Edit test…" shows the stats card (test picker + options); "Edit plot…" the
+// plot card, switched to its inspector's Encoding tab.
+const openTestEditor = () => figureMenu(/edit test/i, "stats-card");
+const openPlotEditor = () => figureMenu(/edit plot/i, "plot-card");
 
-// waits for the stats card body to reflect a settled render then returns its text
+// waits for the stats card to reflect a settled render, then returns the text of
+// its RESULTS block only (StatsResults: result rows + methods). The test picker
+// and its Options sit below in the same card, and their labels ("Test against a
+// reference value", "Model counts as a rate") would match the checks on their
+// own, so they are left out.
 async function statsText() {
-  // the stats section of the figure node also renders StatsResults; read the
-  // pinned stats card if present, else the figure's stats section.
   await page.waitForTimeout(1500);
-  const card = page.locator("[data-testid='stats-card']");
-  if (await card.count()) return (await card.innerText()).replace(/\s+/g, " ");
-  return (await page.locator(".txw-node.figure").first().innerText()).replace(/\s+/g, " ");
+  const results = page.locator("[data-testid='stats-card'] > section.stats-pane").first();
+  await results.waitFor({ state: "visible", timeout: 15000 });
+  return (await results.innerText()).replace(/\s+/g, " ");
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -76,10 +80,10 @@ async function statsText() {
   await page.waitForSelector("[data-testid='plot-card']", { timeout: 15000 });
   await page.click(".txw-add-plot");
   await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
-  await page.locator(".wiz-geom", { hasText: "Dots" }).click();
+  await page.locator(".wiz-geom", { hasText: "Dots" }).first().click();
   await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });
-  await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("grp");
-  await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
+  await page.locator(".wiz-map .enc-row", { hasText: "X" }).locator("select").selectOption("grp");
+  await page.locator(".wiz-map .enc-row", { hasText: "Y" }).locator("select").selectOption("value");
   await page.waitForSelector(".wiz-done:not([disabled])", { timeout: 5000 });
   await page.click(".wiz-done");
   await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
@@ -87,13 +91,13 @@ async function statsText() {
 
   // unmap X in the plot editor's encodings card → the ungrouped (Y-only) shape.
   await openPlotEditor();
-  await page.locator("[data-testid='geom-card'] .enc-row", { hasText: "X" })
+  await page.locator("[data-testid='plot-card'] .plot-inspector .enc-row", { hasText: "X" })
     .locator("select").selectOption("");
   console.log("location: X unmapped (only Y remains)");
 
   // open the test editor and tick "Test against a reference value".
   await openTestEditor();
-  const testCard = page.locator("[data-testid='test-card']");
+  const testCard = page.locator("[data-testid='stats-card']");
   const refToggle = testCard.locator(".describe-toggle", { hasText: /Test against a reference value/i });
   await refToggle.waitFor({ state: "visible", timeout: 10000 });
   await refToggle.locator("input[type=checkbox]").check();
@@ -105,6 +109,7 @@ async function statsText() {
   const figSvg = await page.locator(".txw-node.figure svg, [data-testid='plot-card'] svg").count();
   if (figSvg === 0) fail("location: no figure rendered after enabling the reference test");
   const st = await statsText();
+  console.log("  stats results:", st.slice(0, 300));
   if (!/one-?sample|reference|vs ref/i.test(st))
     fail(`location: stats panel did not report a one-sample/reference test; got: ${st.slice(0, 400)}`);
   console.log("location OK — figure rendered, stats report the one-sample test");
@@ -113,6 +118,11 @@ async function statsText() {
 // fresh page for the second case (clean workspace).
 await page.goto(URL, { waitUntil: "networkidle" });
 await page.waitForSelector(".app", { timeout: 30000 });
+// a recovery bar for the work just abandoned may offer to restore it: decline.
+{
+  const discard = page.locator(".recovery-bar button:has-text('Discard')");
+  if (await discard.count()) await discard.click();
+}
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CASE 2 — rate: grouped counts + exposure → count-GLM rate estimate.
@@ -135,10 +145,10 @@ await page.waitForSelector(".app", { timeout: 30000 });
   // Estimate ± CI (pointrange) is the rate geom; it is categorical×numeric.
   const pr = page.locator(".wiz-geom", { hasText: /Estimate|CI/i });
   if (await pr.count()) await pr.first().click();
-  else await page.locator(".wiz-geom", { hasText: "Dots" }).click();
+  else await page.locator(".wiz-geom", { hasText: "Dots" }).first().click();
   await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });
-  await page.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("grp");
-  await page.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("count");
+  await page.locator(".wiz-map .enc-row", { hasText: "X" }).locator("select").selectOption("grp");
+  await page.locator(".wiz-map .enc-row", { hasText: "Y" }).locator("select").selectOption("count");
   await page.waitForSelector(".wiz-done:not([disabled])", { timeout: 5000 });
   await page.click(".wiz-done");
   await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
@@ -146,7 +156,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
 
   // open the test editor, tick "Model counts as a rate", pick the exposure.
   await openTestEditor();
-  const testCard = page.locator("[data-testid='test-card']");
+  const testCard = page.locator("[data-testid='stats-card']");
   const rateToggle = testCard.locator(".describe-toggle", { hasText: /Model counts as a rate/i });
   await rateToggle.waitFor({ state: "visible", timeout: 10000 });
   await rateToggle.locator("input[type=checkbox]").check();
@@ -158,6 +168,7 @@ await page.waitForSelector(".app", { timeout: 30000 });
   const figSvg = await page.locator(".txw-node.figure svg, [data-testid='plot-card'] svg").count();
   if (figSvg === 0) fail("rate: no figure rendered after enabling the rate model");
   const st = await statsText();
+  console.log("  stats results:", st.slice(0, 300));
   if (!/rate|GLM|binomial|Poisson/i.test(st))
     fail(`rate: stats panel did not report a rate/GLM estimate; got: ${st.slice(0, 400)}`);
   console.log("rate OK — figure rendered, stats report the count-GLM rate");

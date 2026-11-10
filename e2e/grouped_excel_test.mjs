@@ -26,13 +26,27 @@ await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 const page = await context.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
+/* The grouped sheet bands by the identifier spine (coarser identifiers across the
+   top, the finest down the side), so the lens is offered only once a table has an
+   identifier. Mark `names` identifiers in the Data hierarchy panel, in order: each
+   is appended to the spine as its finest level. */
+const markIdentifiers = async (page, names) => {
+  for (const name of names) {
+    const row = page.locator(".hierarchy-panel .hp-role-row",
+      { has: page.locator(".hp-col", { hasText: new RegExp(`^${name}$`, "i") }) });
+    const before = await page.locator(".hierarchy-panel .hp-node").count();
+    await row.locator(".seg button", { hasText: /^identifier$/ }).click();
+    await page.waitForFunction((n) =>
+      document.querySelectorAll(".hierarchy-panel .hp-node").length === n, before + 1, { timeout: 10000 });
+  }
+};
 const clip = () => page.evaluate(() => navigator.clipboard.readText());
 const cell = (r, c) => page.locator(`.gs-cell[data-r="${r}"][data-c="${c}"]`);
 
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "excel_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -41,6 +55,7 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
+await markIdentifiers(page, ["group", "day"]);
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
 await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 
@@ -92,8 +107,8 @@ if (!(await cell(1, 0).getAttribute("class")).includes("gs-active"))
   fail("Enter should commit and advance the active cell down one row");
 console.log("type-to-overwrite committed (1 -> 77) and Enter advanced down");
 
-if (await page.locator(".error-bar").count() > 0)
-  fail("unexpected error-bar: " + await page.locator(".error-bar").innerText());
+if (await page.locator(".error-bar:not(.warn-bar)").count() > 0)
+  fail("unexpected error-bar: " + await page.locator(".error-bar:not(.warn-bar)").innerText());
 
 console.log("PASS: grouped-sheet edits like Excel — select, range, keyboard nav, copy");
 await browser.close();

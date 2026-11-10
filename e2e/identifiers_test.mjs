@@ -11,10 +11,13 @@ import { chromium } from "playwright";
      2. A numeric measure (`value`) is promotable to an identifier (the old UI
         only offered the toggle for non-numeric columns); promotion only adds
         distinctions, so it never trips the uniqueness guard.
-     3. Demoting `frame` would leave `well` unable to key the table (rows
-        collide) — the engine rejects the schema change with a visible inline
-        error and the toggle reverts, so the spine is left intact. This is the
-        honesty guarantee: identifiers must jointly identify each row.
+     3. Demoting `frame` leaves `well` unable to key the table (rows collide).
+        That is allowed now (a coarse spine over replicates is the SuperPlot
+        idiom), but never silent: the demotion applies and the panel shows an
+        inline note that the identifiers don't uniquely key the table — the
+        replication below the finest level — and it is a warning, not an error.
+        This is the honesty guarantee: the user is told when identifiers stop
+        jointly identifying each row.
 
    Needs the engine (8765) and the vite dev server (5173); Chromium runs on a
    machine that has one. */
@@ -34,7 +37,7 @@ const errs = [];
 page.on("pageerror", (e) => errs.push(e.message));
 await page.goto(URL, { waitUntil: "networkidle" });
 
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]",
   { name: "wf.csv", mimeType: "text/csv", buffer: Buffer.from(csv) });
 await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
@@ -64,18 +67,26 @@ spine = await page.locator(".hierarchy-panel .hp-node").count();
 if (spine !== 3) fail(`promoting value should grow the spine to 3, saw ${spine}`);
 if ((await page.locator(".hp-role-error").count()) > 0)
   fail("promotion should not raise a uniqueness error");
+if ((await page.locator(".hp-role-warning").count()) > 0)
+  fail("promotion keeps the table keyed, so it should not note replication");
 console.log("ok: a numeric measure promoted to identifier (spine 2 -> 3, no error)");
 await valueRow.locator("button", { hasText: /^measure$/ }).click();
 await page.waitForTimeout(400);
 
-// 3) a demotion that breaks the key is rejected with a visible error; reverts.
+// 3) a demotion that breaks the key applies, with a visible replication note.
 await rowFor("frame").locator("button", { hasText: /^measure$/ }).click();
-await page.waitForSelector(".hp-role-error", { timeout: 8000 });
-const msg = (await page.locator(".hp-role-error").innerText()).trim();
-if (!/uniquely identify/i.test(msg)) fail(`unexpected error text: ${msg}`);
+await page.waitForSelector(".hp-role-warning", { timeout: 8000 });
+const msg = (await page.locator(".hp-role-warning").innerText()).trim();
+if (!/uniquely key/i.test(msg)) fail(`unexpected warning text: ${msg}`);
+if (!/well/i.test(msg)) fail(`the note should name the identifier left on the spine (well): ${msg}`);
+if ((await page.locator(".hp-role-error").count()) > 0)
+  fail("a non-keying spine is allowed: it must be a warning, not an error: "
+    + await page.locator(".hp-role-error").innerText());
 spine = await page.locator(".hierarchy-panel .hp-node").count();
-if (spine !== 2) fail(`the rejected demotion should leave the spine at 2, saw ${spine}`);
-console.log("ok: breaking demotion rejected with a visible error; toggle reverted");
+if (spine !== 1) fail(`the demotion should apply, leaving the spine at 1 (well), saw ${spine}`);
+if (await rowFor("frame").locator("button[aria-pressed='true']").innerText() !== "measure")
+  fail("frame's toggle should now read measure");
+console.log("ok: key-breaking demotion applies with an inline replication warning:", msg.slice(0, 60) + "…");
 
 if (errs.length) fail("page errors: " + errs.join("; "));
 console.log("identifiers e2e ok");

@@ -20,12 +20,26 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
+/* The grouped sheet bands by the identifier spine (coarser identifiers across the
+   top, the finest down the side), so the lens is offered only once a table has an
+   identifier. Mark `names` identifiers in the Data hierarchy panel, in order: each
+   is appended to the spine as its finest level. */
+const markIdentifiers = async (page, names) => {
+  for (const name of names) {
+    const row = page.locator(".hierarchy-panel .hp-role-row",
+      { has: page.locator(".hp-col", { hasText: new RegExp(`^${name}$`, "i") }) });
+    const before = await page.locator(".hierarchy-panel .hp-node").count();
+    await row.locator(".seg button", { hasText: /^identifier$/ }).click();
+    await page.waitForFunction((n) =>
+      document.querySelectorAll(".hierarchy-panel .hp-node").length === n, before + 1, { timeout: 10000 });
+  }
+};
 
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
 // import the fixture through the wizard's hidden file input
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "grouped_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -36,8 +50,16 @@ await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000
 // default view is Data; the toggle lives in the pane head
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
 
-// the grouped option must be enabled for this (one value + two categorical) table
+// with no identifier the lens has nothing to band by: the toggle is offered
+// disabled, with the reason, rather than rendering a copy of the tidy table
 const groupedBtn = page.locator(".dv-toggle button:has-text('Grouped sheet')");
+if (!(await groupedBtn.isDisabled())) fail("Grouped sheet toggle should be disabled while the table has no identifier");
+if (!/identifier/i.test(await groupedBtn.getAttribute("title") ?? ""))
+  fail("the disabled toggle should say why (mark an identifier), got: " + await groupedBtn.getAttribute("title"));
+// group and day nest (group coarse, day fine); the replicates under each
+// group/day make day non-unique, so it bands too and the values stack ragged
+await markIdentifiers(page, ["group", "day"]);
+// the grouped option must be enabled for this (one value + two identifier) table
 if (await groupedBtn.isDisabled()) fail("Grouped sheet toggle should be enabled for a pivotable table");
 await groupedBtn.click();
 
@@ -53,9 +75,13 @@ if (!box || box.width < 150 || box.width > 185)
   fail(`"Control" band should span 2 columns (~168px), got width=${box?.width}`);
 console.log("merged band: Control spans ~2 columns, width", Math.round(box.width));
 
-// leaf headers: the inner factor "day" (D1, D2 under each group)
-const leafText = (await page.locator(".gs-header .gs-leaf").allInnerTexts()).join(" ");
-if (!/D1/.test(leafText) || !/D2/.test(leafText)) fail("leaf headers missing D1/D2: " + leafText);
+// inner band: the finer identifier "day" (D1, D2 under each group), one column each
+const innerBands = await page.locator(".gs-header .gs-band[data-c0]").evaluateAll((els) =>
+  els.filter((e) => e.dataset.c0 === e.dataset.c1).map((e) => e.textContent.replace("✕", "").trim()));
+if (innerBands.join(" ") !== "D1 D2 D1 D2") fail("inner band should read D1 D2 D1 D2, got: " + innerBands.join(" "));
+// leaf headers: the value column under each group/day combination
+const leafText = (await page.locator(".gs-header .gs-leaf").allInnerTexts()).map((t) => t.replace("✕", "").trim());
+if (leafText.length !== 4 || leafText.some((t) => t !== "value")) fail("leaf headers should be 4 × value: " + leafText.join(" "));
 
 // value body: first data row, first column = 1 (Control/D1, first replicate)
 const firstCell = await page.locator(".gs-cell").first().innerText();
@@ -91,8 +117,9 @@ await page.waitForFunction(() => {
 }, null, { timeout: 10000 });
 console.log("edit is canonical: the tidy table shows 42");
 
-if (await page.locator(".error-bar").count() > 0)
-  fail("unexpected error-bar: " + await page.locator(".error-bar").innerText());
+// (the hierarchy panel's replication note is a warning, not an error)
+if (await page.locator(".error-bar:not(.warn-bar)").count() > 0)
+  fail("unexpected error-bar: " + await page.locator(".error-bar:not(.warn-bar)").innerText());
 
 console.log("PASS: grouped-sheet lens renders the tidy table wide and round-trips the toggle");
 await browser.close();

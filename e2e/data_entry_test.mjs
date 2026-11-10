@@ -7,7 +7,10 @@ import { chromium } from "playwright";
 
    Part A re-checks the Slice-0 select-then-act header machinery inline (add a
    grouping row, merge two band cells, delete a column). Part B fills value cells
-   and creates, asserting the entry surface hands off to the live grouped lens.
+   and switches to the Workbench (which mints the table), asserting that Data then
+   shows the entered data. It used to hand off to the live grouped lens; since the
+   lens bands by identifiers only, a typed-in table (whose grouping rows are
+   classifiers) is shown as the tidy table instead.
 
    Needs the engine (port 8765) and the vite dev server (port 5173) running. */
 
@@ -85,18 +88,25 @@ await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".workbench-mode", { timeout: 15000 });
 if (await page.locator(".analyses-empty").count() > 0)
   fail("Workbench should have data after the auto-mint, not the 'No data yet' empty state");
-if (await page.locator(".error-bar").count() > 0)
+if (await page.locator(".error-bar:not(.warn-bar)").count() > 0)
   fail("auto-mint must not raise an engine error: " + await page.locator(".error-bar").innerText());
 console.log("switching to Workbench auto-minted the table (no Create step)");
 
-// back to Data: the entry surface is gone; the live grouped lens shows the data
+// back to Data: the entry surface is gone and the entered data is shown. The
+// grouped lens bands by identifiers, and an entry grid's grouping rows become
+// classifiers, so this table has nothing to band by: the Data tab must show it
+// as the tidy table, not the lens's "Nothing to group by" refusal.
 await page.click(".tb-seg button:has-text('Data')");
-await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
+await page.waitForSelector(".table-pane", { timeout: 15000 });
+await page.waitForTimeout(1500);
+if (await page.locator(".table-pane .gs-empty:has-text('Nothing to group by')").count() > 0)
+  fail("after minting, Data shows the lens's refusal instead of the entered data");
 if (await page.locator(".de-inline").count() > 0)
-  fail("with a table minted, Data should show the live lens, not the entry surface");
-const prov = (await page.locator(".table-pane .provenance").innerText()).trim();
-if (!/^\d+ × \d+$/.test(prov)) fail("the pane should show a grouped shape, got: " + prov);
-console.log("Data now shows the live grouped lens, shape", prov);
+  fail("with a table minted, Data should show the table, not the entry surface");
+await page.waitForSelector(".table-pane .ag-row", { timeout: 15000 });
+const shown = await page.locator(".table-pane .ag-row").count();
+if (shown < 1) fail("the minted table shows no rows");
+console.log("Data now shows the minted table,", shown, "rows visible");
 
 console.log("PASS: inline entry — structural edits + continuous mint on the Workbench switch");
 await browser.close();

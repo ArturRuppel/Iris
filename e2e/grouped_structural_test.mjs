@@ -24,11 +24,25 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
+/* The grouped sheet bands by the identifier spine (coarser identifiers across the
+   top, the finest down the side), so the lens is offered only once a table has an
+   identifier. Mark `names` identifiers in the Data hierarchy panel, in order: each
+   is appended to the spine as its finest level. */
+const markIdentifiers = async (page, names) => {
+  for (const name of names) {
+    const row = page.locator(".hierarchy-panel .hp-role-row",
+      { has: page.locator(".hp-col", { hasText: new RegExp(`^${name}$`, "i") }) });
+    const before = await page.locator(".hierarchy-panel .hp-node").count();
+    await row.locator(".seg button", { hasText: /^identifier$/ }).click();
+    await page.waitForFunction((n) =>
+      document.querySelectorAll(".hierarchy-panel .hp-node").length === n, before + 1, { timeout: 10000 });
+  }
+};
 
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "structural_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -37,6 +51,7 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
+await markIdentifiers(page, ["group", "day"]);
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
 await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 
@@ -47,7 +62,7 @@ const bands = () => page.locator(".gs-header .gs-band");
 if ((await prov()).trim() !== "2 × 4") fail("expected a 2 × 4 start, got " + await prov());
 console.log("start:", (await prov()).trim());
 
-/* --- 1. delete a leaf column: the first leaf is Control/D1 (2 rows). The × must
+/* --- 1. delete a leaf column: the first leaf is Control/D1's value (2 rows). The × must
    raise a confirm that STATES the two rows before dropping them. --- */
 const firstLeaf = leaves().nth(0);
 await firstLeaf.hover();
@@ -92,15 +107,16 @@ await page.waitForSelector(".gs-confirm", { timeout: 5000 });
 const mergeMsg = await page.locator(".gs-confirm-msg").innerText();
 if (!/merge/i.test(mergeMsg)) fail("merge confirm must warn it merges the levels, got: " + mergeMsg);
 await page.locator(".gs-confirm-go").click();
-// after the merge every row is "Treatment": one band spanning the two days
+// after the merge every row is "Treatment": one outer (group) band spanning the
+// two days (the day bands sit on the row below it)
 await page.waitForFunction(() => {
-  const cells = document.querySelectorAll(".gs-header .gs-band");
+  const cells = [...document.querySelectorAll(".gs-header .gs-band")].filter((b) => b.style.top === "0px");
   return cells.length === 1 && cells[0].textContent.includes("Treatment");
 }, null, { timeout: 5000 });
 const mergeNotice = await page.locator(".gs-notice").innerText();
 if (!/Merged/.test(mergeNotice)) fail("expected a 'Merged' notice, got: " + mergeNotice);
-if (await page.locator(".error-bar").count() > 0)
-  fail("a structural edit must not raise an engine error: " + await page.locator(".error-bar").innerText());
+if (await page.locator(".error-bar:not(.warn-bar)").count() > 0)
+  fail("a structural edit must not raise an engine error: " + await page.locator(".error-bar:not(.warn-bar)").innerText());
 console.log("merged Ctrl → Treatment → shape", (await prov()).trim(), "· notice:", mergeNotice.trim());
 
 console.log("PASS: grouped-sheet structural edits are ops that surface their cost");

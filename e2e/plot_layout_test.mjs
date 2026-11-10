@@ -6,7 +6,12 @@ import { chromium } from "playwright";
    in the maximized tile, wide and narrow. Runs on the static web build, so it needs
    no engine server:
 
-     npm run build:web && node e2e/plot_layout_test.mjs                          */
+     npm run build:web && node e2e/plot_layout_test.mjs
+
+   The inspector is a tab bar now (Encoding, Layers, Axes, Text, Layout), not a
+   stack of <details>, so a 1000 px window no longer overflows the side panel.
+   The checks pick the tallest tab (Text) and use a short window, so the
+   controls really do overflow their scroller and the scroll proves something. */
 
 const URL_ = `file://${join(dirname(fileURLToPath(import.meta.url)), "..", "dist-web", "index.html")}`;
 const SHOTS = process.env.SHOTS;
@@ -22,7 +27,8 @@ await page.click("button:has-text('Open example')");
 await page.waitForSelector("[data-testid='plot-card'] .figure-frame svg", { timeout: 60000 });
 
 async function check(name, scroller, { beside }) {
-  await page.evaluate((sel) => { for (const d of document.querySelectorAll(`${sel} [data-testid='plot-card'] details`)) d.open = true; }, scroller);
+  await page.evaluate((sel) => { const el = document.querySelector(sel); if (el) el.scrollTop = 0; }, scroller);
+  await page.locator(`${scroller} .plot-inspector button`, { hasText: /^Text$/ }).click();
   await page.waitForTimeout(300);
   const info = await page.evaluate((sel) => {
     const el = document.querySelector(sel);
@@ -43,13 +49,14 @@ async function check(name, scroller, { beside }) {
   if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
 
+await page.setViewportSize({ width: 1500, height: 600 }); // short, so the controls must scroll
 await check("panel", ".txw-stash .txw-slot-body", { beside: false });
 await page.click(".txw-slot-max");
 await page.waitForSelector(".txw-focus");
 if (SHOTS) await page.screenshot({ path: join(SHOTS, "maximized-full.png") });
-await page.setViewportSize({ width: 1500, height: 600 }); // short, so the controls must scroll
+await page.setViewportSize({ width: 1500, height: 450 }); // the tile is taller than the panel
 await check("maximized-wide", ".txw-focus-body", { beside: true });
-await page.setViewportSize({ width: 820, height: 1180 });
+await page.setViewportSize({ width: 820, height: 700 }); // narrow; short enough that the Text tab overflows
 await check("maximized-narrow", ".txw-focus-body", { beside: false });
 
 console.log("PLOT LAYOUT E2E OK");

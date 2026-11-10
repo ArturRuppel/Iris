@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { openApp, openMode, waitForFigure, showPlot, showStats, inspectorTab, fail } from "./helpers.mjs";
 
 /* Smoke for time-series support: NUMERIC x × NUMERIC y normally infers a
    `correlation` scatter, but adding a `line` (Trajectories) or `trend`
@@ -8,23 +8,11 @@ import { chromium } from "playwright";
    through the UI — see tile_test.mjs). The geoms are offered on
    numeric/numeric like scatter (registry-driven, no offer-logic change).
    `frame` is an identifier token, so the test retypes it numeric in the import
-   wizard before mapping it to X (the real time-on-X workflow). The workbench
-   card reskin replaced the always-visible `.layer-rail` with the geom-editor
-   card (reached via the figure node's right-click "Edit plot…"), and the
-   stats panel is reached by left-clicking the figure node's Stats section.
-   Needs the engine (8765) and the vite dev server (5173). */
-
-const URL = process.env.APP_URL ?? "http://localhost:5173";
-const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
-const pageErrors = [];
-page.on("pageerror", (e) => pageErrors.push(e.message));
-const fail = (msg) => { console.error(msg); process.exit(1); };
-
-await page.goto(URL, { waitUntil: "networkidle" });
-await page.waitForSelector(".app", { timeout: 30000 });
-if (await page.locator(".engine-down").count() > 0)
-  fail("engine not reachable — start the engine on 8765");
+   wizard before mapping it to X (the real time-on-X workflow). The plot editor
+   is the Plot card: the first layer (Trajectories) comes from the "+ add plot"
+   wizard (plot type, then X/Y), the trend from the inspector's "+ add layer"
+   (plot type, then grain). The stats are their own card, shown by clicking the
+   figure node's Stats section. Needs the engine and the vite dev server. */
 
 // Fixture: a measure (area) over an ordered numeric x (frame), two conditions.
 const rows = ["condition,frame,area"];
@@ -33,7 +21,8 @@ for (const [cond, base] of [["ctrl", 0], ["ko", 10]])
     rows.push(`${cond},${frame},${base + frame}`);
 const csv = rows.join("\n");
 
-await page.click(".tb-btn:has-text('Import')");
+const { browser, page } = await openApp();
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "timeseries_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -53,35 +42,35 @@ await page.waitForSelector(".modal-foot button.primary:not([disabled])", { timeo
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-await page.click(".tb-seg button:has-text('Workbench')");
-const figureNode = page.locator(".txw-node.figure").first();
-await figureNode.waitFor({ state: "visible", timeout: 15000 });
-await figureNode.click({ button: "right" });
-await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
-await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
-const geomCard = page.locator("[data-testid='geom-card']");
-await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
-
-// Map numeric X (frame) + numeric Y (area) — the otherwise-correlation pair.
-await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("frame");
-await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("area");
-await page.waitForTimeout(500);
+await openMode(page, "Workbench");
+const card = page.locator("[data-testid='plot-card']");
+await card.waitFor({ state: "visible", timeout: 15000 });
+await page.click(".txw-add-plot");
+await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
 
 // Trajectories (line) and Mean ± band (trend) are offered on numeric/numeric.
-await geomCard.locator(".add-layer-btn").click();
-const lineBtn = geomCard.locator(".add-layer-menu button:has-text('Trajectories')");
+const lineBtn = page.locator(".wiz-geom", { hasText: "Trajectories" });
 if (await lineBtn.count() === 0)
   fail("Trajectories (line) not offered for numeric-x / numeric-y — timeseries gate regressed");
 await lineBtn.click();
-await page.waitForTimeout(1800);
 
-const figure = await page.locator(".figure-host svg").count();
+// Map numeric X (frame) + numeric Y (area) — the otherwise-correlation pair.
+await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });
+await page.locator(".wiz-map .enc-row", { hasText: "X" }).locator("select").selectOption("frame");
+await page.locator(".wiz-map .enc-row", { hasText: "Y" }).locator("select").selectOption("area");
+await page.waitForSelector(".wiz-done:not([disabled])", { timeout: 5000 });
+await page.click(".wiz-done");
+await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
+await waitForFigure(page).catch(() => {});
+await page.waitForTimeout(1000);
+
+const figure = await card.locator(".figure-host svg").count();
 const bar = await page.locator(".error-bar").count();
 if (figure === 0 && bar === 0)
   fail("timeseries line: no figure and no status bar — rendered nothing");
 if (figure > 0) {
   // a connected trajectory is a <path> stroke, not scatter <use> point glyphs
-  const paths = await page.locator(".figure-host svg path").count();
+  const paths = await card.locator(".figure-host svg path").count();
   if (paths === 0) fail("line layer drew no path — trajectories did not render");
   console.log("timeseries line rendered", paths, "paths");
 } else {
@@ -89,27 +78,37 @@ if (figure > 0) {
 }
 
 // The stats panel must show the describe-only time-series model, not a test.
-await figureNode.locator(".txw-figsec", { hasText: "Stats" }).click();
-await page.waitForSelector("[data-testid='stats-card']", { timeout: 15000 });
-const design = await page.locator("[data-testid='stats-card'] .reason").first().textContent().catch(() => "");
+const stats = await showStats(page);
+await page.waitForTimeout(800);
+const design = await stats.locator(".reason").first().textContent().catch(() => "");
 if (figure > 0 && !/over/.test(design))
   fail(`stats panel did not show the 'y over x' time-series design (got: ${design})`);
 
 // Layer the aggregate trend on top — the layered spaghetti+mean figure.
-await geomCard.locator(".add-layer-btn").click();
-const trendBtn = geomCard.locator(".add-layer-menu button:has-text('Mean ± band')");
+await showPlot(page);
+await inspectorTab(page, "Layers");
+await card.locator(".add-layer-btn").click();
+await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
+const trendBtn = page.locator(".wiz-geom", { hasText: "Mean ± band" });
 if (await trendBtn.count() > 0) {
   await trendBtn.click();
+  await page.waitForSelector(".wiz-step.wiz-grain", { timeout: 10000 });
+  await page.click(".wiz-done");
+  await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
   await page.waitForTimeout(1500);
-  if (await page.locator(".figure-host svg").count() === 0
+  await inspectorTab(page, "Layers");
+  const nLayers = await card.locator(".layer-card").count();
+  if (nLayers !== 2) fail(`expected 2 layers (line + trend), got ${nLayers}`);
+  if (await card.locator(".figure-host svg").count() === 0
       && await page.locator(".error-bar").count() === 0)
     fail("layered line+trend rendered nothing");
   console.log("layered line + trend ok");
 } else {
-  await geomCard.locator(".add-layer-menu .cancel").click().catch(() => {});
+  console.log("Mean ± band not offered as a second layer — skipped the layered check");
+  await page.click("[data-testid='plot-wizard'] .cancel").catch(() => {});
 }
 
-if (pageErrors.length) fail("page errors: " + pageErrors.slice(0, 4).join(" | "));
+if (page.errors.length) fail("page errors: " + page.errors.slice(0, 4).join(" | "));
 
 console.log("timeseries e2e ok");
 await browser.close();

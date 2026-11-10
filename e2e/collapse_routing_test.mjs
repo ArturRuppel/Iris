@@ -1,4 +1,4 @@
-import { chromium } from "playwright";
+import { openApp, importCsv, addFirstPlot, inspectorTab, fail } from "./helpers.mjs";
 
 /* E2E for the transformation explorer's collapse-routing UI — the integration
    proof for the un-force-nesting feature. Reusing the superplot harness:
@@ -22,25 +22,15 @@ import { chromium } from "playwright";
    the figure's Stats section shows the caution dot. This test is the
    regression guard for that honesty signal.)
 
-   The workbench card reskin also replaced the always-visible `.layer-rail`
-   with the geom-editor card (right-click the figure node -> "Edit plot…"),
-   and the collapse-routing panel is now its own card (opened via the source
-   node's `+` handle -> "Collapse"), not a fixed side panel.
+   The plot is built in the Plot card (add-plot wizard, then the Layers tab's
+   add-layer wizard for the subject-grain dots), and the collapse-routing panel
+   is its own card (opened via the source node's `+` handle -> "Collapse"),
+   not a fixed side panel.
 
-   Needs the engine (8765) and the vite dev server (5173); Chromium runs on a
-   machine that has one. */
+   Needs the engine and the vite dev server; Chromium runs on a machine that
+   has one. */
 
-const URL = process.env.APP_URL ?? "http://localhost:5173";
-const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
-const pageErrors = [];
-page.on("pageerror", (e) => pageErrors.push(e.message));
-const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
-
-await page.goto(URL, { waitUntil: "networkidle" });
-await page.waitForSelector(".app", { timeout: 30000 });
-if (await page.locator(".engine-down").count() > 0)
-  fail("engine not reachable — start the engine on 8765");
+const { browser, page } = await openApp();
 
 // Same fixture as the superplot e2e: `subject` and `rep` are identifier tokens,
 // so the import seeds a 2-level spine and the default plan is a 2-step collapse.
@@ -49,37 +39,26 @@ for (const [grp, base] of [["ctrl", 10], ["drug", 14]])
   for (let s = 0; s < 3; s++)
     for (let r = 0; r < 3; r++)
       rows.push(`${grp},${grp}_s${s},${r},${base + s + r * 0.1}`);
-const csv = rows.join("\n");
+await importCsv(page, "collapse_routing_fixture.csv", rows.join("\n"));
 
-await page.click(".tb-btn:has-text('Import')");
-await page.setInputFiles("input[type=file]", {
-  name: "collapse_routing_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
-});
-await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
-await page.click(".modal-foot button.primary");
-await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
+// A categorical-X / numeric-Y comparison so a plot+test exist: the first plot
+// (Box, raw) through the add-plot wizard ...
+const card = await addFirstPlot(page, { geom: "Box", x: "group", y: "value" });
 
-// Into the Workbench, map a categorical-X / numeric-Y comparison so a plot+test exist.
-await page.click(".tb-seg button:has-text('Workbench')");
-const figureNode = page.locator(".txw-node.figure").first();
-await figureNode.waitFor({ state: "visible", timeout: 15000 });
-await figureNode.click({ button: "right" });
-await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
-await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
-const geomCard = page.locator("[data-testid='geom-card']");
-await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
-await geomCard.locator(".enc-row", { hasText: "X" }).locator("select").selectOption("group");
-await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
-
-// Compose box(raw) + dot(subject) so inference sits at the subject grain by
-// default (n = subjects), mirroring the canonical superplot.
-const addLayer = async (geom) => {
-  await geomCard.locator(".add-layer-btn").click();
-  await geomCard.locator(".add-layer-menu button", { hasText: geom }).click();
-};
-await addLayer("Box");
-await addLayer("Dots");
-await geomCard.locator(".layer-card").nth(1).locator(".layer-level select").selectOption("subject");
+// ... then compose dot(subject) on top through the add-layer wizard, so
+// inference sits at the subject grain by default (n = subjects), mirroring the
+// canonical superplot.
+await inspectorTab(page, "Layers");
+await card.locator(".add-layer-btn").click();
+await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
+await page.locator(".wiz-geom", { hasText: "Dots" }).first().click();
+await page.waitForSelector(".wiz-step.wiz-grain", { timeout: 10000 });
+await page.locator(".wiz-grain select").selectOption("subject");
+await page.click(".wiz-done");
+await page.waitForSelector("[data-testid='plot-wizard']", { state: "detached", timeout: 10000 });
+await inspectorTab(page, "Layers");
+const dotLevel = await card.locator(".layer-card").nth(1).locator(".layer-level select").inputValue();
+if (dotLevel !== "subject") fail(`the Dots layer should read the subject grain, reads '${dotLevel}'`);
 await page.waitForTimeout(500);
 
 // Open the collapse-editor card via the source node's `+` handle.
@@ -130,7 +109,7 @@ if (stepCountAfter !== stepCount - 1)
   fail(`removing a level should drop one cr-step (${stepCount} -> ${stepCount - 1}), saw ${stepCountAfter}`);
 console.log(`removed a level: cr-steps ${stepCount}->${stepCountAfter}`);
 
-if (pageErrors.length) fail("page errors: " + pageErrors.slice(0, 4).join(" | "));
+if (page.errors.length) fail("page errors: " + page.errors.slice(0, 4).join(" | "));
 
 console.log("collapse routing e2e ok");
 await browser.close();

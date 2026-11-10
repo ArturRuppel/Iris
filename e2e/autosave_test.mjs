@@ -44,7 +44,7 @@ function installSavePickerStub() {
 }
 
 async function importFixture(page) {
-  await page.click(".tb-btn:has-text('Import')");
+  await page.click(".topbar button:has-text('Import')");
   await page.setInputFiles("input[type=file]", {
     name: "autosave_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
   });

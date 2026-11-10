@@ -23,6 +23,20 @@ await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 const page = await context.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
+/* The grouped sheet bands by the identifier spine (coarser identifiers across the
+   top, the finest down the side), so the lens is offered only once a table has an
+   identifier. Mark `names` identifiers in the Data hierarchy panel, in order: each
+   is appended to the spine as its finest level. */
+const markIdentifiers = async (page, names) => {
+  for (const name of names) {
+    const row = page.locator(".hierarchy-panel .hp-role-row",
+      { has: page.locator(".hp-col", { hasText: new RegExp(`^${name}$`, "i") }) });
+    const before = await page.locator(".hierarchy-panel .hp-node").count();
+    await row.locator(".seg button", { hasText: /^identifier$/ }).click();
+    await page.waitForFunction((n) =>
+      document.querySelectorAll(".hierarchy-panel .hp-node").length === n, before + 1, { timeout: 10000 });
+  }
+};
 const cell = (r, c) => page.locator(`.gs-cell[data-r="${r}"][data-c="${c}"]`);
 const setClip = (t) => page.evaluate((s) => navigator.clipboard.writeText(s), t);
 const getClip = () => page.evaluate(() => navigator.clipboard.readText());
@@ -33,7 +47,7 @@ const hasClass = async (r, c, cls) => (await cell(r, c).getAttribute("class")).i
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
 
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "ragged_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -42,6 +56,7 @@ await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
+await markIdentifiers(page, ["grp"]);
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
 await page.waitForSelector(".gs-canvas .gs-cell", { timeout: 15000 });
 
@@ -110,8 +125,8 @@ if (!/Pasted 1 cell/.test(overMsg) || !/3 cells outside the data were skipped/.t
   fail("overflow paste should write 1 and skip 3, got: " + overMsg);
 console.log("overflow paste wrote 1, skipped 3:", overMsg.trim());
 
-if (await page.locator(".error-bar").count() > 0)
-  fail("unexpected error-bar: " + await page.locator(".error-bar").innerText());
+if (await page.locator(".error-bar:not(.warn-bar)").count() > 0)
+  fail("unexpected error-bar: " + await page.locator(".error-bar:not(.warn-bar)").innerText());
 
 console.log("PASS: grouped-sheet paste & clear write real rows, skip holes/overflow, and say so");
 await browser.close();

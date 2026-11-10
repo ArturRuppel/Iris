@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { showTable } from "./helpers.mjs";
 
 /* Smoke test for the reduction-pipeline UI: the Workbench's on-canvas step
    authoring (add a step via a node's `+`, a prefix-grouped column picker),
@@ -12,7 +13,8 @@ import { chromium } from "playwright";
    (`.txw-handle-add`), picking a step kind from the floating menu, which
    inserts the step AND opens its editor as an `[data-testid='op-editor-card']`
    card. The reduced-table preview (`.reduced-note`, unchanged) lives in the
-   `[data-testid='table-card']` that's pinned by default at Workbench landing.
+   `[data-testid='table-card']`, shown by clicking the table node (the
+   display panel shows one card at a time).
 
    The step itself also changed semantics: the old "Select columns" step
    PROJECTED TO the chosen columns (blank = keep nothing). It no longer
@@ -52,8 +54,12 @@ const fail = (msg) => { console.error(msg); process.exit(1); };
 
 await page.goto(URL, { waitUntil: "domcontentloaded" });
 await page.waitForSelector(".app", { timeout: 30000 });
+{ // a recovery bar left by another session: start from an empty document
+  const discard = page.locator(".recovery-bar button:has-text('Discard')");
+  if (await discard.count()) await discard.click();
+}
 
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "plottables_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -61,10 +67,12 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 
-// Switch to Workbench; the table card (with the reduced preview) is pinned by default.
+// Switch to Workbench, then click the table node: the display panel shows one
+// card at a time, and the table card (with the reduced preview) is not the one
+// shown at landing any more (the plot card is).
 await page.click(".tb-seg button:has-text('Workbench')");
 await page.waitForSelector(".workbench-mode", { timeout: 60000 });
-await page.waitForSelector("[data-testid='table-card']", { timeout: 60000 });
+await showTable(page);
 
 // The reduced-table preview loads (table upload + /reduce round trip).
 await page.waitForSelector("[data-testid='table-card'] .reduced-note", { timeout: 60000 });

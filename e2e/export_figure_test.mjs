@@ -53,7 +53,7 @@ if (outside.length) fail(`reached outside the folder: ${outside.slice(0, 8).join
 if (await page.locator(".recovery-bar").count()) fail("a recovery offer covered the figure");
 const save = page.locator("header .tb-primary");
 if ((await save.textContent()).trim() !== "Save") fail(`the primary button says ${await save.textContent()}`);
-if (!(await page.locator("header button:has-text('Load')").count())) fail("a detached copy should keep Load; it is missing");
+if (!(await page.locator("header button:text-is('Open')").count())) fail("a detached copy should keep Open; it is missing");
 if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/export-figure-${engineName}.png` });
 
 // ── saving the copy: the figure's provenance survives, derived_from names the figure ──

@@ -22,6 +22,20 @@ await context.grantPermissions(["clipboard-read", "clipboard-write"]);
 const page = await context.newPage();
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
+/* The grouped sheet bands by the identifier spine (coarser identifiers across the
+   top, the finest down the side), so the lens is offered only once a table has an
+   identifier. Mark `names` identifiers in the Data hierarchy panel, in order: each
+   is appended to the spine as its finest level. */
+const markIdentifiers = async (page, names) => {
+  for (const name of names) {
+    const row = page.locator(".hierarchy-panel .hp-role-row",
+      { has: page.locator(".hp-col", { hasText: new RegExp(`^${name}$`, "i") }) });
+    const before = await page.locator(".hierarchy-panel .hp-node").count();
+    await row.locator(".seg button", { hasText: /^identifier$/ }).click();
+    await page.waitForFunction((n) =>
+      document.querySelectorAll(".hierarchy-panel .hp-node").length === n, before + 1, { timeout: 10000 });
+  }
+};
 const getClip = () => page.evaluate(() => navigator.clipboard.readText());
 
 await page.goto(URL, { waitUntil: "domcontentloaded" });
@@ -82,7 +96,7 @@ console.log("entry: Ctrl+V moved the block (source blanked, contour cleared)");
 
 /* ---------- Part B: the grouped-sheet lens ---------- */
 const csv = ["grp,rep,value", "A,r1,1", "A,r2,2", "B,r1,3", "B,r2,4"].join("\n");
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "cut_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -90,6 +104,14 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
+// `rep` seeds the spine by its name; grp is the coarser level (the columns A, B),
+// so mark it an identifier and move it above rep: grp bands, rep aligns the rows
+await markIdentifiers(page, ["grp"]);
+await page.locator(".hierarchy-panel .hp-node").nth(1).locator("button[title='Coarser']").click();
+await page.waitForFunction(() => {
+  const names = [...document.querySelectorAll(".hierarchy-panel .hp-level-name")].map((e) => e.textContent.trim().toLowerCase());
+  return names.join(",") === "grp,rep";
+}, null, { timeout: 10000 });
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
 await page.waitForSelector('.gs-canvas .gs-cell[data-r="0"][data-c="0"]', { timeout: 15000 });
 

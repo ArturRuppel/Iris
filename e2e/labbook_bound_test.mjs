@@ -40,7 +40,7 @@ const status = iris.locator(".tb-labbook");
 await until("the file to open", async () => (await status.textContent().catch(() => ""))?.includes("in the lab book"));
 await iris.waitForSelector("[data-testid='plot-card'] .figure-frame svg", { timeout: 60000 });
 
-for (const hidden of ["New", "Load"])
+for (const hidden of ["New", "Open"])
   if (await iris.locator(`.topbar button:text-is('${hidden}')`).count()) fail(`${hidden} is still offered`);
 if (!await iris.locator(".tb-seg button:has-text('Data')").count()) fail("the Data tab is gone");
 if (!await iris.locator(".tb-seg button:has-text('Workbench')").count()) fail("the Workbench tab is gone");

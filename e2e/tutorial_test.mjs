@@ -1,7 +1,7 @@
 import { chromium } from "playwright";
 
 /* E2E for the interactive tutorial (replaces the quickstart page). Proves the
-   state-driven engine end to end: launch from the ⋯ menu, then walk all five steps
+   state-driven engine end to end: launch from the Learn menu in the top bar, then walk all five steps
    performing the REAL actions, asserting that Next gates on live app state — it
    stays disabled until the user actually opens the Workbench and actually builds
    the mapped plot, and the final figure carries a real test. Needs the engine
@@ -27,9 +27,9 @@ const waitStep = (n) => page.waitForFunction(
     document.querySelector(".tutorial-card")?.textContent ?? ""),
   String(n), { timeout: 15_000 });
 
-// --- Launch from the ⋯ menu ---------------------------------------------------
-await page.getByRole("button", { name: "More actions" }).click();
-await page.getByRole("button", { name: "Start tutorial" }).click();
+// --- Launch from the Learn menu in the top bar --------------------------------
+await page.locator(".topbar button", { hasText: /^Learn/ }).click();
+await page.locator(".tb-menu-learn .tb-menu-item", { hasText: "Start tutorial" }).click();
 
 // --- Step 1: the table (observational, opens in Data) ------------------------
 await card.waitFor({ timeout: 15_000 });
@@ -54,7 +54,9 @@ await page.locator(".wiz-done").click();
 await waitStep(4);          // closing the wizard with a built plot auto-advances, no click
 
 // --- Step 4: Iris suggests a test (observational) ----------------------------
-await page.waitForSelector("[data-tour='stats']", { timeout: 10_000 });
+await page.waitForSelector("[data-tour='stats']", { timeout: 10_000 }).catch(() =>
+  fail("tutorial step 4 anchors data-tour='stats', but the stats card is not shown " +
+       "(the display panel still shows the plot card), so the step spotlights nothing"));
 const statsText = await page.locator("[data-tour='stats']").textContent() ?? "";
 if (/add a plot to see a test/i.test(statsText))
   fail("stats card still shows the empty stub after a plot was built");

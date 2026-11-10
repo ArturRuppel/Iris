@@ -1,70 +1,72 @@
-import { chromium } from "playwright";
+import { openApp, importCsv, addFirstPlot, inspectorTab, fail } from "./helpers.mjs";
 
-/* Drag-resize the figure and confirm the style drawer still renders after a
-   few control flips. No fixture CSV exists on disk, so the table is imported
-   via an in-memory buffer through the ImportWizard's hidden file input — the
-   `.template-pick` dropdown and auto-seeded layers/mappings were removed in
-   111243b (see TODO.md), so this follows the documented fix pattern: explicit
-   import, explicit mapping, explicit `.add-layer-btn` flow. A Distribution layer
-   (aggregates, needs only Y) always renders regardless of sample size. */
+/* Drag-resize the figure and confirm the style controls still re-render it
+   after a few flips. No fixture CSV exists on disk, so the table is imported
+   via an in-memory buffer. The plot editor is the Plot card: the first plot is
+   built through the "+ add plot" wizard (plot type, X, Y), and the old style
+   drawer is now the plot inspector's tabs (a box knob on Layers, the tick
+   direction on Axes). A Box plot on a two-group table renders at any sample
+   size and owns the "Notch" knob this test flips.
+
+   (This used to draw a Y-only Distribution of a one-column table; the wizard
+   currently will not finish without an X mapping, see the report that came
+   with this change.) */
 
 const csv = [
-  "value",
-  "1", "2", "2", "3", "3", "3", "4", "4", "5", "6", "7", "8",
+  "group,value",
+  "a,1", "a,2", "a,2", "a,3", "a,3", "a,3",
+  "b,4", "b,4", "b,5", "b,6", "b,7", "b,8",
 ].join("\n");
 
-const b = await chromium.launch();
-const page = await b.newPage({ viewport: { width: 1600, height: 1100 } });
-page.on("pageerror", (e) => console.log("[pageerror]", e.message));
-await page.goto(process.env.APP_URL ?? "http://localhost:5173");
-await page.waitForSelector(".app", { timeout: 30000 });
-
-await page.click(".tb-btn:has-text('Import')");
-await page.setInputFiles("input[type=file]", {
-  name: "resize_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
-});
-await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
-await page.click(".modal-foot button.primary");
-await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
-
-await page.click(".tb-seg button:has-text('Workbench')");
-const figureNode = page.locator(".txw-node.figure").first();
-await figureNode.waitFor({ state: "visible", timeout: 60000 });
-await figureNode.click({ button: "right" });
-await page.waitForSelector(".txw-ctxmenu", { timeout: 15000 });
-await page.locator(".txw-ctxmenu [role='menuitem']", { hasText: /edit plot/i }).click();
-const geomCard = page.locator("[data-testid='geom-card']");
-await geomCard.locator(".layer-rail").waitFor({ state: "visible", timeout: 15000 });
-
-await geomCard.locator(".enc-row", { hasText: "Y" }).locator("select").selectOption("value");
-await geomCard.locator(".add-layer-btn").click();
-await geomCard.locator(".add-layer-menu button:has-text('Distribution')").click();
-await page.waitForSelector(".figure-host svg", { timeout: 30000 });
+const { browser, page } = await openApp({ viewport: { width: 1600, height: 1100 } });
+await importCsv(page, "resize_fixture.csv", csv);
+const card = await addFirstPlot(page, { geom: "Box", x: "group", y: "value" });
 await page.waitForTimeout(600);
 
-const dims0 = await page.locator(".figure-pane .provenance").textContent();
+const dims = async () => (await card.locator(".figure-pane .provenance").textContent()).trim();
+const dims0 = await dims();
 console.log("dims before:", dims0);
+const parse = (t) => { const m = /(\d+)\s*×\s*(\d+)\s*mm/.exec(t); return m ? [Number(m[1]), Number(m[2])] : null; };
+if (!parse(dims0)) fail(`no figure size badge before the drag (got "${dims0}")`);
 
-const h = page.locator(".resize-handle");
+const h = card.locator(".resize-handle");
 const hb = await h.boundingBox();
-console.log("handle present:", !!hb);
-await page.mouse.move(hb.x + 7, hb.y + 7);
+if (!hb) fail("no canvas resize handle on the figure");
+await page.mouse.move(hb.x + hb.width / 2, hb.y + hb.height / 2);
 await page.mouse.down();
-await page.mouse.move(hb.x + 7 + 80, hb.y + 7 - 60, { steps: 6 });
-console.log("badge during drag:", await page.locator(".figure-pane .provenance").textContent());
+await page.mouse.move(hb.x + hb.width / 2 + 80, hb.y + hb.height / 2 - 60, { steps: 6 });
+const during = await dims();
+console.log("badge during drag:", during);
 await page.mouse.up();
-await page.waitForTimeout(1500); // debounce + engine round trip
-console.log("dims after:", await page.locator(".figure-pane .provenance").textContent());
+await page.waitForTimeout(2000); // engine round trip at the new size
+const dims1 = await dims();
+console.log("dims after:", dims1);
+const [w0, h0] = parse(dims0), after = parse(dims1);
+if (!after) fail(`no figure size badge after the drag (got "${dims1}")`);
+if (!(after[0] > w0 && after[1] < h0))
+  fail(`dragging the corner right/up should widen and shorten the figure (${dims0} → ${dims1})`);
 
-// open style drawer, flip a few controls, confirm re-render doesn't error
-await page.locator(".style-pane summary").click();
-await page.locator(".style-pane").screenshot({ path: "/tmp/style_drawer.png" });
-await page.getByLabel("notches (median CI)").check().catch(() => {});
-const tickSel = page.locator("select").filter({ has: page.locator('option[value="inout"]') }).first();
-await tickSel.selectOption("in");
-await page.waitForTimeout(1200);
-const svgOk = await page.evaluate(() => !!document.querySelector(".figure-host svg"));
+// Flip a few style controls; the figure must re-render without an error bar.
+const svgBefore = await card.locator(".figure-host svg").innerHTML();
+await inspectorTab(page, "Layers");
+const notch = card.locator(".insp-row", { hasText: "Notch" }).locator("input[type=checkbox]");
+if (await notch.count() === 0) fail("no Notch knob on the box layer in the Layers tab");
+await notch.first().check();
+await inspectorTab(page, "Axes");
+const tickRow = card.locator(".insp-row", { hasText: "Tick direction" });
+if (await tickRow.count() === 0) fail("no Tick direction control in the Axes tab");
+await tickRow.locator("button", { hasText: /^in$/ }).click();
+await page.waitForTimeout(2000);
+const svgOk = await card.locator(".figure-host svg").count() > 0;
 const errBar = await page.locator(".error-bar").count();
+if (svgOk && (await card.locator(".figure-host svg").innerHTML()) === svgBefore)
+  fail("flipping Notch and Tick direction did not re-render the figure");
 console.log("svg still renders:", svgOk, "| error bars:", errBar);
-await page.screenshot({ path: "/tmp/app_full.png", fullPage: true });
-await b.close();
+if (!svgOk) fail("figure gone after flipping style controls");
+if (errBar) fail("error bar after flipping style controls: " + await page.locator(".error-bar").first().innerText());
+const dims2 = await dims();
+if (dims2 !== dims1) fail(`the style flips changed the resized figure size (${dims1} → ${dims2})`);
+
+if (page.errors.length) fail("page errors: " + page.errors.slice(0, 4).join(" | "));
+console.log("resize e2e ok");
+await browser.close();

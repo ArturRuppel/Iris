@@ -26,6 +26,20 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1500, height: 1000 } });
 page.on("pageerror", (e) => console.log("[pageerror]", e.message));
 const fail = (msg) => { console.error("FAIL:", msg); process.exit(1); };
+/* The grouped sheet bands by the identifier spine (coarser identifiers across the
+   top, the finest down the side), so the lens is offered only once a table has an
+   identifier. Mark `names` identifiers in the Data hierarchy panel, in order: each
+   is appended to the spine as its finest level. */
+const markIdentifiers = async (page, names) => {
+  for (const name of names) {
+    const row = page.locator(".hierarchy-panel .hp-role-row",
+      { has: page.locator(".hp-col", { hasText: new RegExp(`^${name}$`, "i") }) });
+    const before = await page.locator(".hierarchy-panel .hp-node").count();
+    await row.locator(".seg button", { hasText: /^identifier$/ }).click();
+    await page.waitForFunction((n) =>
+      document.querySelectorAll(".hierarchy-panel .hp-node").length === n, before + 1, { timeout: 10000 });
+  }
+};
 const selText = () => page.evaluate(() => window.getSelection().toString());
 
 // drag from one element's centre to another's, dispatching real mouse events so
@@ -117,7 +131,7 @@ if (await page.locator('.de-body.de-sel[data-c="1"]').count() !== 0)
 console.log(`entry: Ctrl+click selected 2 disjoint columns (${deCtrlBody} body cells, gap unselected)`);
 
 /* ---------- Part B: the grouped-sheet lens ---------- */
-await page.click(".tb-btn:has-text('Import')");
+await page.click(".topbar button:has-text('Import')");
 await page.setInputFiles("input[type=file]", {
   name: "colsel_fixture.csv", mimeType: "text/csv", buffer: Buffer.from(csv),
 });
@@ -125,6 +139,7 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 15000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 15000 });
 await page.waitForSelector(".table-pane .dv-toggle", { timeout: 30000 });
+await markIdentifiers(page, ["group", "day"]);
 await page.locator(".dv-toggle button:has-text('Grouped sheet')").click();
 await page.waitForSelector('.gs-canvas .gs-cell[data-r="0"][data-c="0"]', { timeout: 15000 });
 
