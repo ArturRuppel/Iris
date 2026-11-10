@@ -71,6 +71,11 @@ export function FigureView() {
   const open = (id: string) => { setActive(id); setViewMode("workbench"); };
   const untagged = plottables.filter((p) => !p.tag?.trim());
   const usedTags = panels.map((p) => p.tag ?? "");
+  // every analysis becomes a panel, lettered in list order
+  const addAll = () => {
+    const used = [...usedTags];
+    for (const p of untagged) { const tag = nextTag(used); used.push(tag); setTag({ id: p.id, tag }); }
+  };
   const rows = figure.direction === "rows";
   const custom = figure.sizes !== null;
 
@@ -79,7 +84,18 @@ export function FigureView() {
       <aside className="figure-controls">
         <section>
           <h3>Panels</h3>
-          {panels.length === 0 && <p className="fig-hint">Give an analysis a tag to make it a panel.</p>}
+          {panels.length === 0 && (
+            <>
+              <p className="fig-hint">
+                A figure is built from analyses: each one you add becomes a panel
+                with a letter. Add them one at a time with +, or all at once.
+              </p>
+              {untagged.length > 1 && (
+                <button className="chip fig-add-all" onClick={addAll}>
+                  Add all {untagged.length} as A, B, C…</button>
+              )}
+            </>
+          )}
           <ol className="fig-panels">
             {panels.map((p, i) => (
               <li key={p.id}>
@@ -166,7 +182,7 @@ export function FigureView() {
       <section className="figure-preview" aria-busy={busy}>
         {error && <div className="error-bar" role="alert">{error}</div>}
         {request.length === 0 ? (
-          <div className="analyses-empty"><span>No panels yet. Tag analyses on the left, or in the Analyses list.</span></div>
+          <div className="analyses-empty"><span>No panels yet. Add analyses on the left to build the figure.</span></div>
         ) : src && result ? (
           <div className="fig-sheet" style={{ aspectRatio: `${result.width_mm} / ${result.height_mm}`,
             width: `min(100%, ${result.width_mm * 96 / 25.4}px)` }}>

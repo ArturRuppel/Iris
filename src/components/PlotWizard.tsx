@@ -53,7 +53,12 @@ export function PlotWizard({ mode, onDone, onCancel }: {
     onDone();
   };
 
-  const xyMapped = !!active.mappings.x && !!active.mappings.y;
+  /* Done needs the axes the picked plot type needs, not always both: a
+     Distribution takes Y alone, and requiring X too left a one-column table with
+     no plot it could ever finish. */
+  const pickedGeom = active.layers[addedIndex ?? lastIndex]?.geom;
+  const needs = (pickedGeom && registry.geoms[pickedGeom]?.needs) || ["x", "y"];
+  const xyMapped = needs.every((axis) => axis !== "x" && axis !== "y" ? true : !!active.mappings[axis]);
 
   return (
     <div className="plot-wizard" data-testid="plot-wizard" data-tour="plot-wizard">

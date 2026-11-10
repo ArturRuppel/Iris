@@ -1,5 +1,7 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { pushStashAtom } from "../workbench/state";
+import { FIGURE_ID } from "../explorer/graph";
 import {
   activePlottableAtom, analysisAtom, effectiveSchemaAtom, plotWizardOpenCountAtom,
   specAtom, viewModeAtom,
@@ -103,6 +105,17 @@ export function TutorialOverlay() {
      a real goal flip or a step change, never to the overlay's own cosmetic re-renders
      (spotlight tracking, card measuring), which would otherwise re-run it every frame
      and could fire on a transient during a view-switch recompile. */
+  /* The display panel shows one card at a time, so a step that points at the
+     Stats or the Plot card must bring that card up first: after the wizard the
+     panel still shows the plot, and the "Iris suggests a test" step spotlighted
+     nothing. */
+  const showCard = useSetAtom(pushStashAtom);
+  useEffect(() => {
+    if (!active || !step || step.view !== "workbench") return;
+    const facet = step.anchor === "stats" ? "stats" : step.anchor === "plot" ? "plot" : null;
+    if (facet) showCard({ target: { kind: "node", id: FIGURE_ID, facet }, cardKind: facet });
+  }, [active, index, step, showCard]);
+
   const enteredMetRef = useRef(false);
   const prevIndexRef = useRef(-1);
   useEffect(() => {

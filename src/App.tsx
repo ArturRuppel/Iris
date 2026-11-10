@@ -142,7 +142,7 @@ export default function App() {
     try { localStorage.setItem("iris:theme", theme); } catch { /* private mode */ }
   }, [theme]);
   /* which top-bar dropdown is open; closes on outside-click (a backdrop) or Escape. */
-  const [openMenu, setOpenMenu] = useState<null | "export" | "overflow" | "notes">(null);
+  const [openMenu, setOpenMenu] = useState<null | "export" | "overflow" | "notes" | "learn">(null);
   const importRef = useRef<ImportWizardHandle>(null);
   const newDocument = useSetAtom(newDocumentAtom);
   useEffect(() => {
@@ -743,6 +743,15 @@ export default function App() {
       setViewMode(doc.analyses.length ? "workbench" : "data");
     } catch (e) { surfaceUnlessAbort(e); }
   };
+  /* an example picked from the Learn menu replaces the open document, so it asks
+     first when there is unsaved work (the start example never does: it only
+     opens into an empty session) */
+  const openExampleFromMenu = async (caseId: string) => {
+    const dirty = store.get(autosaveKeyAtom) !== autosaveBaseline && pool.length > 0;
+    if (dirty && !window.confirm(
+      "Open this example? Unsaved changes to the current document will be lost.")) return;
+    await handleOpenExample(caseId);
+  };
   const saveToLabbook = async () => {
     if (!labbookFile || !labbookSha.current || labbookSaving.current) return;
     labbookSaving.current = true;
@@ -978,7 +987,7 @@ export default function App() {
             <span className="tb-word">Iris</span>
           </div>
           {/* File-manipulation cluster, next to the logo: one ghost vocabulary for
-              New / Load / Import / Export, and Save as the single filled action. */}
+              New / Open / Import data / Export, and Save as the single filled action. */}
           <div className="tb-fileactions">
             {labbookBack && <a className="tb-ghost tb-back" href={labbookBack} title="Back to the lab-book page"
               onClick={(e) => {
@@ -986,10 +995,12 @@ export default function App() {
                 if (dirty && !window.confirm("Leave without saving? The lab book keeps the figure as last saved.")) e.preventDefault();
               }}>‹ Lab book</a>}
             {!labbookFile && <button className="tb-ghost" onClick={doNew}>New</button>}
-            {!labbookFile && <button className="tb-ghost" onClick={doLoad}>Load</button>}
+            {!labbookFile && <button className="tb-ghost" onClick={doLoad}
+              title="Open a saved Iris document (.iris)">Open</button>}
             <button className="tb-primary" onClick={doSave}
               disabled={labbookFile !== null && !labbookWritable}>{labbookFile ? "Save to lab book" : "Save"}</button>
-            <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
+            <button className="tb-ghost" onClick={() => importRef.current?.open()}
+              title="Bring a table in from a CSV or Excel file">Import data</button>
             <div className="tb-menuwrap">
               <button className="tb-ghost" onClick={() => setOpenMenu((m) => m === "export" ? null : "export")}>
                 Export <span className="caret">▾</span></button>
@@ -1058,6 +1069,28 @@ export default function App() {
               title="Use Iris offline: download a single file (about 85 MB) that opens by double-click, with no install and no network">
               Use offline</a>
           )}
+          {/* the tutorial and the worked examples, in the bar itself: they are what
+              a newcomer needs first, and were two levels down in the ⋯ menu */}
+          {!labbookFile && (
+            <div className="tb-menuwrap">
+              <button className="tb-ghost" aria-expanded={openMenu === "learn"}
+                onClick={() => setOpenMenu((m) => m === "learn" ? null : "learn")}>
+                Learn <span className="caret">▾</span></button>
+              {openMenu === "learn" && (
+                <div className="tb-menu tb-menu-right tb-menu-learn">
+                  <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void handleStartTutorial(); }}>
+                    <span className="grow">Start tutorial</span></button>
+                  <div className="tb-menu-sep" />
+                  <div className="tb-menu-label">Examples</div>
+                  {(exampleManifest as { caseId: string; title: string }[]).map((ex) => (
+                    <button key={ex.caseId} className="tb-menu-item" title={ex.title}
+                      onClick={() => { setOpenMenu(null); void openExampleFromMenu(ex.caseId); }}>
+                      <span className="grow">{ex.title}</span></button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div className="tb-menuwrap">
             <button className="tb-icon" aria-label="More actions"
               onClick={() => setOpenMenu((m) => m === "overflow" ? null : "overflow")}>⋯</button>
@@ -1075,8 +1108,6 @@ export default function App() {
                 <div className="tb-menu-sep" />
                 {!labbookFile && <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void doSaveAs(); }}>
                   <span style={{ width: 15 }} /><span className="grow">Save As…</span></button>}
-                {!labbookFile && <button className="tb-menu-item" onClick={() => { setOpenMenu(null); void handleStartTutorial(); }}>
-                  <span style={{ width: 15 }} /><span className="grow">Start tutorial</span></button>}
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowSpec((s) => !s); }}>
                   <span style={{ width: 15 }} /><span className="grow">{showSpec ? "Hide" : "Show"} analysis spec</span></button>
                 <button className="tb-menu-item" onClick={() => { setOpenMenu(null); setShowLog((s) => !s); }}>
@@ -1115,7 +1146,7 @@ export default function App() {
           </div>
         ) : !active ? (
           <div className="analyses-empty workbench-start">
-            <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import</button>
+            <button className="tb-ghost" onClick={() => importRef.current?.open()}>Import data</button>
             <button className="tb-ghost" onClick={() => setViewMode("data")}>Enter data</button>
             {firstExample && !labbookFile && (
               <button className="tb-ghost" onClick={() => void handleOpenExample(firstExample)}>Open example</button>

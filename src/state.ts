@@ -1,4 +1,5 @@
 import { atom, type Getter, type Setter } from "jotai";
+import { pivotability } from "./grouped";
 import { atomWithStorage } from "jotai/utils";
 import { dataFingerprint, snapshotStateKey } from "./autosave";
 import { FIGURE_DEFAULTS, normalizeFigure, panelOrder, type FigureAssembly } from "./figure";
@@ -1130,7 +1131,13 @@ export const mintFromEntryAtom = atom(null, async (get, set) => {
   const ct = await engine.importCommit(src, opts,
     long.columns.map((c) => ({ name: c.name, label: c.label, type: c.type })));
   await set(loadTableAtom, { ...tableFromColumnar(ct), token: ct.token });
-  set(dataViewAtom, "grouped");
+  /* The grouped lens bands by identifiers, and the columns an entry grid's
+     grouping rows become are classifiers (conditions), so a typed-in table
+     usually has nothing to band by: sending the Data tab to the lens then showed
+     "Nothing to group by" in place of the data just entered. Go to the lens only
+     when it can draw this table; otherwise show the table. */
+  const minted = get(activeTableAtom);
+  set(dataViewAtom, minted && pivotability(minted.schema, minted.hierarchy).ok ? "grouped" : "table");
   set(entryBandsAtom, []);
   set(entryColumnsAtom, freshColumns());
   set(entryRowsAtom, freshRows(2));

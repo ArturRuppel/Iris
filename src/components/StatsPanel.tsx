@@ -134,7 +134,9 @@ function ResultRows({ s }: { s: StatsResult }) {
             <span key={g.level} style={{ display: "contents" }}>
               <dt>{g.level} vs ref</dt>
               <dd className="mono strong">
-                {g.p == null ? `n = ${g.n} (too few to test)` : `${fmtP(g.p)} ${g.stars}`}
+                {g.p == null
+                  ? `n = ${g.n} (${g.reason === "no_spread" ? "values do not vary: t is undefined" : "too few to test"})`
+                  : `${fmtP(g.p)} ${g.stars}`}
               </dd>
             </span>
           )) : (
@@ -369,21 +371,85 @@ export function TestPicker() {
           .map((i, k) => (
             <p className="reason stat-notice" key={k}>{i.message}</p>
           ))}
-        <label className="describe-toggle">
-          <input type="checkbox" checked={active?.describeOnly ?? false}
-            onChange={(e) => setDescribeOnly(e.target.checked)} />
-          Describe only — run no test
-          <InfoTip k="describe_only" />
-        </label>
-        {/* stronger than describe-only: no stats at all, and every stats surface
-            (this card, the figure's Stats section, the test wire) goes away. */}
-        <div className="describe-toggle stats-off-row">
-          <button className="chip" data-testid="stats-off" onClick={() => setStatsOff(true)}>
-            No statistics
-          </button>
-          <span>plot only — hide all stats</span>
-          <InfoTip k="stats_off" />
+        {/* what this analysis reports: a test, the description alone, or no
+            statistics at all (which also removes the Stats section and the test
+            wire from the graph) */}
+        <div className="stats-mode">
+          <div className="tb-seg" role="group" aria-label="Statistics">
+            <button className={active?.describeOnly ? "" : "active"} aria-pressed={!active?.describeOnly}
+              onClick={() => setDescribeOnly(false)}>Run a test</button>
+            <button className={active?.describeOnly ? "active" : ""} aria-pressed={!!active?.describeOnly}
+              onClick={() => setDescribeOnly(true)}>Describe only</button>
+            <button data-testid="stats-off" onClick={() => setStatsOff(true)}>No statistics</button>
+          </div>
+          <InfoTip k={active?.describeOnly ? "describe_only" : "stats_off"} />
         </div>
+        {model.chosen_by === "describe_only" ? null : s.decision?.structural && s.decision?.assumption ? (
+          /* Two-group numeric family: the engine emits a per-question `decision`
+             with both axes, so guide the user through the questions and derive the
+             test. The location family emits only an `assumption` axis (no
+             structural pairing) and the rate family a model/global-LR record, so
+             both fall through to the chip row below. */
+          <GuidedTestPicker
+            decision={{ structural: s.decision.structural, assumption: s.decision.assumption }}
+            /* no test ran (recoverable error): preview where the recommended
+               answers land rather than the "none" placeholder. */
+            resolvedTest={(s.result.test === "none" ? rec.test : s.result.test) as TestName}
+            onChange={(structural, assumption) =>
+              setOverride(overrideFor(structural, assumption, rec.test))}
+          />
+        ) : (
+          /* Families the engine doesn't (yet) emit a `decision` for — multi-group,
+             correlation, contingency — keep the recommendation + chip-row fallback. */
+          <>
+            <h3>
+              {s.result.test === "descriptive" ? "Reading the distribution" : "Recommended test"}{" "}
+              <InfoTip k={s.result.test === "descriptive" ? "descriptive" : "recommended_test"} />
+            </h3>
+            <p className="reason"><strong>{TEST_LABELS[rec.test] ?? rec.test}</strong> — {rec.reason}.</p>
+            {alternatives.length > 1 && assumptionAxis && (
+              <p className="reason assumption-axis">
+                Parametric vs robust <InfoTip k="parametric_vs_robust" />
+              </p>
+            )}
+            {alternatives.length > 0 && (
+              <div className="btn-row">
+                {alternatives.map((t) => (
+                  <span className="chip-wrap" key={t}>
+                    <button
+                      className={s.result.test === t ? "chip active" : "chip"}
+                      onClick={() => setOverride(t === rec.test ? null : t)}>
+                      {TEST_LABELS[t]}{t === rec.test ? " ✓" : ""}
+                    </button>
+                    <InfoTip k={t as GlossaryKey} />
+                  </span>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+        {/* the reasoning behind the choice, folded away in the same column: the
+            design Iris inferred from the column types and the assumption checks
+            that steer parametric vs rank-based. The ⓘ tips carry the glossary. */}
+        <details className="why-test">
+          <summary>Why this test?</summary>
+          <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
+          <p className="reason">{model.design}.</p>
+          {s.checks.length > 0 && <h3>Assumption checks <InfoTip k="normality" /></h3>}
+          {s.checks.map((c) => (
+            <div className="row" key={c.group}>
+              <span>Shapiro–Wilk · {c.group} <InfoTip k="shapiro_wilk" /></span>
+              {c.ok
+                ? <span className="mono">W = {c.W!.toFixed(3)}, p {fmtP(c.p!)}{" "}
+                    <em className={c.p! > s.alpha ? "ok" : "warn"}>{c.p! > s.alpha ? "normal" : "non-normal"}</em></span>
+                : <span className="warn">unavailable ({c.reason})</span>}
+            </div>
+          ))}
+        </details>
+        {(["group_comparison", "location", "descriptive", "rate"].includes(model.family)
+          || (!active?.describeOnly && s.result.test !== "descriptive")) && (
+          <h3 className="stats-options-head">Options</h3>
+        )}
         {(model.family === "group_comparison" || model.family === "location"
           || model.family === "descriptive") && (
           /* Opt this numeric plot into a vs-reference (one-sample) test — each
@@ -456,68 +522,6 @@ export function TestPicker() {
             <InfoTip k="significance_stars" />
           </label>
         )}
-        {model.chosen_by === "describe_only" ? null : s.decision?.structural && s.decision?.assumption ? (
-          /* Two-group numeric family: the engine emits a per-question `decision`
-             with both axes, so guide the user through the questions and derive the
-             test. The location family emits only an `assumption` axis (no
-             structural pairing) and the rate family a model/global-LR record, so
-             both fall through to the chip row below. */
-          <GuidedTestPicker
-            decision={{ structural: s.decision.structural, assumption: s.decision.assumption }}
-            /* no test ran (recoverable error): preview where the recommended
-               answers land rather than the "none" placeholder. */
-            resolvedTest={(s.result.test === "none" ? rec.test : s.result.test) as TestName}
-            onChange={(structural, assumption) =>
-              setOverride(overrideFor(structural, assumption, rec.test))}
-          />
-        ) : (
-          /* Families the engine doesn't (yet) emit a `decision` for — multi-group,
-             correlation, contingency — keep the recommendation + chip-row fallback. */
-          <>
-            <h3>
-              {s.result.test === "descriptive" ? "Reading the distribution" : "Recommended test"}{" "}
-              <InfoTip k={s.result.test === "descriptive" ? "descriptive" : "recommended_test"} />
-            </h3>
-            <p className="reason"><strong>{TEST_LABELS[rec.test] ?? rec.test}</strong> — {rec.reason}.</p>
-            {alternatives.length > 1 && assumptionAxis && (
-              <p className="reason assumption-axis">
-                Parametric vs robust <InfoTip k="parametric_vs_robust" />
-              </p>
-            )}
-            {alternatives.length > 0 && (
-              <div className="btn-row">
-                {alternatives.map((t) => (
-                  <span className="chip-wrap" key={t}>
-                    <button
-                      className={s.result.test === t ? "chip active" : "chip"}
-                      onClick={() => setOverride(t === rec.test ? null : t)}>
-                      {TEST_LABELS[t]}{t === rec.test ? " ✓" : ""}
-                    </button>
-                    <InfoTip k={t as GlossaryKey} />
-                  </span>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-        {/* the reasoning behind the choice, folded away in the same column: the
-            design Iris inferred from the column types and the assumption checks
-            that steer parametric vs rank-based. The ⓘ tips carry the glossary. */}
-        <details className="why-test">
-          <summary>Why this test?</summary>
-          <h3>Inferred model <InfoTip k="independent_vs_paired" /></h3>
-          <p className="reason">{model.design}.</p>
-          {s.checks.length > 0 && <h3>Assumption checks <InfoTip k="normality" /></h3>}
-          {s.checks.map((c) => (
-            <div className="row" key={c.group}>
-              <span>Shapiro–Wilk · {c.group} <InfoTip k="shapiro_wilk" /></span>
-              {c.ok
-                ? <span className="mono">W = {c.W!.toFixed(3)}, p {fmtP(c.p!)}{" "}
-                    <em className={c.p! > s.alpha ? "ok" : "warn"}>{c.p! > s.alpha ? "normal" : "non-normal"}</em></span>
-                : <span className="warn">unavailable ({c.reason})</span>}
-            </div>
-          ))}
-        </details>
       </div>
     </section>
   );

@@ -111,6 +111,9 @@ body { margin: 0; background: var(--bg); color: var(--ink);
   background:var(--panel); border:1px solid var(--line); border-radius: 0; padding:5px;
   box-shadow:0 12px 34px -10px rgba(20,10,40,.35); display:flex; flex-direction:column; }
 .tb-menu.tb-menu-right { left:auto; right:0; width:184px; }
+/* the Learn menu lists every bundled example by its title: wider, and it scrolls */
+.tb-menu.tb-menu-learn { width:min(340px, calc(100vw - 24px)); max-height:min(70vh, 560px); overflow:auto; }
+.tb-menu-learn .tb-menu-item .grow { white-space:normal; line-height:1.25; }
 .tb-menu > button { display:flex; align-items:center; gap:8px; width:100%; text-align:left;
   border:none; background:none; border-radius: 0; padding:8px 10px; cursor:pointer;
   font:500 12.5px/1 'Archivo'; color:var(--ink); }
@@ -1723,6 +1726,11 @@ main { position: relative; }
    This follows the card's own width rather than the window's, because the same
    card sits in a narrow panel and in a full-screen tile on one screen. */
 .txw-card-plot { container: plot-card / inline-size; }
+/* A size container has no intrinsic width, so in the centred empty slot the card
+   collapsed to zero and squeezed "+ add plot" into a column one word wide. There
+   the card takes the slot's width and centres the button itself. */
+.txw-slot-body:has(.txw-add-plot) > .txw-card-plot { width: 100%; display: flex; justify-content: center; }
+.txw-add-plot { white-space: nowrap; }
 .plot-figure-side { position: sticky; top: 0; z-index: 5; max-height: 45vh; overflow: auto;
   background: var(--panel); --fig-max-h: 36vh; }
 /* pinned to the scroller's edge, not inside its padding, or the controls show above */
@@ -1925,6 +1933,11 @@ button.fig-name:hover { color: var(--accent); }
     border-bottom: 1px solid var(--line); }
 }
 .fig-seg button { padding: 5px 10px; font-size: 12px; }
+.fig-add-all { align-self: flex-start; font-size: 12px; }
+/* Stats: the three-way switch for what the analysis reports */
+.stats-mode { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.stats-mode .tb-seg button { padding: 5px 10px; font-size: 12px; }
+.stats-options-head { margin-top: 14px; }
 
 /* A narrow workspace (a tablet held upright, a phone, a wide Analyses list)
    cannot hold the graph and the display side by side: the graph was left a
@@ -1941,4 +1954,23 @@ button.fig-name:hover { color: var(--accent); }
     flex-direction: row; align-items: center; }
   .txw-stash.collapsed .rail-expand { writing-mode: horizontal-tb; transform: none; }
   .txw-display-resize { display: none; }
+}
+
+/* Touch screens give every button a 44px minimum height, which made the nesting
+   arrows tall slabs beside a much shorter select. In the hierarchy panel the
+   controls share a 36px height instead: still easy to hit, and the arrows are
+   square. At that size they no longer fit beside the level's name in a 290px
+   panel, so the name takes its own line and the controls sit under it. */
+@media (pointer: coarse) {
+  .hp-level { grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-areas: "name name name" "count fn move"; gap: 4px 8px; }
+  .hp-level-name { grid-area: name; font-size: 14px; white-space: normal; overflow-wrap: anywhere; }
+  .hp-count { grid-area: count; line-height: 36px; font-size: 12px; }
+  .hp-level .hp-fn { grid-area: fn; min-height: 0; height: 36px; width: 100%; max-width: 110px; font-size: 13px; }
+  .hp-move { grid-area: move; gap: 4px; }
+  .hp-move button.icon { min-height: 0; height: 36px; width: 36px; min-width: 36px;
+    padding: 0; font-size: 15px; line-height: 1; }
+  .hp-node-body { padding: 6px 0; }
+  .hp-role-row .seg button { min-height: 36px; font-size: 13px; padding: 2px 10px; }
+  .hp-col { font-size: 14px; }
 }
