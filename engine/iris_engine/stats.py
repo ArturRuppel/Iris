@@ -767,6 +767,7 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
             # t statistic is then undefined); report n but no inferential
             # numbers (guards.py warns about the small group separately).
             per_group.append({"level": lv, "test": "none", "p": None, "stars": "",
+                              "reason": "no_spread" if no_spread else "too_few",
                               "effect": _no_effect(), "n": n,
                               "center": float(np.mean(v)) if n else 0.0,
                               "center_ci": None})
@@ -816,7 +817,9 @@ def location(df: pd.DataFrame, x: str | None, y: str, levels: list[str],
     parts = []
     for g in per_group:
         if g.get("p") is None:
-            parts.append(f"{g['level']}: n = {g['n']} (too few to test)")
+            why = ("the values do not vary, so t is undefined"
+                   if g.get("reason") == "no_spread" else "too few to test")
+            parts.append(f"{g['level']}: n = {g['n']} ({why})")
         elif test == "one_sample_t":
             parts.append(
                 f"{g['level']}: t({g['df']:.0f}) = {g['t']:.2f}, p {_fmt_p(g['p'])}; "

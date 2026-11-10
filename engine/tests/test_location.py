@@ -308,3 +308,15 @@ def test_log_value_axis_skips_nonpositive_reference():
     svg = _render(df, reference=0.0, y_scale="log")
     # the figure renders (no crash); no dashed reference line at y=0
     assert "<svg" in svg
+
+
+def test_constant_group_reports_no_spread_not_too_few():
+    """A group whose values are all equal has no standard error, so its one-sample
+    t is undefined. It gets no result, and the reason says so."""
+    df = pd.DataFrame({"g": ["a"] * 15 + ["b"] * 15,
+                       "y": [2.0] * 15 + list(np.linspace(0.5, 1.5, 15))})
+    res = stats.location(df, "g", "y", ["a", "b"], reference=0.0, override="one_sample_t")
+    a, b = res["per_group"]
+    assert a["p"] is None and a["reason"] == "no_spread"
+    assert b["p"] is not None
+    assert "do not vary" in res["methods_text"]

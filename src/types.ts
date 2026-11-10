@@ -589,6 +589,8 @@ export interface StatsResult {
     level: string; n: number;
     /* location lanes */
     test?: string; p?: number | null; stars?: string;
+    /* why a lane has no p: too few units, or values that do not vary */
+    reason?: "too_few" | "no_spread";
     center?: number; center_ci?: [number, number] | null;
     effect?: { name: string; value: number };
     /* rate lanes */
