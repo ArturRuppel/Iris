@@ -2,14 +2,14 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 
-/* The figure must stay on screen while its controls scroll, in the side panel and
-   in the maximized tile, wide and narrow. Runs on the static web build, so it needs
+/* The figure must stay on screen while its controls scroll, in the full-screen
+   plot, wide and narrow (the docked side panel it also covered is gone). Runs on the static web build, so it needs
    no engine server:
 
      npm run build:web && node e2e/plot_layout_test.mjs
 
    The inspector is a tab bar now (Encoding, Layers, Axes, Text, Layout), not a
-   stack of <details>, so a 1000 px window no longer overflows the side panel.
+   stack of <details>, so a 1000 px window does not overflow.
    The checks pick the tallest tab (Text) and use a short window, so the
    controls really do overflow their scroller and the scroll proves something. */
 
@@ -24,7 +24,10 @@ await page.goto(URL_);
 await page.waitForSelector(".app", { timeout: 180000 });
 await page.click(".tb-seg button:has-text('Workbench')");
 await page.click("button:has-text('Open example')");
-await page.waitForSelector("[data-testid='plot-card'] .figure-frame svg", { timeout: 60000 });
+// the example lands on the canvas; the plot opens full-screen from its picture
+await page.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 60000 });
+await page.locator(".react-flow__node-arrayShape .txw-figthumb-btn").click();
+await page.waitForSelector(".txw-focus [data-testid='plot-card'] .figure-frame svg", { timeout: 60000 });
 
 async function check(name, scroller, { beside }) {
   await page.evaluate((sel) => { const el = document.querySelector(sel); if (el) el.scrollTop = 0; }, scroller);
@@ -49,10 +52,6 @@ async function check(name, scroller, { beside }) {
   if (SHOTS) await page.screenshot({ path: join(SHOTS, `${name}.png`) });
 }
 
-await page.setViewportSize({ width: 1500, height: 600 }); // short, so the controls must scroll
-await check("panel", ".txw-stash .txw-slot-body", { beside: false });
-await page.click(".txw-slot-max");
-await page.waitForSelector(".txw-focus");
 if (SHOTS) await page.screenshot({ path: join(SHOTS, "maximized-full.png") });
 await page.setViewportSize({ width: 1500, height: 450 }); // the tile is taller than the panel
 await check("maximized-wide", ".txw-focus-body", { beside: true });

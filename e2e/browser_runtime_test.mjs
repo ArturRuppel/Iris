@@ -74,8 +74,9 @@ const offline = await page.locator("header a.tb-offline").count();
 if (overFile ? offline : offline !== 1) fail(`offline link count ${offline} over ${overFile ? "file://" : "http"}`);
 if (!overFile && await page.locator("header a.tb-offline").getAttribute("href") !== "./iris-offline.html") fail("offline link target");
 
-// ── a first visit lands on the default example: a table, a plot and a test ──
-await page.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
+// ── a first visit lands on the default example: a table, a plot and a test,
+//    shown on the canvas as the analysis's row with the plot as its picture ──
+await page.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 60000 });
 await page.waitForFunction(() => /Welch/.test(document.body.innerText), null, { timeout: 60000 })
   .catch(() => fail("the first visit shows no Welch's t test"));
 if (await page.locator(".error-bar").count()) fail(await page.locator(".error-bar").innerText());
@@ -85,14 +86,14 @@ await page.waitForTimeout(2500); // past the autosave debounce
 await page.click("header .tb-ghost:has-text('New')");
 await page.waitForTimeout(500);
 if (dialogs.length) fail(`New on the untouched example asked: ${dialogs.join(" | ")}`);
-if (await page.locator("[data-testid='plot-card']").count()) fail("New kept the example's plots");
+if (await page.locator(".txw-lanehead").count()) fail("New kept the example's plots");
 console.log("New on the untouched example: no prompt, blank sheet");
 
 // ── a bundled example opens, because a file:// page cannot fetch one from disk ──
 await page.click("button:has-text('Workbench')").catch(() => {});
 await page.waitForSelector("button:has-text('Open example')", { timeout: 15000 });
 await page.click("button:has-text('Open example')");
-await page.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
+await page.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 60000 });
 if (await page.locator(".error-bar").count()) fail(await page.locator(".error-bar").innerText());
 console.log("bundled example opened");
 await page.click("header .tb-ghost:has-text('New')");
@@ -105,8 +106,8 @@ await page.waitForSelector(".modal-foot button.primary", { timeout: 30000 });
 await page.click(".modal-foot button.primary");
 await page.waitForSelector(".modal-overlay", { state: "detached", timeout: 30000 }).catch(() => {});
 await page.click(".tb-seg button:has-text('Workbench')");
-await page.waitForSelector(".txw-add-plot", { timeout: 15000 });
-await page.click(".txw-add-plot");
+await page.waitForSelector(".txw-node-add-plot", { timeout: 15000 });
+await page.click(".txw-node-add-plot");
 await page.waitForSelector("[data-testid='plot-wizard']", { timeout: 10000 });
 await page.locator(".wiz-geom", { hasText: "Box" }).click();
 await page.waitForSelector(".wiz-step.wiz-map", { timeout: 10000 });
@@ -130,9 +131,9 @@ console.log(`warm boot ${warm.seconds.toFixed(1)} s`);
 await warm.page.waitForSelector(".recovery-bar", { timeout: 15000 });
 // a returning visitor is offered their work, not the default example
 await warm.page.waitForTimeout(3000);
-if (await warm.page.locator("[data-testid='plot-card']").count()) fail("the default example covered the restore offer");
+if (await warm.page.locator(".txw-node.figure.picture .txw-figthumb").count()) fail("the default example covered the restore offer");
 await warm.page.click(".recovery-bar button:has-text('Restore')");
-await warm.page.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
+await warm.page.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 60000 });
 console.log("autosave restored after closing the page");
 
 // ── saving produces a real .iris file ────────────────────────────────────────
@@ -155,6 +156,9 @@ console.log(`saved a document through ${hasPicker ? "the file picker" : "a downl
 {
   const fresh = await browser.newContext({ viewport: { width: 1500, height: 1000 } });
   const linked = (await open("?example=contingency-2x2", fresh)).page;
+  await linked.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 60000 });
+  // the picture on the canvas is an image; open the plot to read its text
+  await linked.locator(".react-flow__node-arrayShape .txw-figthumb-btn").click();
   await linked.waitForSelector("[data-testid='plot-card'] svg", { timeout: 60000 });
   await linked.waitForFunction(() => /Aspirin/.test(document.body.innerText) && !/Petal length/.test(document.body.innerText), null, { timeout: 60000 })
     .catch(async () => fail("?example=contingency-2x2 did not open that example: " + (await linked.evaluate(() => document.body.innerText)).slice(0, 1500)));
@@ -164,7 +168,7 @@ console.log(`saved a document through ${hasPicker ? "the file picker" : "a downl
   const unknown = await fresh.newPage();
   unknown.on("console", (m) => { if (m.type() === "warning") warnings.push(m.text()); });
   await unknown.goto(URL_ + "?example=no-such-example", { waitUntil: "domcontentloaded" });
-  await unknown.waitForSelector("[data-testid='plot-card'] svg", { timeout: 120000 });
+  await unknown.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 120000 });
   await unknown.waitForFunction(() => /Welch/.test(document.body.innerText), null, { timeout: 60000 })
     .catch(() => fail("an unknown ?example= did not fall back to the default"));
   if (!warnings.some((w) => /no-such-example/.test(w))) fail("no warning for an unknown example");

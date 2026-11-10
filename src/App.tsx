@@ -9,7 +9,7 @@ import { TutorialOverlay } from "./tutorial/TutorialOverlay";
 import { startTutorialAtom } from "./tutorial/state";
 import { WorkbenchCanvas } from "./workbench/WorkbenchCanvas";
 import { lanesAtom } from "./workbench/lanes";
-import { clearWorkbenchAtom, seedDefaultStashAtom } from "./workbench/state";
+import { clearWorkbenchAtom, seedDefaultStashAtom, openDefaultPlotAtom } from "./workbench/state";
 import exampleManifest from "./examples/assets/manifest.json";
 import {
   activePlottableAtom, activePlottableIdAtom, allSpecsAtom, analysisAtom,
@@ -178,6 +178,8 @@ export default function App() {
      a detached copy. Like `?open=`, only a file next to this page is accepted. */
   const [embeddedUrl] = useState(() => browserRuntime ? new URLSearchParams(window.location.search).get("embedded") : null);
   const noAutosave = labbookFile !== null || embeddedDoc !== null || embeddedUrl !== null;
+  // opened to show one given figure (lab book, or a file handed over embedded)
+  const handedFigure = noAutosave;
   /* the hosted page links its offline twin; the packed file and lab-book copies do not */
   const offerOffline = browserRuntime && /^https?:$/.test(window.location.protocol)
     && !document.getElementById("iris-manifest") && embeddedUrl === null;
@@ -502,13 +504,18 @@ export default function App() {
   const setSelectedNode = useSetAtom(selectedNodeIdAtom);
   const clearWorkbench = useSetAtom(clearWorkbenchAtom);
   const seedDefaultStash = useSetAtom(seedDefaultStashAtom);
+  const openDefaultPlot = useSetAtom(openDefaultPlotAtom);
   const clearSpecHistory = useSetAtom(clearSpecHistoryAtom);
   useEffect(() => {
     // clear, then re-seed the stash with the analysis's default table/plot/stats
     // trio (the structured landing view, now expressed as the stash's default
     // fill). Order matters: clearWorkbench empties the stash, seed refills it.
     setSelectedNode(null); clearWorkbench(); seedDefaultStash(); clearSpecHistory();
-  }, [activeId, setSelectedNode, clearWorkbench, seedDefaultStash, clearSpecHistory]);
+    // a single figure opened from the lab book (or handed over embedded) is
+    // there to be looked at and edited: it opens on its plot, not on a canvas
+    // with one row
+    if (activeId && handedFigure && store.get(plottablesAtom).length === 1) openDefaultPlot();
+  }, [activeId, setSelectedNode, clearWorkbench, seedDefaultStash, clearSpecHistory, handedFigure, store, openDefaultPlot]);
 
   /* background loop: a self-draining sequential queue that warms every OTHER
      plottable's cache so even a never-opened analysis is instant on first visit.

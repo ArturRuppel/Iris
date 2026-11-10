@@ -83,7 +83,7 @@ console.log(`app at ${((Date.now() - t1) / 1000).toFixed(1)} s, file ${(statSync
 if ((await app.title()) !== "Iris") fail(`title is ${await app.title()}`);
 if (await app.locator(".tb-offline").count()) fail("the offline file offers itself for download");
 // a first visit opens the default example by itself
-await app.waitForSelector("[data-testid='plot-card'] .figure-frame svg", { timeout: 120000 });
+await app.waitForSelector(".txw-node.figure.picture .txw-figthumb", { timeout: 120000 });
 if (await app.locator(".error-bar").count()) fail(await app.locator(".error-bar").innerText());
 const font = await app.evaluate(() => [...document.fonts].some((f) => f.family.includes("Archivo") && f.status === "loaded"));
 if (!font) fail("Archivo is not loaded");

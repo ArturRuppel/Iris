@@ -95,6 +95,11 @@ export const seedDefaultStashAtom = atom(null, (_get, set) => {
   set(stashAtom, [{ id: cardId(DEFAULT_PLOT), target: DEFAULT_PLOT, cardKind: "plot" }]);
 });
 
+/* Open the default plot card (seedDefaultStashAtom put it in the stash). */
+export const openDefaultPlotAtom = atom(null, (_get, set) => {
+  set(focusedStashIdAtom, cardId(DEFAULT_PLOT));
+});
+
 /* The open card: shown over the canvas by StashFocus. Holds the focused
    stash entry id, or null. Reversible (Exit / Esc). */
 export const focusedStashIdAtom = atom<string | null>(null);
