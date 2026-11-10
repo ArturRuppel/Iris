@@ -5,7 +5,8 @@ import { useSetAtom, useAtomValue } from "jotai";
 import { ArrayShapeNode, type ArrayShapeNodeProps, type FigureSection, type NodeVariant } from "../components/ArrayShapeNode";
 import { reduceStepInEdgeId, type EdgeKind, type ExplorerNode } from "../explorer/graph";
 import { insertStepAtom, activeReduceDagAtom, addLayerAtNodeAtom } from "../state";
-import { openCardAtom, pushStashAtom, stashAtom } from "./state";
+import { openCardAtom, pushStashAtom, stashAtom, focusedStashIdAtom } from "./state";
+import { lanesEnabledAtom } from "./lanesFlag";
 import { nodeTableName } from "./nodeName";
 import type { NodeDelta } from "./nodeDelta";
 import { affordances, authorDispatch, type AuthorAction, type AuthorOption } from "./authoring";
@@ -100,6 +101,8 @@ export function ArrayShapeRFNode(
   const openCard = useSetAtom(openCardAtom);
   const addLayerAtNode = useSetAtom(addLayerAtNodeAtom);
   const pushStash = useSetAtom(pushStashAtom);
+  const lanesOn = useAtomValue(lanesEnabledAtom);
+  const setFocused = useSetAtom(focusedStashIdAtom);
   // the add menu is positioned in screen space and portalled to <body>, not
   // nested in this node: each React Flow node is its own stacking context, so a
   // menu drawn inside an upstream node would paint UNDER any node stacked over
@@ -120,10 +123,11 @@ export function ArrayShapeRFNode(
     return {
       ...sec,
       slotNum: secSlot >= 0 ? secSlot + 1 : null,
-      onView: () => pushStash({
-        target: { kind: "node", id: id!, facet: sec.kind },
-        cardKind: sec.kind,
-      }),
+      onView: () => {
+        pushStash({ target: { kind: "node", id: id!, facet: sec.kind }, cardKind: sec.kind });
+        // lanes: the plot opens full-screen (see WorkbenchCanvas.pinNode)
+        if (lanesOn && sec.kind === "plot") setFocused(`node:${id}:plot`);
+      },
     };
   });
 

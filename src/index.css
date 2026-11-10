@@ -1988,3 +1988,35 @@ button.fig-name:hover { color: var(--accent); }
   .cr-testgrain select { min-height: 0; height: 36px; font-size: 13px; }
   .cr-add button, .cr-reset { min-height: 36px; font-size: 13px; }
 }
+
+/* ---- the lanes experiment: every analysis a row on the canvas ---- */
+.txw-lanehead { box-sizing: border-box; width: 190px; min-height: 64px; padding: 8px 6px 8px 10px;
+  display: flex; align-items: center; gap: 4px; cursor: pointer;
+  background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); }
+.txw-lanehead.active { border-left-color: var(--primary); background: var(--primary-tint); }
+.txw-lanehead-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.txw-lanehead-name { font-size: 13px; font-weight: 600; color: var(--ink); line-height: 1.25;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.txw-lanehead-meta { font-size: 11px; color: var(--dim); }
+.txw-lanehead-text input { font: inherit; font-size: 13px; width: 100%; min-height: 0; padding: 2px 4px; }
+.txw-lanehead-tag { flex: 0 0 26px; width: 26px; height: 24px; min-height: 0; padding: 0; text-align: center;
+  font-size: 12px; font-weight: 600; border: 1px dashed var(--line); background: transparent; color: var(--ink); }
+.txw-lanehead-tag:not(:placeholder-shown) { border-style: solid; border-color: var(--primary); }
+.txw-lanehead-more { flex: 0 0 24px; width: 24px; height: 24px; min-height: 0; padding: 0;
+  border: none; background: none; color: var(--dim); cursor: pointer; font-size: 15px; line-height: 1; }
+.txw-laneadd { width: 190px; min-height: 36px; font-size: 13px; color: var(--primary); cursor: pointer;
+  background: transparent; border: 1px dashed var(--line); }
+.txw-laneadd:hover:not(:disabled) { background: var(--panel); border-color: var(--primary); }
+.txw-ghost { opacity: 0.55; cursor: pointer; }
+.txw-ghost:hover { opacity: 0.9; }
+.txw-ghost .txw-figthumb { opacity: 1; }
+.txw-ghost-edge .txw-rfedge { opacity: 0.45; }
+.txw-edge-step.ghost { opacity: 0.55; }
+.txw-lanes .txw-node.figure { width: 260px; }
+.txw-ghost .txw-node:not(.figure) { height: auto; min-height: 44px; }
+.txw-figthumb { display: block; width: 100%; height: 190px; object-fit: contain;
+  background: #fff; border-bottom: 1px solid var(--line); pointer-events: none; }
+@media (pointer: coarse) {
+  .txw-lanehead-tag, .txw-lanehead-more { flex-basis: 34px; width: 34px; height: 34px; }
+  .txw-lanehead { min-height: 72px; }
+}

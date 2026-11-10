@@ -18,11 +18,14 @@ import {
 import { targetToCardKind, EDGE_CARD, type Target } from "./cardRegistry";
 import { Stash, StashFocus } from "./Stash";
 import { NodeContextMenu, type NodeMenu } from "./NodeContextMenu";
-import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom, activeReduceDagAtom } from "../state";
+import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisTableAtom, activePlottableAtom, activeReduceDagAtom, activePlottableIdAtom } from "../state";
+import { toRFLanes, headId, type Lane } from "./lanes";
+import { LaneHeadNode, GhostNode, LaneAddNode } from "./LaneNodes";
 
 // the custom node/edge components intentionally accept a narrower prop shape than
 // React Flow's NodeProps/EdgeProps (they read only `data`); cast for registration.
-const nodeTypes = { arrayShape: ArrayShapeRFNode } as unknown as NodeTypes;
+const nodeTypes = { arrayShape: ArrayShapeRFNode, ghost: GhostNode,
+  laneHead: LaneHeadNode, laneAdd: LaneAddNode } as unknown as NodeTypes;
 const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
 
 /* the Fit View button: the whole DAG in its pane with a little breathing room,
@@ -136,21 +139,36 @@ const UndoIcon = () => (<svg {...I}><path d="M5 3.5 2 6.5l3 3" /><path d="M2.5 6
 const RedoIcon = () => (<svg {...I}><path d="m11 3.5 3 3-3 3" /><path d="M13.5 6.5H6a4 4 0 0 0 0 8h3" /></svg>);
 const TidyIcon = () => (<svg {...I}><rect x="1.5" y="2" width="5" height="4" /><rect x="9.5" y="2" width="5" height="4" /><rect x="5.5" y="10" width="5" height="4" /><path d="M4 6v2h8V6M8 8v2" /></svg>);
 
-function Canvas({ graph }: { graph: ExplorerGraph }) {
+function Canvas({ graph, lanes }: { graph: ExplorerGraph; lanes?: Lane[] }) {
   const nodePositions = useAtomValue(nodePositionsAtom);
   const setNodePositions = useSetAtom(nodePositionsAtom);
   // the analysis's main table names every box in the reduce chain (see nodeName).
   const sourceName = useAtomValue(analysisTableAtom)?.name ?? "Table";
   // nodePositions here seeds only the FIRST render; later changes flow through
   // the structural effect below.
-  const initial = useMemo(() => toRF(graph, nodePositions, sourceName),
+  // the lanes experiment: every analysis's graph, stacked; the active one keeps
+  // its plain node ids, so everything below that speaks ids is unchanged. Nudged
+  // positions are stored relative to the lane (its offset moves with the lanes
+  // above it).
+  const laneOffset = useRef(0);
+  const compose = useCallback((overrides: Record<string, { x: number; y: number }>) => {
+    if (!lanes) { laneOffset.current = 0; return toRF(graph, overrides, sourceName); }
+    const rf = toRFLanes(lanes, overrides);
+    laneOffset.current = rf.activeOffset;
+    return rf;
+  }, [graph, lanes, sourceName]);
+  const setActiveId = useSetAtom(activePlottableIdAtom);
+  const initial = useMemo(() => compose(nodePositions),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [graph, nodePositions, sourceName]);
   const [nodes, setNodes, onNodesChange] = useNodesState(initial.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initial.edges);
 
   const openCard = useSetAtom(openCardAtom);
   const pushStash = useSetAtom(pushStashAtom);
+  const setFocusedId = useSetAtom(focusedStashIdAtom);
   const displayCollapsed = useAtomValue(displayCollapsedAtom);
+  const setDisplayCollapsed = useSetAtom(displayCollapsedAtom);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Keep the DAG framed in its pane, at a zoom its text can be read at (see
@@ -171,16 +189,24 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
       : t.kind === "node" ? t.id
       : graph.edges.find((e) => e.id === t.id)?.toId ?? null;
   }
+  // with lanes, an unfocused view starts on the active analysis's lane
+  const activeHeadRef = useRef<string | null>(null);
+  activeHeadRef.current = lanes?.find((l) => l.active) ? headId(lanes.find((l) => l.active)!.id) : null;
   const frame = useCallback(() => {
     const el = rfcanvasRef.current;
     const all = getNodes();
     if (!el || !all.length || !el.clientWidth || !el.clientHeight) return;
-    const focusNode = all.find((n) => n.id === focusIdRef.current);
+    const focusNode = all.find((n) => n.id === focusIdRef.current)
+      ?? all.find((n) => n.id === activeHeadRef.current);
     setViewport(frameViewport(getNodesBounds(all),
       { width: el.clientWidth, height: el.clientHeight },
       focusNode ? getNodesBounds([focusNode]) : null));
   }, [getNodes, getNodesBounds, setViewport]);
-  const nodeIdsKey = nodes.map((n) => n.id).join(",");
+  // with lanes the ids change when another analysis becomes active (its nodes
+  // lose their lane prefix); that must not re-frame a view the user is reading
+  const nodeIdsKey = lanes
+    ? lanes.map((l) => `${l.id}:${l.graph.nodes.map((n) => n.id).join(",")}`).join("|")
+    : nodes.map((n) => n.id).join(",");
   useEffect(() => { if (nodesReady) frame(); }, [nodesReady, nodeIdsKey, frame]);
   useEffect(() => {
     const el = rfcanvasRef.current;
@@ -204,7 +230,10 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
       ? { ...target, facet: "plot" } : target;
     const kind = targetToCardKind(graph, t);
     if (kind) pushStash({ target: t, cardKind: kind });
-  }, [graph, pushStash]);
+    // lanes: the canvas already shows the plot, so opening it means editing it,
+    // and that takes the whole workspace
+    if (kind === "plot" && lanes) setFocusedId("node:figure:plot");
+  }, [graph, pushStash, lanes, setFocusedId]);
 
   // clicking an edge shows its editor in the display panel, like a node's card.
   const openEdge = useCallback((target: Target) => {
@@ -241,6 +270,7 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
   // pipeline-step-index still resolves to the right node via this lookup —
   // Phase D routes the canvas through real ids directly instead.
   const deletableStep = (n: Node): { id: string; label: string } | null => {
+    if (n.type !== "arrayShape") return null;   // only the active lane's nodes edit
     const d = n.data as unknown as RFNodeData;
     const id = typeof d.stepIndex === "number" && d.stepIndex >= 0
       ? activeDag?.steps[d.stepIndex]?.id : undefined;
@@ -251,6 +281,7 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
      node and its context menu open the same editor its incoming edge does. Null
      for the source and the figure, which no single step produced. */
   const editStep = (n: Node): (() => void) | null => {
+    if (n.type !== "arrayShape") return null;
     const d = n.data as unknown as RFNodeData;
     if (d.variant === "figure" || !d.inEdge) return null;
     const target: Target = { kind: "edge", id: d.inEdge.id };
@@ -258,6 +289,7 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
   };
   const onNodeContextMenu = useCallback((e: ReactMouseEvent, n: Node) => {
     e.preventDefault();
+    if (n.type !== "arrayShape") return;
     const d = n.data as unknown as RFNodeData;
     if (d.variant === "figure") {
       setMenu({ x: e.clientX, y: e.clientY, items: [
@@ -287,6 +319,15 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
 
   const focusedStashId = useAtomValue(focusedStashIdAtom);
   const setFocused = useSetAtom(focusedStashIdAtom);
+  // lanes: the display panel starts closed (the canvas shows the plots), and
+  // leaving the full-screen plot returns to the canvas, not to a docked copy
+  const lanesOn = !!lanes;
+  const wasFocused = useRef(false);
+  useEffect(() => { if (lanesOn) setDisplayCollapsed(true); }, [lanesOn, setDisplayCollapsed]);
+  useEffect(() => {
+    if (lanesOn && wasFocused.current && !focusedStashId) setDisplayCollapsed(true);
+    wasFocused.current = !!focusedStashId;
+  }, [lanesOn, focusedStashId, setDisplayCollapsed]);
 
   // Keyboard: Delete/Backspace removes the selected node's step (React Flow's
   // built-in delete is disabled via deleteKeyCode={null}, as it would splice the
@@ -325,14 +366,16 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
   // (positions) is recomputed only when this changes — not on every
   // explorerGraphAtom recompute (those fire on each /shape_counts result and
   // would otherwise clobber user-dragged positions).
-  const structureKey = useMemo(
-    () => graph.nodes.map((n) => n.id).join(",") + "|" + graph.edges.map((e) => e.id).join(","),
-    [graph],
-  );
+  const structureKey = useMemo(() => {
+    if (!lanes) return graph.nodes.map((n) => n.id).join(",") + "|" + graph.edges.map((e) => e.id).join(",");
+    const rf = toRFLanes(lanes, {});
+    // lane heights move with a thumbnail arriving, so positions are part of it
+    return rf.nodes.map((n) => `${n.id}@${n.position.y}`).join(",") + "|" + rf.edges.map((e) => e.id).join(",");
+  }, [graph, lanes]);
   const lastStructure = useRef<string>("");
 
   useEffect(() => {
-    const rf = toRF(graph, nodePositions, sourceName);
+    const rf = compose(nodePositions);
     if (structureKey !== lastStructure.current) {
       // structure changed (step/grain/terminal added or removed):
       // full re-layout with fresh positions.
@@ -352,33 +395,39 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
     // state. The effect re-seeds only on a structure change, reading the current
     // overrides at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [graph, structureKey, sourceName, setNodes, setEdges]);
+  }, [graph, lanes, structureKey, sourceName, setNodes, setEdges]);
 
   // "tidy" clears persisted nudges then re-layouts from scratch.
   const tidy = useCallback(() => {
     setNodePositions({});
-    const rf = toRF(graph, {}, sourceName);
+    const rf = compose({});
     setNodes(rf.nodes);
     setEdges(rf.edges);
-  }, [graph, sourceName, setNodes, setEdges, setNodePositions]);
+  }, [compose, setNodes, setEdges, setNodePositions]);
 
   return (
     <div className="txw-overlay txw-embedded txw-landing" role="dialog" aria-label="Transformation workbench"
          ref={overlayRef}>
       <div className="txw-workspace">
-      <div className={`txw-rfcanvas ${displayCollapsed ? "display-hidden" : "with-display"}`} ref={rfcanvasRef}>
+      <div className={`txw-rfcanvas ${displayCollapsed ? "display-hidden" : "with-display"}${lanes ? " txw-lanes" : ""}`} ref={rfcanvasRef}>
         <ReactFlow
           nodes={nodes} edges={edges}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange}
-          onNodeClick={(_e, n) => pinNode({ kind: "node", id: n.id })}
+          onNodeClick={(_e, n) => {
+            if (n.type === "arrayShape") pinNode({ kind: "node", id: n.id });
+            else if (n.type === "ghost") setActiveId((n.data as { laneId: string }).laneId);
+          }}
           onNodeContextMenu={onNodeContextMenu}
           onNodeDoubleClick={(_e, n) => editStep(n)?.()}
           zoomOnDoubleClick={false}
           onConnect={(c) => { const a = onConnectDelegate(c, dagIdOf); if (a) connectInput(a); }}
           onPaneClick={() => setMenu(null)}
           onNodeDragStop={(_e, n) =>
-            setNodePositions((prev) => applyNudge(prev, n.id, n.position.x, n.position.y))}
-          onEdgeClick={(_e, ed) => openEdge({ kind: "edge", id: ed.id })}
+            setNodePositions((prev) => applyNudge(prev, n.id, n.position.x, n.position.y - laneOffset.current))}
+          onEdgeClick={(_e, ed) => {
+            const ghost = (ed.data as { ghostLane?: string } | undefined)?.ghostLane;
+            if (ghost) setActiveId(ghost); else openEdge({ kind: "edge", id: ed.id });
+          }}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           deleteKeyCode={null}
           fitViewOptions={FIT_OPTS} minZoom={0.2} proOptions={{ hideAttribution: true }}
@@ -406,10 +455,10 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
   );
 }
 
-export function WorkbenchCanvas({ graph }: { graph: ExplorerGraph }) {
+export function WorkbenchCanvas({ graph, lanes }: { graph: ExplorerGraph; lanes?: Lane[] }) {
   return (
     <ReactFlowProvider>
-      <Canvas graph={graph} />
+      <Canvas graph={graph} lanes={lanes} />
     </ReactFlowProvider>
   );
 }

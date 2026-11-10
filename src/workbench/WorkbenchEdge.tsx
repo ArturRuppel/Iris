@@ -9,6 +9,7 @@ import { cannedExample } from "../explorer/cannedExamples";
 import { OpHoverExample } from "../components/OpHoverExample";
 import { COL_GAP } from "./layout";
 import { openCardAtom } from "./state";
+import { activePlottableIdAtom } from "../state";
 import { EDGE_CARD } from "./cardRegistry";
 import { EDGE_TYPE } from "./edgeMeta";
 
@@ -89,6 +90,10 @@ export function WorkbenchEdge(props: EdgeProps) {
   const { id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition } = props;
   const data = props.data as unknown as WorkbenchEdgeData | undefined;
   const openCard = useSetAtom(openCardAtom);
+  const setActive = useSetAtom(activePlottableIdAtom);
+  // an edge of an inactive lane (the lanes experiment): its chip selects that
+  // analysis instead of opening an editor for the wrong graph
+  const ghostLane = (data as { ghostLane?: string } | undefined)?.ghostLane;
   // hovering the step chip floats a before/after schematic of what the op does,
   // just above the cursor and portalled to <body> so it paints over every node
   // (each React Flow node is its own stacking context). The op now rides the wire,
@@ -111,7 +116,7 @@ export function WorkbenchEdge(props: EdgeProps) {
         <EdgeLabelRenderer>
           <button
             type="button"
-            className={`txw-edge-step k-${kind}`}
+            className={`txw-edge-step k-${kind}${ghostLane ? " ghost" : ""}`}
             style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
                      pointerEvents: "all" }}
             title={data?.label || undefined}
@@ -120,6 +125,7 @@ export function WorkbenchEdge(props: EdgeProps) {
             onMouseLeave={example ? () => setExAt(null) : undefined}
             onClick={(e) => {
               e.stopPropagation();
+              if (ghostLane) { setActive(ghostLane); return; }
               openCard({ target: { kind: "edge", id }, cardKind: EDGE_CARD[kind!] });
             }}
           >

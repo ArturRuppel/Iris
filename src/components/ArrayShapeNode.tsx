@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactElement } from "react";
+import { Fragment, useMemo, useState, type ReactElement } from "react";
 import { createPortal } from "react-dom";
 import type { ValueDesc } from "../types";
 import type { CannedExample } from "../explorer/cannedExamples";
@@ -36,6 +36,9 @@ export interface ArrayShapeNodeProps {
      block. Present only on the figure variant. */
   sections?: FigureSection[];
   onEdit?: () => void;             // detail click → open this step's editor
+  /* the rendered figure (SVG text), shown as a picture in the figure node: the
+     lanes experiment, where the canvas is where analyses are told apart */
+  thumb?: string;
 }
 
 /* true where the primary pointer can hover. A tap on the iPad fires a synthetic
@@ -93,11 +96,14 @@ export function ArrayShapeNode(props: ArrayShapeNodeProps) {
   // float just above the mouse, on top of the whole canvas.
   const [exAt, setExAt] = useState<{ x: number; y: number } | null>(null);
   const [showDef, setShowDef] = useState(false);
+  const thumbSrc = useMemo(() => props.thumb
+    ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(props.thumb)}` : null, [props.thumb]);
 
   if (variant === "figure" && props.sections) {
     return (
       <div className="txw-node figure">
         <div className="txw-nbar" aria-hidden />
+        {thumbSrc && <img className="txw-figthumb" src={thumbSrc} alt="" draggable={false} />}
         <div className="txw-nbody txw-figsections">
           {props.sections.map((sec) => (
             <button
