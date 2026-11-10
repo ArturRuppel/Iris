@@ -2034,3 +2034,60 @@ button.fig-name:hover { color: var(--accent); }
 .txw-figstat:hover { background: var(--primary-tint); }
 .txw-figstat-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (pointer: coarse) { .txw-figstat { min-height: 40px; font-size: 13px; } }
+
+/* ---- polish pass (2026-11-10) ---- */
+
+/* the full-screen view's header: Back on the left as plain text, then what is
+   shown. One height, a real rule under it, no boxed button in the corner. */
+.txw-focus-bar { align-items: center; gap: 10px; min-height: 44px; padding: 0 14px 0 6px;
+  background: var(--panel); border-bottom: 2px solid var(--hm-ink); }
+.txw-focus-bar .txw-slot-title { font-size: 14px; }
+.txw-focus-bar .txw-slot-sub { font-size: 13px; }
+.txw-focus-exit { border: none; background: none; color: var(--primary); font-size: 14px; font-weight: 600;
+  padding: 0 10px; min-height: 36px; margin-right: 2px; }
+.txw-focus-exit:hover { background: var(--primary-tint); }
+.txw-focus-body { padding: 16px 20px 28px; }
+/* reading views do not need the whole width of a wide screen */
+.txw-focus.k-stats .txw-focus-body > *, .txw-focus.k-test-editor .txw-focus-body > * { max-width: 860px; }
+
+/* a step's editor over the canvas: a sheet, not a takeover */
+.txw-sheet-scrim { position: absolute; inset: 0; z-index: 35; background: rgba(28, 27, 34, .28); }
+.txw-focus.sheet { inset: auto; top: 10%; left: 50%; transform: translateX(-50%);
+  width: min(640px, calc(100% - 32px)); max-height: 78%;
+  border: 2px solid var(--hm-ink); box-shadow: var(--hm-shadow); }
+.txw-focus.sheet .txw-focus-bar { padding: 0 6px 0 14px; }
+.txw-focus.sheet .txw-focus-exit { order: 3; margin-left: auto; margin-right: 0; }
+.txw-focus.sheet .txw-focus-body { padding: 14px; }
+.txw-focus.sheet .collapse-routing { border: none; padding: 0; max-width: none; }
+
+/* the lane header is a label for its row, not one more white box */
+.txw-lanehead { background: transparent; border: none; border-left: 4px solid var(--line2, var(--line));
+  padding: 6px 4px 6px 12px; }
+.txw-lanehead.active { background: transparent; border-left-color: var(--primary); }
+.txw-lanehead-name { font-size: 14px; }
+.txw-lanehead:not(.active) .txw-lanehead-name { color: var(--dim); font-weight: 500; }
+.txw-lanehead:not(.active) .txw-lanehead-tag:placeholder-shown,
+.txw-lanehead:not(.active) .txw-lanehead-more { opacity: .45; }
+.txw-laneadd { border: none; text-align: left; padding-left: 16px; font-weight: 600; }
+/* inactive rows: quieter boxes, the picture stays readable */
+.txw-ghost { opacity: 1; }
+.txw-ghost .txw-node { background: transparent; border-color: var(--hm-hairline); }
+.txw-ghost .txw-node:not(.figure) { opacity: .6; }
+.txw-ghost .txw-node.figure { opacity: .8; }
+.txw-ghost:hover .txw-node { opacity: 1; background: var(--panel); }
+
+/* touch: a 44px control with 11-12px text looks like an empty box. Inside the
+   full-screen views the text grows to fit the control instead. */
+@media (pointer: coarse) {
+  .txw-focus-body button, .txw-focus-body select, .txw-focus-body input { font-size: 14px; }
+  .txw-focus-body button.icon { font-size: 15px; }
+  .txw-focus-bar { min-height: 52px; }
+  .txw-focus-exit { min-height: 44px; font-size: 16px; }
+  .tx-export button { padding: 0 14px; }
+}
+/* the lane header: the name gets the full width; the panel letter and the
+   actions sit on a row of their own under it */
+.txw-lanehead { flex-wrap: wrap; row-gap: 4px; align-items: center; }
+.txw-lanehead-text { flex: 1 0 100%; }
+.txw-lanehead-tag { margin-left: 0; }
+.txw-lanehead-more { margin-right: auto; }

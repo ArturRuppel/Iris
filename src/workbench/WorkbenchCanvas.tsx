@@ -195,8 +195,9 @@ function Canvas({ graph, lanes }: { graph: ExplorerGraph; lanes?: Lane[] }) {
     const el = rfcanvasRef.current;
     const all = getNodes();
     if (!el || !all.length || !el.clientWidth || !el.clientHeight) return;
-    const focusNode = all.find((n) => n.id === focusIdRef.current)
-      ?? all.find((n) => n.id === activeHeadRef.current);
+    // lanes: the view starts at the active lane's header (a lane reads left to
+    // right from it); otherwise on the node whose card is open
+    const focusNode = all.find((n) => n.id === (activeHeadRef.current ?? focusIdRef.current));
     setViewport(frameViewport(getNodesBounds(all),
       { width: el.clientWidth, height: el.clientHeight },
       focusNode ? getNodesBounds([focusNode]) : null));

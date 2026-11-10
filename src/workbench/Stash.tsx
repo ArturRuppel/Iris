@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { lanesEnabledAtom } from "./lanesFlag";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import type { ExplorerGraph } from "../explorer/graph";
 import { analysisTableAtom } from "../state";
@@ -64,21 +65,30 @@ export function StashFocus({ graph }: { graph: ExplorerGraph }) {
   const setFocused = useSetAtom(focusedStashIdAtom);
   const stash = useAtomValue(stashAtom);
   const sourceName = useAtomValue(analysisTableAtom)?.name ?? "Table";
+  const lanes = useAtomValue(lanesEnabledAtom);
   const entry = stash.find((e) => e.id === focusedId);
   if (!entry) return null;
   const { body: Body, title } = CARD[entry.cardKind];
   const label = cardLabel(graph, entry.target, sourceName);
-  return (
-    <div className="txw-focus" role="region" aria-label={`${title}: ${label} (maximized)`}>
+  // a step's editor is a few controls: with lanes (no docked panel) it opens as
+  // a sheet over the canvas instead of taking the whole workspace
+  const sheet = lanes && (entry.cardKind === "op-editor" || entry.cardKind === "collapse-editor");
+  const view = (
+    <div className={`txw-focus k-${entry.cardKind}${sheet ? " sheet" : ""}`} role="region"
+         aria-label={`${title}: ${label} (maximized)`}>
       <div className="txw-focus-bar">
+        <button className="txw-focus-exit" onClick={() => setFocused(null)}
+                title={sheet ? "Close (Esc)" : "Back to the canvas (Esc)"} aria-label="Exit focus">
+          {sheet ? "Done" : "‹ Back"}</button>
         <span className="txw-slot-title">{title}</span>
         <span className="txw-slot-sub" title={label}>{label}</span>
-        <button className="txw-focus-exit" onClick={() => setFocused(null)}
-                title="Exit (Esc)" aria-label="Exit focus">⤢ Exit</button>
       </div>
       <div className="txw-focus-body"><Body target={entry.target} /></div>
     </div>
   );
+  return sheet
+    ? <><div className="txw-sheet-scrim" onClick={() => setFocused(null)} />{view}</>
+    : view;
 }
 
 const WIDTH_KEY = "iris-display-width";
