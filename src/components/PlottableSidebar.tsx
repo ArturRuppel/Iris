@@ -4,7 +4,7 @@ import {
   activePlottableIdAtom, addPlottableAtom, deletePlottableAtom, onePlotOnlyAtom,
   duplicatePlottableAtom, plottablesAtom, renamePlottableAtom,
   selectedPlottableIdsAtom, styleClipboardAtom, styleLibraryAtom,
-  styleRegistryAtom, pasteStyleAtom, setTagAtom,
+  styleRegistryAtom, pasteStyleAtom, setTagAtom, registryAtom,
 } from "../state";
 import { captureStyle } from "../style/sheet";
 import type { StyleSheet } from "../style/sheet";
@@ -36,9 +36,11 @@ export function PlottableSidebar() {
   const [selectedIds, setSelectedIds] = useAtom(selectedPlottableIdsAtom);
   const [clipboard, setClipboard] = useAtom(styleClipboardAtom);
   const library = useAtomValue(styleLibraryAtom);
-  const registry = useAtomValue(styleRegistryAtom);
+  const registry = useAtomValue(registryAtom);
+  const styleRegistry = useAtomValue(styleRegistryAtom);
   const pasteStyle = useSetAtom(pasteStyleAtom);
-  const [collapsed, setCollapsed] = useState(false);
+  // on a phone-width window the list would take half the screen: start it closed
+  const [collapsed, setCollapsed] = useState(() => window.innerWidth < 700);
   const [width, setWidth] = useState(initialWidth);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -93,7 +95,7 @@ export function PlottableSidebar() {
     const sheet: StyleSheet = {
       iris_style_version: "1.0",
       name: "",
-      style: captureStyle(src.style, registry),
+      style: captureStyle(src.style, styleRegistry),
     };
     setClipboard(sheet);
     setMenu(null);
@@ -166,6 +168,9 @@ export function PlottableSidebar() {
   }
 
   const selSet = new Set(selectedIds);
+  // the marks an analysis draws ("Box + Dot"), each named once, in layer order
+  const marksOf = (layers: { geom: string }[]) =>
+    [...new Set(layers.map((l) => registry?.geoms[l.geom]?.label ?? l.geom))].join(" + ");
 
   return (
     <aside className="plottable-sidebar" style={{ width }}>
@@ -201,11 +206,14 @@ export function PlottableSidebar() {
                     else if (e.key === "Escape") setEditingId(null);
                   }} />
               ) : (
-                <span className="plottable-name" title={p.name}>{p.name}</span>
+                <span className="plottable-text">
+                  <span className="plottable-name" title={p.name}>{p.name}</span>
+                  {marksOf(p.layers) && <span className="plottable-meta">{marksOf(p.layers)}</span>}
+                </span>
               )}
               {/* the panel letter: a tagged analysis is a panel of the Figure view */}
               <input className="plottable-tag" value={p.tag ?? ""} maxLength={4}
-                placeholder="·" title="Panel tag: tagged analyses form the Figure"
+                placeholder="+" title="Panel letter: type one (A, B, …) to make this analysis a panel of the Figure"
                 aria-label={`Panel tag of ${p.name}`}
                 onClick={(e) => e.stopPropagation()}
                 onDoubleClick={(e) => e.stopPropagation()}

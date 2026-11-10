@@ -291,6 +291,9 @@ dt { color: var(--dim); } dd { margin: 0; font-size: 12px; }
 /* multi-group pairwise block: a labelled sub-header then indented per-pair rows */
 dt.pairwise-head { grid-column: 1 / -1; color: var(--dim); text-transform: uppercase;
   letter-spacing: 0.04em; font-size: 11px; margin-top: 6px; }
+/* the sub-header spans both columns, so its (empty) dd must not take the first
+   cell of the next row: that pushed every label below it into the value column */
+dt.pairwise-head + dd { display: none; }
 dt.pairwise-row { padding-left: 10px; }
 dd.strong { font-weight: 600; }
 .methods { font-size: 12px; color: var(--dim); background: var(--panel2);
@@ -663,6 +666,14 @@ dd.strong { font-weight: 600; }
   border: 1px solid var(--sage-tintline); border-radius: 0; padding: 1px 6px;
   white-space: nowrap; }
 .hp-floating { font-size: 11px; color: var(--t-bool); margin-top: 6px; }
+.hp-viz .hp-hint { margin-top: 8px; }
+.hp-empty { font-size: 12px; line-height: 1.4; margin: 0; color: var(--dim);
+  background: var(--panel2); border: 1px solid var(--line); padding: 8px; }
+.hp-roles-head { margin: 4px 0 -4px; }
+/* the three roles, one line each: term, then what it is in plain words */
+.hp-legend { grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 11px; line-height: 1.35; }
+.hp-legend dt { color: var(--ink); font-weight: 600; }
+.hp-legend dd { font-size: 11px; color: var(--dim); }
 .hp-measures { font-size: 11px; margin: 0; }
 
 .analyses-mode { display: flex; gap: 12px; height: 100%; min-height: 0; }
@@ -677,7 +688,16 @@ dd.strong { font-weight: 600; }
 .plottable-sidebar li { display: flex; align-items: center; gap: 4px; padding: 2px 4px;
   cursor: pointer; border-radius: 0; }
 .plottable-sidebar li.active { background: var(--primary-tint); color: var(--primary-text); }
-.plottable-sidebar li .plottable-name { flex: 1; min-width: 0; font-size: 13px;
+/* a name wraps to two lines before it is cut: names that share a beginning
+   ("Petal length: …") were indistinguishable on one. The marks of the plot sit
+   under it, so analyses that differ only in the plot can still be told apart. */
+.plottable-sidebar li { padding: 4px; }
+.plottable-sidebar li .plottable-text { flex: 1; min-width: 0; display: flex;
+  flex-direction: column; gap: 1px; }
+.plottable-sidebar li .plottable-name { font-size: 13px; line-height: 1.25;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; }
+.plottable-sidebar li .plottable-meta { font-size: 11px; color: var(--faint);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .plottable-sidebar li input { flex: 1; min-width: 0; border: 1px solid var(--accent);
   background: var(--panel); border-radius: 0; font: inherit; font-size: 13px; cursor: text; }
@@ -1344,6 +1364,7 @@ footer pre { background: var(--ink); color: var(--bg); font-size: 11px;
 .txw-stash .txw-slot-body:has(.txw-card-table) { padding: 0; display: flex; flex-direction: column; overflow: hidden; }
 .txw-stash .txw-card-table, .txw-focus-body .txw-card-table { flex: 1; min-height: 0; height: 100%; display: flex; flex-direction: column; }
 .txw-card-table .reduced-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
 .txw-card-table .reduced-note { padding: 8px 12px; }
 .txw-card-table .grid-host.reduced-table { flex: 1 1 0; min-height: 0; height: 0; max-height: none; }
 .txw-card-table .reduced-legend { flex: none; padding: 6px 12px; }
@@ -1847,7 +1868,10 @@ main { position: relative; }
 .plottable-sidebar li input.plottable-tag { flex: 0 0 26px; width: 26px; height: 22px;
   padding: 0; text-align: center; font-size: 12px; font-weight: 600;
   border: 1px solid var(--line2); background: var(--field); color: var(--ink); }
-.plottable-sidebar li input.plottable-tag:placeholder-shown { color: var(--faint); }
+/* untagged: a quiet dashed slot, so the list does not read as a column of
+   empty boxes; it turns into a solid letter box once it holds a tag */
+.plottable-sidebar li input.plottable-tag:placeholder-shown { color: var(--faint);
+  background: none; border-style: dashed; font-weight: 400; }
 .plottable-sidebar li input.plottable-tag:focus { border-color: var(--accent); outline: none; }
 main:has(> .figure-mode) { padding: 0; gap: 0; }
 .figure-mode { display: flex; height: 100%; min-height: 0; }
@@ -1901,3 +1925,20 @@ button.fig-name:hover { color: var(--accent); }
     border-bottom: 1px solid var(--line); }
 }
 .fig-seg button { padding: 5px 10px; font-size: 12px; }
+
+/* A narrow workspace (a tablet held upright, a phone, a wide Analyses list)
+   cannot hold the graph and the display side by side: the graph was left a
+   strip a few nodes wide. There the display goes under the graph instead, and
+   each gets the full width. Keyed on the workspace's own width, not the
+   window's, because the Analyses list beside it is resizable. */
+.txw-workspace { container: txw-workspace / inline-size; }
+@container txw-workspace (max-width: 900px) {
+  .txw-rfcanvas.with-display { right: 0; bottom: 60%; }
+  .txw-rfcanvas.display-hidden { right: 0; bottom: 44px; }
+  .txw-stash { inset: auto 0 0 0; width: auto; max-width: none; height: 60%;
+    border-left: none; border-top: 2px solid var(--hm-ink); }
+  .txw-stash.collapsed { width: auto; height: 44px; padding: 0 8px;
+    flex-direction: row; align-items: center; }
+  .txw-stash.collapsed .rail-expand { writing-mode: horizontal-tb; transform: none; }
+  .txw-display-resize { display: none; }
+}

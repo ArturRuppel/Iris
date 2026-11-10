@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   ReactFlow, ReactFlowProvider, Background, Controls, ControlButton, Position,
-  useNodesState, useEdgesState, useReactFlow,
+  useNodesState, useEdgesState, useReactFlow, useNodesInitialized,
   type Node, type Edge as RFEdge, type NodeTypes, type EdgeTypes, type FitViewOptions,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -12,7 +12,7 @@ import { ArrayShapeRFNode, nodeShapeProps, type RFNodeData } from "./ArrayShapeR
 import { nodeDeltas } from "./nodeDelta";
 import { WorkbenchEdge } from "./WorkbenchEdge";
 import {
-  openCardAtom, nodePositionsAtom,
+  openCardAtom, nodePositionsAtom, stashAtom,
   pushStashAtom, focusedStashIdAtom, displayCollapsedAtom,
 } from "./state";
 import { targetToCardKind, EDGE_CARD, type Target } from "./cardRegistry";
@@ -25,12 +25,50 @@ import { removeStepAtom, connectInputAtom, undoSpecAtom, redoSpecAtom, analysisT
 const nodeTypes = { arrayShape: ArrayShapeRFNode } as unknown as NodeTypes;
 const edgeTypes = { workbench: WorkbenchEdge } as unknown as EdgeTypes;
 
-/* fit the DAG into its pane with a little breathing room; maxZoom 1 keeps nodes
-   at their natural size at most, so a roomy pane never balloons them. The bottom
-   gets extra room for the control cluster. Shared by the initial fit and the
-   resize re-fit so both frame the graph identically. */
+/* the Fit View button: the whole DAG in its pane with a little breathing room,
+   however small that makes it; maxZoom 1 keeps nodes at their natural size at
+   most. The bottom gets extra room for the control cluster. (The automatic
+   framing is frameViewport, below, which stops at a readable zoom.) */
 const FIT_OPTS: FitViewOptions = { padding: { top: "24px", right: "24px", bottom: "64px", left: "24px" },
   minZoom: 0.2, maxZoom: 1, duration: 0 };
+
+/* Below this zoom the text in a node is too small to read (12px type at 0.7 is
+   about 8px), so the automatic framing never goes under it. The Fit View button
+   still zooms out to the whole graph. */
+export const MIN_READABLE_ZOOM = 0.7;
+const FRAME_PAD = { top: 24, right: 24, bottom: 64, left: 24 };
+
+interface Box { x: number; y: number; width: number; height: number }
+
+/* Where to put the viewport so the graph is readable. A graph that fits its pane
+   at a readable zoom is centred in it, at its natural size at most. One that
+   does not fit is shown at the smallest readable zoom instead of being shrunk
+   further, and the view is placed on `focus` (the node whose card is open), but
+   never past either end of the graph: the rest is a pan away. Pure, so it can be
+   tested without a browser. */
+export function frameViewport(
+  bounds: Box, pane: { width: number; height: number }, focus?: Box | null,
+): { x: number; y: number; zoom: number } {
+  const availW = Math.max(1, pane.width - FRAME_PAD.left - FRAME_PAD.right);
+  const availH = Math.max(1, pane.height - FRAME_PAD.top - FRAME_PAD.bottom);
+  const fit = Math.min(availW / Math.max(1, bounds.width), availH / Math.max(1, bounds.height));
+  const zoom = Math.min(1, Math.max(MIN_READABLE_ZOOM, fit));
+  const place = (b0: number, bLen: number, f0: number | undefined, fLen: number,
+                 pad0: number, avail: number) => {
+    const len = bLen * zoom;
+    if (len <= avail) return pad0 + (avail - len) / 2 - b0 * zoom;      // fits: centre
+    const start = pad0 - b0 * zoom;                                    // near end flush
+    const end = pad0 + avail - (b0 + bLen) * zoom;                     // far end flush
+    if (f0 == null) return start;
+    const centred = pad0 + avail / 2 - (f0 + fLen / 2) * zoom;
+    return Math.min(start, Math.max(end, centred));
+  };
+  return {
+    zoom,
+    x: place(bounds.x, bounds.width, focus?.x, focus?.width ?? 0, FRAME_PAD.left, availW),
+    y: place(bounds.y, bounds.height, focus?.y, focus?.height ?? 0, FRAME_PAD.top, availH),
+  };
+}
 
 /* the onNodeDragStop reducer: records a node's post-drag position into the
    override map, immutably. Kept pure so it's unit-testable (RF drag events don't
@@ -115,25 +153,46 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
   const displayCollapsed = useAtomValue(displayCollapsedAtom);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  // Keep the DAG framed in its pane. The pane changes with the display panel
-  // (and on window resize), but React Flow only fits once at mount —
-  // so without this the nodes keep their old, larger zoom and spill out of the
-  // band. Observe the pane and re-fit (coalesced to a frame) whenever it resizes.
-  const { fitView } = useReactFlow();
+  // Keep the DAG framed in its pane, at a zoom its text can be read at (see
+  // frameViewport). The pane changes with the display panel and on window
+  // resize, and React Flow frames nothing by itself here, so: frame once the
+  // nodes are measured, again when the graph gains or loses a node, and
+  // (coalesced to a frame) whenever the pane resizes.
+  const { setViewport, getNodesBounds, getNodes } = useReactFlow();
+  const nodesReady = useNodesInitialized();
   const rfcanvasRef = useRef<HTMLDivElement>(null);
-  const hasNodesRef = useRef(false);
-  hasNodesRef.current = nodes.length > 0;
+  const stash = useAtomValue(stashAtom);
+  const focusIdRef = useRef<string | null>(null);
+  {
+    // the node whose card is open; an open step editor points at the node the
+    // step produced
+    const t = stash[stash.length - 1]?.target;
+    focusIdRef.current = !t ? null
+      : t.kind === "node" ? t.id
+      : graph.edges.find((e) => e.id === t.id)?.toId ?? null;
+  }
+  const frame = useCallback(() => {
+    const el = rfcanvasRef.current;
+    const all = getNodes();
+    if (!el || !all.length || !el.clientWidth || !el.clientHeight) return;
+    const focusNode = all.find((n) => n.id === focusIdRef.current);
+    setViewport(frameViewport(getNodesBounds(all),
+      { width: el.clientWidth, height: el.clientHeight },
+      focusNode ? getNodesBounds([focusNode]) : null));
+  }, [getNodes, getNodesBounds, setViewport]);
+  const nodeIdsKey = nodes.map((n) => n.id).join(",");
+  useEffect(() => { if (nodesReady) frame(); }, [nodesReady, nodeIdsKey, frame]);
   useEffect(() => {
     const el = rfcanvasRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let raf = 0;
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => { if (hasNodesRef.current) fitView(FIT_OPTS); });
+      raf = requestAnimationFrame(frame);
     });
     ro.observe(el);
     return () => { cancelAnimationFrame(raf); ro.disconnect(); };
-  }, [fitView]);
+  }, [frame]);
 
   // clicking a node pins its data card into the stash (docked, comparable),
   // never a floating popup. A stale id (kind === null) is ignored. A whole-node
@@ -322,7 +381,7 @@ function Canvas({ graph }: { graph: ExplorerGraph }) {
           onEdgeClick={(_e, ed) => openEdge({ kind: "edge", id: ed.id })}
           nodeTypes={nodeTypes} edgeTypes={edgeTypes}
           deleteKeyCode={null}
-          fitView fitViewOptions={FIT_OPTS} minZoom={0.2} proOptions={{ hideAttribution: true }}
+          fitViewOptions={FIT_OPTS} minZoom={0.2} proOptions={{ hideAttribution: true }}
         >
           <Background gap={22} size={1} color="#d7dee7" />
           {/* the one canvas control cluster: React Flow's zoom buttons, then the

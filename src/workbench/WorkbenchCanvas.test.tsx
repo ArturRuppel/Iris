@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { WorkbenchCanvas, applyNudge, toRF, onConnectDelegate } from "./WorkbenchCanvas";
+import { WorkbenchCanvas, applyNudge, toRF, onConnectDelegate, frameViewport, MIN_READABLE_ZOOM } from "./WorkbenchCanvas";
 import { nodePositionsAtom, stashAtom, seedDefaultStashAtom } from "./state";
 import { targetToCardKind } from "./cardRegistry";
 import type { ExplorerGraph } from "../explorer/graph";
@@ -179,5 +179,36 @@ describe("WorkbenchCanvas", () => {
     expect(screen.queryByTestId("table-card")).toBeNull();
     expect(screen.queryByTestId("stats-card")).toBeNull();
     expect(container.querySelectorAll(".react-flow__node").length).toBeGreaterThan(0);
+  });
+});
+
+describe("frameViewport", () => {
+  const pane = { width: 748, height: 688 };   // 700 x 600 after the padding
+  it("centres a graph that fits, at its natural size at most", () => {
+    const v = frameViewport({ x: 0, y: 0, width: 400, height: 150 }, pane);
+    expect(v.zoom).toBe(1);
+    expect(v.x).toBe(24 + (700 - 400) / 2);
+    expect(v.y).toBe(24 + (600 - 150) / 2);
+  });
+  it("shrinks a slightly-too-wide graph to fit, while it stays readable", () => {
+    const v = frameViewport({ x: 0, y: 0, width: 875, height: 150 }, pane);
+    expect(v.zoom).toBeCloseTo(0.8);
+    expect(v.x).toBeCloseTo(24);
+  });
+  it("never goes below the readable zoom: a long graph starts at its source", () => {
+    const v = frameViewport({ x: 0, y: 0, width: 3000, height: 150 }, pane);
+    expect(v.zoom).toBe(MIN_READABLE_ZOOM);
+    expect(v.x).toBe(24);                                  // left end flush
+  });
+  it("puts the open node in view on a graph that overflows", () => {
+    const bounds = { x: 0, y: 0, width: 3000, height: 150 };
+    const last = { x: 2828, y: 0, width: 172, height: 150 };
+    const v = frameViewport(bounds, pane, last);
+    // the last node cannot be centred without showing empty space past the
+    // end, so the right end sits flush instead
+    expect(v.x + 3000 * v.zoom).toBeCloseTo(24 + 700);
+    const mid = { x: 1400, y: 0, width: 172, height: 150 };
+    const m = frameViewport(bounds, pane, mid);
+    expect(m.x + (1400 + 86) * m.zoom).toBeCloseTo(24 + 350);   // centred
   });
 });

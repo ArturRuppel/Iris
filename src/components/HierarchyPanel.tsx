@@ -83,49 +83,24 @@ export function HierarchyPanel() {
     return h === null || !spine.includes(h);
   });
 
+  // every column once: the nesting levels first (coarsest → finest), then the
+  // rest in table order. A column on the spine counts as an identifier even if
+  // its schema flag is missing (a file written by an older build or by a script).
+  const onSpine = new Set(spine);
+  const roleOrder = [
+    ...spine.filter((n) => cols.some((c) => c.name === n)),
+    ...cols.filter((c) => !onSpine.has(c.name)).map((c) => c.name),
+  ];
+
   return (
     <aside className="hierarchy-panel">
       <h3>Data hierarchy</h3>
-      <p className="dim hp-hint">
-        Mark any column an <b>identifier</b> to nest the data by it (a spine
-        level) — a numeric key like time or dose still plots on an axis.
-        Everything else is a <b>classifier</b> (a label) or a <b>measure</b>.
-        Pick a level later to average away everything finer.
-      </p>
 
-      {/* role assignment for every column: identifier on/off, with the natural
-          (non-identifier) role named per value type. Identifiers listed first,
-          in spine order (coarsest → finest), then classifiers, then measures. */}
-      <div className="hp-roles">
-        {[...spine, ...cols.filter((c) => !c.identifier).map((c) => c.name)]
-          .map((name) => {
-            const col = cols.find((c) => c.name === name);
-            if (!col) return null;
-            const isId = !!col.identifier;
-            const naturalRole = col.type === "categorical" ? "classifier" : "measure";
-            return (
-              <div key={name} className="hp-role-row">
-                <span className="hp-col" title={labelFor(name)}>{labelFor(name)}</span>
-                <div className="seg">
-                  <button className={isId ? "on" : ""}
-                    onClick={() => applyRole(name, true)}>identifier</button>
-                  <button className={isId ? "" : "on"}
-                    onClick={() => applyRole(name, false)}>{naturalRole}</button>
-                </div>
-              </div>
-            );
-          })}
-        {cols.length === 0 && (
-          <p className="rail-empty">No columns to organize.</p>
-        )}
-      </div>
-      {roleError && <p className="hp-role-error error-bar">{roleError}</p>}
-      {roleWarning && <p className="hp-role-warning error-bar warn-bar">{roleWarning}</p>}
-
-      {/* the visualization: spine (vertical) with classifiers branching at home */}
-      {spine.length > 0 && (
+      {/* the nesting leads: it is the one picture of how the rows are organised,
+          and what the roles below exist to produce */}
+      {spine.length > 0 ? (
         <div className="hp-viz">
-          <div className="hp-viz-head">nesting (coarse → fine)</div>
+          <div className="hp-viz-head">Nesting, coarse → fine</div>
           <ol className="hp-tree">
             {spine.map((s, i) => (
               <li key={s} className="hp-node">
@@ -136,10 +111,13 @@ export function HierarchyPanel() {
                   <span className="hp-level">
                     <span className="hp-level-name" title={labelFor(s)}>{labelFor(s)}</span>
                     {nGroups(s) != null && (
-                      <span className="hp-count">{nGroups(s)!.toLocaleString()}</span>
+                      <span className="hp-count"
+                        title={`${nGroups(s)!.toLocaleString()} distinct at this level`}>
+                        {nGroups(s)!.toLocaleString()}</span>
                     )}
                     <select className="hp-fn" value={hierarchy.fn[s] ?? "mean"}
                       title={`How finer rows collapse into a ${labelFor(s)}`}
+                      aria-label={`How finer rows collapse into a ${labelFor(s)}`}
                       onChange={(e) => setLevelFn({ level: s, fn: e.target.value as LevelFn })}>
                       {LEVEL_FNS.map((fn) => <option key={fn} value={fn}>{fn}</option>)}
                     </select>
@@ -169,9 +147,51 @@ export function HierarchyPanel() {
               <span className="dim"> (varies within every level — add the column it nests under to the spine)</span>
             </div>
           )}
+          <p className="dim hp-hint">
+            The number is how many there are at that level. A plot or a test that
+            works at a level combines the finer rows with the function beside it.
+          </p>
         </div>
+      ) : cols.length > 0 && (
+        <p className="hp-empty">
+          No nesting yet: every row counts as one independent observation. If
+          rows belong to experiments, animals or cells, mark those columns as
+          identifiers below.
+        </p>
       )}
 
+      {/* role assignment for every column: identifier on/off, with the natural
+          (non-identifier) role named per value type */}
+      <div className="hp-viz-head hp-roles-head">Column roles</div>
+      <dl className="hp-legend">
+        <dt>identifier</dt><dd>which unit a row belongs to: experiment, animal, cell, time point</dd>
+        <dt>classifier</dt><dd>a label that describes a unit: condition, genotype</dd>
+        <dt>measure</dt><dd>a number you measured</dd>
+      </dl>
+      <div className="hp-roles">
+        {roleOrder.map((name) => {
+          const col = cols.find((c) => c.name === name);
+          if (!col) return null;
+          const isId = !!col.identifier || onSpine.has(name);
+          const naturalRole = col.type === "categorical" ? "classifier" : "measure";
+          return (
+            <div key={name} className="hp-role-row">
+              <span className="hp-col" title={labelFor(name)}>{labelFor(name)}</span>
+              <div className="seg">
+                <button className={isId ? "on" : ""} aria-pressed={isId}
+                  onClick={() => applyRole(name, true)}>identifier</button>
+                <button className={isId ? "" : "on"} aria-pressed={!isId}
+                  onClick={() => applyRole(name, false)}>{naturalRole}</button>
+              </div>
+            </div>
+          );
+        })}
+        {cols.length === 0 && (
+          <p className="rail-empty">No columns to organize.</p>
+        )}
+      </div>
+      {roleError && <p className="hp-role-error error-bar">{roleError}</p>}
+      {roleWarning && <p className="hp-role-warning error-bar warn-bar">{roleWarning}</p>}
     </aside>
   );
 }
