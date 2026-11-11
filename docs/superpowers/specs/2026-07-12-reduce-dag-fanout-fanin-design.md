@@ -81,8 +81,8 @@ test_grain }` block, reduced/collapsed independently then merged (`reduce.py:280
 nodes: a `source` for the right table, its own reduce steps as nodes, and the join
 consumes the tail as `inputs[1]`. This **removes the special case** — one evaluation
 mechanism, not two — but reworks the §4 join-carries-sub-pipeline path and requires
-regenerating the four §4 correlation `.iris` fixtures (via the data repo's
-`verify_s4.py`). Recommended, because two coexisting fan-in mechanisms is exactly the
+regenerating the four §4 correlation `.iris` fixtures (via the private data
+repo's §4 verification script). Recommended, because two coexisting fan-in mechanisms is exactly the
 incoherence to avoid. Flagged for the reviewer: this is the largest single piece of
 churn in the change.
 
@@ -143,9 +143,10 @@ canvas already render arbitrary fan-in/out; no renderer change.
 No users, no legacy path (per project policy): the reader/writer switch to 2.2
 outright; there is no 2.1 compatibility shim. In-repo `.iris` fixtures (the COV2D §4
 correlation files and any test fixtures) are regenerated, not migrated —
-`verify_s4.py` in the data repo rebuilds the §4 files and must reproduce the committed
-r/p (crowding_q −0.174/0.049, crowding_speed −0.122/0.008, het_q −0.088/0.396,
-het_speed −0.024/0.631) as the acceptance check that the join dissolution is correct.
+the §4 verification script in the private data repo rebuilds the §4 files and must
+reproduce the committed r/p for crowding_q, crowding_speed, het_q and het_speed
+(reference values: see the private verification script; not reproduced here) as the
+acceptance check that the join dissolution is correct.
 
 ## Out of scope (deferred, named so they are not silently dropped)
 

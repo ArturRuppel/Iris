@@ -111,38 +111,38 @@ Each section's notebook prep, re-expressed in the new vocabulary, with the repor
 numbers it must reproduce.
 
 ### §5 — T1 transition rates **(no collapse; landed nodes only — the free win)**
-Source: per-T1-event table (`signed_contact_length_labeled.csv`, one row per
+Source: per-T1-event table (one row per
 event/role). Pipeline, all in `reduce.steps`:
 1. `recode` `contact_type → tt` (flat enumerated, 4 levels in `_TT_ORDER`).
 2. `derive` `ev = experiment_id +"|"+ position_id +"|"+ str(t1_event_id)`.
 3. `grid_complete` `by=[experiment_id, position_id]`, `column=tt`,
    `levels=_TT_ORDER`, `count_unique="ev"`, `fill=0`, `count_name="count"` →
-   per-(field × type) counts on a 0-filled 27×4 grid.
-4. `derive` `hours = 12.5` (constant exposure; 50 frames × 15 min / 60).
+   per-(field × type) counts on a 0-filled field × type grid.
+4. `derive` `hours = <exposure>` (a constant per-field exposure in hours).
 5. **rate** family, grouped by `tt`, value `count`, offset `log(hours)`, NB model.
 
-**Reference (must match):** rates events/h/field (95 % CI), n=27 fields —
-homo→homo **4.04 [2.92, 5.60]**, hetero→hetero **3.08 [1.91, 4.96]**, homo→hetero
-**3.56 [2.40, 5.29]**, hetero→homo **3.56 [2.36, 5.37]**; global NB-GLM LR
-**p = 0.833**.
+**Reference (must match):** the per-type rates (events/h/field, with 95 % CI) for
+homo→homo, hetero→hetero, homo→hetero and hetero→homo, and the global NB-GLM LR
+p-value. Reference values: see the private verification script; not reproduced
+here.
 
 **§5 landscape:** the tail-clip `|signed_length| ≤ quantile(abs(signed_length),
 0.99)` is the landed expression-valued `filter` (C5). Verifies the realized 99th-
 pct bound is logged to the trace.
 
 ### §3 — neighbour enrichment **(sum-collapse + post-aggregate derive + location)**
-Source: `neighbor_enrichment.csv` (per frame × focal cell × neighbour label).
+Source: the neighbour-enrichment table (per frame × focal cell × neighbour label).
 1. `reduce.steps`: `derive opp/homo` flag (landed), `filter` to the homo (or het)
    lane.
-2. `collapse` to `experiment` grain with **`fn: "sum"`** → Σobs, Σexp per replicate
-   (n=3).
+2. `collapse` to `experiment` grain with **`fn: "sum"`** → Σobs, Σexp per replicate.
 3. `reduce.post`: `derive enrich = log2(obs / exp)` — **the C3 post-aggregate
    derive** (fires the guard).
 4. **location** family: one-sample t of `enrich` vs 0 (the notebook pools via
    geometric mean of the linear ratio = mean of log-ratio).
 
-**Reference (must match):** homotypic ratio **1.05× (p = 0.0026)**, heterotypic
-**0.93× (p = 0.054)** — i.e. the per-lane one-sample t on the log-ratios.
+**Reference (must match):** the homotypic and heterotypic enrichment ratios and
+their p-values — i.e. the per-lane one-sample t on the log-ratios. Reference
+values: see the private verification script; not reproduced here.
 
 ### §4A — crowding (Spearman) **(median-collapse + N-way join/pivot/derive + replicate correlation) — riskiest**
 Source: four per-frame/per-event tables sharing `KEY`. Target `per_cell_features`:
@@ -153,10 +153,11 @@ Source: four per-frame/per-event tables sharing `KEY`. Target `per_cell_features
 3. `reduce.post` at per-cell grain: the four `join`s (B1), the `pivot` `opp → s,o`
    (landed C2), `derive het = o/(s+o)` (C3 guard).
 4. **correlation** family — **replicate-level Spearman**: per-`experiment` Spearman
-   ρ, Fisher-z across n=3, one-sample t.
+   ρ, Fisher-z across replicates, one-sample t.
 
-**Reference (must match):** shape q vs neighbour count **r = −0.174, p = 0.0492**;
-speed vs neighbour count **r = −0.122, p = 0.0078**.
+**Reference (must match):** r and p for shape q vs neighbour count and for speed
+vs neighbour count. Reference values: see the private verification script; not
+reproduced here.
 
 **Open sub-question (the risk):** does the landed `correlation` family support the
 *replicate-level* design (per-group Spearman → Fisher-z → one-sample t), or does it

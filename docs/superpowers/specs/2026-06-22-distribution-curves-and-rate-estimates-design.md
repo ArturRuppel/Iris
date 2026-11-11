@@ -16,12 +16,12 @@ per-group event rate with CIs).
 
 Date: 2026-06-22.
 
-Motivating consumer: `reports/2026-06-21_COV2D-NLS-subpopulation/report.ipynb`, §5.
+Motivating consumer: a private analysis notebook (the COV2D NLS-subpopulation report), §5.
 - §5a draws four T1 **potential landscapes** U(L) = −ln P(L) by contact-transition
-  type with an annotated barrier — currently matplotlib (`t1_landscape_by_type.svg`).
+  type with an annotated barrier — currently matplotlib.
 - §5b draws per-type **T1 rates** from a negative-binomial GLM (per-field counts,
   offset = log-hours) with 95 % CI bars — currently matplotlib + statsmodels in the
-  notebook (`t1_rate_by_type.svg`).
+  notebook.
 Both are general idioms (any reaction-coordinate potential; any per-group event rate
 with exposure), not COV2D-specific.
 
@@ -156,8 +156,7 @@ New function in `stats.py`, structured like `location` (`stats.py:422-567`):
   `statsmodels.discrete.discrete_model` (NB) / `GLM(family=Poisson())` (Poisson).
   `model == "auto"` fits Poisson, tests overdispersion (Pearson χ²/df), and refits
   NB if overdispersed (state the choice in `methods_text`).
-  - rate = `exp(intercept)`; 95 % CI = `exp(intercept ± z·SE)` — the morphogenesis
-    recipe (`fig6.py`).
+  - rate = `exp(intercept)`; 95 % CI = `exp(intercept ± z·SE)`
   - `n` = number of units in the group; carry the summed count + exposure.
 - **Global "does group matter" test**: a likelihood-ratio test of `count ~ C(group)`
   (offset log-exposure) vs `count ~ 1`, χ² on the model df difference → put in

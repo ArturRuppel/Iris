@@ -3,7 +3,7 @@
 **Purpose.** A colleague opens a link and uses Iris, with their data staying on
 their own machine. The site is static, so there is no server to run or secure, and it
 opens from a file share over `file://` as well as from any web host. Colleagues get
-it through the Pomice2 lab-book export.
+it through the static lab-book export.
 
 **Evidence.** Before this design, the engine's test suite ran under Pyodide
 314.0.7 at commit a98148d. Native passed 636 of 636. Pyodide passed 630, including

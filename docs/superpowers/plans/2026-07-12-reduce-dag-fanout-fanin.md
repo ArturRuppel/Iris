@@ -1242,7 +1242,7 @@ The engine's inline-right materialization (`_apply_join` lines 294-312) and the 
 
 **Files:**
 - Modify: `engine/iris_engine/reduce.py` (drop inline-right from `_apply_join` and `project_schema`), remove dead fold entry points if fully unreferenced
-- Regenerate (data repo, private): `reports/COV2D/verify_s4.py` output
+- Regenerate (private data repo): the §4 verification script's output
 - Test: `engine/tests/test_reduce.py`, `engine/tests/test_dag.py`
 
 ### Task E1: Remove the inline-right join path
@@ -1276,17 +1276,17 @@ git commit -m "refactor(engine): dissolve the inline-right join into DAG nodes"
 
 - [ ] **Step 1: Rebuild the §4 files from the DAG path**
 
-In the data repo, run `reports/COV2D/verify_s4.py` (it assembles the per-cell features and writes the four §4 correlation `.iris`). Update its assembly to emit the DAG spec (2.2): the N-way feature join becomes join nodes over per-feature source branches; the `opp` pivot and `het` derive are ordinary nodes.
+In the private data repo, run the §4 verification script (it assembles the per-cell features and writes the four §4 correlation `.iris`). Update its assembly to emit the DAG spec (2.2): the N-way feature join becomes join nodes over per-feature source branches; the `opp` pivot and `het` derive are ordinary nodes.
 
 - [ ] **Step 2: Verify the committed r/p reproduce**
 
-Run: `python reports/COV2D/verify_s4.py`
-Expected output (the acceptance check that the dissolution is correct): crowding_q r=-0.174 p=0.049, crowding_speed r=-0.122 p=0.008, het_q r=-0.088 p=0.396, het_speed r=-0.024 p=0.631.
+Run: the §4 verification script in the private data repo.
+Expected output (the acceptance check that the dissolution is correct): r and p for crowding_q, crowding_speed, het_q and het_speed equal the committed values. Reference values: see the private verification script; not reproduced here.
 
 - [ ] **Step 3: Commit (data repo)**
 
 ```bash
-git add reports/COV2D/verify_s4.py reports/COV2D/*.iris
+git add <the §4 verification script and .iris files>
 git commit -m "chore(cov2d): regenerate §4 .iris on the reduce DAG (2.2); r/p unchanged"
 ```
 

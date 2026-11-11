@@ -11,14 +11,14 @@
 The grouped sheet is supposed to be the "flip any table into a spreadsheet and back"
 lens. On the tables Iris actually exists to serve, it never opens.
 
-Every COV2D report table (`electronic_labbook_database/reports/COV2D/*.iris`) is
-80k–180k rows of per-object measurements. `pivotability()` (`src/grouped.ts:54`)
+Every COV2D report table (the lab-book report figures) is tens of thousands of
+rows or more of per-object measurements. `pivotability()` (`src/grouped.ts:54`)
 refuses all of them, for two independent reasons:
 
 1. **A hard `MAX_GROUPED_ROWS = 2000` cap** (`grouped.ts:75`). Every real table is
-   40–90× over it. The cap exists because `longToWide` materialises *one cell per
-   tidy row* — a full pivot. For 180k rows that is meaningless anyway; nobody wants
-   a 180,000-cell sheet.
+   far over it. The cap exists because `longToWide` materialises *one cell per
+   tidy row* — a full pivot. At that size it is meaningless anyway; nobody wants
+   a sheet with one cell per measurement.
 2. **"Exactly one numeric value column"** (`grouped.ts:58`). `cell_size` carries
    `frame` + `value`; `neighbor_enrichment` carries `obs` + `exp`. The pivot can't
    guess which fills the grid, so it gives up.
@@ -127,8 +127,8 @@ required; a round-trip regression test is enough.
 
 The COV2D files carry `spine: []` for two upstream reasons, both out of scope here:
 
-1. They were written by an **external** producer (`cov2d.report`, in the private
-   `electronic_labbook_database` repo) that emits an empty spine. Fixing that writer
+1. They were written by an **external** producer (the private lab-book
+   report code) that emits an empty spine. Fixing that writer
    is a downstream follow-up.
 2. `frame` and `t1_event_id` are typed **numeric**, but they are indices. The
    identifier-seed misses them, so they would fall into the body as spurious value

@@ -31,19 +31,19 @@ or more nodes Tier A deferred. They are ready to design now because:
    log-exposure offset, LR test) drives §5 today. Both ship engine-first and
    validated. The entire remaining gap is **data-prep**, same as Tier A.
 3. **The corpus is concrete and checked in.** Every op below is a line in
-   `code/cov2d/figures.py`; every target is an existing `.iris`. The acceptance
+   the private analysis notebook; every target is an existing `.iris`. The acceptance
    bar is the same as Tier A: reproduce the notebook's quoted numbers to float
    precision on a COV2D-shaped fixture.
 
 ## What the notebook does today
 
-Three functions in `code/cov2d/figures.py`, plus the §5 grid builder:
+Three functions in the private analysis notebook, plus the §5 grid builder:
 
 ```python
 def per_cell_features(series_dir):                       # §3 + §4 basis
-    csh = pd.read_csv(.../"cell_shape.csv")
+    csh = pd.read_csv(<cell-shape table>)  
     csh["q"] = csh["cell_shape.perimeter_um"] / np.sqrt(csh["cell_shape.area_um2"])   # derive (numeric) ✓landed
-    ne = pd.read_csv(.../"neighbor_enrichment.csv")
+    ne = pd.read_csv(<neighbour-enrichment table>)
     ne["opp"] = (ne.focal_label != ne.neighbor_label).astype(int)                     # derive (boolean)  ✗
     g = ne.groupby(KEY + ["opp"])["...observed"].sum().unstack(fill_value=0)          # aggregate + PIVOT ✗
     g.columns = ["s", "o"]
@@ -57,7 +57,7 @@ def per_cell_features(series_dir):                       # §3 + §4 basis
     return pc                                                                         # one row per cell
 
 def t1_labeled(series_dir):                              # §5 basis
-    df = pd.read_csv(.../"signed_contact_length_labeled.csv")
+    df = pd.read_csv(<T1 contact-length table>)
     df["tt"] = df.contact_type.map(_ttype)               # parser recode "neg-pos→neg-neg" -> "hetero→homo" ✗
     df["ev"] = df.experiment_id +"|"+ df.position_id +"|"+ df.t1_event_id.astype(str) # string-concat derive ✗
     return df
@@ -68,7 +68,7 @@ hi = float(np.percentile(np.abs(df[_L]), 99)); clip = df[df[_L].between(-hi, hi)
 # §5 rate: a 0-filled (field × transition) grid, then a per-cell-deduped count
 grid = pos.merge(pd.DataFrame({"tt": _TT_ORDER}), how="cross")                        # GRID-COMPLETION cross-join ✗
 grid["count"] = ev_counts.reindex(grid.index).fillna(0)                              # 0-fill + count aggregate ✗
-grid["hours"] = _DUR_H                                                                # constant derive ✓
+grid["hours"] = <exposure>                                                            # constant derive ✓
 ```
 
 `✓landed` = a Tier A step; `✗` = a node this spec must add; `✗(un-force-nesting)` =
@@ -199,7 +199,7 @@ COV2D-shaped fixtures:
   and Fisher-z one-sample-t `p` match `replicate_spearman` to float precision.
 - **§4 het:** `opp`, the `s`/`o` pivot, and `het = o/(s+o)` match `per_cell_features`
   per cell; the stratified within-type Spearman matches.
-- **§5 rate:** the 0-filled `(field × transition)` grid matches `write_t1_rate_iris`'s
+- **§5 rate:** the 0-filled `(field × transition)` grid matches the notebook's
   `grid` row-for-row (including the real zeros); the per-type NB rate ratios ± CI
   and the global LR `p` match.
 - **§5 landscape:** the 99th-pct tail-clip selects the same rows; the distribution

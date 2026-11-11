@@ -7,7 +7,7 @@ Date: 2026-06-13
 The derived-plottables unit (landed 2026-06-13) gave each plottable a `reduce`
 clause — filter rows, then collapse to group summaries — edited through a single
 flat `ReducePanel`. On real data that panel collapses under its own weight: the
-sample dataset `cells_by_frame.csv` has **53 columns and ~82k rows**, so the
+sample dataset is a wide per-cell-per-frame table, so the
 group-by checkbox list and the per-numeric aggregate pickers each render dozens
 of controls at once. The selectors are overwhelming, and the only available
 shape is the fixed *filter-then-collapse*.

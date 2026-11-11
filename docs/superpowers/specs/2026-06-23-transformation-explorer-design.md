@@ -18,7 +18,7 @@ stops exactly where researchers need it most.
    level dropdown. There is no single view of "how the data was analyzed."
 2. **Power stops at the one-table, strictly-nested model**, so the interesting
    prep escapes into Excel/pandas — where it becomes *unauditable*. The COV2D
-   report's `cov2d/figures.py` and `cov2d/tables.py` do joins, derived columns
+   report's private analysis code does joins, derived columns
    (`q = perimeter/√area`), recodes, and grid-completion in pandas *before*
    Iris ever sees the table. The provenance Iris prides itself on has a hole the
    size of the entire prep pipeline.

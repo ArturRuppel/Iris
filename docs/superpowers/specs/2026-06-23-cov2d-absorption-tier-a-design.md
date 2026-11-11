@@ -14,7 +14,7 @@ full COV2D target map (Tiers A–D) lives in the Iris `TODO.md`.*
 
 §1–§2 produce a family of SuperPlots — cell/nucleus **size**, **shape factor**,
 **speed**, and the MSD persistence exponent — each a violin of per-cell points
-with per-experiment means overlaid, a paired t across the N=3 replicates, and a
+with per-experiment means overlaid, a paired t across the replicates, and a
 Hedges g. They are the right first absorption target for three reasons:
 
 1. **The collapse is already the default.** Their replicate statistic is the
@@ -23,7 +23,7 @@ Hedges g. They are the right first absorption target for three reasons:
    transformation explorer proposes from the column roles. No deviation from the
    default path is needed.
 2. **The stat already exists.** `paired_by_replicate` is a paired-t + Hedges g
-   across the three replicate medians — Iris's two-group paired family, driven by
+   across the replicate medians — Iris's two-group paired family, driven by
    the spine-derived pairing. Nothing new on the stats side.
 3. **The only new prep is grain-safe and small.** Everything `per_frame_values`
    does beyond the flatten is a `drop`, a `filter`, one `recode`, one `join`, and
@@ -33,7 +33,7 @@ Hedges g. They are the right first absorption target for three reasons:
 
 ## What the notebook does today
 
-`code/cov2d/figures.py`, the two functions behind every §1–§2 panel:
+A private analysis notebook; the two functions behind every §1–§2 panel:
 
 ```python
 def per_frame_values(shape_csv, value_col, class_csv, *, transform=None):
@@ -54,16 +54,15 @@ def paired_by_replicate(pf, *, value="value", agg="median"):
     ...
 ```
 
-The inputs are CellFlow's pooled `shape_tables` CSVs (`cell_shape.csv`,
-`nucleus_shape.csv`, `cell_dynamics.csv`, …) plus `class_label.csv`. Each shape
-table is at the **per-frame** grain (`id`, metadata, `cell_id`, `frame`, then
-`<quantity_id>.<value>` columns); `class_label.csv` is one
+The inputs are the upstream tracker's pooled per-frame shape tables plus a
+per-cell class-label table. Each shape table is at the **per-frame** grain (`id`, metadata, `cell_id`, `frame`, then
+`<quantity_id>.<value>` columns); the class-label table is one
 `experiment_id, position_id, cell_id, class_label` row **per cell**.
 
 ## The target graph
 
 ```
-source(cell_shape.csv)                         source(class_label.csv)
+source(shape table)                            source(class labels)
    │ drop  → keep [KEY, frame, <quantity>]         │ recode class_label
    │ filter→ drop rows where <quantity> is null     │   negative→VimentinKO
    │ derive→ (optional) value = log(value), q=…      │   positive→NLS-mCherry
@@ -76,7 +75,7 @@ source(cell_shape.csv)                         source(class_label.csv)
         ┌─────────────────┴─────────────────┐
    SuperPlot (per-cell pts + per-exp means)   paired two-group t + Hedges g
    ↑ fan-in from the cell grain and           ↑ reads the experiment grain
-     the experiment grain                       (spine-derived pairing, N=3)
+     the experiment grain                       (spine-derived pairing)   
 ```
 
 ### Node-by-node mapping
@@ -90,7 +89,7 @@ source(cell_shape.csv)                         source(class_label.csv)
 | `.merge(cls, on=KEY, how="inner")` | `join` | spine-aligned, **coarse→fine broadcast**: a per-cell label onto per-frame rows; inner = drop unclassified |
 | `frame→cell→field→experiment` medians | `flatten` ×3 | the canonical default chain — no authoring needed |
 | violin + per-cell + per-exp dots | SuperPlot layers | fan-in arrows from cell and experiment grains |
-| `ttest_rel` + Hedges g across N=3 | stats clause | existing paired two-group family on the spine pairing |
+| `ttest_rel` + Hedges g across replicates | stats clause | existing paired two-group family on the spine pairing |
 
 ## What Tier A must add (minimal forms only)
 
@@ -116,7 +115,7 @@ Everything else §1–§2 needs is already built.
 ## Architecture & data flow
 
 - **Multi-source from day one.** §1–§2 is already two sources (a shape table +
-  `class_label.csv`) converging at a `join`, so Tier A is the first real
+  the class-label table) converging at a `join`, so Tier A is the first real
   exercise of the graph's fan-in. The MVP's single-`source` assumption is
   relaxed exactly here; the rest of the graph (drop/filter/flatten) is unchanged.
 - **The join sits before the flatten.** Because the class label is a raw per-cell
@@ -133,7 +132,7 @@ Everything else §1–§2 needs is already built.
 
 Tier A is done when the absorbed graph reproduces the notebook **exactly**, on a
 checked-in COV2D-shaped fixture (a small synthetic stand-in for the pooled
-`cell_shape.csv` + `class_label.csv`, with a known nesting and known per-class
+shape table + class-label table, with a known nesting and known per-class
 medians).
 
 - **Engine:** for each §1–§2 descriptor, the graph's experiment-grain values and

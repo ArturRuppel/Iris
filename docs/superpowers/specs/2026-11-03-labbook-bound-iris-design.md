@@ -7,8 +7,7 @@ figure on the lab-book page.
 
 A lab-book figure is a pair of files with one stem: `name.iris`, holding exactly
 one plot, and `name.svg`. Tables are copied into each `.iris`, because the files
-are small (the 41 in the lab book total 5.9 MB) and a self-contained file is worth
-more than the space. Copies of a table can drift, and nothing warns about that.
+are small and a self-contained file is worth more than the space. Copies of a table can drift, and nothing warns about that.
 
 ## Mnemosyne
 
@@ -20,7 +19,7 @@ more than the space. Copies of a table can drift, and nothing warns about that.
   without exactly one plot (422), a file changed since it was opened (409), and an
   origin other than the configured Iris or the lab book itself (403).
 - The data repo tracks `*.iris`, so earlier states live in git once committed. A
-  save does not commit, because sancho's clone must stay able to fast-forward.
+  save does not commit, because the server's clone must stay able to fast-forward.
 - Every save appends to `<stem>.log.jsonl` beside the figure: time, session, hashes
   before and after, and the hash of the previous line. A state that was saved and
   never committed therefore leaves a trace, although its content is gone.

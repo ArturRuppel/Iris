@@ -17,7 +17,7 @@ Motivating consumer: the COV2D NLS-subpopulation report's "do same-label cells
 cluster?" figure (§3). Per contact type (VimKO–VimKO, VimKO–NLS, NLS–NLS) it asks
 whether log₂(observed/expected) contact enrichment differs from **chance** (0).
 That figure is currently hand-built in matplotlib
-(`reports/2026-06-21_COV2D-NLS-subpopulation/report.ipynb`, `clustering_figure`)
+(in a private analysis notebook)
 because Iris can't express it. This makes it a normal editable `.iris`.
 
 ---
