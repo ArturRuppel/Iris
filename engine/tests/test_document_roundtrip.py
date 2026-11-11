@@ -223,7 +223,7 @@ def test_duplicate_table_name_in_save_is_rejected():
 
 def test_load_url_refuses_another_host():
     r = client.post("/document/load_url", json={"url": "http://elsewhere.example/a.iris"},
-                    headers={"host": "sancho:8766"})
+                    headers={"host": "myhost:8766"})
     assert r.status_code == 422 and "refusing" in r.json()["detail"]
 
 

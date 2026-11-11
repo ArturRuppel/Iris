@@ -42,7 +42,7 @@ describe("exprToNames", () => {
   });
   it("round-trips", () => {
     for (const e of ["step_um / 0.25", "log(group) + frame", "`speed (µm/h)` * 2",
-                     'str(frame) + " µm"', "experiment_id == \"SCMVI-01\""]) {
+                     'str(frame) + " µm"', "experiment_id == \"EXP-01\""]) {
       expect(exprToNames(exprToDisplay(e, cols), cols)).toBe(e);
     }
   });
