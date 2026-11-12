@@ -427,3 +427,70 @@ def test_connect_off_draws_no_connectors():
         df, schema, _spec([{"geom": "dot", "params": {}, "level": "subject"}]), {}, levels)
     assert not [l for l in fig.axes[0].lines if l.get_gid() == "connector"]
     compiler.close(fig)
+
+
+# `connect` at a nested level: a field label (`pos`) repeats in every experiment,
+# so the unit is the spine prefix (exp, pos), never the leaf label alone. Each
+# experiment is measured in both groups (paired); y encodes the unit so every
+# mark can be identified from its value: 100*exp + 10*pos (+1 in group B).
+_NESTED_SPINE = ["exp", "pos", "rep"]
+
+
+def _nested_schema():
+    return {"schema_version": "1.0", "columns": [
+        {"name": "group", "type": "categorical", "label": "Group"},
+        {"name": "exp", "type": "identifier", "label": "Experiment"},
+        {"name": "pos", "type": "identifier", "label": "Field"},
+        {"name": "rep", "type": "identifier", "label": "Rep"},
+        {"name": "y", "type": "numeric", "label": "Y"}]}
+
+
+def _nested_df(unique_fields=False):
+    rows, rid = [], 0
+    for e in (1, 2, 3):
+        for grp, off in (("A", 0.0), ("B", 1.0)):
+            for p in (1, 2):
+                pos = f"E{e}P{p}" if unique_fields else f"P{p}"
+                for r in range(2):
+                    rows.append({"id": f"r{rid}", "group": grp, "exp": f"E{e}",
+                                 "pos": pos, "rep": r, "y": 100.0 * e + 10.0 * p + off})
+                    rid += 1
+    return pd.DataFrame(rows)
+
+
+def _connected_pairs(df, level):
+    schema = _nested_schema()
+    levels, _ = hierarchy.materialize_levels(df, schema, _NESTED_SPINE, {}, ["group"])
+    spec = _spec([{"geom": "dot", "params": {}, "level": level, "id": "d"}])
+    spec["hierarchy"] = {"spine": list(_NESTED_SPINE), "fn": {}}
+    spec["style"]["overrides"]["layers"] = {"d": {"connect": True, "layout": "jitter"}}
+    fig = compiler.build_comparison_figure(df, schema, spec, {}, levels)
+    lines = [l for l in fig.axes[0].lines if l.get_gid() == "connector"]
+    # (lane A y, lane B y) per line, read before any swarm pass: the ends are the
+    # marks' own values on the value axis.
+    pairs = sorted(tuple(sorted(np.round(l.get_ydata(), 6))) for l in lines)
+    compiler.close(fig)
+    return pairs
+
+
+def test_connect_at_a_nested_level_pairs_by_the_full_spine_prefix():
+    """Fields P1/P2 repeat in every experiment: one line per (experiment, field),
+    each joining that field's own two marks — never E3's P1 to E1's P1."""
+    want = sorted((100.0 * e + 10.0 * p, 100.0 * e + 10.0 * p + 1.0)
+                  for e in (1, 2, 3) for p in (1, 2))
+    assert _connected_pairs(_nested_df(), "pos") == want
+
+
+def test_connect_at_the_top_level_is_one_line_per_experiment():
+    """At the experiment level each mark is the mean of an experiment's two
+    fields: three lines, each within one experiment."""
+    want = sorted((100.0 * e + 15.0, 100.0 * e + 16.0) for e in (1, 2, 3))
+    assert _connected_pairs(_nested_df(), "exp") == want
+
+
+def test_connect_with_globally_unique_field_labels_is_unchanged():
+    """Unique field labels were already drawn correctly; the prefix key gives the
+    same six lines."""
+    want = sorted((100.0 * e + 10.0 * p, 100.0 * e + 10.0 * p + 1.0)
+                  for e in (1, 2, 3) for p in (1, 2))
+    assert _connected_pairs(_nested_df(unique_fields=True), "pos") == want

@@ -1195,19 +1195,17 @@ def _geom_dot(ax, ctx, layer):
     msize = gs.get("marker_size", 22.0)
     malpha = gs.get("alpha", 0.55)
     # `connect`: one line per unit between neighbouring lanes. The unit is the
-    # layer's level column (the grain the marks stand for: one per experiment), or
-    # else the colour column when it names a discrete key. Each mark is remembered
-    # with its artist and index so the line can follow the swarm packing.
-    unit_col = None
-    if gs.get("connect"):
-        for cand in (layer.get("level"), ctx.get("color_col")):
-            if cand and all(cand in g["rows"].columns for g in ctx["groups"] if len(g["ys"])):
-                unit_col = cand
-                break
-    marks: dict = {}          # unit -> [(lane pos, collection, index in collection, colour)]
+    # grain the marks stand for (one per experiment, one per field of an
+    # experiment, ...): see `_connect_unit_cols`. Each mark is remembered with its
+    # artist and index so the line can follow the swarm packing.
+    unit_cols = (_connect_unit_cols(layer.get("level"), ctx.get("spine") or [],
+                                    ctx.get("color_col"), ctx["groups"])
+                 if gs.get("connect") else None)
+    marks: dict = {}          # unit key -> [(lane pos, collection, index in collection, colour)]
     for grp in ctx["groups"]:
         ys, keys = grp["ys"], grp["keys"]
-        units = grp["rows"][unit_col].astype(str).to_numpy() if unit_col else None
+        units = (list(grp["rows"][unit_cols].astype(str).itertuples(index=False, name=None))
+                 if unit_cols and len(ys) else None)
         # swarm draws every mark at the lane centre and defers the no-overlap
         # packing to the final-draw solve (_apply_beeswarm); jitter offsets each
         # mark along the categorical axis by its stable level-row id so a redraw
@@ -1264,6 +1262,30 @@ def _geom_dot(ax, ctx, layer):
                  "orient": "y" if h else "x", "width": 0.8 * ctx["wscale"]})
     if marks:
         _draw_connectors(ax, marks, h, gs.get("connect_width", 0.9), malpha)
+    return None
+
+
+def _connect_unit_cols(level, spine, color_col, groups) -> list[str] | None:
+    """The columns whose values together identify one `connect` unit, or None
+    when nothing names a unit.
+
+    A level table is keyed by the whole spine prefix down to its level, so a
+    leaf label alone is not a unit: field ``P1`` of experiment E1 and ``P1`` of
+    E2 are different fields. When the layer's level is a spine column the key is
+    therefore ``spine[:index(level) + 1]``, restricted to the columns the drawn
+    rows carry (a non-prefix collapse grain may have dropped a coarser one).
+    Otherwise — a raw layer, or a level the spine does not hold — the unit is the
+    level column itself, else the colour column, as a one-column key."""
+    drawn = [g for g in groups if len(g["ys"])]
+
+    def present(col):
+        return all(col in g["rows"].columns for g in drawn)
+
+    if level and level in spine and present(level):
+        return [c for c in spine[:spine.index(level) + 1] if present(c)]
+    for cand in (level, color_col):
+        if cand and present(cand):
+            return [cand]
     return None
 
 
@@ -1414,6 +1436,9 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
         spec["encodings"], df[df[val_col].notna()] if val_col in df else df,
         schema, style)
     layout = _layout(df, schema, spec, scales=sc_global)
+    # the hierarchy spine (coarse -> fine) present in the frame: a coarse layer's
+    # marks stand for spine-prefix units, which `connect` pairs by (_geom_dot).
+    spine = hierarchy_mod.spine_present(df, (spec.get("hierarchy") or {}).get("spine") or [])
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
@@ -1463,7 +1488,8 @@ def build_comparison_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: d
                 cell_layers = (layers if not multi_panel
                                else [l for l in layers
                                      if int(l.get("panel", 0) or 0) == panels[pi]])
-                ctx = {**layout, "cbar_mappable": None, "stats": stats}
+                ctx = {**layout, "cbar_mappable": None, "stats": stats,
+                       "spine": spine}
                 for layer in cell_layers:
                     render = _COMPARISON_GEOMS.get(layer["geom"])
                     if render is None:
