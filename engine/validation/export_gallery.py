@@ -156,7 +156,7 @@ def _export_tutorial_seed() -> None:
           .reset_index(drop=True))
     schema = harness._build_schema(
         df, {"species": {"type": "categorical", "levels": _TUTORIAL_SPECIES}})
-    rows = json.loads(df.to_json(orient="records"))
+    rows = document.json_rows(df)
     for i, r in enumerate(rows, 1):        # the bookkeeping id column an import adds
         r["id"] = str(i)
     tables = {"table_1": {"schema": schema,

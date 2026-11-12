@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import zipfile
 from datetime import datetime, timezone
@@ -37,6 +38,26 @@ from . import build_info
 # entry, and a file without it loads with `figure = None`, exactly as before.
 FORMAT_VERSION = "2.2"
 FIGURE_PART = "figure.json"
+
+
+def json_rows(df: pd.DataFrame) -> list[dict]:
+    """A frame as JSON-native row dicts, exactly as ``df.to_json(orient="records")``
+    gives them (NaN/inf/NaT -> null, datetimes -> epoch ms, categoricals -> their
+    values, numpy scalars -> plain numbers) except that floats keep full float64
+    precision: ``to_json`` rounds them to 10 decimal places (1.23e-12 -> 0.0),
+    which a later save would write back over the exact Parquet table."""
+    rows = json.loads(df.to_json(orient="records"))
+    keys = list(rows[0]) if rows else []
+    if len(keys) != df.shape[1]:   # empty, or names that collide as strings
+        return rows
+    for j, key in enumerate(keys):
+        col = df.iloc[:, j]
+        if col.dtype.kind not in "fO":   # float64/32, nullable Float64, object
+            continue
+        for r, v in zip(rows, col.tolist()):
+            if isinstance(v, float) and math.isfinite(v):
+                r[key] = v
+    return rows
 
 
 def table_hierarchies(tables: dict, analyses: list[dict]) -> dict:
@@ -193,7 +214,7 @@ def load_document(data: bytes) -> dict:
                 "schema": _modern_schema(
                     json.loads(z.read(f"tables/{name}/schema.json")), df),
                 "hierarchy": json.loads(z.read(f"tables/{name}/hierarchy.json")),
-                "rows": json.loads(df.to_json(orient="records")),
+                "rows": json_rows(df),
             }
     return {"manifest": manifest, "tables": tables,
             "analyses": unify_hierarchies(tables, analyses),
@@ -277,7 +298,7 @@ def load_sample() -> dict:
         return {"schema": SAMPLE_SCHEMA, "rows": sample_rows()}
     df = pd.read_csv(path)
     schema = _infer_schema(df)
-    rows = json.loads(df.to_json(orient="records"))
+    rows = json_rows(df)
     for i, r in enumerate(rows, 1):
         r["id"] = str(i)
     return {"schema": schema, "rows": rows}

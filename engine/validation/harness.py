@@ -68,7 +68,7 @@ def build_table(case: ModuleType) -> dict:
     would produce, including the bookkeeping ``id`` column."""
     df = pd.read_csv(case.__case_dir__ / case.DATA)
     schema = _build_schema(df, getattr(case, "SCHEMA_OVERRIDES", {}) or {})
-    rows = json.loads(df.to_json(orient="records"))
+    rows = document.json_rows(df)
     for i, r in enumerate(rows, 1):
         r["id"] = str(i)
     return {"schema": schema, "rows": rows}

@@ -527,7 +527,7 @@ def _import_frame(data: bytes, token: str, filename: str, options: dict,
 
 
 def _to_table(df: pd.DataFrame, schema: dict) -> dict:
-    return {"schema": schema, "rows": json.loads(df.to_json(orient="records"))}
+    return {"schema": schema, "rows": document.json_rows(df)}
 
 
 def fast_json(payload: dict) -> JSONResponse:
