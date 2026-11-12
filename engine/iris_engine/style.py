@@ -223,7 +223,7 @@ STYLE_REGISTRY: list[dict] = [
 
     # ---- geom-scoped: distribution ----
     _sel("dist_render", "Render", "distribution",
-         ["bars", "step", "line", "points", "smooth", "potential"], "bars",
+         ["bars", "step", "line", "points", "smooth"], "bars",
          scope="geom", geoms=["distribution"]),
     _sel("bin_method", "Bin method", "distribution",
          ["auto", "fd", "scott", "sturges", "sqrt", "fixed", "sinh"], "auto",
@@ -235,13 +235,6 @@ STYLE_REGISTRY: list[dict] = [
          scope="geom", geoms=["distribution"]),
     _bool("overlay_smooth", "Overlay smooth (KDE)", "distribution", False,
           scope="geom", geoms=["distribution"]),
-    # Item P: the effective-barrier annotation for the Boltzmann "potential"
-    # render — marks the wells and labels ΔE = U(reference) − min U. Meaningless
-    # for the binned renders, so gated to dist_render == "potential". A display
-    # preference, so transferable (like show_all_levels).
-    _bool("show_barrier", "Barrier (ΔE)", "distribution", False,
-          scope="geom", geoms=["distribution"],
-          visible_when={"key": "dist_render", "equals": "potential"}),
 
     # ---- geom-scoped: tile ----
     _sel("colormap", "Colormap", "tile",

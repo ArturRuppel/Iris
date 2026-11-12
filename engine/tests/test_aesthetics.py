@@ -372,8 +372,8 @@ def test_dodged_comparison_draws_legend_but_color_equals_x_does_not():
 
 
 # ---------------------------------------------------------------------------
-# Item P — grouped distribution / "potential" curves (color overlay, shared
-# bins, the ΔE barrier annotation).
+# Item P — grouped distribution curves (color overlay, shared bins). The
+# "potential" render was removed; old documents asking for it draw bars.
 # ---------------------------------------------------------------------------
 import numpy as np
 
@@ -411,15 +411,15 @@ def _hist_stats():
     return {"alpha": 0.05, "result": {}}
 
 
-def test_grouped_potential_one_curve_per_level_on_shared_bins():
+def test_grouped_line_one_curve_per_level_on_shared_bins():
     df = _dist_df()
-    spec = _dist_spec({"dist_render": "potential", "bin_method": "sinh"})
+    spec = _dist_spec({"dist_render": "line", "bin_method": "sinh"})
     fig = compiler.build_histogram_figure(df, DIST_SCHEMA, spec, _hist_stats())
     ax = fig.axes[0]
     assert len(fig.axes) == 1                              # one overlaid panel
     assert len(ax.lines) == 2                              # one curve per group
     # both curves are histogrammed over the SAME shared edges (pooled values)
-    gs = {"dist_render": "potential", "bin_method": "sinh"}
+    gs = {"dist_render": "line", "bin_method": "sinh"}
     edges = compiler._shared_dist_bins(gs, df["coord"].to_numpy(float))
     centers = set(np.round((edges[:-1] + edges[1:]) / 2, 9))
     for line in ax.lines:
@@ -434,36 +434,6 @@ def test_grouped_distribution_draws_a_legend():
     compiler.close(fig)
 
 
-def test_barrier_label_per_group_when_show_barrier_on():
-    df = _dist_df()
-    over = {"dist_render": "potential", "bin_method": "sinh", "show_barrier": True}
-    fig = compiler.build_histogram_figure(
-        df, DIST_SCHEMA, _dist_spec(over), _hist_stats())
-    labels = [t.get_text() for ax in fig.axes for t in ax.texts
-              if t.get_text().startswith("ΔE")]
-    assert len(labels) == 2                               # one per group
-    compiler.close(fig)
-
-    # off by default → no barrier label
-    fig2 = compiler.build_histogram_figure(
-        df, DIST_SCHEMA,
-        _dist_spec({"dist_render": "potential", "bin_method": "sinh"}), _hist_stats())
-    assert not [t for ax in fig2.axes for t in ax.texts
-                if t.get_text().startswith("ΔE")]
-    compiler.close(fig2)
-
-
-def test_barrier_skipped_when_reference_not_bracketed():
-    # all values positive → reference 0 is left of every occupied bin → no ΔE
-    df = _dist_df(positive=True)
-    over = {"dist_render": "potential", "bin_method": "sinh", "show_barrier": True}
-    fig = compiler.build_histogram_figure(
-        df, DIST_SCHEMA, _dist_spec(over), _hist_stats())
-    assert not [t for ax in fig.axes for t in ax.texts
-                if t.get_text().startswith("ΔE")]
-    compiler.close(fig)
-
-
 def test_shared_sinh_bins_are_symmetric_about_zero():
     vals = np.array([-3.0, -1.0, 0.5, 2.0, 7.0])   # asymmetric pooled range
     edges = compiler._shared_dist_bins(
@@ -475,13 +445,13 @@ def test_shared_sinh_bins_are_symmetric_about_zero():
 def test_faceted_distribution_shares_bins_across_cells():
     # two facet cells (by grp), no color overlay; both cells bin over pooled edges
     df = _dist_df()
-    spec = _dist_spec({"dist_render": "potential", "bin_method": "sinh"},
+    spec = _dist_spec({"dist_render": "line", "bin_method": "sinh"},
                       color=False, fig_overrides={"show_annotation": False},
                       facet={"row": None, "col": {"column": "grp"},
                              "share_x": True, "share_y": True})
     fig = compiler.build_histogram_figure(df, DIST_SCHEMA, spec, _hist_stats())
     assert len(fig.axes) == 2
-    gs = {"dist_render": "potential", "bin_method": "sinh"}
+    gs = {"dist_render": "line", "bin_method": "sinh"}
     edges = compiler._shared_dist_bins(gs, df["coord"].to_numpy(float))
     centers = set(np.round((edges[:-1] + edges[1:]) / 2, 9))
     for ax in fig.axes:

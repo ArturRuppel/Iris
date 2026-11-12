@@ -91,7 +91,6 @@ GALLERY_CASES = [
     "contingency-2x2",
     "fisher-exact-tea",
     "iris-sepal-descriptive",
-    "potential-double-well",
     "event-rate-by-group",
     "timeseries-growth",
     "superplot-nested",

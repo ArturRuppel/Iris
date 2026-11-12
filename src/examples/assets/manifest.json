@@ -216,20 +216,6 @@
     ]
   },
   {
-    "caseId": "potential-double-well",
-    "title": "Double-well potential by transition type",
-    "source": "Synthetic signed reaction coordinate (two Gaussian wells at \u00b12); pooled descriptives recomputed with numpy (see NOTES)",
-    "irisFile": "potential-double-well.iris",
-    "filename": "potential-double-well.iris",
-    "plots": [
-      {
-        "analysisId": "potential-double-well-01",
-        "svgFile": "potential-double-well-01.svg",
-        "geom": "distribution"
-      }
-    ]
-  },
-  {
     "caseId": "event-rate-by-group",
     "title": "Event rate by treatment (negative-binomial GLM)",
     "source": "Synthetic per-field event counts with an imaging-time exposure (see NOTES)",

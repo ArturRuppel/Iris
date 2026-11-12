@@ -1978,48 +1978,59 @@ def _shared_dist_bins(gs: dict, pooled: np.ndarray) -> np.ndarray:
     return np.histogram_bin_edges(pooled, bins=_resolve_dist_bins(gs, pooled))
 
 
-def _kde_curve(ax, vals, scale: float, color: str, style: dict, zorder: int):
-    """A gaussian KDE of vals, scaled to the count axis (scale = N·binwidth so
-    the curve overlays the bars at comparable height)."""
+# The renders `_draw_distribution` draws. A stored value outside this set (the
+# removed Boltzmann "potential" render, see guards.REMOVED_DIST_RENDERS) draws as
+# plain bars, so an old document still opens.
+DIST_RENDERS = ("bars", "step", "line", "points", "smooth")
+
+
+def _kde_curve(ax, vals, edges, color: str, style: dict, zorder: int, *,
+               per_bin: bool):
+    """A gaussian KDE of vals on the count axis.
+
+    A count bar is N times the probability in its bin, about N·f(x)·w for a bin
+    of width w. With `per_bin` (a KDE laid over binned counts) the density is
+    scaled by the width of the bin under each grid point — interpolated between
+    bin centres so the curve stays continuous — so it follows the bars for
+    non-uniform (sinh) bins too; for uniform bins this is the constant N·w.
+    Without bars to follow (the "smooth" render) one constant scale, N times the
+    mean bin width, keeps the curve's shape the density's own."""
     from scipy.stats import gaussian_kde
     grid = np.linspace(vals.min(), vals.max(), 200)
     kde = gaussian_kde(vals)(grid)
-    ax.plot(grid, kde * scale, color=color,
+    widths = np.diff(edges)
+    if per_bin:
+        centers = (edges[:-1] + edges[1:]) / 2
+        width = np.interp(grid, centers, widths)
+    else:
+        width = float(np.mean(widths))
+    ax.plot(grid, kde * len(vals) * width, color=color,
             linewidth=style["line_width"] * 0.93, zorder=zorder)
 
 
 def _draw_distribution(ax, vals, style: dict, *, edges=None, color=None):
     """Draw one cell/group's distribution per the geom's `dist_render`:
     bars/step/line/points are binned views (counts per bin); "smooth" is a KDE
-    curve only; "potential" Boltzmann-inverts the histogram to U(x) = −ln P (the
-    log-density, empty bins dropped). `overlay_smooth` adds a KDE on top of a
-    binned render. Mutates ax; aggregates rows.
+    curve only. `overlay_smooth` adds a KDE on top of a binned render. A render
+    outside `DIST_RENDERS` draws as bars. Mutates ax; aggregates rows.
 
     Item P: `edges` (an explicit shared bin-edge array) and `color` (the group's
     palette color) override the per-cell bins / single palette index so several
-    groups overlay on common bins. For the `potential` render the occupied-bin
-    `(centers, u)` are returned so the caller can place the barrier annotation;
-    every other render returns None."""
+    groups overlay on common bins."""
     gs = resolve_geom_style(style, "distribution")
     render = gs.get("dist_render", "bars")
+    if render not in DIST_RENDERS:
+        render = "bars"
     if color is None:
         color = _group_color(style, 0)
     bins = edges if edges is not None else _resolve_dist_bins(gs, vals)
     counts, edges = np.histogram(vals, bins=bins)
     centers = (edges[:-1] + edges[1:]) / 2
-    binwidth = edges[1] - edges[0]
     smooth_ok = len(vals) > 2 and np.ptp(vals) > 0
-
-    if render == "potential":
-        occ = counts > 0
-        u = -np.log(counts[occ] / counts.sum())
-        ax.plot(centers[occ], u, color=color, marker="o", markersize=4,
-                linewidth=style["line_width"], zorder=2)
-        return centers[occ], u
 
     if render == "smooth":
         if smooth_ok:
-            _kde_curve(ax, vals, len(vals) * binwidth, color, style, zorder=2)
+            _kde_curve(ax, vals, edges, color, style, zorder=2, per_bin=False)
         else:
             render = "bars"
 
@@ -2039,50 +2050,15 @@ def _draw_distribution(ax, vals, style: dict, *, edges=None, color=None):
     if render in ("line", "points", "smooth"):
         ax.set_ylim(bottom=0)
     if gs.get("overlay_smooth") and render != "smooth" and smooth_ok:
-        _kde_curve(ax, vals, len(vals) * binwidth, INK, style, zorder=3)
-    return None
-
-
-def _annotate_potential_barrier(ax, centers, u, color: str, style: dict,
-                                reference: float, index: int = 0) -> None:
-    """Mark the wells and label the effective barrier of one potential curve
-    (item P). `(centers, u)` are the occupied-bin centers + U = −ln P values
-    returned by `_draw_distribution`'s potential render.
-
-    ΔE = U(reference) − min(U), the engine analogue of CellFlow's
-    `effective_barrier`: interpolate U at the central `reference` (default 0) and
-    subtract the curve's global minimum. The two wells (the minima of U on each
-    side of the reference) get a filled marker, and `ΔE = … kT` is labelled in the
-    curve's color. Skipped cleanly (describe-note, no draw) when the reference is
-    not bracketed by occupied bins — there is no barrier to read. `index` staggers
-    the label vertically so grouped curves don't overprint."""
-    centers = np.asarray(centers, dtype=float)
-    u = np.asarray(u, dtype=float)
-    if len(centers) < 2:
-        return
-    ref = float(reference if reference is not None else 0.0)
-    if ref < centers.min() or ref > centers.max():
-        return  # reference outside the occupied range — no bracketed barrier
-    u_ref = float(np.interp(ref, centers, u))
-    barrier = u_ref - float(np.min(u))
-    # Wells: the minimum of U on each side of the reference.
-    for side in (centers < ref, centers >= ref):
-        if side.any():
-            cs, us = centers[side], u[side]
-            j = int(np.argmin(us))
-            ax.plot([cs[j]], [us[j]], marker="o", markersize=6, color=color,
-                    markeredgecolor="white", markeredgewidth=0.6, zorder=5)
-    top = ax.get_ylim()[1]
-    ax.annotate(f"ΔE = {barrier:.2f} kT", (ref, top),
-                xytext=(3, -3 - index * (style["font_pt"] + 2)),
-                textcoords="offset points", ha="left", va="top",
-                fontsize=style["font_pt"] - 1, color=color, annotation_clip=False)
+        _kde_curve(ax, vals, edges, INK, style, zorder=3, per_bin=True)
 
 
 def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: dict):
     """Distribution of one numeric column (mapped on y). The `distribution`
     layer's render mode picks bars/step/line/points or a "smooth" KDE; an
     `overlay_smooth` param adds a KDE curve over a binned render. Aggregates rows.
+    A stored render Iris no longer draws (the removed "potential") draws as bars;
+    guards.evaluate reports it.
 
     Phase 4: when faceted, draws one cell per (row level × col level), each
     with its own marks/KDE/median recomputed from that cell's own values."""
@@ -2092,8 +2068,7 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     style = resolve_style(spec)
     alpha = stats.get("alpha", 0.05)
     gs = resolve_geom_style(style, "distribution")
-    render = gs.get("dist_render", "bars")
-    count_label = "−ln P" if render == "potential" else "Count"
+    count_label = "Count"
     row_col, col_col, row_levels, col_levels = _facet_levels(df, spec, schema)
     faceted = row_col is not None or col_col is not None
     facet_cfg = spec.get("facet") or {}
@@ -2111,8 +2086,6 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
     pooled = df[y].dropna().to_numpy(dtype=float)
     shared_edges = (_shared_dist_bins(gs, pooled)
                     if (grouped or faceted) and len(pooled) else None)
-    show_barrier = bool(gs.get("show_barrier")) and render == "potential"
-    barrier_ref = style["reference_value"] if style["reference_value"] is not None else 0.0
 
     with plt.rc_context(_rc(style)):
         fig, axes = _build_grid(style["width_mm"], style["height_mm"],
@@ -2125,26 +2098,17 @@ def build_histogram_figure(df: pd.DataFrame, schema: dict, spec: dict, stats: di
                 ax = axes[ri][ci]
                 cell_df = _facet_cell_df(df, row_col, col_col, rlevel, clevel)
                 if grouped:
-                    for i, lv in enumerate(color_levels):
+                    for lv in color_levels:
                         gvals = cell_df.loc[cell_df[color_col].astype(str) == lv, y]
                         gvals = gvals.dropna().to_numpy(dtype=float)
                         if not len(gvals):
                             continue
-                        curve = _draw_distribution(ax, gvals, style,
-                                                   edges=shared_edges,
-                                                   color=sc.color_for(lv))
-                        if show_barrier and curve is not None:
-                            _annotate_potential_barrier(ax, *curve, sc.color_for(lv),
-                                                         style, barrier_ref, i)
+                        _draw_distribution(ax, gvals, style, edges=shared_edges,
+                                           color=sc.color_for(lv))
                 else:
                     vals = cell_df[y].dropna().to_numpy(dtype=float)
                     if len(vals):
-                        curve = _draw_distribution(ax, vals, style,
-                                                   edges=shared_edges)
-                        if show_barrier and curve is not None:
-                            _annotate_potential_barrier(ax, *curve,
-                                                         _group_color(style, 0),
-                                                         style, barrier_ref)
+                        _draw_distribution(ax, vals, style, edges=shared_edges)
 
                 # The pooled median axvline reads a single distribution; over
                 # overlaid group curves it is ambiguous, so it is only drawn

@@ -34,6 +34,32 @@ UNRENDERABLE: dict[tuple[str, str], str] = {
 }
 
 
+# Distribution renders Iris once drew and no longer does, each with the notice
+# an old document that still asks for it shows. The compiler draws such a layer
+# as plain bars (compiler.DIST_RENDERS).
+REMOVED_DIST_RENDERS: dict[str, str] = {
+    "potential": (
+        "This figure asked for the “potential” render (U = −ln P with a ΔE "
+        "barrier), which Iris no longer supports; it is drawn as a plain "
+        "histogram. Compute the energy in your analysis code and import the "
+        "result as a column to plot it."),
+}
+
+
+def removed_render_issues(spec: dict) -> list[dict]:
+    """A warning per distinct removed `dist_render` value the spec still stores
+    (shared `geoms.distribution` or a per-layer override)."""
+    if not any(l.get("geom") == "distribution" for l in spec.get("layers", [])):
+        return []
+    overrides = (spec.get("style") or {}).get("overrides") or {}
+    stored = [((overrides.get("geoms") or {}).get("distribution") or {}).get("dist_render")]
+    stored += [(v or {}).get("dist_render")
+               for v in (overrides.get("layers") or {}).values() if isinstance(v, dict)]
+    seen = dict.fromkeys(r for r in stored if r in REMOVED_DIST_RENDERS)
+    return [_issue("warning", "render_removed", REMOVED_DIST_RENDERS[r],
+                   geom="distribution") for r in seen]
+
+
 def _issue(level, code, message, geom=None):
     return {"level": level, "code": code, "message": message, "geom": geom}
 
@@ -122,6 +148,8 @@ def evaluate(df: pd.DataFrame, schema: dict, spec: dict, stat_model) -> list[dic
     # drop unrenderable aesthetic channels first, so the compiler never sees them
     # and they don't also trip the "channel ignored" / "palette exhausted" checks
     issues: list[dict] = drop_unrenderable_channels(schema, spec)
+    # first, so the top bar (which shows the first warning) names it
+    issues[:0] = removed_render_issues(spec)
     issues.extend(_facet_issues(df, spec))
     # The value under test can't also be an identifier. The families here
     # aggregate `val_col` to the inferential grain (materialize_levels treats a

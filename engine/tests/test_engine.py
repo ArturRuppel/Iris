@@ -578,35 +578,41 @@ def test_distribution_overlay_smooth_adds_a_curve_over_bars():
     assert ax.lines        # plus a KDE overlay
 
 
-def test_distribution_potential_draws_a_curve_not_bars():
-    ax = _distribution_fig({"dist_render": "potential"})
-    assert ax.lines and not ax.patches       # a U(x) polyline, no histogram bars
-    assert ax.get_ylabel() == "−ln P"
+def test_removed_potential_render_falls_back_to_bars_with_a_notice():
+    """Iris no longer draws the Boltzmann "potential" render. A document that
+    still asks for it (with the barrier label on) opens: the figure is the plain
+    histogram, nothing is labelled as an energy, and the engine reports a warning
+    issue — first, so the top-bar note shows it — saying where the energy
+    belongs now."""
+    ax = _distribution_fig({"dist_render": "potential", "show_barrier": True,
+                            "bin_method": "sinh", "hist_bins": 12})
+    assert len(ax.patches) == 12 and not ax.lines     # plain bars, no U(x) curve
+    assert ax.get_ylabel() == "Count"
+    assert not [t for t in ax.texts if "ΔE" in t.get_text() or "kT" in t.get_text()]
+
+    table = make_scatter_table()
+    spec = make_scatter_spec()
+    spec["stats"]["family"] = "descriptive"
+    spec["layers"] = [{"mark": "histogram", "options": {}}]
+    spec.setdefault("style", {}).setdefault("overrides", {})["geoms"] = {
+        "distribution": {"dist_render": "potential", "show_barrier": True,
+                         "bin_method": "sinh"}}
+    r = client.post("/analyze", json={"table": table, "spec": spec})
+    assert r.status_code == 200
+    body = r.json()
+    warnings = [i for i in body["issues"] if i["level"] == "warning"]
+    assert warnings and warnings[0]["code"] == "render_removed"
+    assert "analysis code" in warnings[0]["message"]
+    svg = body["figure"]["svg"]
+    assert "ΔE" not in svg and "kT" not in svg and "ln P" not in svg
 
 
-def _potential_xy(vals, bin_method="fixed", hist_bins=10):
-    """The (x, U) the potential render draws over *vals*, plus the ground-truth
-    −ln P computed straight from the same histogram — for an exact comparison."""
-    import matplotlib
-    matplotlib.use("Agg")
-    ax = _draw_into_potential(vals, {"bin_method": bin_method, "hist_bins": hist_bins})
-    line = ax.lines[0]
-    counts, _ = np.histogram(vals, bins=hist_bins)
-    occ = counts > 0
-    expected_u = -np.log(counts[occ] / counts.sum())
-    return line.get_ydata(), expected_u, occ
-
-
-def _draw_into_potential(vals, params):
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    geom_overrides = {**params, "dist_render": "potential"}
-    style = compiler.resolve_style(
-        {"style": {"overrides": {"geoms": {"distribution": geom_overrides}}}})
-    fig, ax = plt.subplots()
-    compiler._draw_distribution(ax, np.asarray(vals, dtype=float), style)
-    return ax
+def test_potential_is_no_longer_offered():
+    from iris_engine import style as style_mod
+    knobs = {(k["key"], k.get("group")): k for k in style_mod.style_registry_payload()}
+    render = knobs[("dist_render", "distribution")]
+    assert "potential" not in render["widget"]["options"]
+    assert ("show_barrier", "distribution") not in knobs
 
 
 def test_geom_style_resolves_in_three_tiers():
@@ -756,22 +762,6 @@ def test_repeated_dot_layers_honor_per_layer_layout():
     assert small_ji > big_sw * 2     # flipped: now the small layer is the wide one
 
 
-def test_potential_is_neg_log_density():
-    rng = np.random.default_rng(0)
-    vals = rng.normal(size=400)
-    drawn_u, expected_u, _ = _potential_xy(vals)
-    assert np.allclose(np.sort(drawn_u), np.sort(expected_u))
-
-
-def test_potential_drops_empty_bins():
-    # a gap in the middle leaves empty bins, which must not become −ln(0)=inf
-    vals = np.concatenate([np.zeros(50), np.full(50, 10.0)])
-    ax = _draw_into_potential(vals, {"bin_method": "fixed", "hist_bins": 10})
-    u = ax.lines[0].get_ydata()
-    assert len(u) < 10                  # fewer drawn points than bins (gap dropped)
-    assert np.all(np.isfinite(u))       # no infinities from empty bins
-
-
 def test_sinh_bin_edges_concentrate_near_zero():
     edges = compiler._sinh_bin_edges(-10.0, 10.0, 20, sharpness=3.0)
     assert len(edges) == 21
@@ -793,11 +783,49 @@ def test_distribution_sinh_renders_requested_bin_count():
     assert len(_distribution_fig({"bin_method": "sinh", "hist_bins": 16}).patches) == 16
 
 
-def test_potential_with_sinh_bins_composes():
-    rng = np.random.default_rng(2)
-    vals = np.concatenate([rng.normal(-2, 0.5, 200), rng.normal(2, 0.5, 200)])
-    u = _draw_into_potential(vals, {"bin_method": "sinh", "hist_bins": 21}).lines[0].get_ydata()
-    assert len(u) > 0 and np.all(np.isfinite(u))
+def _kde_overlay(vals, params):
+    """The bar heights, bin edges and KDE overlay line of a bars + overlay_smooth
+    distribution over *vals* (drawn straight into a bare axes)."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    style = compiler.resolve_style({"style": {"overrides": {"geoms": {"distribution": {
+        **params, "dist_render": "bars", "overlay_smooth": True}}}}})
+    fig, ax = plt.subplots()
+    compiler._draw_distribution(ax, np.asarray(vals, dtype=float), style)
+    heights = np.array([p.get_height() for p in ax.patches])
+    edges = np.array([p.get_x() for p in ax.patches] + [ax.patches[-1].get_x()
+                                                       + ax.patches[-1].get_width()])
+    line = ax.lines[0]
+    out = heights, edges, np.asarray(line.get_xdata()), np.asarray(line.get_ydata())
+    plt.close(fig)
+    return out
+
+
+def test_kde_overlay_follows_the_bars_for_sinh_bins():
+    """A count bar is N·P(bin) ≈ N·f(x)·w; with sinh bins w varies several-fold, so
+    the overlay is scaled by the width of the bin under each point, not by the
+    first bin's width (the widest one here, which lifted it far above the narrow
+    central bars)."""
+    rng = np.random.default_rng(3)
+    vals = rng.normal(0.0, 1.0, 20000)
+    heights, edges, gx, gy = _kde_overlay(vals, {"bin_method": "sinh", "hist_bins": 21,
+                                                 "bin_sharpness": 4.0})
+    widths = np.diff(edges)
+    assert widths.max() / widths.min() > 3               # genuinely non-uniform
+    centers = (edges[:-1] + edges[1:]) / 2
+    curve = np.interp(centers, gx, gy)
+    busy = heights > 0.02 * heights.max()
+    assert np.allclose(curve[busy], heights[busy], rtol=0.15)
+
+
+def test_kde_overlay_scale_is_unchanged_for_uniform_bins():
+    from scipy.stats import gaussian_kde
+    rng = np.random.default_rng(4)
+    vals = rng.normal(0.0, 1.0, 500)
+    _, edges, gx, gy = _kde_overlay(vals, {"bin_method": "fixed", "hist_bins": 15})
+    binwidth = edges[1] - edges[0]
+    assert np.allclose(gy, gaussian_kde(vals)(gx) * len(vals) * binwidth)
 
 
 # ---------------- tier-2: import ----------------
