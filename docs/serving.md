@@ -53,6 +53,15 @@ there. Figures then open inside the app window, and Iris shows a "Lab book" link
 back to the page it was opened from (`&back=`), guarded by a confirm when there
 are unsaved edits. The service worker is scoped to that directory.
 
+**Who may call it.** The engine refuses (400) any request whose `Host` is not
+loopback or a name it was told about, which closes DNS rebinding, and refuses
+(403) a POST whose `Origin` is neither its own nor an allowed cross origin (Vite
+dev on :5173, the Tauri shell). Requests without an `Origin` (curl, scripts)
+pass. `--serve` admits this machine's own tailnet name and addresses by asking
+`tailscale status`, so Serve needs no extra setting; behind another proxy name,
+set `IRIS_ALLOWED_HOSTS=<name>[,<name>…]`, and for a page on another origin that
+calls the engine, `IRIS_ALLOWED_ORIGINS=<origin>[,…]` (also its CORS list).
+
 **After any frontend change:** `npm run build && systemctl --user restart iris`.
 The engine serves `dist/` off disk, so a rebuild alone is not enough for the
 Python process to notice — and a stale bundle is the failure that looks like

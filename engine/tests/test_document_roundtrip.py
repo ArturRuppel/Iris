@@ -221,7 +221,8 @@ def test_duplicate_table_name_in_save_is_rejected():
     assert save.status_code == 422, save.text
 
 
-def test_load_url_refuses_another_host():
+def test_load_url_refuses_another_host(monkeypatch):
+    monkeypatch.setenv("IRIS_ALLOWED_HOSTS", "testserver,myhost")  # past the Host guard
     r = client.post("/document/load_url", json={"url": "http://elsewhere.example/a.iris"},
                     headers={"host": "myhost:8766"})
     assert r.status_code == 422 and "refusing" in r.json()["detail"]

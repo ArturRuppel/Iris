@@ -43,12 +43,149 @@ from . import (assembly, autosave, build_info, compiler, document, geoms, guards
 from .render import _load_frame, frame_from_table
 
 app = FastAPI(title="iris-engine")
+
+# ----- who may talk to the engine -----
+#
+# The API has no authentication: the only callers are pages this engine (or
+# Vite, or the Tauri shell) served, and processes on this machine. A web page
+# open anywhere else in the same browser must not reach it, so:
+#   * Host must be loopback or a name this deployment answers to. That closes
+#     DNS rebinding, where a foreign page re-points its own name at 127.0.0.1
+#     and becomes "same-origin".
+#   * A state-changing request carrying a foreign Origin is refused. The
+#     page-close autosave is a text/plain POST (no preflight), so CORS alone
+#     would let any page overwrite or clear the recovery slot.
+#   * A request without Origin or Sec-Fetch-Site (curl, agents, the CLI) is not
+#     a browser cross-site request and passes.
+# The in-page engine of the web build dispatches without any Host header: it
+# has no network listener, so nothing else can reach it.
+
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+# the cross-origin pages that legitimately call the engine: Vite dev and the
+# Tauri shell (tauri:// on macOS/Linux, http://tauri.localhost on Windows)
+DEV_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173",
+               "tauri://localhost", "http://tauri.localhost")
+UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+
+def _env_list(name: str) -> list[str]:
+    return [s.strip() for s in os.environ.get(name, "").split(",") if s.strip()]
+
+
+def _hostname(netloc: str) -> str | None:
+    """The bare, lower-case name in a Host header or `host:port`."""
+    try:
+        name = urlsplit(f"//{netloc}").hostname
+    except ValueError:
+        return None
+    return name.rstrip(".") if name else None
+
+
+def allowed_origins() -> frozenset[str]:
+    """Origins allowed across origins: DEV_ORIGINS plus IRIS_ALLOWED_ORIGINS
+    (comma-separated). Same-origin requests need no entry."""
+    return frozenset(o.lower().rstrip("/")
+                     for o in (*DEV_ORIGINS, *_env_list("IRIS_ALLOWED_ORIGINS")))
+
+
+# Names --serve learned from the tailscale CLI (this machine's MagicDNS name
+# and tailnet addresses), so the unit needs no tailnet name written into it.
+_served_names: set[str] = set()
+_served_lookup = {"enabled": False, "at": 0.0}
+
+
+def allowed_host_names() -> frozenset[str]:
+    """Loopback, IRIS_ALLOWED_HOSTS (bare names or host:port; the port is
+    ignored), the address IRIS_HOST binds, and the tailnet names --serve found."""
+    names = set(LOOPBACK_HOSTS) | _served_names
+    for entry in (*_env_list("IRIS_ALLOWED_HOSTS"), os.environ.get("IRIS_HOST", "")):
+        name = _hostname(urlsplit(entry).netloc if "//" in entry else entry)
+        if name and name not in ("0.0.0.0", "::"):
+            names.add(name)
+    return frozenset(names)
+
+
+def _tailnet_names() -> set[str]:
+    """This machine's MagicDNS name and tailnet IPs, or nothing when tailscale
+    is not up (or not installed)."""
+    import subprocess
+    try:
+        out = subprocess.run(["tailscale", "status", "--json"],
+                             capture_output=True, text=True, timeout=10)
+        me = json.loads(out.stdout).get("Self") or {}
+    except Exception:  # noqa: BLE001
+        return set()
+    names = {str(ip).lower() for ip in me.get("TailscaleIPs") or ()}
+    dns = str(me.get("DNSName") or "").rstrip(".").lower()
+    if dns:
+        names.add(dns)
+    return names
+
+
+def _refresh_served_names(force: bool = False) -> None:
+    """Re-ask tailscale (--serve only), at most every 30 s: the service can
+    start before tailscaled has a name, and must not refuse the tailnet for
+    ever after."""
+    import time
+    if not _served_lookup["enabled"]:
+        return
+    now = time.monotonic()
+    if not force and now - _served_lookup["at"] < 30:
+        return
+    _served_lookup["at"] = now
+    _served_names.update(_tailnet_names())
+
+
+def _same_origin(origin: str, host: str) -> bool:
+    """An Origin naming the host the request came in on. The scheme is not
+    compared: behind Tailscale Serve the browser says https while the request
+    reaching the engine is plain http."""
+    u = urlsplit(origin)
+    return u.scheme in ("http", "https") and bool(host) and u.netloc.lower() == host.lower()
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173",
-                   "tauri://localhost", "http://tauri.localhost"],
+    allow_origins=sorted(allowed_origins()),
     allow_methods=["*"], allow_headers=["*"],
 )
+
+
+class _OriginGuard:
+    """Plain ASGI rather than @app.middleware: the web build drives the app
+    without an event loop (browser.py), where BaseHTTPMiddleware cannot run."""
+
+    def __init__(self, app_):
+        self.app = app_
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        headers = {k.decode("latin-1").lower(): v.decode("latin-1")
+                   for k, v in scope.get("headers") or ()}
+        host = headers.get("host")
+        if host is not None:
+            name = _hostname(host)
+            if name not in allowed_host_names() and _served_lookup["enabled"]:
+                from starlette.concurrency import run_in_threadpool
+                await run_in_threadpool(_refresh_served_names)
+            if name not in allowed_host_names():
+                return await JSONResponse({"detail": "host not allowed"},
+                                          status_code=400)(scope, receive, send)
+        if scope["method"] in UNSAFE_METHODS:
+            origin = headers.get("origin")
+            ok = origin is not None and (origin.lower().rstrip("/") in allowed_origins()
+                                         or _same_origin(origin, host or ""))
+            if not ok and (origin is not None
+                           or headers.get("sec-fetch-site") == "cross-site"):
+                return await JSONResponse({"detail": "cross-origin request refused"},
+                                          status_code=403)(scope, receive, send)
+        return await self.app(scope, receive, send)
+
+
+# Added after CORS, so it wraps it: a bad Host is refused before CORS answers
+# anything, preflights included, and a refusal carries no CORS headers.
+app.add_middleware(_OriginGuard)
 
 
 def _version(dist: str) -> str:
@@ -1307,6 +1444,12 @@ def main():
     # `tailscale serve` in front for HTTPS (docs/serving.md); the bare tailnet
     # bind remains for a machine without Serve.
     host = os.environ.get("IRIS_HOST") or (_tailnet_ip() if serve else "127.0.0.1")
+    if serve:
+        # the tailnet reaches the service by this machine's own name (Tailscale
+        # Serve passes the browser's Host through), so admit that name
+        _served_lookup["enabled"] = True
+        _refresh_served_names(force=True)
+        _served_names.add(host.lower())
 
     if serve and not SERVING_FRONTEND:
         raise SystemExit(f"--serve: no built frontend at {_dist_dir()} — "
